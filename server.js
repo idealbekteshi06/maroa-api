@@ -97,14 +97,41 @@ function log(route, msg) {
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', service: 'maroa-api', version: '1.0.0', routes: [
-    'POST /webhook/instant-content',
-    'POST /webhook/new-user-signup',
-    'POST /webhook/account-connected',
-    'POST /webhook/content-approved',
-    'POST /webhook/budget-updated',
-    'POST /webhook/competitor-check'
-  ]});
+  res.json({
+    status: 'ok', service: 'maroa-api', version: '1.1.0',
+    env: {
+      SUPABASE_KEY:  SUPABASE_KEY  ? `set (${SUPABASE_KEY.slice(0,8)}...)` : 'MISSING',
+      ANTHROPIC_KEY: ANTHROPIC_KEY ? `set (${ANTHROPIC_KEY.slice(0,12)}...)` : 'MISSING',
+      SUPABASE_URL:  SUPABASE_URL
+    },
+    routes: [
+      'POST /webhook/instant-content',
+      'POST /webhook/new-user-signup',
+      'POST /webhook/account-connected',
+      'POST /webhook/content-approved',
+      'POST /webhook/budget-updated',
+      'POST /webhook/competitor-check',
+      'GET  /debug'
+    ]
+  });
+});
+
+// ─── Debug — tests live connectivity to Supabase + Anthropic ─────────────────
+app.get('/debug', async (req, res) => {
+  const results = { supabase: null, anthropic: null };
+  try {
+    const r = await sbGet('businesses', 'select=id&limit=1');
+    results.supabase = `ok — ${r.length} row(s) returned`;
+  } catch (e) { results.supabase = `ERROR: ${e.message}`; }
+
+  try {
+    const r = await apiRequest('POST', 'https://api.anthropic.com/v1/messages', {
+      'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json'
+    }, { model: 'claude-sonnet-4-5', max_tokens: 10, messages: [{ role: 'user', content: 'Hi' }] });
+    results.anthropic = r.status === 200 ? 'ok' : `ERROR: status ${r.status} — ${JSON.stringify(r.body).slice(0,100)}`;
+  } catch (e) { results.anthropic = `ERROR: ${e.message}`; }
+
+  res.json(results);
 });
 
 // ─── WF15: Instant Content On Signup ─────────────────────────────────────────
@@ -114,7 +141,8 @@ app.post('/webhook/instant-content', async (req, res) => {
   log('/webhook/instant-content', `business_id=${business_id} email=${email}`);
 
   if (!business_id) return res.status(400).json({ error: 'business_id required' });
-  res.json({ received: true, message: 'Content generation started' });
+  if (!SUPABASE_KEY) return res.status(500).json({ error: 'SUPABASE_KEY env var not set on server' });
+  if (!ANTHROPIC_KEY) return res.status(500).json({ error: 'ANTHROPIC_KEY env var not set on server' });
 
   try {
     // Fetch business profile
@@ -150,8 +178,10 @@ app.post('/webhook/instant-content', async (req, res) => {
     });
 
     log('/webhook/instant-content', `✅ Saved row ${saved?.id} — theme: ${content.content_theme}`);
+    res.json({ success: true, row_id: saved?.id, content_theme: content.content_theme, message: 'Content saved to Supabase' });
   } catch (err) {
     console.error(`[${new Date().toISOString()}] /webhook/instant-content ERROR:`, err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
