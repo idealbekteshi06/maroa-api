@@ -13,10 +13,14 @@ const app  = express();
 app.use(express.json());
 
 // ─── Config (set via env vars in production) ──────────────────────────────────
-const SUPABASE_URL    = process.env.SUPABASE_URL    || 'https://zqhyrbttuqkvmdewiytf.supabase.co';
-const SUPABASE_KEY    = process.env.SUPABASE_KEY    || '';
-const ANTHROPIC_KEY   = process.env.ANTHROPIC_KEY   || '';
-const PORT            = process.env.PORT            || 3000;
+// .replace strips any invisible characters (newlines, tabs, zero-width spaces)
+// that can sneak in when pasting values into Railway / Heroku / etc.
+const clean = (v) => (v || '').replace(/[^\x20-\x7E]/g, '').trim();
+
+const SUPABASE_URL    = clean(process.env.SUPABASE_URL)  || 'https://zqhyrbttuqkvmdewiytf.supabase.co';
+const SUPABASE_KEY    = clean(process.env.SUPABASE_KEY)  || '';
+const ANTHROPIC_KEY   = clean(process.env.ANTHROPIC_KEY) || '';
+const PORT            = process.env.PORT                 || 3000;
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
 function apiRequest(method, url, headers = {}, body = null) {
