@@ -1,0 +1,23 @@
+# Maroa.ai — git ignore
+
+# Secrets & local config
+.env
+.env.*
+setup.sh
+
+# Local scripts
+trigger.js
+
+# n8n workflow JSONs (too many secrets hardcoded)
+n8n-workflows/
+
+# Claude project knowledge
+CLAUDE.md
+
+# Runtime
+workflow_ids.txt
+node_modules/
+npm-debug.log*
+
+# macOS
+.DS_Store

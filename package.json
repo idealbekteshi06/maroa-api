@@ -1,0 +1,18 @@
+{
+  "name": "maroa-api",
+  "version": "1.0.0",
+  "description": "Maroa.ai webhook API server — replaces n8n webhook triggers",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "keywords": ["maroa", "marketing", "automation", "webhook"],
+  "license": "MIT"
+}
