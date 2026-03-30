@@ -86,10 +86,16 @@ async function callClaude(prompt, model = 'claude-sonnet-4-5', maxTokens = 2000)
   if (r.status !== 200) throw new Error(`Claude API: ${r.status} ${JSON.stringify(r.body)}`);
 
   const raw = r.body?.content?.[0]?.text || '';
-  try { return JSON.parse(raw); }
-  catch {
-    const m = raw.match(/\{[\s\S]*\}/);
-    if (m) try { return JSON.parse(m[0]); } catch {}
+  // Try 1: direct parse
+  try { return JSON.parse(raw); } catch {}
+  // Try 2: strip markdown code fences then parse
+  const stripped = raw.replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'').trim();
+  try { return JSON.parse(stripped); } catch {}
+  // Try 3: extract outermost { ... } (handles text before/after JSON)
+  const start = raw.indexOf('{');
+  const end   = raw.lastIndexOf('}');
+  if (start !== -1 && end > start) {
+    try { return JSON.parse(raw.slice(start, end + 1)); } catch {}
   }
   return {};
 }
@@ -202,11 +208,11 @@ app.post('/webhook/new-user-signup', async (req, res) => {
 
   try {
     const strategy = await callClaude(
-      `Create a detailed 30-day marketing strategy for a new ${plan || 'free'} plan user. ` +
+      `Create a concise 30-day marketing strategy for a new ${plan || 'free'} plan user. ` +
       `Business: ${business_name}, Industry: ${industry || 'general'}, Location: ${location || 'unknown'}. ` +
-      `Return ONLY valid JSON with keys: week1, week2, week3, week4, key_channels, quick_wins, ` +
-      `content_pillars, target_metrics, strategy_summary.`,
-      'claude-opus-4-5', 3000
+      `Return ONLY valid JSON (no markdown) with keys: week1, week2, week3, week4, key_channels, quick_wins, ` +
+      `content_pillars, target_metrics, strategy_summary. Keep each value under 100 words.`,
+      'claude-sonnet-4-5', 2000
     );
 
     if (lookupId) {
