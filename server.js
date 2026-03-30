@@ -192,8 +192,10 @@ app.post('/webhook/instant-content', async (req, res) => {
 // ─── WF3: New User Onboarding ─────────────────────────────────────────────────
 // Generates 30-day marketing strategy via Claude Opus and saves to businesses table
 app.post('/webhook/new-user-signup', async (req, res) => {
-  const { user_id, email, first_name, business_name, industry, location, plan } = req.body;
-  log('/webhook/new-user-signup', `user_id=${user_id} email=${email}`);
+  // Accept business_id OR user_id — callers may send either
+  const { user_id, business_id, email, first_name, business_name, industry, location, plan } = req.body;
+  const lookupId = business_id || user_id;
+  log('/webhook/new-user-signup', `lookup=${lookupId} email=${email}`);
 
   if (!email) return res.status(400).json({ error: 'email required' });
   res.json({ received: true, message: 'Onboarding started' });
@@ -207,10 +209,12 @@ app.post('/webhook/new-user-signup', async (req, res) => {
       'claude-opus-4-5', 3000
     );
 
-    if (user_id) {
-      await sbPatch('businesses', `user_id=eq.${user_id}`,
+    if (lookupId) {
+      // Try patching by id (business primary key) first — most callers send this
+      const patchFilter = business_id ? `id=eq.${business_id}` : `user_id=eq.${user_id}`;
+      await sbPatch('businesses', patchFilter,
         { marketing_strategy: JSON.stringify(strategy), onboarding_complete: true });
-      log('/webhook/new-user-signup', `✅ Strategy saved for user ${user_id}`);
+      log('/webhook/new-user-signup', `✅ Strategy saved (filter: ${patchFilter})`);
     }
   } catch (err) {
     console.error(`[${new Date().toISOString()}] /webhook/new-user-signup ERROR:`, err.message);
