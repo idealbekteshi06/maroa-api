@@ -108,7 +108,7 @@ function log(route, msg) {
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
   res.json({
-    status: 'ok', service: 'maroa-api', version: '1.1.0',
+    status: 'ok', service: 'maroa-api', version: '1.2.0',
     env: {
       SUPABASE_KEY:  SUPABASE_KEY  ? `set (${SUPABASE_KEY.slice(0,8)}...)` : 'MISSING',
       ANTHROPIC_KEY: ANTHROPIC_KEY ? `set (${ANTHROPIC_KEY.slice(0,12)}...)` : 'MISSING',
@@ -121,6 +121,8 @@ app.get('/', (req, res) => {
       'POST /webhook/content-approved',
       'POST /webhook/budget-updated',
       'POST /webhook/competitor-check',
+      'POST /webhook/create-campaigns',
+      'POST /webhook/generate-landing-page',
       'GET  /debug'
     ]
   });
@@ -321,6 +323,81 @@ app.post('/webhook/competitor-check', async (req, res) => {
     log('/webhook/competitor-check', `✅ Insights saved for ${business_id}`);
   } catch (err) {
     console.error(`[${new Date().toISOString()}] /webhook/competitor-check ERROR:`, err.message);
+  }
+});
+
+// ─── WF29: Ad Campaign Creator ────────────────────────────────────────────────
+// Generates Meta ad campaign strategy via Claude and saves to ad_campaigns table
+app.post('/webhook/create-campaigns', async (req, res) => {
+  const { business_id } = req.body;
+  log('/webhook/create-campaigns', `business_id=${business_id}`);
+
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  res.json({ received: true, message: 'Campaign creation started' });
+
+  try {
+    const businesses = await sbGet('businesses', `select=*&id=eq.${business_id}`);
+    const biz = businesses[0];
+    if (!biz) throw new Error(`Business ${business_id} not found`);
+
+    const campaign = await callClaude(
+      `You are a Meta ads expert. Create an ad campaign strategy for this business:\n` +
+      `Business: ${biz.business_name}, Industry: ${biz.industry}, Location: ${biz.location}.\n` +
+      `Target Audience: ${biz.target_audience}. Marketing Goal: ${biz.marketing_goal}.\n` +
+      `Daily Budget: $${biz.daily_budget || 10}. Brand Tone: ${biz.brand_tone}.\n` +
+      `Return ONLY valid JSON with keys: campaign_name, objective, primary_text, headline, ` +
+      `description, call_to_action, audience_interests, age_min, age_max, budget_recommendation.`
+    );
+
+    await sbPost('ad_campaigns', {
+      business_id,
+      business_name:        biz.business_name,
+      status:               'pending',
+      daily_budget:         biz.daily_budget || 10,
+      last_decision:        'Campaign created by AI',
+      last_decision_reason: campaign.campaign_name || 'New AI campaign'
+    });
+    log('/webhook/create-campaigns', `✅ Campaign saved for ${biz.business_name}: ${campaign.campaign_name}`);
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] /webhook/create-campaigns ERROR:`, err.message);
+  }
+});
+
+// ─── WF31: Landing Page Generator ─────────────────────────────────────────────
+// Generates full landing page copy via Claude and saves to post_drafts table
+app.post('/webhook/generate-landing-page', async (req, res) => {
+  const { business_id } = req.body;
+  log('/webhook/generate-landing-page', `business_id=${business_id}`);
+
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+
+  try {
+    const businesses = await sbGet('businesses', `select=*&id=eq.${business_id}`);
+    const biz = businesses[0];
+    if (!biz) return res.status(404).json({ error: 'Business not found' });
+
+    const page = await callClaude(
+      `You are a world-class conversion copywriter. Create a complete high-converting landing page.\n` +
+      `Business: ${biz.business_name}, Industry: ${biz.industry}, Location: ${biz.location}.\n` +
+      `Target Audience: ${biz.target_audience}. Goal: ${biz.marketing_goal}. Tone: ${biz.brand_tone}.\n` +
+      `Return ONLY valid JSON with keys: hero_headline, hero_subheadline, hero_cta, ` +
+      `value_prop_1, value_prop_2, value_prop_3, social_proof, testimonial_1, testimonial_2, ` +
+      `faq_1, faq_2, faq_3, closing_headline, closing_cta, meta_title, meta_description.`,
+      'claude-sonnet-4-5', 3000
+    );
+
+    const saved = await sbPost('post_drafts', {
+      business_id,
+      post_text:          JSON.stringify(page),
+      platforms_selected: '["landing_page"]',
+      status:             'draft'
+    });
+
+    log('/webhook/generate-landing-page', `✅ Landing page saved — row ${saved?.id}`);
+    res.json({ success: true, row_id: saved?.id, hero_headline: page.hero_headline, message: 'Landing page saved to Supabase' });
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] /webhook/generate-landing-page ERROR:`, err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
