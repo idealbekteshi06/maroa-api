@@ -154,18 +154,38 @@ async function generateImage(prompt, fallbackQuery = 'business marketing profess
 }
 
 // ─── Email helper (nodemailer) ────────────────────────────────────────────────
-const mailer = nodemailer.createTransport({
-  service: 'gmail',
-  auth: { user: GMAIL_USER, pass: GMAIL_PASS }
-});
+// Transporter is created lazily on each send so it always picks up the current
+// env var values (Railway injects them before the first request, but after the
+// module-level const assignments, so reading process.env directly here is safer).
+function createMailer() {
+  const user = clean(process.env.GMAIL_USER) || GMAIL_USER;
+  const pass = clean(process.env.GMAIL_APP_PASSWORD) || GMAIL_PASS;
+  return nodemailer.createTransport({
+    host   : 'smtp.gmail.com',
+    port   : 587,
+    secure : false,
+    auth   : { user, pass },
+    tls    : { rejectUnauthorized: false }
+  });
+}
 
 async function sendEmail(to, subject, html) {
-  if (!GMAIL_PASS || !to) {
+  const user = clean(process.env.GMAIL_USER) || GMAIL_USER;
+  const pass = clean(process.env.GMAIL_APP_PASSWORD) || GMAIL_PASS;
+  if (!pass || !to) {
     console.log(`[EMAIL QUEUED] To: ${to} | Subject: ${subject}`);
     return { queued: true };
   }
   try {
-    await mailer.sendMail({ from: `"maroa.ai" <${GMAIL_USER}>`, replyTo: 'hello@maroa.ai', to, subject, html });
+    const transporter = createMailer();
+    await transporter.sendMail({
+      from    : `"maroa.ai" <${user}>`,
+      replyTo : 'hello@maroa.ai',
+      to,
+      subject,
+      html
+    });
+    console.log(`[EMAIL SENT] To: ${to} | Subject: ${subject}`);
     return { sent: true };
   } catch (e) {
     console.error('[EMAIL ERROR]', e.message);
@@ -302,7 +322,7 @@ app.get('/', (req, res) => res.json({
     'POST /webhook/account-connected', 'POST /webhook/create-campaigns',
     'POST /webhook/content-approved', 'POST /webhook/budget-updated',
     'POST /webhook/competitor-check', 'POST /webhook/generate-landing-page',
-    'GET  /debug'
+    'POST /test-email', 'GET  /debug'
   ]
 }));
 
@@ -1173,6 +1193,44 @@ app.post('/webhook/generate-landing-page', async (req, res) => {
     console.error('[generate-landing-page ERROR]', err.message);
     await logError(business_id, 'generate-landing-page', err.message, req.body);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Test email ───────────────────────────────────────────────────────────────
+app.post('/test-email', async (req, res) => {
+  const to = req.body?.email;
+  if (!to) return res.status(400).json({ error: 'email field required' });
+
+  const user = clean(process.env.GMAIL_USER) || GMAIL_USER;
+  const pass = clean(process.env.GMAIL_APP_PASSWORD) || GMAIL_PASS;
+
+  if (!pass) return res.status(500).json({
+    error   : 'GMAIL_APP_PASSWORD is not set on Railway',
+    GMAIL_USER: user || '(not set)',
+    fix     : 'Add GMAIL_APP_PASSWORD to Railway environment variables'
+  });
+
+  try {
+    const transporter = createMailer();
+    await transporter.verify();
+    await transporter.sendMail({
+      from    : `"maroa.ai" <${user}>`,
+      replyTo : 'hello@maroa.ai',
+      to,
+      subject : 'maroa.ai — email test ✅',
+      html    : '<p>This is a test email from your Maroa.ai server. If you received this, email sending is working correctly!</p>'
+    });
+    res.json({ success: true, sent_to: to, from: user });
+  } catch (e) {
+    res.status(500).json({
+      error      : e.message,
+      code       : e.code || null,
+      GMAIL_USER : user,
+      hint       : e.message.includes('535') ? 'App password rejected — check it is 16 chars, no spaces, correct account'
+                 : e.message.includes('534') ? 'Less Secure Apps / 2FA issue — use a Gmail App Password, not your real password'
+                 : e.message.includes('ENOTFOUND') ? 'DNS error — Railway cannot reach smtp.gmail.com'
+                 : 'Check Railway logs for full stack trace'
+    });
   }
 });
 
