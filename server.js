@@ -3,10 +3,9 @@
 // The AI does everything forever and gets smarter every week.
 
 'use strict';
-const express    = require('express');
-const https      = require('https');
-const http       = require('http');
-const nodemailer = require('nodemailer');
+const express = require('express');
+const https   = require('https');
+const http    = require('http');
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -20,8 +19,8 @@ const ANTHROPIC_KEY       = clean(process.env.ANTHROPIC_KEY)       || '';
 const SERPAPI_KEY         = clean(process.env.SERPAPI_KEY)         || '';
 const REPLICATE_API_KEY   = clean(process.env.REPLICATE_API_KEY)   || '';
 const PEXELS_API_KEY      = clean(process.env.PEXELS_API_KEY)      || '';
-const GMAIL_USER          = clean(process.env.GMAIL_USER)          || 'hello@maroa.ai';
-const GMAIL_PASS          = clean(process.env.GMAIL_APP_PASSWORD)  || '';
+const RESEND_API_KEY      = clean(process.env.RESEND_API_KEY)      || '';
+const FROM_EMAIL          = clean(process.env.FROM_EMAIL)          || 'onboarding@resend.dev';
 const PORT                = process.env.PORT                        || 3000;
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
@@ -153,43 +152,31 @@ async function generateImage(prompt, fallbackQuery = 'business marketing profess
   return { url: null, source: 'none' };
 }
 
-// ─── Email helper (nodemailer) ────────────────────────────────────────────────
-// Transporter is created lazily on each send so it always picks up the current
-// env var values (Railway injects them before the first request, but after the
-// module-level const assignments, so reading process.env directly here is safer).
-function createMailer() {
-  const user = clean(process.env.GMAIL_USER) || GMAIL_USER;
-  const pass = clean(process.env.GMAIL_APP_PASSWORD) || GMAIL_PASS;
-  return nodemailer.createTransport({
-    host              : 'smtp.gmail.com',
-    port              : 465,
-    secure            : true,
-    auth              : { user, pass },
-    connectionTimeout : 10000,
-    greetingTimeout   : 10000,
-    socketTimeout     : 10000,
-    tls               : { rejectUnauthorized: false }
-  });
-}
-
+// ─── Email helper (Resend HTTPS API — works on Railway, no SMTP needed) ──────
+// Railway blocks outbound SMTP (465/587). Resend uses HTTPS port 443 only.
+// Sign up free at resend.com → get API key → set RESEND_API_KEY on Railway.
+// Set FROM_EMAIL to a verified domain address (or leave as onboarding@resend.dev for testing).
 async function sendEmail(to, subject, html) {
-  const user = clean(process.env.GMAIL_USER) || GMAIL_USER;
-  const pass = clean(process.env.GMAIL_APP_PASSWORD) || GMAIL_PASS;
-  if (!pass || !to) {
-    console.log(`[EMAIL QUEUED] To: ${to} | Subject: ${subject}`);
+  const apiKey = clean(process.env.RESEND_API_KEY) || RESEND_API_KEY;
+  const from   = clean(process.env.FROM_EMAIL)     || FROM_EMAIL;
+
+  if (!apiKey || !to) {
+    console.log(`[EMAIL QUEUED] To: ${to} | Subject: ${subject} — RESEND_API_KEY not set`);
     return { queued: true };
   }
+
   try {
-    const transporter = createMailer();
-    await transporter.sendMail({
-      from    : `"maroa.ai" <${user}>`,
-      replyTo : 'hello@maroa.ai',
-      to,
-      subject,
-      html
-    });
-    console.log(`[EMAIL SENT] To: ${to} | Subject: ${subject}`);
-    return { sent: true };
+    const r = await apiRequest('POST', 'https://api.resend.com/emails',
+      { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      { from: `maroa.ai <${from}>`, to: [to], reply_to: 'hello@maroa.ai', subject, html }
+    );
+    if (r.status === 200 || r.status === 201) {
+      console.log(`[EMAIL SENT] To: ${to} | id: ${r.body?.id}`);
+      return { sent: true, id: r.body?.id };
+    }
+    const msg = r.body?.message || r.body?.name || JSON.stringify(r.body).slice(0, 200);
+    console.error(`[EMAIL ERROR] ${r.status}: ${msg}`);
+    return { error: msg, status: r.status };
   } catch (e) {
     console.error('[EMAIL ERROR]', e.message);
     return { error: e.message };
@@ -318,7 +305,7 @@ app.get('/', (req, res) => res.json({
     ANTHROPIC_KEY : ANTHROPIC_KEY ? `set (${ANTHROPIC_KEY.slice(0,15)}...)`: 'MISSING',
     SERPAPI_KEY   : SERPAPI_KEY   ? 'set' : 'MISSING',
     REPLICATE     : REPLICATE_API_KEY ? 'set' : 'MISSING',
-    GMAIL         : GMAIL_PASS    ? 'set' : 'not configured (emails queued)'
+    RESEND        : (clean(process.env.RESEND_API_KEY)||RESEND_API_KEY) ? 'set' : 'MISSING — emails queued'
   },
   routes: [
     'POST /webhook/new-user-signup', 'POST /webhook/instant-content',
@@ -1201,38 +1188,26 @@ app.post('/webhook/generate-landing-page', async (req, res) => {
 
 // ─── Test email ───────────────────────────────────────────────────────────────
 app.post('/test-email', async (req, res) => {
-  const to = req.body?.email;
+  const to     = req.body?.email;
+  const apiKey = clean(process.env.RESEND_API_KEY) || RESEND_API_KEY;
+  const from   = clean(process.env.FROM_EMAIL)     || FROM_EMAIL;
+
   if (!to) return res.status(400).json({ error: 'email field required' });
 
-  const user = clean(process.env.GMAIL_USER) || GMAIL_USER;
-  const pass = clean(process.env.GMAIL_APP_PASSWORD) || GMAIL_PASS;
-
-  if (!pass) return res.status(500).json({
-    error   : 'GMAIL_APP_PASSWORD is not set on Railway',
-    GMAIL_USER: user || '(not set)',
-    fix     : 'Add GMAIL_APP_PASSWORD to Railway environment variables'
+  if (!apiKey) return res.status(500).json({
+    error : 'RESEND_API_KEY is not set',
+    fix   : '1. Sign up free at resend.com  2. Get API key  3. Add RESEND_API_KEY to Railway env vars  4. Optionally add FROM_EMAIL (verified domain) — default is onboarding@resend.dev'
   });
 
-  try {
-    const transporter = createMailer();
-    const info = await transporter.sendMail({
-      from    : `"maroa.ai" <${user}>`,
-      replyTo : 'hello@maroa.ai',
-      to,
-      subject : 'maroa.ai — email test ✅',
-      html    : '<p>This is a test email from your Maroa.ai server. If you received this, email sending is working correctly!</p>'
-    });
-    res.json({ success: true, sent_to: to, from: user, messageId: info.messageId });
-  } catch (e) {
-    res.status(500).json({
-      error      : e.message,
-      code       : e.code || null,
-      GMAIL_USER : user,
-      hint       : e.message.includes('535') || e.message.includes('Username and Password') ? 'App password rejected — must be 16 chars, no spaces, generated for this exact Gmail account'
-                 : e.message.includes('534') ? 'Use a Gmail App Password (myaccount.google.com → Security → App passwords), not your real password'
-                 : e.message.includes('ECONNREFUSED') || e.message.includes('ETIMEDOUT') || e.message.includes('ENOTFOUND') ? 'Railway cannot reach smtp.gmail.com:465 — port may be blocked on this plan'
-                 : 'Check Railway logs for full stack trace'
-    });
+  const result = await sendEmail(to, 'maroa.ai — email test ✅',
+    '<p>This is a test email from your Maroa.ai server. Email sending via Resend is working correctly!</p>');
+
+  if (result.sent) {
+    res.json({ success: true, sent_to: to, from, resend_id: result.id });
+  } else if (result.queued) {
+    res.status(500).json({ error: 'RESEND_API_KEY missing', queued: true });
+  } else {
+    res.status(500).json({ error: result.error, from, hint: 'Check Railway logs for full error' });
   }
 });
 
