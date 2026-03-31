@@ -161,11 +161,14 @@ function createMailer() {
   const user = clean(process.env.GMAIL_USER) || GMAIL_USER;
   const pass = clean(process.env.GMAIL_APP_PASSWORD) || GMAIL_PASS;
   return nodemailer.createTransport({
-    host   : 'smtp.gmail.com',
-    port   : 587,
-    secure : false,
-    auth   : { user, pass },
-    tls    : { rejectUnauthorized: false }
+    host              : 'smtp.gmail.com',
+    port              : 465,
+    secure            : true,
+    auth              : { user, pass },
+    connectionTimeout : 10000,
+    greetingTimeout   : 10000,
+    socketTimeout     : 10000,
+    tls               : { rejectUnauthorized: false }
   });
 }
 
@@ -1212,23 +1215,22 @@ app.post('/test-email', async (req, res) => {
 
   try {
     const transporter = createMailer();
-    await transporter.verify();
-    await transporter.sendMail({
+    const info = await transporter.sendMail({
       from    : `"maroa.ai" <${user}>`,
       replyTo : 'hello@maroa.ai',
       to,
       subject : 'maroa.ai — email test ✅',
       html    : '<p>This is a test email from your Maroa.ai server. If you received this, email sending is working correctly!</p>'
     });
-    res.json({ success: true, sent_to: to, from: user });
+    res.json({ success: true, sent_to: to, from: user, messageId: info.messageId });
   } catch (e) {
     res.status(500).json({
       error      : e.message,
       code       : e.code || null,
       GMAIL_USER : user,
-      hint       : e.message.includes('535') ? 'App password rejected — check it is 16 chars, no spaces, correct account'
-                 : e.message.includes('534') ? 'Less Secure Apps / 2FA issue — use a Gmail App Password, not your real password'
-                 : e.message.includes('ENOTFOUND') ? 'DNS error — Railway cannot reach smtp.gmail.com'
+      hint       : e.message.includes('535') || e.message.includes('Username and Password') ? 'App password rejected — must be 16 chars, no spaces, generated for this exact Gmail account'
+                 : e.message.includes('534') ? 'Use a Gmail App Password (myaccount.google.com → Security → App passwords), not your real password'
+                 : e.message.includes('ECONNREFUSED') || e.message.includes('ETIMEDOUT') || e.message.includes('ENOTFOUND') ? 'Railway cannot reach smtp.gmail.com:465 — port may be blocked on this plan'
                  : 'Check Railway logs for full stack trace'
     });
   }
