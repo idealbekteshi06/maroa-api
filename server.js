@@ -4274,7 +4274,7 @@ app.post('/webhook/seo-audit', async (req, res) => {
   setImmediate(async () => {
     try {
       const bizArr = await sbGet('businesses',
-        `id=eq.${business_id}&select=business_name,industry,location,website_url,target_audience,competitors,phone`);
+        `id=eq.${business_id}&select=business_name,industry,location,website_url,target_audience,competitors`);
       const biz = bizArr[0];
       if (!biz) return;
       if (!biz.website_url) {
