@@ -347,6 +347,15 @@ app.get('/debug', async (req, res) => {
     const r = await serpSearch('test', 1);
     out.serpapi = r.length ? 'ok' : 'no results (key may be invalid)';
   } catch (e) { out.serpapi = `ERROR: ${e.message}`; }
+
+  // Meta / OAuth env vars
+  const metaSecret = clean(process.env.META_APP_SECRET) || '';
+  const metaAppId  = clean(process.env.META_APP_ID)     || '26551713411132003 (hardcoded default)';
+  out.META_APP_SECRET = metaSecret ? `set (${metaSecret.length} chars)` : 'MISSING ❌ — set this in Railway env vars';
+  out.META_APP_ID     = metaAppId  ? `set: ${metaAppId}` : 'MISSING';
+  out.RESEND_API_KEY  = (clean(process.env.RESEND_API_KEY) || '') ? 'set' : 'missing';
+  out.REPLICATE_API_KEY = (clean(process.env.REPLICATE_API_KEY) || '') ? 'set' : 'missing';
+
   res.json(out);
 });
 
@@ -1289,14 +1298,35 @@ app.post('/meta-oauth-exchange', async (req, res) => {
   const APP_SECRET = clean(process.env.META_APP_SECRET) || '';
   const REDIRECT   = redirect_uri || 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
 
+  // Guard: fail immediately if secret is missing — saves a confusing Facebook error
+  if (!APP_SECRET) {
+    log('/meta-oauth-exchange', 'META_APP_SECRET is not set in Railway env vars');
+    return res.status(500).json({
+      error      : 'META_APP_SECRET is not configured on the server',
+      fix        : 'Go to Railway → your project → Variables → add META_APP_SECRET with your Meta app secret',
+      redirect_uri: REDIRECT,
+      app_id     : APP_ID
+    });
+  }
+
+  log('/meta-oauth-exchange', `Starting exchange — app_id=${APP_ID} redirect_uri=${REDIRECT}`);
+
   try {
     // 1. Exchange code for user access token
-    const tokenResp = await apiRequest('GET',
-      `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${APP_ID}&client_secret=${APP_SECRET}&redirect_uri=${encodeURIComponent(REDIRECT)}&code=${code}`);
+    const tokenUrl  = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${APP_ID}&client_secret=${APP_SECRET}&redirect_uri=${encodeURIComponent(REDIRECT)}&code=${code}`;
+    log('/meta-oauth-exchange', `Token exchange URL (no secret): client_id=${APP_ID}&redirect_uri=${REDIRECT}`);
+    const tokenResp = await apiRequest('GET', tokenUrl);
 
     if (!tokenResp.body?.access_token) {
-      log('/meta-oauth-exchange', `Token exchange failed: ${JSON.stringify(tokenResp.body)}`);
-      return res.status(400).json({ error: 'Token exchange failed', detail: tokenResp.body });
+      const fbError = tokenResp.body?.error || tokenResp.body;
+      log('/meta-oauth-exchange', `Token exchange failed: ${JSON.stringify(fbError)}`);
+      return res.status(400).json({
+        error       : 'Token exchange failed',
+        fb_error    : fbError,
+        redirect_uri: REDIRECT,
+        app_id      : APP_ID,
+        hint        : 'Make sure redirect_uri exactly matches what is registered in Meta App Dashboard → Facebook Login → Valid OAuth Redirect URIs'
+      });
     }
 
     const userToken = tokenResp.body.access_token;
