@@ -312,7 +312,7 @@ app.get('/', (req, res) => res.json({
     'POST /webhook/account-connected', 'POST /webhook/create-campaigns',
     'POST /webhook/content-approved', 'POST /webhook/budget-updated',
     'POST /webhook/competitor-check', 'POST /webhook/generate-landing-page',
-    'POST /test-email', 'GET  /debug'
+    'POST /test-email', 'POST /meta-oauth-exchange', 'GET  /debug'
   ]
 }));
 
@@ -703,25 +703,72 @@ app.post('/webhook/account-connected', async (req, res) => {
 
     // ── Facebook + Instagram ──────────────────────────────────────────────────
     if (meta_access_token) {
-      updates.meta_access_token = meta_access_token;
-
       try {
-        const pagesResp = await apiRequest('GET',
-          `https://graph.facebook.com/v19.0/me/accounts?access_token=${meta_access_token}&fields=id,name,fan_count`);
-        if (pagesResp.body?.data?.[0]) {
-          const page = pagesResp.body.data[0];
-          updates.facebook_page_id = page.id;
-          updates.followers_gained = page.fan_count || 0;
-          connected.push(`Facebook (${page.name})`);
+        // Step A: check if this is a user token or page token
+        const debugResp = await apiRequest('GET',
+          `https://graph.facebook.com/v19.0/debug_token?input_token=${meta_access_token}&access_token=${meta_access_token}`);
+        const tokenType   = debugResp.body?.data?.type;        // "USER" or "PAGE"
+        const granular    = debugResp.body?.data?.granular_scopes || [];
+        log('/webhook/account-connected', `Token type: ${tokenType}`);
 
-          // Get Instagram business account
-          const igResp = await apiRequest('GET',
-            `https://graph.facebook.com/v19.0/${page.id}?fields=instagram_business_account&access_token=${meta_access_token}`);
-          if (igResp.body?.instagram_business_account?.id) {
-            updates.instagram_account_id = igResp.body.instagram_business_account.id;
-            connected.push('Instagram');
+        // Step B: if user token, exchange for page token via /me/accounts
+        let pageToken = meta_access_token;
+        let pageId    = req.body.facebook_page_id || null;
+        let pageName  = '';
+        let fanCount  = 0;
+
+        if (tokenType === 'USER' || !tokenType) {
+          const pagesResp = await apiRequest('GET',
+            `https://graph.facebook.com/v19.0/me/accounts?access_token=${meta_access_token}&fields=id,name,access_token,fan_count`);
+          const pages = pagesResp.body?.data || [];
+          // If a specific page ID was passed, match it; otherwise take the first page
+          const page = pageId
+            ? pages.find(p => p.id === pageId) || pages[0]
+            : pages[0];
+
+          if (page) {
+            pageToken = page.access_token;   // real page token — never expires
+            pageId    = page.id;
+            pageName  = page.name;
+            fanCount  = page.fan_count || 0;
+            log('/webhook/account-connected', `Exchanged to page token for: ${page.name} (${page.id})`);
           }
+        } else if (tokenType === 'PAGE') {
+          // Already a page token — extract page ID from debug data
+          pageId   = debugResp.body?.data?.profile_id || pageId;
+          pageName = 'Maroa.ai';
         }
+
+        // Save page token (not user token)
+        updates.meta_access_token = pageToken;
+        if (pageId)   updates.facebook_page_id = pageId;
+        if (fanCount) updates.followers_gained  = fanCount;
+        if (pageName) connected.push(`Facebook (${pageName})`);
+        else if (pageId) connected.push(`Facebook`);
+
+        // Step C: get Instagram ID
+        // Try 1: page fields
+        let igId = null;
+        if (pageId) {
+          const igPageResp = await apiRequest('GET',
+            `https://graph.facebook.com/v19.0/${pageId}?fields=instagram_business_account,connected_instagram_account&access_token=${pageToken}`);
+          igId = igPageResp.body?.instagram_business_account?.id
+              || igPageResp.body?.connected_instagram_account?.id
+              || null;
+        }
+
+        // Try 2: extract from token's granular_scopes (instagram_basic target_ids)
+        if (!igId) {
+          const igScope = granular.find(s => s.scope === 'instagram_basic');
+          igId = igScope?.target_ids?.[0] || null;
+          if (igId) log('/webhook/account-connected', `Got IG ID from granular_scopes: ${igId}`);
+        }
+
+        if (igId) {
+          updates.instagram_account_id = igId;
+          connected.push('Instagram');
+        }
+
       } catch (e) { log('/webhook/account-connected', `FB warn: ${e.message}`); }
     }
 
@@ -1208,6 +1255,109 @@ app.post('/test-email', async (req, res) => {
     res.status(500).json({ error: 'RESEND_API_KEY missing', queued: true });
   } else {
     res.status(500).json({ error: result.error, from, hint: 'Check Railway logs for full error' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /meta-oauth-exchange
+// Called by Lovable's /social-callback page with the OAuth code.
+// Exchanges code → user token → page token, fetches Instagram ID,
+// saves everything to Supabase, then fires /webhook/account-connected.
+// Body: { code, business_id, redirect_uri? }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/meta-oauth-exchange', async (req, res) => {
+  const { code, business_id, redirect_uri } = req.body;
+  if (!code || !business_id) return res.status(400).json({ error: 'code and business_id required' });
+
+  const APP_ID     = clean(process.env.META_APP_ID)     || '26551713411132003';
+  const APP_SECRET = clean(process.env.META_APP_SECRET) || '';
+  const REDIRECT   = redirect_uri || 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
+
+  try {
+    // 1. Exchange code for user access token
+    const tokenResp = await apiRequest('GET',
+      `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${APP_ID}&client_secret=${APP_SECRET}&redirect_uri=${encodeURIComponent(REDIRECT)}&code=${code}`);
+
+    if (!tokenResp.body?.access_token) {
+      log('/meta-oauth-exchange', `Token exchange failed: ${JSON.stringify(tokenResp.body)}`);
+      return res.status(400).json({ error: 'Token exchange failed', detail: tokenResp.body });
+    }
+
+    const userToken = tokenResp.body.access_token;
+    log('/meta-oauth-exchange', `User token obtained for business_id=${business_id}`);
+
+    // 2. Get long-lived user token (optional but better than short-lived)
+    let longToken = userToken;
+    try {
+      const llResp = await apiRequest('GET',
+        `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${APP_ID}&client_secret=${APP_SECRET}&fb_exchange_token=${userToken}`);
+      if (llResp.body?.access_token) longToken = llResp.body.access_token;
+    } catch {}
+
+    // 3. Get pages + page access token
+    const pagesResp = await apiRequest('GET',
+      `https://graph.facebook.com/v19.0/me/accounts?access_token=${longToken}&fields=id,name,access_token,fan_count`);
+    const pages = pagesResp.body?.data || [];
+
+    if (pages.length === 0) {
+      log('/meta-oauth-exchange', `No pages found for business_id=${business_id}`);
+      return res.status(400).json({ error: 'No Facebook pages found. Make sure you have a Business page.' });
+    }
+
+    const page      = pages[0];
+    const pageToken = page.access_token;
+    const pageId    = page.id;
+
+    // 4. Get Instagram ID via debug_token granular_scopes (most reliable)
+    let igId = null;
+    const debugResp = await apiRequest('GET',
+      `https://graph.facebook.com/v19.0/debug_token?input_token=${pageToken}&access_token=${pageToken}`);
+    const granular = debugResp.body?.data?.granular_scopes || [];
+    const igScope  = granular.find(s => s.scope === 'instagram_basic');
+    igId = igScope?.target_ids?.[0] || null;
+
+    // Fallback: page fields
+    if (!igId) {
+      const igPageResp = await apiRequest('GET',
+        `https://graph.facebook.com/v19.0/${pageId}?fields=instagram_business_account,connected_instagram_account&access_token=${pageToken}`);
+      igId = igPageResp.body?.instagram_business_account?.id
+          || igPageResp.body?.connected_instagram_account?.id
+          || null;
+    }
+
+    // 5. Save to Supabase
+    const updates = {
+      meta_access_token   : pageToken,
+      facebook_page_id    : pageId,
+      social_accounts_connected: true
+    };
+    if (page.fan_count) updates.followers_gained = page.fan_count;
+    if (igId)           updates.instagram_account_id = igId;
+
+    await sbPatch('businesses', `id=eq.${business_id}`, updates);
+
+    // 6. Fire account-connected logic (campaigns + email)
+    setImmediate(async () => {
+      try {
+        await apiRequest('POST', `http://localhost:${PORT}/webhook/account-connected`,
+          { 'Content-Type': 'application/json' },
+          { business_id, meta_access_token: pageToken, facebook_page_id: pageId });
+      } catch {}
+    });
+
+    log('/meta-oauth-exchange', `✅ Saved page=${pageId} ig=${igId || 'none'} for business_id=${business_id}`);
+
+    res.json({
+      success           : true,
+      facebook_page_id  : pageId,
+      facebook_page_name: page.name,
+      instagram_id      : igId || null,
+      message           : `Connected: Facebook (${page.name})${igId ? ' + Instagram' : ''}`
+    });
+
+  } catch (err) {
+    console.error('[meta-oauth-exchange ERROR]', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
