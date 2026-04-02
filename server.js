@@ -4,10 +4,26 @@
 
 'use strict';
 const express = require('express');
+const cors    = require('cors');
 const https   = require('https');
 const http    = require('http');
 
 const app = express();
+
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+app.use(cors({
+  origin: [
+    'https://maroa-ai-marketing-automator.lovable.app',
+    'https://maroa.ai',
+    'http://localhost:3000',
+    'http://localhost:5173'
+  ],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'apikey'],
+  credentials: true
+}));
+app.options('*', cors());
+
 app.use(express.json({ limit: '10mb' }));
 
 // ─── Config ───────────────────────────────────────────────────────────────────
