@@ -2743,6 +2743,1038 @@ app.get('/webhook/no-open-candidates', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPRINT 3 — Paid Ads Module (Meta + Google)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const GOOGLE_ADS_DEV_TOKEN    = clean(process.env.GOOGLE_ADS_DEVELOPER_TOKEN) || '';
+const GOOGLE_ADS_CLIENT_ID    = clean(process.env.GOOGLE_ADS_CLIENT_ID)       || '';
+const GOOGLE_ADS_CLIENT_SECRET= clean(process.env.GOOGLE_ADS_CLIENT_SECRET)   || '';
+
+// ── Google Ads REST helper ─────────────────────────────────────────────────────
+async function googleAdsReq(method, path, accessToken, body = null) {
+  return apiRequest(method,
+    `https://googleads.googleapis.com/v17/${path}`,
+    {
+      'Authorization':   `Bearer ${accessToken}`,
+      'developer-token': GOOGLE_ADS_DEV_TOKEN,
+      'Content-Type':    'application/json'
+    },
+    body
+  );
+}
+
+// Strip dashes from Google Ads customer ID (123-456-7890 → 1234567890)
+function gCid(raw) { return (raw || '').replace(/-/g, ''); }
+
+// ── Meta ad_account_id normaliser (ensure act_ prefix) ───────────────────────
+function actId(raw) { return (raw || '').startsWith('act_') ? raw : `act_${raw}`; }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/meta-campaign-create
+// Generates AI strategy, creates 3 image creatives, builds full Meta campaign
+// (campaign → ad set → ad creatives → ads), all in PAUSED state for review.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/meta-campaign-create', async (req, res) => {
+  const { business_id, objective = 'OUTCOME_TRAFFIC', monthly_budget = 300 } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+
+  try {
+    const biz = (await sbGet('businesses',
+      `id=eq.${business_id}&select=business_name,email,first_name,industry,target_audience,` +
+      `location,brand_tone,marketing_goal,competitors,meta_access_token,ad_account_id,` +
+      `facebook_page_id,target_cpc,avg_order_value`))[0];
+    if (!biz) return res.status(404).json({ error: 'business not found' });
+    if (!biz.meta_access_token)
+      return res.status(400).json({ error: 'meta_ads_not_connected', detail: 'No Meta access token' });
+    if (!biz.ad_account_id)
+      return res.status(400).json({ error: 'meta_ads_not_connected', detail: 'No ad_account_id — connect Meta Ads in Settings' });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+
+  res.json({ received: true, message: 'Meta campaign creation started — check your email in ~2 minutes' });
+
+  try {
+    const biz = (await sbGet('businesses',
+      `id=eq.${business_id}&select=business_name,email,first_name,industry,target_audience,` +
+      `location,brand_tone,marketing_goal,competitors,meta_access_token,ad_account_id,` +
+      `facebook_page_id,target_cpc,avg_order_value`))[0];
+    const dailyBudget = Math.max(1, Math.round(monthly_budget / 30));
+    const accountId   = actId(biz.ad_account_id);
+    const token       = biz.meta_access_token;
+
+    // 1. Claude Opus — full campaign strategy + 3 creative variations
+    const strategyPrompt =
+`You are a Meta Ads expert. Return ONLY valid JSON, no markdown, no explanation.
+
+Create a complete Meta Ads campaign strategy for ${biz.business_name} (${biz.industry}).
+Goal: ${biz.marketing_goal || 'grow brand awareness and leads'}
+Monthly budget: $${monthly_budget}
+Target audience: ${biz.target_audience || 'general consumers'}
+Location: ${biz.location || 'United States'}
+Competitors: ${biz.competitors ? JSON.stringify(biz.competitors).slice(0, 200) : 'not specified'}
+Brand tone: ${biz.brand_tone || 'professional and friendly'}
+
+Return exactly this JSON:
+{
+  "objective": "${objective}",
+  "daily_budget_usd": ${dailyBudget},
+  "targeting": {
+    "age_min": 25,
+    "age_max": 55,
+    "genders": [1, 2],
+    "geo_locations": { "countries": ["US"] }
+  },
+  "creatives": [
+    {
+      "headline": "max 40 chars — hook variation 1",
+      "primary_text": "max 125 chars — value prop 1",
+      "description": "max 30 chars",
+      "cta": "LEARN_MORE",
+      "image_prompt": "detailed description of ideal image for this ad"
+    },
+    {
+      "headline": "max 40 chars — angle variation 2",
+      "primary_text": "max 125 chars — social proof angle",
+      "description": "max 30 chars",
+      "cta": "SIGN_UP",
+      "image_prompt": "detailed description of second image"
+    },
+    {
+      "headline": "max 40 chars — urgency variation 3",
+      "primary_text": "max 125 chars — urgency or offer angle",
+      "description": "max 30 chars",
+      "cta": "LEARN_MORE",
+      "image_prompt": "detailed description of third image"
+    }
+  ]
+}`;
+
+    const strategy   = await callClaude(strategyPrompt, 'claude-opus-4-5', 1500);
+    const rawCreatives = Array.isArray(strategy.creatives) ? strategy.creatives.slice(0, 3) : [];
+    const targeting    = strategy.targeting || { age_min: 25, age_max: 55, genders: [1, 2], geo_locations: { countries: ['US'] } };
+    const campaignObj  = strategy.objective || objective;
+    const campBudget   = strategy.daily_budget_usd || dailyBudget;
+
+    // 2. Generate images via Flux / Pexels fallback
+    const creativesWithImages = [];
+    for (const cr of rawCreatives) {
+      try {
+        const img = await generateImage(
+          cr.image_prompt || `${biz.industry} advertisement ${biz.business_name}`,
+          `${biz.industry} marketing professional advertisement`
+        );
+        creativesWithImages.push({ ...cr, image_url: img.url, image_source: img.source });
+      } catch { creativesWithImages.push({ ...cr, image_url: null, image_source: 'none' }); }
+    }
+
+    // 3. Create Meta Campaign
+    const campaignName = `${biz.business_name} — ${campaignObj} — ${new Date().toISOString().slice(0, 10)}`;
+    const campResp = await apiRequest('POST',
+      `https://graph.facebook.com/v19.0/${accountId}/campaigns`,
+      { 'Content-Type': 'application/json' },
+      { name: campaignName, objective: campaignObj, status: 'PAUSED',
+        special_ad_categories: [], access_token: token });
+
+    if (!campResp.body?.id)
+      throw new Error(`Campaign create failed: ${JSON.stringify(campResp.body).slice(0, 300)}`);
+    const metaCampaignId = campResp.body.id;
+
+    // 4. Create Ad Set
+    const adSetResp = await apiRequest('POST',
+      `https://graph.facebook.com/v19.0/${accountId}/adsets`,
+      { 'Content-Type': 'application/json' },
+      {
+        name:              `${biz.business_name} — AdSet — ${new Date().toISOString().slice(0, 10)}`,
+        campaign_id:       metaCampaignId,
+        daily_budget:      Math.round(campBudget * 100),
+        billing_event:     'IMPRESSIONS',
+        optimization_goal: 'LINK_CLICKS',
+        targeting:         JSON.stringify(targeting),
+        status:            'PAUSED',
+        access_token:      token
+      });
+
+    if (!adSetResp.body?.id)
+      throw new Error(`Ad set create failed: ${JSON.stringify(adSetResp.body).slice(0, 300)}`);
+    const metaAdSetId = adSetResp.body.id;
+
+    // 5. Save DB record early (so creatives can reference campaign_id)
+    const campaignRow = await sbPost('ad_campaigns', {
+      business_id,
+      platform:         'meta',
+      meta_campaign_id: metaCampaignId,
+      meta_ad_set_id:   metaAdSetId,
+      meta_access_token: token,
+      facebook_page_id: biz.facebook_page_id,
+      status:           'paused',
+      daily_budget:     campBudget,
+      objective:        campaignObj,
+      ai_strategy:      strategy,
+      creatives:        creativesWithImages.map(c => ({ headline: c.headline, image_url: c.image_url }))
+    });
+
+    // 6. Create ads (one per creative)
+    const adsCreated = [];
+    for (let i = 0; i < creativesWithImages.length; i++) {
+      const cr = creativesWithImages[i];
+      try {
+        // Upload image
+        let imageHash = null;
+        if (cr.image_url) {
+          try {
+            const imgUp = await apiRequest('POST',
+              `https://graph.facebook.com/v19.0/${accountId}/adimages`,
+              { 'Content-Type': 'application/json' },
+              { url: cr.image_url, access_token: token });
+            const imgs = imgUp.body?.images;
+            if (imgs) imageHash = imgs[Object.keys(imgs)[0]]?.hash;
+          } catch { /* non-critical */ }
+        }
+
+        // Build link_data
+        const linkData = {
+          message:     cr.primary_text  || '',
+          link:        `https://www.facebook.com/${biz.facebook_page_id || ''}`,
+          name:        (cr.headline     || '').slice(0, 40),
+          description: (cr.description  || '').slice(0, 30),
+          call_to_action: { type: cr.cta || 'LEARN_MORE' }
+        };
+        if (imageHash) linkData.image_hash = imageHash;
+
+        // Create Ad Creative
+        const creativeResp = await apiRequest('POST',
+          `https://graph.facebook.com/v19.0/${accountId}/adcreatives`,
+          { 'Content-Type': 'application/json' },
+          {
+            name:               `${biz.business_name} Creative ${i + 1}`,
+            object_story_spec:  JSON.stringify({ page_id: biz.facebook_page_id, link_data: linkData }),
+            access_token:       token
+          });
+        const metaCreativeId = creativeResp.body?.id;
+
+        // Create Ad
+        if (metaCreativeId) {
+          const adResp = await apiRequest('POST',
+            `https://graph.facebook.com/v19.0/${accountId}/ads`,
+            { 'Content-Type': 'application/json' },
+            {
+              name:         `${biz.business_name} Ad ${i + 1}`,
+              adset_id:     metaAdSetId,
+              creative:     JSON.stringify({ creative_id: metaCreativeId }),
+              status:       'PAUSED',
+              access_token: token
+            });
+          if (adResp.body?.id) adsCreated.push({ ad_id: adResp.body.id, creative_id: metaCreativeId });
+        }
+
+        // Save to ad_creatives
+        await sbPost('ad_creatives', {
+          business_id,
+          campaign_id:      campaignRow?.id || null,
+          platform:         'meta',
+          headline:         cr.headline,
+          primary_text:     cr.primary_text,
+          description:      cr.description,
+          cta:              cr.cta,
+          image_url:        cr.image_url,
+          image_prompt:     cr.image_prompt,
+          meta_creative_id: metaCreativeId || null,
+          status:           'active'
+        });
+      } catch (ce) {
+        log('/webhook/meta-campaign-create', `Creative ${i + 1} error: ${ce.message}`);
+      }
+    }
+
+    // 7. Review email
+    const html = `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
+  <h2 style="color:#667eea">🎯 Your Meta Ad Campaign is Ready for Review</h2>
+  <p>Hi ${biz.first_name || biz.business_name},</p>
+  <p>Your AI built a complete Meta Ads campaign for <strong>${biz.business_name}</strong> with <strong>${adsCreated.length} ad variations</strong>, each with a unique image, headline and angle.</p>
+  <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px">
+    <tr style="background:#f8fafc"><td style="padding:8px 12px;font-weight:600">Campaign</td><td style="padding:8px 12px">${campaignName}</td></tr>
+    <tr><td style="padding:8px 12px;font-weight:600">Objective</td><td style="padding:8px 12px">${campaignObj}</td></tr>
+    <tr style="background:#f8fafc"><td style="padding:8px 12px;font-weight:600">Daily Budget</td><td style="padding:8px 12px">$${campBudget}</td></tr>
+    <tr><td style="padding:8px 12px;font-weight:600">Ad Variations</td><td style="padding:8px 12px">${adsCreated.length} creatives</td></tr>
+    <tr style="background:#f8fafc"><td style="padding:8px 12px;font-weight:600">Status</td><td style="padding:8px 12px">⏸️ Paused — awaiting your review</td></tr>
+  </table>
+  <p>Review in Meta Ads Manager, then activate when you're ready.</p>
+  <a href="https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${biz.ad_account_id}"
+     style="display:inline-block;background:#667eea;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:8px">
+    Review in Ads Manager →
+  </a>
+</div>`;
+    await sendEmail(biz.email, `Your Meta ad campaign is ready for review — ${biz.business_name}`, html);
+    log('/webhook/meta-campaign-create', `✅ Meta campaign ${metaCampaignId} — ${adsCreated.length} ads created`);
+
+  } catch (err) {
+    console.error('[meta-campaign-create ERROR]', err.message);
+    await logError(business_id, 'meta-campaign-create', err.message, req.body);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/meta-campaign-activate
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/meta-campaign-activate', planGate('paid_ads'), async (req, res) => {
+  const { business_id, campaign_id } = req.body;
+  if (!business_id || !campaign_id)
+    return res.status(400).json({ error: 'business_id and campaign_id required' });
+  try {
+    const campaign = (await sbGet('ad_campaigns', `id=eq.${campaign_id}&business_id=eq.${business_id}`))[0];
+    if (!campaign)     return res.status(404).json({ error: 'Campaign not found' });
+    if (campaign.platform !== 'meta') return res.status(400).json({ error: 'Not a Meta campaign — use /webhook/google-campaign-activate' });
+
+    const token = campaign.meta_access_token;
+
+    // Activate campaign + ad set via Meta API
+    await apiRequest('POST', `https://graph.facebook.com/v19.0/${campaign.meta_campaign_id}`,
+      { 'Content-Type': 'application/json' }, { status: 'ACTIVE', access_token: token });
+
+    if (campaign.meta_ad_set_id) {
+      await apiRequest('POST', `https://graph.facebook.com/v19.0/${campaign.meta_ad_set_id}`,
+        { 'Content-Type': 'application/json' }, { status: 'ACTIVE', access_token: token });
+    }
+
+    // Activate all ads for this campaign (stored in ad_creatives)
+    const creativeRows = await sbGet('ad_creatives',
+      `campaign_id=eq.${campaign_id}&platform=eq.meta&select=meta_creative_id`);
+    // Note: we stored creative IDs; actual ad IDs would be in creatives JSONB
+    const adsData = Array.isArray(campaign.creatives) ? campaign.creatives : [];
+    for (const adEntry of adsData) {
+      if (adEntry.ad_id) {
+        try {
+          await apiRequest('POST', `https://graph.facebook.com/v19.0/${adEntry.ad_id}`,
+            { 'Content-Type': 'application/json' }, { status: 'ACTIVE', access_token: token });
+        } catch { /* individual ad activate failure is non-critical */ }
+      }
+    }
+
+    await sbPatch('ad_campaigns', `id=eq.${campaign_id}`, { status: 'active' });
+    res.json({ activated: true, campaign_id, meta_campaign_id: campaign.meta_campaign_id });
+  } catch (err) {
+    console.error('[meta-campaign-activate ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/meta-campaign-optimize
+// Pulls 7-day insights for every active Meta campaign for this business,
+// calls Claude Opus for action decision, executes it via Meta API.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/meta-campaign-optimize', async (req, res) => {
+  const { business_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  res.json({ received: true, message: 'Meta optimization started' });
+
+  try {
+    const biz = (await sbGet('businesses',
+      `id=eq.${business_id}&select=business_name,marketing_goal,target_cpc,avg_order_value`))[0];
+    if (!biz) return;
+
+    const campaigns = await sbGet('ad_campaigns',
+      `business_id=eq.${business_id}&platform=eq.meta&status=eq.active`);
+
+    const actionsTaken = [];
+    let optimizedCount = 0;
+
+    for (const camp of campaigns) {
+      try {
+        // Pull 7-day insights from Meta
+        const insR = await apiRequest('GET',
+          `https://graph.facebook.com/v19.0/${camp.meta_campaign_id}/insights` +
+          `?fields=impressions,clicks,spend,actions,cpc,ctr,frequency` +
+          `&date_preset=last_7d&access_token=${camp.meta_access_token}`, {});
+
+        if (insR.status !== 200) continue;
+        const d = insR.body?.data?.[0] || {};
+
+        const impressions  = parseInt(d.impressions  || 0);
+        const clicks       = parseInt(d.clicks       || 0);
+        const spend        = parseFloat(d.spend      || 0);
+        const ctr          = parseFloat(d.ctr        || 0);
+        const cpc          = spend > 0 && clicks > 0 ? spend / clicks : 0;
+        const conversions  = (d.actions || [])
+          .filter(a => a.action_type === 'purchase' || a.action_type === 'lead')
+          .reduce((s, a) => s + parseInt(a.value || 0), 0);
+        const revenue      = conversions * (biz.avg_order_value || 50);
+        const roas         = spend > 0 ? revenue / spend : 0;
+        const targetCpc    = parseFloat(biz.target_cpc || 2.00);
+
+        // Snapshot analytics
+        const today = new Date().toISOString().slice(0, 10);
+        try {
+          await sbUpsert('analytics_snapshots',
+            { business_id, snapshot_date: today, platform: 'meta_ads',
+              impressions, clicks, engagement: conversions, total_spend: spend },
+            'business_id,snapshot_date,platform');
+        } catch { /* non-critical */ }
+
+        // Claude Opus — optimization decision
+        const decisionPrompt =
+`You are a Meta Ads optimizer. What action should be taken on this campaign?
+
+Campaign ID: ${camp.meta_campaign_id}
+Spend (7d): $${spend.toFixed(2)} | Impressions: ${impressions} | Clicks: ${clicks}
+CTR: ${ctr.toFixed(2)}% | CPC: $${cpc.toFixed(2)} | Conversions: ${conversions} | ROAS: ${roas.toFixed(2)}x
+Business goal: ${biz.marketing_goal || 'grow leads'} | Target CPC: $${targetCpc.toFixed(2)}
+
+Rules:
+- ROAS > 3 OR CTR > 3% → increase_budget (budget_change_pct: 20)
+- CTR < 0.5% AND spend > $5 → decrease_budget (budget_change_pct: -20)
+- CPC > target_cpc * 2 AND spend > $10 → decrease_budget (budget_change_pct: -30)
+- 0 conversions AND spend > $50 AND CTR < 0.3% → pause
+- ROAS < 1 AND spend > $30 → refresh_creative
+- Otherwise → keep
+
+Return ONLY JSON: {"action":"increase_budget"|"decrease_budget"|"pause"|"refresh_creative"|"keep","reason":"string","budget_change_pct":0}`;
+
+        const decision = await callClaude(decisionPrompt, 'claude-opus-4-5', 400);
+        const action   = decision.action || 'keep';
+        const reason   = decision.reason || 'Performance within normal range';
+        const changePct= decision.budget_change_pct || 0;
+
+        // Execute action
+        if ((action === 'increase_budget' || action === 'decrease_budget') && camp.meta_ad_set_id) {
+          const currentBudget = camp.daily_budget || 10;
+          const newBudget     = Math.max(1, Math.round(currentBudget * (1 + changePct / 100)));
+          await apiRequest('POST', `https://graph.facebook.com/v19.0/${camp.meta_ad_set_id}`,
+            { 'Content-Type': 'application/json' },
+            { daily_budget: newBudget * 100, access_token: camp.meta_access_token });
+          await sbPatch('ad_campaigns', `id=eq.${camp.id}`, { daily_budget: newBudget });
+        } else if (action === 'pause') {
+          await apiRequest('POST', `https://graph.facebook.com/v19.0/${camp.meta_campaign_id}`,
+            { 'Content-Type': 'application/json' },
+            { status: 'PAUSED', access_token: camp.meta_access_token });
+        }
+
+        // Update campaign record
+        await sbPatch('ad_campaigns', `id=eq.${camp.id}`, {
+          last_decision:        action,
+          last_decision_reason: reason,
+          last_optimized_at:    new Date().toISOString(),
+          impressions,
+          clicks,
+          total_spend:          spend,
+          roas,
+          ...(action === 'pause' ? { status: 'paused', paused_reason: reason } : {})
+        });
+
+        actionsTaken.push({ campaign_id: camp.id, action, reason });
+        optimizedCount++;
+      } catch (ce) {
+        log('/webhook/meta-campaign-optimize', `Campaign ${camp.id} error: ${ce.message}`);
+        await logError(business_id, 'meta-campaign-optimize', ce.message, { campaign_id: camp.id });
+      }
+    }
+
+    log('/webhook/meta-campaign-optimize',
+      `✅ Optimized ${optimizedCount}/${campaigns.length} Meta campaigns for ${business_id}`);
+  } catch (err) {
+    console.error('[meta-campaign-optimize ERROR]', err.message);
+    await logError(business_id, 'meta-campaign-optimize', err.message, req.body);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /webhook/meta-campaigns-get?business_id=X
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/webhook/meta-campaigns-get', async (req, res) => {
+  const { business_id } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  try {
+    const [campaigns, creatives] = await Promise.all([
+      sbGet('ad_campaigns', `business_id=eq.${business_id}&platform=eq.meta&order=created_at.desc`),
+      sbGet('ad_creatives', `business_id=eq.${business_id}&platform=eq.meta&order=created_at.desc`)
+    ]);
+    const summary = {
+      total:       campaigns.length,
+      active:      campaigns.filter(c => c.status === 'active').length,
+      paused:      campaigns.filter(c => c.status === 'paused').length,
+      total_spend: campaigns.reduce((a, c) => a + parseFloat(c.total_spend || 0), 0).toFixed(2),
+      avg_roas:    campaigns.length
+        ? (campaigns.reduce((a, c) => a + parseFloat(c.roas || 0), 0) / campaigns.length).toFixed(2)
+        : '0.00'
+    };
+    res.json({ campaigns, creatives, summary });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/google-campaign-create
+// Generates AI keyword/ad strategy, creates Search campaign via Google Ads API.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/google-campaign-create', async (req, res) => {
+  const { business_id, monthly_budget = 200 } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+
+  try {
+    const biz = (await sbGet('businesses',
+      `id=eq.${business_id}&select=business_name,email,first_name,industry,target_audience,` +
+      `location,brand_tone,marketing_goal,google_ads_customer_id,google_access_token`))[0];
+    if (!biz) return res.status(404).json({ error: 'business not found' });
+    if (!biz.google_ads_customer_id)
+      return res.status(400).json({ error: 'google_ads_not_connected', detail: 'No google_ads_customer_id — connect Google Ads in Settings' });
+    if (!biz.google_access_token)
+      return res.status(400).json({ error: 'google_ads_not_connected', detail: 'No google_access_token' });
+    if (!GOOGLE_ADS_DEV_TOKEN)
+      return res.status(400).json({ error: 'google_ads_not_configured', detail: 'GOOGLE_ADS_DEVELOPER_TOKEN not set on server' });
+  } catch (e) { return res.status(500).json({ error: e.message }); }
+
+  res.json({ received: true, message: 'Google Ads campaign creation started — check email in ~2 minutes' });
+
+  try {
+    const biz = (await sbGet('businesses',
+      `id=eq.${business_id}&select=business_name,email,first_name,industry,target_audience,` +
+      `location,brand_tone,marketing_goal,google_ads_customer_id,google_access_token`))[0];
+
+    const customerId  = gCid(biz.google_ads_customer_id);
+    const token       = biz.google_access_token;
+    const dailyBudget = Math.max(1, Math.round(monthly_budget / 30));
+
+    // 1. Claude Opus — Google Search strategy
+    const stratPrompt =
+`You are a Google Ads expert. Return ONLY valid JSON, no markdown.
+
+Create a Google Search Ads campaign for ${biz.business_name} (${biz.industry}).
+Goal: ${biz.marketing_goal || 'generate leads'} | Budget: $${monthly_budget}/month | Location: ${biz.location || 'United States'}
+Target audience: ${biz.target_audience || 'general consumers'} | Tone: ${biz.brand_tone || 'professional'}
+
+Return exactly:
+{
+  "campaign_name": "string",
+  "daily_budget_usd": ${dailyBudget},
+  "keywords": [
+    { "text": "keyword 1", "match_type": "PHRASE" },
+    { "text": "keyword 2", "match_type": "EXACT" },
+    { "text": "keyword 3", "match_type": "BROAD" },
+    { "text": "keyword 4", "match_type": "PHRASE" },
+    { "text": "keyword 5", "match_type": "EXACT" }
+  ],
+  "ad_groups": [
+    {
+      "name": "Ad Group 1 name",
+      "keywords": ["kw1", "kw2"],
+      "ads": [
+        {
+          "headline1": "max 30 chars",
+          "headline2": "max 30 chars",
+          "headline3": "max 30 chars",
+          "description1": "max 90 chars",
+          "description2": "max 90 chars"
+        },
+        {
+          "headline1": "variation 2",
+          "headline2": "max 30 chars",
+          "headline3": "max 30 chars",
+          "description1": "max 90 chars",
+          "description2": "max 90 chars"
+        }
+      ]
+    },
+    {
+      "name": "Ad Group 2 name",
+      "keywords": ["kw3", "kw4", "kw5"],
+      "ads": [
+        {
+          "headline1": "max 30 chars",
+          "headline2": "max 30 chars",
+          "headline3": "max 30 chars",
+          "description1": "max 90 chars",
+          "description2": "max 90 chars"
+        }
+      ]
+    }
+  ]
+}`;
+
+    const strategy = await callClaude(stratPrompt, 'claude-opus-4-5', 1500);
+    const adGroups  = strategy.ad_groups || [];
+    const campName  = strategy.campaign_name || `${biz.business_name} — Search — ${new Date().toISOString().slice(0, 10)}`;
+
+    // 2. Create Campaign Budget
+    const budgetResp = await googleAdsReq('POST',
+      `customers/${customerId}/campaignBudgets:mutate`, token,
+      { operations: [{ create: {
+        name:             `${campName} Budget`,
+        amountMicros:     String(dailyBudget * 1_000_000),
+        deliveryMethod:   'STANDARD'
+      }}]});
+
+    if (budgetResp.status !== 200)
+      throw new Error(`Budget create failed: ${JSON.stringify(budgetResp.body).slice(0, 300)}`);
+    const budgetResourceName = budgetResp.body?.results?.[0]?.resourceName || '';
+
+    // 3. Create Campaign
+    const campResp = await googleAdsReq('POST',
+      `customers/${customerId}/campaigns:mutate`, token,
+      { operations: [{ create: {
+        name:                    campName,
+        status:                  'PAUSED',
+        advertisingChannelType:  'SEARCH',
+        campaignBudget:          budgetResourceName,
+        networkSettings: {
+          targetGoogleSearch:    true,
+          targetSearchNetwork:   true,
+          targetContentNetwork:  false
+        },
+        biddingStrategyType:     'MANUAL_CPC'
+      }}]});
+
+    if (campResp.status !== 200)
+      throw new Error(`Campaign create failed: ${JSON.stringify(campResp.body).slice(0, 300)}`);
+    const campaignResourceName = campResp.body?.results?.[0]?.resourceName || '';
+    const googleCampaignId     = campaignResourceName.split('/').pop();
+
+    // 4. Create Ad Groups, Ads, Keywords
+    let firstAdGroupId = null;
+    for (const ag of adGroups.slice(0, 2)) {
+      // Ad Group
+      const agResp = await googleAdsReq('POST',
+        `customers/${customerId}/adGroups:mutate`, token,
+        { operations: [{ create: {
+          name:           ag.name || `Ad Group — ${biz.business_name}`,
+          campaign:       campaignResourceName,
+          status:         'ENABLED',
+          cpcBidMicros:   String(Math.round((biz.target_cpc || 1.5) * 1_000_000))
+        }}]});
+      if (agResp.status !== 200) continue;
+      const agResourceName = agResp.body?.results?.[0]?.resourceName || '';
+      if (!firstAdGroupId) firstAdGroupId = agResourceName.split('/').pop();
+
+      // Keywords
+      const kwOps = (ag.keywords || []).map(kw => ({
+        create: {
+          adGroup:  agResourceName,
+          status:   'ENABLED',
+          keyword:  { text: typeof kw === 'string' ? kw : kw.text, matchType: kw.match_type || 'BROAD' }
+        }
+      }));
+      if (kwOps.length) {
+        await googleAdsReq('POST', `customers/${customerId}/adGroupCriteria:mutate`, token, { operations: kwOps });
+      }
+
+      // Ads (Responsive Search Ads)
+      for (const ad of (ag.ads || []).slice(0, 2)) {
+        const truncate = (s, n) => (s || '').slice(0, n);
+        const adOp = { create: {
+          adGroup: agResourceName,
+          status:  'ENABLED',
+          ad: {
+            finalUrls: [`https://www.google.com`], // placeholder — update with real URL
+            responsiveSearchAd: {
+              headlines: [
+                { text: truncate(ad.headline1, 30) },
+                { text: truncate(ad.headline2, 30) },
+                { text: truncate(ad.headline3, 30) }
+              ].filter(h => h.text),
+              descriptions: [
+                { text: truncate(ad.description1, 90) },
+                { text: truncate(ad.description2, 90) }
+              ].filter(d => d.text)
+            }
+          }
+        }};
+        await googleAdsReq('POST', `customers/${customerId}/adGroupAds:mutate`, token, { operations: [adOp] });
+      }
+    }
+
+    // 5. Save to ad_campaigns
+    const campaignRow = await sbPost('ad_campaigns', {
+      business_id,
+      platform:             'google',
+      google_campaign_id:   googleCampaignId,
+      google_ad_group_id:   firstAdGroupId || null,
+      status:               'paused',
+      daily_budget:         dailyBudget,
+      objective:            'SEARCH_LEADS',
+      ai_strategy:          strategy,
+      creatives:            adGroups.flatMap(ag => (ag.ads || []).map(a => ({ headline: a.headline1 })))
+    });
+
+    // 6. Review email
+    const html = `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
+  <h2 style="color:#4285f4">🔍 Your Google Search Campaign is Ready</h2>
+  <p>Hi ${biz.first_name || biz.business_name},</p>
+  <p>Your AI built a Google Search Ads campaign for <strong>${biz.business_name}</strong>.</p>
+  <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px">
+    <tr style="background:#f8fafc"><td style="padding:8px 12px;font-weight:600">Campaign</td><td style="padding:8px 12px">${campName}</td></tr>
+    <tr><td style="padding:8px 12px;font-weight:600">Ad Groups</td><td style="padding:8px 12px">${adGroups.length}</td></tr>
+    <tr style="background:#f8fafc"><td style="padding:8px 12px;font-weight:600">Daily Budget</td><td style="padding:8px 12px">$${dailyBudget}</td></tr>
+    <tr><td style="padding:8px 12px;font-weight:600">Status</td><td style="padding:8px 12px">⏸️ Paused — awaiting review</td></tr>
+  </table>
+  <a href="https://ads.google.com/aw/campaigns?campaignId=${googleCampaignId}"
+     style="display:inline-block;background:#4285f4;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">
+    Review in Google Ads →
+  </a>
+</div>`;
+    await sendEmail(biz.email, `Your Google Ads campaign is ready for review — ${biz.business_name}`, html);
+    log('/webhook/google-campaign-create', `✅ Google campaign ${googleCampaignId} — ${adGroups.length} ad groups`);
+
+  } catch (err) {
+    console.error('[google-campaign-create ERROR]', err.message);
+    await logError(business_id, 'google-campaign-create', err.message, req.body);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/google-campaign-activate
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/google-campaign-activate', planGate('paid_ads'), async (req, res) => {
+  const { business_id, campaign_id } = req.body;
+  if (!business_id || !campaign_id)
+    return res.status(400).json({ error: 'business_id and campaign_id required' });
+  try {
+    const camp = (await sbGet('ad_campaigns', `id=eq.${campaign_id}&business_id=eq.${business_id}`))[0];
+    if (!camp)               return res.status(404).json({ error: 'Campaign not found' });
+    if (camp.platform !== 'google') return res.status(400).json({ error: 'Not a Google campaign' });
+
+    const biz = (await sbGet('businesses',
+      `id=eq.${business_id}&select=google_access_token,google_ads_customer_id`))[0];
+    if (!biz?.google_access_token) return res.status(400).json({ error: 'google_ads_not_connected' });
+
+    const customerId   = gCid(biz.google_ads_customer_id);
+    const resourceName = `customers/${customerId}/campaigns/${camp.google_campaign_id}`;
+
+    await googleAdsReq('POST', `customers/${customerId}/campaigns:mutate`, biz.google_access_token,
+      { operations: [{ update: { resourceName, status: 'ENABLED' },
+        updateMask: 'status' }]});
+
+    await sbPatch('ad_campaigns', `id=eq.${campaign_id}`, { status: 'active' });
+    res.json({ activated: true, campaign_id, google_campaign_id: camp.google_campaign_id });
+  } catch (err) {
+    console.error('[google-campaign-activate ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/google-campaign-optimize
+// Pulls performance via Google Ads Reporting API, calls Claude Opus, adjusts budget.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/google-campaign-optimize', async (req, res) => {
+  const { business_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  res.json({ received: true, message: 'Google Ads optimization started' });
+
+  try {
+    const biz = (await sbGet('businesses',
+      `id=eq.${business_id}&select=business_name,marketing_goal,target_cpc,avg_order_value,` +
+      `google_access_token,google_ads_customer_id`))[0];
+    if (!biz?.google_ads_customer_id || !biz?.google_access_token) return;
+
+    const customerId = gCid(biz.google_ads_customer_id);
+    const token      = biz.google_access_token;
+    const campaigns  = await sbGet('ad_campaigns',
+      `business_id=eq.${business_id}&platform=eq.google&status=eq.active`);
+
+    let optimizedCount = 0;
+    const actionsTaken  = [];
+
+    for (const camp of campaigns) {
+      try {
+        // Google Ads query for campaign performance (last 7 days)
+        const gaqlQuery = `
+          SELECT campaign.id, campaign.name, campaign.status,
+                 metrics.impressions, metrics.clicks, metrics.cost_micros,
+                 metrics.conversions, metrics.ctr, metrics.average_cpc
+          FROM campaign
+          WHERE campaign.resource_name = 'customers/${customerId}/campaigns/${camp.google_campaign_id}'
+            AND segments.date DURING LAST_7_DAYS`;
+
+        const perfResp = await googleAdsReq('POST',
+          `customers/${customerId}/googleAds:searchStream`, token,
+          { query: gaqlQuery });
+
+        if (perfResp.status !== 200) continue;
+
+        const row = perfResp.body?.[0]?.results?.[0];
+        if (!row) continue;
+
+        const impressions = parseInt(row.metrics?.impressions  || 0);
+        const clicks      = parseInt(row.metrics?.clicks       || 0);
+        const costMicros  = parseInt(row.metrics?.costMicros   || 0);
+        const spend       = costMicros / 1_000_000;
+        const conversions = parseFloat(row.metrics?.conversions || 0);
+        const ctr         = parseFloat(row.metrics?.ctr        || 0) * 100;
+        const avgCpcMicros= parseInt(row.metrics?.averageCpc   || 0);
+        const cpc         = avgCpcMicros / 1_000_000;
+        const revenue     = conversions * (biz.avg_order_value || 50);
+        const roas        = spend > 0 ? revenue / spend : 0;
+        const targetCpc   = parseFloat(biz.target_cpc || 2.00);
+
+        // Update analytics snapshot
+        const today = new Date().toISOString().slice(0, 10);
+        try {
+          await sbUpsert('analytics_snapshots',
+            { business_id, snapshot_date: today, platform: 'google_ads',
+              impressions, clicks, engagement: Math.round(conversions) },
+            'business_id,snapshot_date,platform');
+        } catch { /* non-critical */ }
+
+        // Claude Opus — optimization decision
+        const decisionPrompt =
+`You are a Google Ads optimizer. What action should be taken?
+
+Campaign: ${camp.google_campaign_id}
+Spend (7d): $${spend.toFixed(2)} | Impressions: ${impressions} | Clicks: ${clicks}
+CTR: ${ctr.toFixed(2)}% | CPC: $${cpc.toFixed(2)} | Conversions: ${conversions} | ROAS: ${roas.toFixed(2)}x
+Target CPC: $${targetCpc.toFixed(2)} | Goal: ${biz.marketing_goal || 'grow leads'}
+
+Rules: ROAS > 3 OR CTR > 5% → increase_budget (+20%). CTR < 1% AND spend > $5 → decrease_budget (-20%).
+CPC > target * 2 AND spend > $10 → decrease_budget (-30%). 0 conv AND spend > $30 AND CTR < 0.5% → pause.
+ROAS < 1 AND spend > $20 → refresh_creative. Otherwise → keep.
+
+Return ONLY JSON: {"action":"increase_budget"|"decrease_budget"|"pause"|"refresh_creative"|"keep","reason":"string","budget_change_pct":0}`;
+
+        const decision  = await callClaude(decisionPrompt, 'claude-opus-4-5', 400);
+        const action    = decision.action || 'keep';
+        const reason    = decision.reason || 'Performance within normal range';
+        const changePct = decision.budget_change_pct || 0;
+
+        // Execute action via Google Ads API
+        if (action === 'increase_budget' || action === 'decrease_budget') {
+          const currentBudget = camp.daily_budget || 10;
+          const newBudget     = Math.max(1, Math.round(currentBudget * (1 + changePct / 100)));
+          // Update campaign budget (need the budget resource name)
+          const budgetResourceName = `customers/${customerId}/campaignBudgets/${camp.google_campaign_id}`;
+          await googleAdsReq('POST', `customers/${customerId}/campaignBudgets:mutate`, token,
+            { operations: [{ update: {
+              resourceName: budgetResourceName,
+              amountMicros: String(newBudget * 1_000_000)
+            }, updateMask: 'amountMicros' }]});
+          await sbPatch('ad_campaigns', `id=eq.${camp.id}`, { daily_budget: newBudget });
+        } else if (action === 'pause') {
+          await googleAdsReq('POST', `customers/${customerId}/campaigns:mutate`, token,
+            { operations: [{ update: {
+              resourceName: `customers/${customerId}/campaigns/${camp.google_campaign_id}`,
+              status:       'PAUSED'
+            }, updateMask: 'status' }]});
+        }
+
+        await sbPatch('ad_campaigns', `id=eq.${camp.id}`, {
+          last_decision:        action,
+          last_decision_reason: reason,
+          last_optimized_at:    new Date().toISOString(),
+          impressions, clicks,
+          total_spend:          spend,
+          roas,
+          ...(action === 'pause' ? { status: 'paused', paused_reason: reason } : {})
+        });
+
+        actionsTaken.push({ campaign_id: camp.id, action, reason });
+        optimizedCount++;
+      } catch (ce) {
+        log('/webhook/google-campaign-optimize', `Campaign ${camp.id} error: ${ce.message}`);
+        await logError(business_id, 'google-campaign-optimize', ce.message, { campaign_id: camp.id });
+      }
+    }
+    log('/webhook/google-campaign-optimize',
+      `✅ Optimized ${optimizedCount}/${campaigns.length} Google campaigns for ${business_id}`);
+  } catch (err) {
+    console.error('[google-campaign-optimize ERROR]', err.message);
+    await logError(business_id, 'google-campaign-optimize', err.message, req.body);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /webhook/google-campaigns-get?business_id=X
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/webhook/google-campaigns-get', async (req, res) => {
+  const { business_id } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  try {
+    const campaigns = await sbGet('ad_campaigns',
+      `business_id=eq.${business_id}&platform=eq.google&order=created_at.desc`);
+    const summary = {
+      total:       campaigns.length,
+      active:      campaigns.filter(c => c.status === 'active').length,
+      paused:      campaigns.filter(c => c.status === 'paused').length,
+      total_spend: campaigns.reduce((a, c) => a + parseFloat(c.total_spend || 0), 0).toFixed(2),
+      avg_roas:    campaigns.length
+        ? (campaigns.reduce((a, c) => a + parseFloat(c.roas || 0), 0) / campaigns.length).toFixed(2)
+        : '0.00'
+    };
+    res.json({ campaigns, summary });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPRINT 3 — PAID ADS MODULE: Ad Creatives + A/B Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /webhook/ad-creatives-get?business_id=X[&campaign_id=Y]
+// Returns all ad creatives for a business (optionally filtered by campaign).
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/webhook/ad-creatives-get', async (req, res) => {
+  const { business_id, campaign_id } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  try {
+    let filter = `business_id=eq.${business_id}&order=created_at.desc`;
+    if (campaign_id) filter += `&campaign_id=eq.${campaign_id}`;
+
+    const creatives = await sbGet('ad_creatives', filter);
+
+    const summary = {
+      total:      creatives.length,
+      active:     creatives.filter(c => c.status === 'active').length,
+      winners:    creatives.filter(c => c.is_winner).length,
+      avg_ctr:    creatives.length
+        ? (creatives.reduce((a, c) => a + parseFloat(c.ctr || 0), 0) / creatives.length).toFixed(3)
+        : '0.000',
+      platforms:  [...new Set(creatives.map(c => c.platform))]
+    };
+
+    res.json({ creatives, summary });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/ad-creative-update
+// Update a creative's status, is_winner flag, or performance metrics.
+// Body: { creative_id, [status], [is_winner], [impressions], [clicks], [ctr] }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/ad-creative-update', async (req, res) => {
+  const { creative_id, status, is_winner, impressions, clicks, ctr } = req.body;
+  if (!creative_id) return res.status(400).json({ error: 'creative_id required' });
+  try {
+    const updates = {};
+    if (status     !== undefined) updates.status      = status;
+    if (is_winner  !== undefined) updates.is_winner   = is_winner;
+    if (impressions!== undefined) updates.impressions = impressions;
+    if (clicks     !== undefined) updates.clicks      = clicks;
+    if (ctr        !== undefined) updates.ctr         = ctr;
+
+    if (!Object.keys(updates).length)
+      return res.status(400).json({ error: 'No fields to update' });
+
+    await sbPatch('ad_creatives', `id=eq.${creative_id}`, updates);
+
+    // If this creative is being marked as winner, unmark siblings in same campaign
+    if (is_winner === true) {
+      const rows = await sbGet('ad_creatives', `id=eq.${creative_id}&select=campaign_id`);
+      const cid = rows[0]?.campaign_id;
+      if (cid) {
+        await sbPatch('ad_creatives',
+          `campaign_id=eq.${cid}&id=neq.${creative_id}`,
+          { is_winner: false });
+      }
+    }
+
+    res.json({ success: true, creative_id, updated: updates });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/ad-creative-generate
+// Ask Claude Sonnet to generate N fresh ad creatives for a campaign.
+// Body: { business_id, campaign_id, platform, count = 3 }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/ad-creative-generate', async (req, res) => {
+  const { business_id, campaign_id, platform = 'meta', count = 3 } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+
+  try {
+    const biz = (await sbGet('businesses',
+      `id=eq.${business_id}&select=business_name,industry,target_audience,brand_tone,marketing_goal`))[0];
+    if (!biz) return res.status(404).json({ error: 'business not found' });
+
+    // Pull existing creatives to avoid repetition
+    let existingFilter = `business_id=eq.${business_id}&platform=eq.${platform}&order=created_at.desc&limit=5&select=headline,primary_text`;
+    const existing = await sbGet('ad_creatives', existingFilter);
+    const existingHeadlines = existing.map(c => c.headline).filter(Boolean).join('; ');
+
+    const prompt =
+`You are a world-class Meta/Google ad copywriter. Create ${count} distinct ad creative variants for this business.
+
+Business: ${biz.business_name} | Industry: ${biz.industry}
+Target Audience: ${biz.target_audience || 'general consumers'}
+Brand Tone: ${biz.brand_tone || 'professional'} | Goal: ${biz.marketing_goal || 'generate leads'}
+Platform: ${platform}
+${existingHeadlines ? `Avoid repeating these headlines: ${existingHeadlines}` : ''}
+
+Return ONLY valid JSON:
+{
+  "creatives": [
+    {
+      "headline": "30-char max headline",
+      "primary_text": "125-char max body copy",
+      "description": "30-char description",
+      "cta": "LEARN_MORE|SHOP_NOW|SIGN_UP|CONTACT_US|GET_QUOTE",
+      "image_prompt": "detailed Flux AI image prompt for this ad"
+    }
+  ]
+}`;
+
+    const raw = await callClaude(prompt, 'claude-sonnet-4-5', 1500);
+    let parsed = {};
+    try { parsed = JSON.parse(raw); }
+    catch { const m = raw.match(/\{[\s\S]*\}/); if (m) try { parsed = JSON.parse(m[0]); } catch {} }
+
+    const variants = Array.isArray(parsed.creatives) ? parsed.creatives.slice(0, count) : [];
+
+    // Persist each generated creative to DB
+    const saved = [];
+    for (const v of variants) {
+      try {
+        const row = await sbPost('ad_creatives', {
+          business_id,
+          campaign_id: campaign_id || null,
+          platform,
+          headline:     v.headline     || '',
+          primary_text: v.primary_text || '',
+          description:  v.description  || '',
+          cta:          v.cta          || 'LEARN_MORE',
+          image_prompt: v.image_prompt || '',
+          status:       'active'
+        });
+        saved.push({ ...v, id: row?.id });
+      } catch { saved.push(v); }
+    }
+
+    res.json({ generated: saved.length, creatives: saved });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /webhook/ab-tests-get?business_id=X
+// Returns A/B test records for a business.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/webhook/ab-tests-get', async (req, res) => {
+  const { business_id } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  try {
+    const tests = await sbGet('ab_tests',
+      `business_id=eq.${business_id}&order=tested_at.desc&limit=20`);
+
+    const summary = {
+      total:          tests.length,
+      with_winner:    tests.filter(t => t.winner).length,
+      without_winner: tests.filter(t => !t.winner).length
+    };
+
+    res.json({ tests, summary });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── 404 ──────────────────────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).json({ error: `Route ${req.method} ${req.path} not found` }));
 
