@@ -39,6 +39,10 @@ const PEXELS_API_KEY      = clean(process.env.PEXELS_API_KEY)      || '';
 const RESEND_API_KEY      = clean(process.env.RESEND_API_KEY)      || '';
 const FROM_EMAIL          = clean(process.env.FROM_EMAIL)          || 'onboarding@resend.dev';
 const PORT                = process.env.PORT                        || 3000;
+// Sprint 5 — Brand Memory + Reviews
+const OPENAI_API_KEY      = clean(process.env.OPENAI_API_KEY)      || '';
+const PINECONE_API_KEY    = clean(process.env.PINECONE_API_KEY)    || '';
+const PINECONE_HOST       = clean(process.env.PINECONE_HOST)       || ''; // full index host URL
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
 function apiRequest(method, url, headers = {}, body = null) {
@@ -109,6 +113,49 @@ async function callClaude(prompt, model = 'claude-sonnet-4-5', maxTokens = 2000)
   const as = raw.indexOf('['), ae = raw.lastIndexOf(']');
   if (as !== -1 && ae > as) { try { return JSON.parse(raw.slice(as, ae + 1)); } catch {} }
   return { _raw: raw };
+}
+
+// ─── OpenAI embedding helper ─────────────────────────────────────────────────
+async function getEmbedding(text) {
+  if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not set');
+  const r = await apiRequest('POST', 'https://api.openai.com/v1/embeddings',
+    { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+    { model: 'text-embedding-3-small', input: text.slice(0, 8000) });
+  if (r.status !== 200) throw new Error(`OpenAI embed: ${r.status} ${JSON.stringify(r.body).slice(0,200)}`);
+  return r.body?.data?.[0]?.embedding || [];
+}
+
+// ─── Pinecone helpers ─────────────────────────────────────────────────────────
+async function pineconeUpsert(vectors) {
+  if (!PINECONE_API_KEY || !PINECONE_HOST) throw new Error('Pinecone not configured');
+  const r = await apiRequest('POST', `${PINECONE_HOST}/vectors/upsert`,
+    { 'Api-Key': PINECONE_API_KEY, 'Content-Type': 'application/json' },
+    { vectors });
+  if (![200,201].includes(r.status)) throw new Error(`Pinecone upsert: ${r.status} ${JSON.stringify(r.body).slice(0,200)}`);
+  return r.body;
+}
+
+async function pineconeQuery(vector, filter = {}, topK = 3) {
+  if (!PINECONE_API_KEY || !PINECONE_HOST) return { matches: [] };
+  const r = await apiRequest('POST', `${PINECONE_HOST}/query`,
+    { 'Api-Key': PINECONE_API_KEY, 'Content-Type': 'application/json' },
+    { vector, filter, topK, includeMetadata: true });
+  if (r.status !== 200) return { matches: [] };
+  return r.body;
+}
+
+// ─── Brand memory context helper ─────────────────────────────────────────────
+// Returns a prompt prefix string like "Here are examples…\n---\n" or '' if none
+async function getBrandExamples(business_id, content_type, topic) {
+  try {
+    if (!OPENAI_API_KEY || !PINECONE_API_KEY || !PINECONE_HOST) return '';
+    const vector = await getEmbedding(topic);
+    const result = await pineconeQuery(vector, { businessId: { $eq: business_id }, contentType: { $eq: content_type } }, 3);
+    const matches = (result.matches || []).filter(m => m.score > 0.7 && m.metadata?.text);
+    if (!matches.length) return '';
+    const examples = matches.map(m => m.metadata.text).join('\n---\n');
+    return `Here are examples of this business's best-performing content — match this exact voice and style:\n${examples}\n\nNow write new content:\n`;
+  } catch { return ''; }
 }
 
 // ─── SerpAPI helper ───────────────────────────────────────────────────────────
@@ -1752,7 +1799,8 @@ app.post('/webhook/linkedin-publish', async (req, res) => {
     let postText = content;
     if (!postText || postText === 'AI_GENERATE') {
       const bestThemes = biz.best_performing_themes ? JSON.stringify(biz.best_performing_themes) : 'not available yet';
-      const prompt = `You are a LinkedIn content expert. Generate a professional LinkedIn post for a ${biz.industry} business.
+      const brandContext = await getBrandExamples(business_id, 'social_post', `${biz.business_name} ${biz.industry} linkedin`);
+      const prompt = `${brandContext}You are a LinkedIn content expert. Generate a professional LinkedIn post for a ${biz.industry} business.
 Business: ${biz.business_name}
 Tone: ${biz.brand_tone || 'professional and approachable'}
 Target audience: ${biz.target_audience || 'business owners'}
@@ -1931,13 +1979,14 @@ app.post('/webhook/twitter-publish', async (req, res) => {
 
     if (!tweetText || tweetText === 'AI_GENERATE') {
       const isThread = post_type === 'thread';
+      const brandContext = await getBrandExamples(business_id, 'social_post', `${biz.business_name} ${biz.industry} twitter`);
       const prompt = isThread
-        ? `Write a 5-tweet thread for a ${biz.industry} business.
+        ? `${brandContext}Write a 5-tweet thread for a ${biz.industry} business.
 Business: ${biz.business_name}, Tone: ${biz.brand_tone || 'expert'}.
 Tweet 1: bold hook. Tweets 2-4: actionable value. Tweet 5: CTA.
 Max 270 chars each. Max 1-2 hashtags total across the thread.
 Return only valid JSON: {"tweets":["t1","t2","t3","t4","t5"],"content_theme":"..."}`
-        : `Generate a tweet for a ${biz.industry} business. Max 280 characters.
+        : `${brandContext}Generate a tweet for a ${biz.industry} business. Max 280 characters.
 Direct, engaging, ends with soft CTA. Max 2 hashtags.
 Business: ${biz.business_name}, Tone: ${biz.brand_tone || 'professional'}, Audience: ${biz.target_audience || 'business owners'}.
 Return only valid JSON: {"tweet":"...","content_theme":"..."}`;
@@ -2098,7 +2147,8 @@ app.post('/webhook/tiktok-publish', async (req, res) => {
 
     // 1. Generate script + caption via Claude Sonnet
     const bestThemes = biz.best_performing_themes ? JSON.stringify(biz.best_performing_themes) : 'not available yet';
-    const prompt = `Write a TikTok video script for a ${biz.industry} business.
+    const brandContext = await getBrandExamples(business_id, 'social_post', `${biz.business_name} ${biz.industry} tiktok video`);
+    const prompt = `${brandContext}Write a TikTok video script for a ${biz.industry} business.
 Business: ${biz.business_name}
 Tone: ${biz.brand_tone || 'fun, energetic, authentic'}
 Target audience: ${biz.target_audience || 'young adults'}
@@ -4184,6 +4234,360 @@ app.post('/webhook/content-approve', async (req, res) => {
     await sbPatch('content_pieces', `id=eq.${piece_id}`, updates);
     res.json({ success: true, piece_id, status: updates.status });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPRINT 5 — BRAND MEMORY + WHITE-LABEL + REVIEWS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/brand-memory-store
+// Store a high-performing content piece as a vector in Pinecone.
+// Body: { business_id, content_type, text, performance_score }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/brand-memory-store', async (req, res) => {
+  const { business_id, content_type, text, performance_score = 0 } = req.body;
+  if (!business_id || !text) return res.status(400).json({ error: 'business_id and text required' });
+  if (!['social_post','email','ad_copy','blog'].includes(content_type))
+    return res.status(400).json({ error: 'content_type must be social_post|email|ad_copy|blog' });
+
+  if (performance_score < 7)
+    return res.json({ stored: false, reason: 'performance_score below threshold (7)', performance_score });
+
+  if (!OPENAI_API_KEY || !PINECONE_API_KEY || !PINECONE_HOST)
+    return res.json({ stored: false, reason: 'Brand memory not configured — set OPENAI_API_KEY, PINECONE_API_KEY, PINECONE_HOST' });
+
+  try {
+    const vector = await getEmbedding(text);
+    const vector_id = `${business_id}-${Date.now()}`;
+    await pineconeUpsert([{
+      id: vector_id,
+      values: vector,
+      metadata: {
+        businessId:       business_id,
+        contentType:      content_type,
+        performance_score,
+        text:             text.slice(0, 500)
+      }
+    }]);
+    res.json({ stored: true, vector_id, content_type, performance_score });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/brand-memory-retrieve
+// Retrieve semantically similar best-performing content from Pinecone.
+// Body: { business_id, content_type, topic }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/brand-memory-retrieve', async (req, res) => {
+  const { business_id, content_type = 'social_post', topic } = req.body;
+  if (!business_id || !topic) return res.status(400).json({ error: 'business_id and topic required' });
+
+  if (!OPENAI_API_KEY || !PINECONE_API_KEY || !PINECONE_HOST)
+    return res.json({ examples: [], reason: 'Brand memory not configured' });
+
+  try {
+    const vector  = await getEmbedding(topic);
+    const result  = await pineconeQuery(
+      vector,
+      { businessId: { $eq: business_id }, contentType: { $eq: content_type } },
+      3
+    );
+    const matches  = (result.matches || []).filter(m => m.score > 0.6 && m.metadata?.text);
+    const examples = matches.map(m => m.metadata.text);
+    res.json({ examples, count: examples.length, content_type, topic });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/brand-memory-train
+// Train brand memory on last 7 days of published content for a business.
+// Body: { business_id }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/brand-memory-train', async (req, res) => {
+  const { business_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+
+  try {
+    const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+    const pieces = await sbGet('generated_content',
+      `business_id=eq.${business_id}&status=eq.published&published_at=gte.${since}&select=*`);
+
+    if (!pieces.length) return res.json({ trained_on: 0, stored: 0, reason: 'No published content in last 7 days' });
+
+    let stored = 0;
+    const results = [];
+
+    for (const p of pieces) {
+      // Score: published = 10, has image = +2
+      const score = 10 + (p.image_url ? 2 : 0);
+
+      // Map each content field to a content_type and store independently
+      const candidates = [
+        { type: 'social_post', text: p.instagram_caption || p.facebook_post },
+        { type: 'email',       text: p.email_body },
+        { type: 'blog',        text: p.blog_title }
+      ].filter(c => c.text && c.text.length > 20);
+
+      for (const c of candidates) {
+        try {
+          const storeResp = await apiRequest('POST',
+            `http://localhost:${PORT}/webhook/brand-memory-store`,
+            { 'Content-Type': 'application/json' },
+            { business_id, content_type: c.type, text: c.text, performance_score: score });
+          if (storeResp.body?.stored) stored++;
+          results.push({ type: c.type, score, stored: storeResp.body?.stored });
+        } catch {}
+      }
+    }
+
+    res.json({ trained_on: pieces.length, stored, results });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/white-label-update   [agency plan only]
+// Body: { business_id, organization_id, company_name, primary_color, logo_url, domain, support_email }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/white-label-update', planGate('white_label'), async (req, res) => {
+  const { organization_id, company_name, primary_color, logo_url, domain, support_email } = req.body;
+  if (!organization_id) return res.status(400).json({ error: 'organization_id required' });
+
+  try {
+    const updates = {};
+    if (company_name)   updates.white_label_company_name  = company_name;
+    if (primary_color)  updates.white_label_primary_color = primary_color;
+    if (logo_url)       updates.white_label_logo_url      = logo_url;
+    if (domain)         updates.white_label_domain        = domain;
+    if (support_email)  updates.white_label_support_email = support_email;
+
+    if (!Object.keys(updates).length)
+      return res.status(400).json({ error: 'No white-label fields provided' });
+
+    await sbPatch('organizations', `id=eq.${organization_id}`, updates);
+
+    const orgs = await sbGet('organizations', `id=eq.${organization_id}&select=*`);
+    const settings = orgs[0] || {};
+    res.json({
+      updated: true,
+      settings: {
+        company_name:   settings.white_label_company_name,
+        primary_color:  settings.white_label_primary_color,
+        logo_url:       settings.white_label_logo_url,
+        domain:         settings.white_label_domain,
+        support_email:  settings.white_label_support_email
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /webhook/white-label-get?organization_id=X
+// Used by Lovable frontend to inject custom branding on load.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/webhook/white-label-get', async (req, res) => {
+  const { organization_id } = req.query;
+  if (!organization_id) return res.status(400).json({ error: 'organization_id required' });
+  try {
+    const orgs = await sbGet('organizations',
+      `id=eq.${organization_id}&select=white_label_company_name,white_label_primary_color,white_label_logo_url,white_label_domain,white_label_support_email,name`);
+    const o = orgs[0];
+    if (!o) return res.status(404).json({ error: 'organization not found' });
+    res.json({
+      company_name:   o.white_label_company_name  || o.name,
+      primary_color:  o.white_label_primary_color || '#667eea',
+      logo_url:       o.white_label_logo_url      || null,
+      domain:         o.white_label_domain        || null,
+      support_email:  o.white_label_support_email || 'hello@maroa.ai',
+      is_white_labeled: !!(o.white_label_company_name || o.white_label_domain)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/review-request-send
+// Generate personalised review-request email via Claude and send via Resend.
+// Body: { business_id, contact_email, contact_name, platform }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/review-request-send', async (req, res) => {
+  const { business_id, contact_email, contact_name, platform = 'google' } = req.body;
+  if (!business_id || !contact_email)
+    return res.status(400).json({ error: 'business_id and contact_email required' });
+
+  try {
+    const bizArr = await sbGet('businesses',
+      `id=eq.${business_id}&select=business_name,first_name,email,google_review_link`);
+    const biz = bizArr[0];
+    if (!biz) return res.status(404).json({ error: 'business not found' });
+
+    const reviewLink = biz.google_review_link || 'https://g.page/r/review';
+
+    const prompt =
+`Write a friendly short email (under 80 words) asking ${contact_name || 'a valued customer'} to leave a Google review for ${biz.business_name}.
+Owner name: ${biz.first_name || biz.business_name}. Review link: ${reviewLink}.
+Be warm and genuine. Not pushy. Address them by first name.
+Return ONLY valid JSON: { "subject": "...", "body_html": "..." }`;
+
+    const email = await callClaude(prompt, 'claude-sonnet-4-5', 500);
+
+    const subject  = email.subject  || `Quick favour — leave us a review?`;
+    const bodyHtml = email.body_html || `<p>Hi ${contact_name || 'there'},</p><p>Would you mind leaving us a quick review? <a href="${reviewLink}">Click here</a>. Thanks so much!</p><p>${biz.first_name || biz.business_name}</p>`;
+
+    // Send email
+    await sendEmail(contact_email, subject, bodyHtml);
+
+    // Log request
+    const reqRow = await sbPost('review_requests', {
+      business_id, contact_email, contact_name, platform, review_link: reviewLink
+    });
+
+    res.json({ sent: true, request_id: reqRow?.id, subject, platform });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/review-response-generate
+// Generate a Claude-written response draft for a review.
+// Body: { business_id, review_id }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/review-response-generate', async (req, res) => {
+  const { business_id, review_id } = req.body;
+  if (!business_id || !review_id)
+    return res.status(400).json({ error: 'business_id and review_id required' });
+
+  try {
+    const [bizArr, reviewArr] = await Promise.all([
+      sbGet('businesses', `id=eq.${business_id}&select=business_name,first_name,email`),
+      sbGet('reviews', `id=eq.${review_id}&select=*`)
+    ]);
+    const biz    = bizArr[0];
+    const review = reviewArr[0];
+    if (!biz)    return res.status(404).json({ error: 'business not found' });
+    if (!review) return res.status(404).json({ error: 'review not found' });
+
+    const stars = review.rating || 5;
+    const tone  = stars >= 4 ? 'positive' : 'negative';
+
+    const prompt =
+`Write a professional response to this ${stars}-star review for ${biz.business_name}.
+Review: "${review.review_text || 'No text provided'}"
+Reviewer: ${review.reviewer_name || 'Valued customer'}
+
+${tone === 'positive'
+  ? `Thank warmly, mention a specific detail from their review, invite them back. Under 80 words.`
+  : `Apologize sincerely, take accountability, offer to resolve offline with contact info. Under 100 words.`}
+Sign as ${biz.first_name || 'The Team'} at ${biz.business_name}.
+Return ONLY valid JSON: { "response_text": "..." }`;
+
+    const result = await callClaude(prompt, 'claude-sonnet-4-5', 400);
+    const response_text = result.response_text || result._raw || '';
+
+    await sbPatch('reviews', `id=eq.${review_id}`,
+      { response_draft: response_text, response_status: 'draft_ready' });
+
+    // Notify business owner
+    if (biz.email) {
+      const html = `<h2>Review Response Draft Ready</h2>
+<p><strong>Reviewer:</strong> ${review.reviewer_name || 'Anonymous'} — ${stars}⭐</p>
+<p><strong>Review:</strong> "${review.review_text || ''}"</p>
+<p><strong>Draft Response:</strong></p><blockquote>${response_text}</blockquote>
+<p><a href="https://maroa-ai-marketing-automator.lovable.app/reviews" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Publish</a></p>`;
+      await sendEmail(biz.email, `Review response draft ready — ${stars}⭐ from ${review.reviewer_name || 'customer'}`, html).catch(() => {});
+    }
+
+    res.json({ review_id, response_draft: response_text, rating: stars });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/review-response-publish
+// Publish response draft to Google My Business (or mark published locally).
+// Body: { business_id, review_id }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/review-response-publish', async (req, res) => {
+  const { business_id, review_id } = req.body;
+  if (!business_id || !review_id)
+    return res.status(400).json({ error: 'business_id and review_id required' });
+
+  try {
+    const [bizArr, reviewArr] = await Promise.all([
+      sbGet('businesses', `id=eq.${business_id}&select=business_name,google_business_id,google_access_token`),
+      sbGet('reviews', `id=eq.${review_id}&select=*`)
+    ]);
+    const biz    = bizArr[0];
+    const review = reviewArr[0];
+    if (!biz)    return res.status(404).json({ error: 'business not found' });
+    if (!review) return res.status(404).json({ error: 'review not found' });
+
+    const responseText = review.response_draft || '';
+    let published_via_api = false;
+
+    // Attempt Google My Business API publish
+    if (biz.google_business_id && biz.google_access_token && review.platform_review_id) {
+      try {
+        const gmbResp = await apiRequest('PUT',
+          `https://mybusiness.googleapis.com/v4/accounts/${biz.google_business_id}/locations/-/reviews/${review.platform_review_id}/reply`,
+          { 'Authorization': `Bearer ${biz.google_access_token}`, 'Content-Type': 'application/json' },
+          { comment: responseText });
+        if ([200, 201].includes(gmbResp.status)) published_via_api = true;
+      } catch {}
+    }
+
+    await sbPatch('reviews', `id=eq.${review_id}`,
+      { response_published: responseText, response_status: 'published' });
+
+    res.json({ published: true, review_id, published_via_api,
+      note: published_via_api ? 'Posted to Google My Business' : 'Marked published locally (GMB API not connected)' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /webhook/reviews-get?business_id=X[&status=X][&platform=X]
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/webhook/reviews-get', async (req, res) => {
+  const { business_id, status, platform } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  try {
+    let filter = `business_id=eq.${business_id}&order=review_date.desc.nullslast`;
+    if (status)   filter += `&response_status=eq.${status}`;
+    if (platform) filter += `&platform=eq.${platform}`;
+
+    const reviews = await sbGet('reviews', filter);
+
+    const summary = {
+      total:              reviews.length,
+      pending_response:   reviews.filter(r => r.response_status === 'pending').length,
+      draft_ready:        reviews.filter(r => r.response_status === 'draft_ready').length,
+      published_response: reviews.filter(r => r.response_status === 'published').length,
+      avg_rating:         reviews.length
+        ? parseFloat((reviews.reduce((s, r) => s + (r.rating || 0), 0) / reviews.length).toFixed(1)) : null,
+      by_sentiment: {
+        positive: reviews.filter(r => r.sentiment === 'positive').length,
+        neutral:  reviews.filter(r => r.sentiment === 'neutral').length,
+        negative: reviews.filter(r => r.sentiment === 'negative').length
+      }
+    };
+
+    res.json({ reviews, summary });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
