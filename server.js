@@ -3720,10 +3720,8 @@ Return ONLY valid JSON:
   ]
 }`;
 
-    const raw = await callClaude(prompt, 'claude-sonnet-4-5', 1500);
-    let parsed = {};
-    try { parsed = JSON.parse(raw); }
-    catch { const m = raw.match(/\{[\s\S]*\}/); if (m) try { parsed = JSON.parse(m[0]); } catch {} }
+    // callClaude already returns a parsed object (or { _raw } fallback)
+    const parsed = await callClaude(prompt, 'claude-sonnet-4-5', 1500);
 
     const variants = Array.isArray(parsed.creatives) ? parsed.creatives.slice(0, count) : [];
 
