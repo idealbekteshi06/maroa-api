@@ -728,26 +728,27 @@ app.post('/webhook/instant-content', async (req, res) => {
 
   if (!business_id) return res.status(400).json({ error: 'business_id required' });
 
-  try {
-    const result = await generateInstantContent(business_id, email);
+  // Return immediately — content generation + email happen in background
+  res.json({ received: true, message: 'Content generation started — check email in ~2 minutes' });
 
-    // Send content ready email
-    if (email) {
-      const html = `<h2>Your weekly content is ready!</h2>
+  setImmediate(async () => {
+    try {
+      const result = await generateInstantContent(business_id, email);
+
+      if (email) {
+        const html = `<h2>Your weekly content is ready!</h2>
 <p>Theme: <strong>${result.content_theme || 'Weekly Content'}</strong></p>
 <p>Quality Score: <strong>${result.quality_score}/100</strong></p>
 <p>All platforms ready: Instagram, Facebook, LinkedIn, TikTok, Google Ads, Email</p>
 <p><a href="https://maroa-ai-marketing-automator.lovable.app" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Approve Content</a></p>`;
-      await sendEmail(email, `Your ${result.content_theme || 'weekly'} content is ready!`, html);
+        await sendEmail(email, `Your ${result.content_theme || 'weekly'} content is ready!`, html);
+      }
+      log('/webhook/instant-content', `✅ done — theme: ${result.content_theme}`);
+    } catch (err) {
+      console.error('[instant-content ERROR]', err.message);
+      await logError(business_id, 'instant-content', err.message, req.body).catch(() => {});
     }
-
-    res.json({ success: true, row_id: result.row_id, content_theme: result.content_theme,
-      quality_score: result.quality_score, image: result.image });
-  } catch (err) {
-    console.error('[instant-content ERROR]', err.message);
-    await logError(business_id, 'instant-content', err.message, req.body);
-    res.status(500).json({ error: err.message });
-  }
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -986,6 +987,10 @@ app.post('/webhook/content-approved', async (req, res) => {
 
   if (!content_id) return res.status(400).json({ error: 'content_id required' });
 
+  // Return immediately — DB update + publishing happen in background
+  res.json({ received: true, message: 'Approved — autopublish in progress' });
+
+  setImmediate(async () => {
   try {
     await sbPatch('generated_content', `id=eq.${content_id}`, {
       status: 'approved', approved_at: new Date().toISOString(),
@@ -998,9 +1003,7 @@ app.post('/webhook/content-approved', async (req, res) => {
     ]);
     const biz  = bizArr[0];
     const cont = contentArr[0];
-    if (!biz || !cont) return res.json({ success: true, note: 'approved but biz/content not found for publishing' });
-
-    res.json({ success: true, message: 'Approved — autopublish in progress' });
+    if (!biz || !cont) { log('/webhook/content-approved', 'biz/content not found — skipping publish'); return; }
 
     const platforms = (() => { try { return JSON.parse(biz.selected_platforms || '[]'); } catch { return []; } })();
     const published = [];
@@ -1054,8 +1057,9 @@ app.post('/webhook/content-approved', async (req, res) => {
     log('/webhook/content-approved', `✅ Published to: ${published.join(', ') || 'none (manual only)'}`);
   } catch (err) {
     console.error('[content-approved ERROR]', err.message);
-    await logError(business_id, 'content-approved', err.message, req.body);
+    await logError(business_id, 'content-approved', err.message, req.body).catch(() => {});
   }
+  }); // end setImmediate
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1765,9 +1769,10 @@ Return only valid JSON: {"post_text":"...","content_theme":"..."}`;
         { model: 'claude-sonnet-4-5', max_tokens: 700, messages: [{ role: 'user', content: prompt }] });
 
       const raw = aiResp.body?.content?.[0]?.text || '{}';
+      const _cl1 = raw.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
       let parsed = {};
-      try { parsed = JSON.parse(raw); }
-      catch { const m = raw.match(/{[\s\S]*}/); if(m) try { parsed = JSON.parse(m[0]); } catch {} }
+      try { parsed = JSON.parse(_cl1); }
+      catch { const m = _cl1.match(/\{[\s\S]*\}/); if(m) try { parsed = JSON.parse(m[0]); } catch {} }
       postText = parsed.post_text || raw;
 
       // Save to generated_content
@@ -1942,9 +1947,10 @@ Return only valid JSON: {"tweet":"...","content_theme":"..."}`;
         { model: 'claude-sonnet-4-5', max_tokens: 500, messages: [{ role: 'user', content: prompt }] });
 
       const raw = aiResp.body?.content?.[0]?.text || '{}';
+      const _cl2 = raw.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
       let parsed = {};
-      try { parsed = JSON.parse(raw); }
-      catch { const m = raw.match(/{[\s\S]*}/); if(m) try { parsed = JSON.parse(m[0]); } catch {} }
+      try { parsed = JSON.parse(_cl2); }
+      catch { const m = _cl2.match(/\{[\s\S]*\}/); if(m) try { parsed = JSON.parse(m[0]); } catch {} }
 
       tweetText = parsed.tweet     || '';
       tweets    = parsed.tweets    || [];
@@ -2117,9 +2123,10 @@ Return only valid JSON: {"hook":"...","script":"...","caption":"...","hashtags":
       { model: 'claude-sonnet-4-5', max_tokens: 600, messages: [{ role: 'user', content: prompt }] });
 
     const raw = aiResp.body?.content?.[0]?.text || '{}';
+    const _cl3 = raw.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
     let parsed = {};
-    try { parsed = JSON.parse(raw); }
-    catch { const m = raw.match(/{[\s\S]*}/); if(m) try { parsed = JSON.parse(m[0]); } catch {} }
+    try { parsed = JSON.parse(_cl3); }
+    catch { const m = _cl3.match(/\{[\s\S]*\}/); if(m) try { parsed = JSON.parse(m[0]); } catch {} }
 
     const fullCaption = `${parsed.caption || ''} ${(parsed.hashtags || []).join(' ')}`.trim();
 
@@ -3606,6 +3613,577 @@ app.get('/webhook/google-campaigns-get', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPRINT 4 — CRM + COMPETITOR INTELLIGENCE + CONTENT ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Lead score weights ────────────────────────────────────────────────────────
+const SCORE_WEIGHTS = {
+  email_open:5, email_click:10, page_visit:3, form_fill:20,
+  ad_click:8, purchase:50, meeting:30, call:15, email_bounce:-5
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/contact-create
+// UPSERT contact, log activity, auto-enroll in signup sequence.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/contact-create', async (req, res) => {
+  const { business_id, email, first_name, last_name, phone, company, source = 'manual', tags = [] } = req.body;
+  if (!business_id || !email) return res.status(400).json({ error: 'business_id and email required' });
+
+  try {
+    // UPSERT via REST: POST with Prefer: resolution=merge-duplicates
+    const r = await apiRequest('POST',
+      `${SUPABASE_URL}/rest/v1/contacts`,
+      { ...sbH(), 'Content-Type': 'application/json', 'Prefer': 'return=representation,resolution=merge-duplicates' },
+      { business_id, email, first_name, last_name, phone, company, source,
+        tags, last_activity_at: new Date().toISOString() });
+
+    if (![200,201].includes(r.status))
+      throw new Error(`contact upsert: ${r.status} ${JSON.stringify(r.body).slice(0,200)}`);
+
+    const contact = Array.isArray(r.body) ? r.body[0] : r.body;
+    const contact_id = contact?.id;
+    if (!contact_id) throw new Error('No contact id returned');
+
+    // Log creation activity
+    await sbPost('contact_activities', {
+      business_id, contact_id, activity_type: 'contact_created', metadata: { source }
+    });
+
+    // Auto-enroll in 'signup' sequence if one exists
+    let enrolled = false;
+    try {
+      const seqs = await sbGet('email_sequences',
+        `business_id=eq.${business_id}&trigger_type=eq.signup&is_active=eq.true&limit=1`);
+      if (seqs[0]) {
+        await sbPost('contact_enrollments', {
+          business_id, contact_email: email,
+          contact_name: [first_name, last_name].filter(Boolean).join(' ') || email,
+          sequence_id: seqs[0].id, current_step: 0, status: 'active',
+          next_send_at: new Date().toISOString()
+        });
+        enrolled = true;
+      }
+    } catch {}
+
+    res.json({ success: true, contact_id, enrolled_in_sequence: enrolled });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/contact-update
+// Update arbitrary fields on a contact.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/contact-update', async (req, res) => {
+  const { contact_id, ...fields } = req.body;
+  if (!contact_id) return res.status(400).json({ error: 'contact_id required' });
+  delete fields.id; delete fields.business_id; delete fields.created_at;
+  try {
+    await sbPatch('contacts', `id=eq.${contact_id}`, {
+      ...fields, last_activity_at: new Date().toISOString()
+    });
+    res.json({ success: true, contact_id, updated: fields });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/contact-import
+// Bulk UPSERT contacts from CSV array. Dedupe on (business_id, email).
+// Body: { business_id, contacts: [{email, first_name, ...}] }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/contact-import', async (req, res) => {
+  const { business_id, contacts = [] } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  if (!contacts.length) return res.json({ imported: 0, updated: 0, failed: 0 });
+
+  let imported = 0, updated = 0, failed = 0;
+  for (const c of contacts) {
+    if (!c.email) { failed++; continue; }
+    try {
+      // Check if exists
+      const existing = await sbGet('contacts', `business_id=eq.${business_id}&email=eq.${encodeURIComponent(c.email)}&select=id`);
+      await apiRequest('POST', `${SUPABASE_URL}/rest/v1/contacts`,
+        { ...sbH(), 'Content-Type': 'application/json', 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+        { business_id, source: 'import', ...c, last_activity_at: new Date().toISOString() });
+      existing.length ? updated++ : imported++;
+    } catch { failed++; }
+  }
+  res.json({ imported, updated, failed, total: contacts.length });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /webhook/contacts-get
+// ?business_id=X [&stage=X] [&min_score=X] [&limit=50] [&offset=0]
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/webhook/contacts-get', async (req, res) => {
+  const { business_id, stage, min_score, limit = 50, offset = 0 } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  try {
+    let filter = `business_id=eq.${business_id}&order=lead_score.desc&limit=${limit}&offset=${offset}`;
+    if (stage)     filter += `&stage=eq.${stage}`;
+    if (min_score) filter += `&lead_score=gte.${min_score}`;
+
+    const contacts = await sbGet('contacts', filter);
+
+    // Count total (without limit)
+    let countFilter = `business_id=eq.${business_id}`;
+    if (stage)     countFilter += `&stage=eq.${stage}`;
+    if (min_score) countFilter += `&lead_score=gte.${min_score}`;
+    const countR = await apiRequest('GET',
+      `${SUPABASE_URL}/rest/v1/contacts?${countFilter}&select=id`,
+      { ...sbH(), 'Prefer': 'count=exact' });
+    const total = parseInt(countR.body?.length || contacts.length);
+
+    res.json({ contacts, total, limit: Number(limit), offset: Number(offset) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/contact-activity-log
+// Log activity, recalculate score, auto-qualify if score crosses 50.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/contact-activity-log', async (req, res) => {
+  const { business_id, contact_id, activity_type, metadata = {} } = req.body;
+  if (!business_id || !contact_id || !activity_type)
+    return res.status(400).json({ error: 'business_id, contact_id, activity_type required' });
+
+  try {
+    // Insert activity
+    await sbPost('contact_activities', { business_id, contact_id, activity_type, metadata });
+
+    // Recalculate total score from all activities
+    const activities = await sbGet('contact_activities',
+      `contact_id=eq.${contact_id}&select=activity_type`);
+    const new_score = activities.reduce((sum, a) =>
+      sum + (SCORE_WEIGHTS[a.activity_type] || 0), 0);
+
+    // Fetch current contact
+    const contacts = await sbGet('contacts',
+      `id=eq.${contact_id}&select=lead_score,stage&limit=1`);
+    const contact = contacts[0];
+    const old_score = contact?.lead_score || 0;
+    const old_stage = contact?.stage || 'lead';
+
+    // Update score + last_activity_at
+    const updates = { lead_score: Math.max(0, new_score), last_activity_at: new Date().toISOString() };
+    let stage_changed = false;
+
+    // Auto-qualify: score crosses 50 for first time while still 'lead'
+    if (old_score < 50 && new_score >= 50 && old_stage === 'lead') {
+      updates.stage = 'qualified';
+      stage_changed = true;
+      // Enroll in qualified sequence
+      try {
+        const [contactRow, seqs] = await Promise.all([
+          sbGet('contacts', `id=eq.${contact_id}&select=email,first_name,last_name`),
+          sbGet('email_sequences',
+            `business_id=eq.${business_id}&trigger_type=eq.qualified&is_active=eq.true&limit=1`)
+        ]);
+        const c = contactRow[0];
+        if (c && seqs[0]) {
+          await sbPost('contact_enrollments', {
+            business_id, contact_email: c.email,
+            contact_name: [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email,
+            sequence_id: seqs[0].id, current_step: 0, status: 'active',
+            next_send_at: new Date().toISOString()
+          });
+        }
+      } catch {}
+    }
+
+    await sbPatch('contacts', `id=eq.${contact_id}`, updates);
+    res.json({ success: true, new_score: Math.max(0, new_score), old_score, stage_changed });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /webhook/pipeline-get?business_id=X
+// Deals grouped by stage + top contacts by score.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/webhook/pipeline-get', async (req, res) => {
+  const { business_id } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  try {
+    const [deals, top_contacts] = await Promise.all([
+      sbGet('deals', `business_id=eq.${business_id}&order=created_at.desc`),
+      sbGet('contacts', `business_id=eq.${business_id}&order=lead_score.desc&limit=10&select=id,email,first_name,last_name,lead_score,stage`)
+    ]);
+
+    const stages = ['new','contacted','proposal','negotiation','won','lost'];
+    const pipeline = stages.reduce((acc, s) => {
+      const group = deals.filter(d => d.stage === s);
+      acc[s] = {
+        count: group.length,
+        value: group.reduce((sum, d) => sum + parseFloat(d.value || 0), 0).toFixed(2),
+        deals: group
+      };
+      return acc;
+    }, {});
+
+    const total_value = deals.reduce((sum, d) => sum + parseFloat(d.value || 0), 0).toFixed(2);
+    const weighted_value = deals.reduce((sum, d) =>
+      sum + parseFloat(d.value || 0) * (d.probability || 0) / 100, 0).toFixed(2);
+
+    res.json({ pipeline, total_value, weighted_value, total_deals: deals.length, top_contacts });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/deal-create
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/deal-create', async (req, res) => {
+  const { business_id, contact_id, title, value = 0, stage = 'new', probability = 0, expected_close_date, notes } = req.body;
+  if (!business_id || !title) return res.status(400).json({ error: 'business_id and title required' });
+  try {
+    const deal = await sbPost('deals', { business_id, contact_id, title, value, stage, probability, expected_close_date, notes });
+    res.json({ success: true, deal_id: deal?.id, deal });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/deal-stage-update
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/deal-stage-update', async (req, res) => {
+  const { deal_id, stage, probability, notes } = req.body;
+  if (!deal_id || !stage) return res.status(400).json({ error: 'deal_id and stage required' });
+  try {
+    const updates = { stage };
+    if (probability !== undefined) updates.probability = probability;
+    if (notes)                      updates.notes       = notes;
+    await sbPatch('deals', `id=eq.${deal_id}`, updates);
+    res.json({ success: true, deal_id, stage });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/competitor-analyze
+// Full competitor intelligence run for one business.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/competitor-analyze', async (req, res) => {
+  const { business_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+
+  // Return immediately — analysis runs in background (~30-60s)
+  res.json({ received: true, message: 'Competitor analysis started — report ready in ~60 seconds' });
+
+  setImmediate(async () => {
+    try {
+      const bizArr = await sbGet('businesses',
+        `id=eq.${business_id}&select=business_name,industry,location,competitors,email,first_name`);
+      const biz = bizArr[0];
+      if (!biz) return;
+
+      let competitors = [];
+      try { competitors = JSON.parse(biz.competitors || '[]'); } catch {}
+      if (!competitors.length) {
+        // Fall back to SerpAPI to find top competitors
+        if (SERPAPI_KEY) {
+          try {
+            const sr = await apiRequest('GET',
+              `https://serpapi.com/search.json?q=${encodeURIComponent(`${biz.industry} competitors ${biz.location || ''}`)}&num=5&api_key=${SERPAPI_KEY}`);
+            const organic = sr.body?.organic_results || [];
+            competitors = organic.slice(0, 3).map(r => r.displayed_link || r.link).filter(Boolean);
+          } catch {}
+        }
+        if (!competitors.length) competitors = [`top ${biz.industry} company`];
+      }
+
+      const snapshots = [];
+      const today = new Date().toISOString().split('T')[0];
+
+      for (const comp of competitors.slice(0, 5)) {
+        const compName = typeof comp === 'string' ? comp : (comp.name || comp);
+        let serpData = {}, adData = {};
+
+        // SerpAPI: brand search
+        if (SERPAPI_KEY) {
+          try {
+            const sr = await apiRequest('GET',
+              `https://serpapi.com/search.json?q=${encodeURIComponent(compName)}&num=5&api_key=${SERPAPI_KEY}`);
+            serpData = sr.body || {};
+          } catch {}
+          // SerpAPI: ad search
+          try {
+            const ar = await apiRequest('GET',
+              `https://serpapi.com/search.json?q=${encodeURIComponent(`${compName} ads`)}&num=5&api_key=${SERPAPI_KEY}`);
+            adData = ar.body || {};
+          } catch {}
+        }
+
+        const keyword_rankings = (serpData.organic_results || []).slice(0, 5).map(r => ({
+          keyword: r.title?.slice(0, 60), url: r.link, position: r.position
+        }));
+        const active_ads = (adData.ads || []).slice(0, 5).map(a => ({
+          headline: a.title, description: a.snippet, url: a.link
+        }));
+
+        // Save snapshot
+        try {
+          await sbPost('competitor_snapshots', {
+            business_id, competitor_name: compName,
+            snapshot_date: today, keyword_rankings, active_ads
+          });
+        } catch {}
+
+        snapshots.push({ name: compName, keyword_rankings, active_ads });
+      }
+
+      // Claude Opus — competitive intelligence analysis
+      const analyzePrompt =
+`You are a competitive intelligence analyst for ${biz.business_name} (${biz.industry}).
+
+Competitor data gathered this week:
+${JSON.stringify(snapshots, null, 2)}
+
+Analyze and return ONLY valid JSON:
+{
+  "new_offers": ["string describing any promotions or offers spotted"],
+  "content_themes": ["topics competitors are focusing on"],
+  "ad_angles": ["ad hooks and angles competitors are using"],
+  "pricing_changes": ["any pricing signals found"],
+  "recommendation": "one specific strategic action ${biz.business_name} should take this week based on this intelligence"
+}`;
+
+      const analysis = await callClaude(analyzePrompt, 'claude-opus-4-5', 1500);
+
+      // Save report
+      const report = await sbPost('competitor_reports', {
+        business_id, report_date: today,
+        new_offers:      analysis.new_offers      || [],
+        content_themes:  analysis.content_themes  || [],
+        ad_angles:       analysis.ad_angles       || [],
+        pricing_changes: analysis.pricing_changes || [],
+        recommendation:  analysis.recommendation  || '',
+        raw_analysis:    analysis
+      });
+
+      // Also update legacy competitor_insights table
+      try {
+        await sbPost('competitor_insights', {
+          business_id,
+          competitor_doing_well: (analysis.ad_angles || []).join('; ').slice(0, 300),
+          gap_opportunity:       (analysis.content_themes || []).join('; ').slice(0, 300),
+          content_to_steal:      (analysis.new_offers || []).join('; ').slice(0, 300),
+          positioning_tip:       analysis.recommendation || ''
+        });
+      } catch {}
+
+      log('/webhook/competitor-analyze',
+        `✅ ${snapshots.length} competitors analyzed | report: ${report?.id}`);
+    } catch (err) {
+      console.error('[competitor-analyze ERROR]', err.message);
+      await logError(business_id, 'competitor-analyze', err.message, {}).catch(() => {});
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /webhook/competitor-report-get?business_id=X
+// Latest competitor report for a business.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/webhook/competitor-report-get', async (req, res) => {
+  const { business_id } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  try {
+    const [reports, snapshots] = await Promise.all([
+      sbGet('competitor_reports', `business_id=eq.${business_id}&order=report_date.desc&limit=5`),
+      sbGet('competitor_snapshots', `business_id=eq.${business_id}&order=snapshot_date.desc&limit=10`)
+    ]);
+    res.json({ latest_report: reports[0] || null, recent_reports: reports, recent_snapshots: snapshots });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/content-generate
+// Generate blog / landing_page / video_script via Claude + optionally image.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/content-generate', async (req, res) => {
+  const { business_id, type = 'blog', target_keyword, topic } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  if (!['blog','landing_page','video_script','email_template'].includes(type))
+    return res.status(400).json({ error: 'type must be blog|landing_page|video_script|email_template' });
+
+  // Return immediately — generation happens in background
+  res.json({ received: true, message: `${type} generation started — check email in ~2 minutes` });
+
+  setImmediate(async () => {
+    try {
+      const bizArr = await sbGet('businesses',
+        `id=eq.${business_id}&select=business_name,industry,location,target_audience,brand_tone,marketing_goal,email,first_name`);
+      const biz = bizArr[0];
+      if (!biz) return;
+
+      let keyword = target_keyword;
+      // Auto-discover keyword via SerpAPI if not provided (blog only)
+      if (type === 'blog' && !keyword && SERPAPI_KEY) {
+        try {
+          const sr = await apiRequest('GET',
+            `https://serpapi.com/search.json?q=${encodeURIComponent(`${biz.industry} tips`)}&num=10&api_key=${SERPAPI_KEY}`);
+          const queries = sr.body?.related_searches || [];
+          keyword = queries[0]?.query || `${biz.industry} tips for ${biz.target_audience || 'small businesses'}`;
+        } catch { keyword = `${biz.industry} tips for ${biz.target_audience || 'businesses'}`; }
+      }
+      keyword = keyword || topic || `${biz.industry} guide`;
+
+      let prompt = '';
+      let model  = 'claude-opus-4-5';
+      let maxTok = 3000;
+
+      if (type === 'blog') {
+        prompt =
+`Write a complete SEO blog post for ${biz.business_name} (${biz.industry}).
+Target keyword: "${keyword}"
+Tone: ${biz.brand_tone || 'professional'} | Location: ${biz.location || 'United States'}
+
+Write 1200-1500 words with H1 title, H2 subheadings, intro, body sections, conclusion, and CTA.
+Return ONLY valid JSON:
+{
+  "title": "H1 headline with keyword",
+  "body": "full blog post in plain text with section headers marked as ## Header",
+  "meta_description": "155-char max SEO meta description",
+  "seo_score": 75,
+  "word_count": 1300
+}`;
+
+      } else if (type === 'landing_page') {
+        prompt =
+`Write complete landing page copy for ${biz.business_name} (${biz.industry}).
+Goal: ${biz.marketing_goal || 'generate leads'} | Audience: ${biz.target_audience || 'general consumers'}
+Tone: ${biz.brand_tone || 'professional'}
+
+Sections: Hero headline + subheadline, 3 key benefits, social proof placeholder, 3-question FAQ, CTA section.
+Return ONLY valid JSON:
+{
+  "title": "page headline",
+  "body": "full landing page copy with section breaks",
+  "meta_description": "155-char meta description",
+  "seo_score": 70,
+  "word_count": 800
+}`;
+
+      } else if (type === 'video_script') {
+        model  = 'claude-sonnet-4-5';
+        maxTok = 1500;
+        prompt =
+`Write a 60-second video script for ${biz.business_name} (${biz.industry}).
+Format: Hook(0-5s), Problem(5-15s), Solution(15-40s), Proof(40-50s), CTA(50-60s).
+Tone: ${biz.brand_tone || 'energetic'} | Audience: ${biz.target_audience || 'small business owners'}
+
+Return ONLY valid JSON:
+{
+  "title": "video title for YouTube/TikTok",
+  "body": "full script with timestamps e.g. [0-5s] Hook: ...",
+  "meta_description": "video description for YouTube (250 chars)",
+  "seo_score": 65,
+  "word_count": 200
+}`;
+
+      } else {
+        // email_template
+        model  = 'claude-sonnet-4-5';
+        maxTok = 1200;
+        prompt =
+`Write a marketing email template for ${biz.business_name} (${biz.industry}).
+Goal: ${biz.marketing_goal || 'nurture leads'} | Tone: ${biz.brand_tone || 'friendly'}
+
+Return ONLY valid JSON:
+{
+  "title": "email subject line",
+  "body": "full email body in plain text",
+  "meta_description": "email preview text (90 chars max)",
+  "seo_score": 60,
+  "word_count": 350
+}`;
+      }
+
+      const content = await callClaude(prompt, model, maxTok);
+
+      // Generate featured image for blog posts
+      let featured_image_url = null;
+      if (type === 'blog' && content.title) {
+        try {
+          const imgResult = await generateImage(`Professional blog header image for: ${content.title}. ${biz.industry} themed, modern, clean.`);
+          featured_image_url = imgResult?.url || null;
+        } catch {}
+      }
+
+      // Save to content_pieces
+      const piece = await sbPost('content_pieces', {
+        business_id,
+        type,
+        title:              content.title        || keyword,
+        target_keyword:     keyword,
+        body:               content.body         || '',
+        meta_description:   content.meta_description || '',
+        featured_image_url,
+        status:             'ready_for_review',
+        word_count:         content.word_count   || 0,
+        seo_score:          content.seo_score    || 0
+      });
+
+      // Send notification email
+      if (biz.email) {
+        const typeLabel = type.replace('_', ' ');
+        const html = `
+<h2>New ${typeLabel} ready for review</h2>
+<p><strong>Title:</strong> ${content.title || keyword}</p>
+<p><strong>Word count:</strong> ${content.word_count || 0} words</p>
+<p><strong>SEO score:</strong> ${content.seo_score || 0}/100</p>
+<p><a href="https://maroa-ai-marketing-automator.lovable.app/content" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Approve</a></p>`;
+        await sendEmail(biz.email, `New ${typeLabel} ready: ${content.title || keyword}`, html).catch(() => {});
+      }
+
+      log('/webhook/content-generate',
+        `✅ ${type} created | id: ${piece?.id} | words: ${content.word_count}`);
+    } catch (err) {
+      console.error('[content-generate ERROR]', err.message);
+      await logError(business_id, 'content-generate', err.message, req.body).catch(() => {});
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /webhook/content-pieces-get?business_id=X[&type=X][&status=X]
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/webhook/content-pieces-get', async (req, res) => {
+  const { business_id, type, status, limit = 20, offset = 0 } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  try {
+    let filter = `business_id=eq.${business_id}&order=created_at.desc&limit=${limit}&offset=${offset}`;
+    if (type)   filter += `&type=eq.${type}`;
+    if (status) filter += `&status=eq.${status}`;
+    const pieces = await sbGet('content_pieces', filter);
+    const summary = {
+      total:           pieces.length,
+      by_type:         pieces.reduce((a, p) => { a[p.type] = (a[p.type]||0)+1; return a; }, {}),
+      by_status:       pieces.reduce((a, p) => { a[p.status]= (a[p.status]||0)+1; return a; }, {}),
+      avg_seo_score:   pieces.length
+        ? Math.round(pieces.reduce((s,p) => s+(p.seo_score||0),0)/pieces.length) : 0,
+      avg_word_count:  pieces.length
+        ? Math.round(pieces.reduce((s,p) => s+(p.word_count||0),0)/pieces.length) : 0
+    };
+    res.json({ pieces, summary });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/content-approve
+// Approve a content piece and optionally mark it published.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/content-approve', async (req, res) => {
+  const { piece_id, published_url } = req.body;
+  if (!piece_id) return res.status(400).json({ error: 'piece_id required' });
+  try {
+    const updates = { status: published_url ? 'published' : 'approved' };
+    if (published_url) updates.published_url = published_url;
+    await sbPatch('content_pieces', `id=eq.${piece_id}`, updates);
+    res.json({ success: true, piece_id, status: updates.status });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
