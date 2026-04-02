@@ -352,6 +352,16 @@ app.get('/', (req, res) => res.json({
     // ── TikTok ────────────────────────────────────────────────────────
     'POST /webhook/tiktok-oauth-exchange',
     'POST /webhook/tiktok-publish',
+    // ── Analytics (Sprint 2.1) ─────────────────────────────────────────
+    'POST /webhook/analytics-snapshot',
+    'POST /webhook/analytics-report',
+    'GET  /webhook/analytics-get',
+    // ── Email Sequences (Sprint 2.2) ───────────────────────────────────
+    'POST /webhook/email-sequence-create',
+    'POST /webhook/email-enroll',
+    'POST /webhook/email-trigger',
+    'POST /webhook/email-sequence-process',
+    'GET  /webhook/no-open-candidates',
     // ── Meta OAuth ────────────────────────────────────────────────────
     'POST /meta-oauth-exchange',
     // ── Utilities ─────────────────────────────────────────────────────
@@ -2155,6 +2165,581 @@ Return only valid JSON: {"hook":"...","script":"...","caption":"...","hashtags":
   } catch (err) {
     console.error('[tiktok-publish ERROR]', err.message);
     await logError(business_id, 'tiktok-publish', err.message, req.body);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPRINT 2.1 — Unified Analytics Dashboard
+// SPRINT 2.2 — Behavior-Triggered Email Flows
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Supabase upsert (merge-duplicates on conflict) ────────────────────────────
+async function sbUpsert(table, data, onConflict) {
+  const url = `${SUPABASE_URL}/rest/v1/${table}?on_conflict=${encodeURIComponent(onConflict)}`;
+  const r   = await apiRequest('POST', url,
+    { ...sbH(), 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates,return=representation' },
+    data);
+  if (![200, 201].includes(r.status))
+    throw new Error(`sbUpsert ${table}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+  return Array.isArray(r.body) ? r.body[0] : r.body;
+}
+
+// ── sendEmailWithTags: Resend + tag support for webhook attribution ────────────
+async function sendEmailWithTags(to, subject, html, tags = []) {
+  const apiKey = clean(process.env.RESEND_API_KEY) || RESEND_API_KEY;
+  const from   = clean(process.env.FROM_EMAIL)     || FROM_EMAIL;
+  if (!apiKey || !to) { console.log(`[EMAIL QUEUED] ${to} — no key`); return { queued: true }; }
+  try {
+    const payload = { from: `maroa.ai <${from}>`, to: [to], reply_to: 'hello@maroa.ai', subject, html };
+    if (tags.length) payload.tags = tags;
+    const r = await apiRequest('POST', 'https://api.resend.com/emails',
+      { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, payload);
+    if ([200, 201].includes(r.status)) {
+      console.log(`[EMAIL SENT] ${to} | id: ${r.body?.id}`);
+      return { sent: true, id: r.body?.id };
+    }
+    return { error: r.body?.message, status: r.status };
+  } catch (e) { return { error: e.message }; }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/analytics-snapshot
+// Pulls today's metrics from every connected platform and upserts into
+// analytics_snapshots. Each platform is isolated — one failure never blocks others.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/analytics-snapshot', async (req, res) => {
+  const { business_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  res.json({ received: true, message: 'Analytics snapshot started' });
+
+  try {
+    const biz = (await sbGet('businesses',
+      `id=eq.${business_id}&select=business_name,email,facebook_page_id,meta_access_token,` +
+      `linkedin_connected,linkedin_access_token,linkedin_organization_id,` +
+      `twitter_connected,twitter_access_token,twitter_user_id,` +
+      `tiktok_connected,tiktok_access_token`))[0];
+    if (!biz) return;
+
+    const today      = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const todayStart = `${today}T00:00:00.000Z`;
+    const saved      = [];
+
+    // ── Facebook / Meta ───────────────────────────────────────────────────────
+    if (biz.facebook_page_id && biz.meta_access_token) {
+      try {
+        const fbR = await apiRequest('GET',
+          `https://graph.facebook.com/v19.0/${biz.facebook_page_id}/insights` +
+          `?metric=page_impressions,page_reach,page_engaged_users,page_fans_total` +
+          `&period=day&access_token=${biz.meta_access_token}`, {});
+        if (fbR.status === 200) {
+          const metricMap = {};
+          (fbR.body.data || []).forEach(m => {
+            const v = m.values?.[m.values.length - 1]?.value || 0;
+            metricMap[m.name] = typeof v === 'object'
+              ? Object.values(v).reduce((a, b) => a + b, 0) : v;
+          });
+          const postsToday = (await sbGet('generated_content',
+            `business_id=eq.${business_id}&published_at=gte.${todayStart}&select=id`)).length;
+          const snap = {
+            business_id, snapshot_date: today, platform: 'facebook',
+            impressions:      metricMap.page_impressions     || 0,
+            reach:            metricMap.page_reach           || 0,
+            engagement:       metricMap.page_engaged_users   || 0,
+            followers_gained: metricMap.page_fans_total      || 0,
+            posts_published:  postsToday
+          };
+          await sbUpsert('analytics_snapshots', snap, 'business_id,snapshot_date,platform');
+          saved.push({ platform: 'facebook', impressions: snap.impressions, reach: snap.reach, engagement: snap.engagement });
+        }
+      } catch (e) {
+        log('/webhook/analytics-snapshot', `Facebook failed: ${e.message}`);
+        await logError(business_id, 'analytics-snapshot-facebook', e.message, {});
+      }
+    }
+
+    // ── LinkedIn ──────────────────────────────────────────────────────────────
+    if (biz.linkedin_connected && biz.linkedin_access_token && biz.linkedin_organization_id) {
+      try {
+        const orgUrn = encodeURIComponent(`urn:li:organization:${biz.linkedin_organization_id}`);
+        const now    = Date.now();
+        const liR    = await apiRequest('GET',
+          `https://api.linkedin.com/v2/organizationalEntityShareStatistics?q=organizationalEntity` +
+          `&organizationalEntity=${orgUrn}` +
+          `&timeIntervals.timeGranularityType=DAY` +
+          `&timeIntervals.timeRange.start=${now - 86400000}` +
+          `&timeIntervals.timeRange.end=${now}`,
+          { 'Authorization': `Bearer ${biz.linkedin_access_token}`, 'LinkedIn-Version': '202401' });
+        if (liR.status === 200) {
+          const el   = liR.body?.elements?.[0]?.totalShareStatistics || {};
+          const snap = {
+            business_id, snapshot_date: today, platform: 'linkedin',
+            impressions: el.impressionCount || 0,
+            clicks:      el.clickCount      || 0,
+            engagement:  (el.likeCount || 0) + (el.commentCount || 0) + (el.shareCount || 0)
+          };
+          await sbUpsert('analytics_snapshots', snap, 'business_id,snapshot_date,platform');
+          saved.push({ platform: 'linkedin', impressions: snap.impressions, engagement: snap.engagement });
+        }
+      } catch (e) {
+        log('/webhook/analytics-snapshot', `LinkedIn failed: ${e.message}`);
+        await logError(business_id, 'analytics-snapshot-linkedin', e.message, {});
+      }
+    }
+
+    // ── Twitter / X ───────────────────────────────────────────────────────────
+    if (biz.twitter_connected && biz.twitter_access_token && biz.twitter_user_id) {
+      try {
+        const twR = await apiRequest('GET',
+          `https://api.twitter.com/2/users/${biz.twitter_user_id}/tweets` +
+          `?start_time=${todayStart}&tweet.fields=public_metrics&max_results=100`,
+          { 'Authorization': `Bearer ${biz.twitter_access_token}` });
+        if (twR.status === 200) {
+          const tweets = twR.body?.data || [];
+          const snap   = {
+            business_id, snapshot_date: today, platform: 'twitter',
+            impressions:     tweets.reduce((a, t) => a + (t.public_metrics?.impression_count || 0), 0),
+            engagement:      tweets.reduce((a, t) => a + (t.public_metrics?.like_count || 0)
+              + (t.public_metrics?.reply_count || 0) + (t.public_metrics?.retweet_count || 0), 0),
+            clicks:          tweets.reduce((a, t) => a + (t.public_metrics?.url_link_clicks || 0), 0),
+            posts_published: tweets.length
+          };
+          await sbUpsert('analytics_snapshots', snap, 'business_id,snapshot_date,platform');
+          saved.push({ platform: 'twitter', impressions: snap.impressions, posts_published: snap.posts_published });
+        }
+      } catch (e) {
+        log('/webhook/analytics-snapshot', `Twitter failed: ${e.message}`);
+        await logError(business_id, 'analytics-snapshot-twitter', e.message, {});
+      }
+    }
+
+    // ── TikTok ────────────────────────────────────────────────────────────────
+    if (biz.tiktok_connected && biz.tiktok_access_token) {
+      try {
+        const ttR = await apiRequest('GET',
+          `https://business-api.tiktok.com/open_api/v1.3/business/get/?business_id=${business_id}`,
+          { 'Access-Token': biz.tiktok_access_token });
+        if (ttR.status === 200 && ttR.body?.data) {
+          const m    = ttR.body.data;
+          const snap = {
+            business_id, snapshot_date: today, platform: 'tiktok',
+            impressions:      m.profile_views  || 0,
+            followers_gained: m.follower_count || 0,
+            engagement:       m.likes_count    || 0
+          };
+          await sbUpsert('analytics_snapshots', snap, 'business_id,snapshot_date,platform');
+          saved.push({ platform: 'tiktok', impressions: snap.impressions });
+        }
+      } catch (e) {
+        log('/webhook/analytics-snapshot', `TikTok failed: ${e.message}`);
+        await logError(business_id, 'analytics-snapshot-tiktok', e.message, {});
+      }
+    }
+
+    // ── Email stats (from retention_logs) ─────────────────────────────────────
+    try {
+      const emailsToday = (await sbGet('retention_logs',
+        `business_id=eq.${business_id}&sent_at=gte.${todayStart}&select=id`)).length;
+      if (emailsToday > 0) {
+        const snap = { business_id, snapshot_date: today, platform: 'email', email_sent: emailsToday };
+        await sbUpsert('analytics_snapshots', snap, 'business_id,snapshot_date,platform');
+        saved.push({ platform: 'email', email_sent: emailsToday });
+      }
+    } catch (e) { /* silent — retention_logs may be empty */ }
+
+    log('/webhook/analytics-snapshot', `✅ ${saved.length} snapshots saved for ${business_id}`);
+  } catch (err) {
+    console.error('[analytics-snapshot ERROR]', err.message);
+    await logError(business_id, 'analytics-snapshot', err.message, req.body);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/analytics-report
+// Aggregates last 7 days, calls Claude Opus for insights, inserts report row,
+// sends formatted HTML email to business owner.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/analytics-report', async (req, res) => {
+  const { business_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  res.json({ received: true, message: 'Analytics report generation started' });
+
+  try {
+    const biz = (await sbGet('businesses',
+      `id=eq.${business_id}&select=business_name,email,industry,first_name`))[0];
+    if (!biz) return;
+
+    const weekAgo   = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const snapshots = await sbGet('analytics_snapshots',
+      `business_id=eq.${business_id}&snapshot_date=gte.${weekAgo}&order=snapshot_date.desc`);
+
+    // Aggregate across all platforms
+    const totals     = { impressions: 0, reach: 0, engagement: 0, clicks: 0,
+                         posts_published: 0, email_sent: 0, email_opens: 0, email_clicks: 0, followers_gained: 0 };
+    const byPlatform = {};
+    for (const s of snapshots) {
+      for (const k of Object.keys(totals)) totals[k] += s[k] || 0;
+      if (!byPlatform[s.platform]) byPlatform[s.platform] = { ...totals };
+      for (const k of Object.keys(totals))
+        byPlatform[s.platform][k] = (byPlatform[s.platform][k] || 0) + (s[k] || 0);
+    }
+
+    const contentThisWeek = (await sbGet('generated_content',
+      `business_id=eq.${business_id}&created_at=gte.${weekAgo}T00:00:00.000Z&select=id`)).length;
+    const campaigns       = await sbGet('ad_campaigns', `business_id=eq.${business_id}&select=status`);
+    const activeCampaigns = campaigns.filter(c => c.status === 'ACTIVE').length;
+    const aggData = { ...totals, content_pieces_created: contentThisWeek,
+                      active_campaigns: activeCampaigns, by_platform: byPlatform };
+
+    // Claude Opus — generate structured report
+    const makePrompt = (strict = false) => strict
+      ? `Return a raw JSON object ONLY — no text, no markdown fences. Required keys: headline (string), wins (array of 3 strings with real numbers from the data), concerns (array of 1-2 strings), recommendations (array of 3 actionable strings), overall_score (integer 1-10). Business: ${biz.business_name} (${biz.industry}). Data: ${JSON.stringify(aggData)}`
+      : `You are a marketing analyst writing a weekly report. Return ONLY valid JSON, no markdown, no explanation.
+
+Write a weekly performance report for ${biz.business_name} (${biz.industry}).
+
+This week's data:
+${JSON.stringify(aggData, null, 2)}
+
+Return exactly this JSON structure:
+{
+  "headline": "one sentence summary of the week",
+  "wins": ["specific win with real numbers 1", "specific win with real numbers 2", "specific win with real numbers 3"],
+  "concerns": ["thing to watch 1"],
+  "recommendations": ["specific action for next week 1", "specific action 2", "specific action 3"],
+  "overall_score": 7
+}`;
+
+    let report = await callClaude(makePrompt(false), 'claude-opus-4-5', 1000);
+    if (report._raw) report = await callClaude(makePrompt(true), 'claude-opus-4-5', 800);
+
+    const dbReport = await sbPost('analytics_reports', {
+      business_id,
+      week_start:      weekAgo,
+      headline:        report.headline        || 'Weekly marketing performance complete',
+      wins:            report.wins            || [],
+      concerns:        report.concerns        || [],
+      recommendations: report.recommendations || [],
+      overall_score:   report.overall_score   || null,
+      raw_data:        aggData
+    });
+
+    // HTML email
+    const scoreColor  = (report.overall_score || 5) >= 7 ? '#22c55e'
+                      : (report.overall_score || 5) >= 4 ? '#f59e0b' : '#ef4444';
+    const emailHtml = `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
+  <h2 style="color:#667eea;margin-bottom:4px">📊 Weekly Marketing Report</h2>
+  <p style="color:#64748b;margin-top:0">${biz.business_name}</p>
+  <p style="font-size:17px;font-weight:500;border-left:4px solid #667eea;padding-left:12px">${report.headline || ''}</p>
+  <div style="background:#f8fafc;border-radius:12px;padding:24px;margin:20px 0;text-align:center">
+    <div style="font-size:64px;font-weight:bold;color:${scoreColor};line-height:1">${report.overall_score ?? '—'}</div>
+    <div style="font-size:18px;color:#94a3b8;margin-top:4px">/ 10 overall score</div>
+  </div>
+  <h3 style="color:#22c55e">🏆 This Week's Wins</h3>
+  <ul style="line-height:2">${(report.wins || []).map(w => `<li>${w}</li>`).join('')}</ul>
+  <h3 style="color:#f59e0b">⚠️ Things to Watch</h3>
+  <ul style="line-height:2">${(report.concerns || []).map(c => `<li>${c}</li>`).join('')}</ul>
+  <h3 style="color:#667eea">🎯 Actions for Next Week</h3>
+  <ul style="line-height:2">${(report.recommendations || []).map(r => `<li>${r}</li>`).join('')}</ul>
+  <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
+  <p style="color:#94a3b8;font-size:13px">
+    Impressions: ${totals.impressions.toLocaleString()} &nbsp;·&nbsp;
+    Reach: ${totals.reach.toLocaleString()} &nbsp;·&nbsp;
+    Engagement: ${totals.engagement.toLocaleString()} &nbsp;·&nbsp;
+    Posts: ${totals.posts_published} &nbsp;·&nbsp;
+    Active Campaigns: ${activeCampaigns}
+  </p>
+  <a href="https://maroa-ai-marketing-automator.lovable.app/analytics"
+     style="display:inline-block;background:#667eea;color:white;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:8px">
+    View Full Analytics →
+  </a>
+</div>`;
+
+    await sendEmail(biz.email, `Your weekly marketing report — ${biz.business_name}`, emailHtml);
+    log('/webhook/analytics-report', `✅ Report ${dbReport?.id} created — score: ${report.overall_score}`);
+
+  } catch (err) {
+    console.error('[analytics-report ERROR]', err.message);
+    await logError(business_id, 'analytics-report', err.message, req.body);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /webhook/analytics-get?business_id=X
+// Returns last 30 days of snapshots + latest report + aggregate totals.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/webhook/analytics-get', async (req, res) => {
+  const { business_id } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    const [snapshots, reports] = await Promise.all([
+      sbGet('analytics_snapshots',
+        `business_id=eq.${business_id}&snapshot_date=gte.${thirtyDaysAgo}&order=snapshot_date.asc`),
+      sbGet('analytics_reports',
+        `business_id=eq.${business_id}&order=created_at.desc&limit=1`)
+    ]);
+    const totals = snapshots.reduce((acc, s) => {
+      acc.impressions     += s.impressions     || 0;
+      acc.reach           += s.reach           || 0;
+      acc.engagement      += s.engagement      || 0;
+      acc.posts_published += s.posts_published || 0;
+      return acc;
+    }, { impressions: 0, reach: 0, engagement: 0, posts_published: 0 });
+    res.json({ snapshots, latest_report: reports[0] || null, totals, days: 30 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/email-sequence-create
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/email-sequence-create', async (req, res) => {
+  const { business_id, name, trigger_type, trigger_value, delay_hours = 0, emails = [] } = req.body;
+  const VALID_TRIGGERS = ['signup', 'no_open_7d', 'link_click', 'purchase', 'cart_abandon'];
+  if (!business_id)
+    return res.status(400).json({ error: 'business_id required' });
+  if (!name)
+    return res.status(400).json({ error: 'name required' });
+  if (!VALID_TRIGGERS.includes(trigger_type))
+    return res.status(400).json({ error: `trigger_type must be one of: ${VALID_TRIGGERS.join(', ')}` });
+  if (!Array.isArray(emails) || !emails.length)
+    return res.status(400).json({ error: 'emails array required (min 1 item)' });
+  try {
+    const seq = await sbPost('email_sequences', {
+      business_id, name, trigger_type, trigger_value: trigger_value || null,
+      delay_hours, is_active: true, emails
+    });
+    res.json({ sequence_id: seq.id, name: seq.name, trigger_type: seq.trigger_type, email_count: emails.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/email-enroll
+// Enrolls a contact into the first active sequence matching trigger_type.
+// Deduplication: silently skips if already active in the same sequence.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/email-enroll', async (req, res) => {
+  const { business_id, contact_email, contact_name, trigger_type, sequence_id } = req.body;
+  if (!business_id || !contact_email)
+    return res.status(400).json({ error: 'business_id and contact_email required' });
+  res.json({ received: true, message: 'Enrollment processing' });
+
+  try {
+    let seq;
+    if (sequence_id) {
+      seq = (await sbGet('email_sequences', `id=eq.${sequence_id}&is_active=eq.true`))[0];
+    } else if (trigger_type) {
+      seq = (await sbGet('email_sequences',
+        `business_id=eq.${business_id}&trigger_type=eq.${trigger_type}&is_active=eq.true&limit=1`))[0];
+    }
+    if (!seq) {
+      return log('/webhook/email-enroll', `No active sequence for trigger=${trigger_type} biz=${business_id}`);
+    }
+
+    // Deduplicate
+    const existing = await sbGet('contact_enrollments',
+      `contact_email=eq.${encodeURIComponent(contact_email)}&sequence_id=eq.${seq.id}&status=eq.active`);
+    if (existing.length) {
+      return log('/webhook/email-enroll', `Already enrolled: ${contact_email} → seq ${seq.id}`);
+    }
+
+    // Respect step-0 delay_hours (can be overridden per-step)
+    const firstDelay = seq.emails?.[0]?.delay_hours ?? seq.delay_hours ?? 0;
+    const nextSendAt = new Date(Date.now() + firstDelay * 3600000).toISOString();
+
+    await sbPost('contact_enrollments', {
+      business_id, contact_email, contact_name: contact_name || null,
+      sequence_id: seq.id, current_step: 0, status: 'active', next_send_at: nextSendAt
+    });
+    log('/webhook/email-enroll', `✅ Enrolled ${contact_email} into "${seq.name}" (next: ${nextSendAt})`);
+  } catch (err) {
+    console.error('[email-enroll ERROR]', err.message);
+    await logError(business_id, 'email-enroll', err.message, req.body);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/email-trigger  — Resend webhook receiver
+// Must respond 200 immediately. Handles open / click / bounce events.
+// Register this URL in Resend Dashboard → Webhooks.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/email-trigger', async (req, res) => {
+  res.json({ received: true }); // Resend requires fast 200
+
+  try {
+    const { type, data = {} } = req.body;
+    const contact_email = Array.isArray(data.to) ? data.to[0] : (data.email_address || '');
+    const tags          = data.tags || {};
+    const business_id   = tags.business_id || null;
+    if (!contact_email) return;
+
+    // Bounce — mark all active enrollments for this address
+    if (type === 'email.bounced') {
+      await sbPatch('contact_enrollments',
+        `contact_email=eq.${encodeURIComponent(contact_email)}&status=eq.active`,
+        { status: 'bounced' });
+      return log('/webhook/email-trigger', `Bounce recorded: ${contact_email}`);
+    }
+
+    // Open — log to retention_logs for re-engagement tracking
+    if (type === 'email.opened' && business_id) {
+      try {
+        await sbPost('retention_logs', {
+          business_id,
+          email_type: 'email_opened',
+          subject:    data.subject || 'email opened',
+          sent_at:    new Date().toISOString()
+        });
+      } catch { /* retention_logs schema may vary */ }
+      return log('/webhook/email-trigger', `Open recorded: ${contact_email}`);
+    }
+
+    // Click — auto-enroll into link_click sequence if one exists
+    if (type === 'email.clicked' && business_id) {
+      const seqs = await sbGet('email_sequences',
+        `business_id=eq.${business_id}&trigger_type=eq.link_click&is_active=eq.true&limit=1`);
+      if (!seqs.length) return;
+      const already = await sbGet('contact_enrollments',
+        `contact_email=eq.${encodeURIComponent(contact_email)}&sequence_id=eq.${seqs[0].id}&status=eq.active`);
+      if (!already.length) {
+        await sbPost('contact_enrollments', {
+          business_id, contact_email, sequence_id: seqs[0].id,
+          current_step: 0, status: 'active', next_send_at: new Date().toISOString()
+        });
+        log('/webhook/email-trigger', `Click-enrolled ${contact_email} → link_click sequence`);
+      }
+    }
+  } catch (err) {
+    console.error('[email-trigger ERROR]', err.message);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/email-sequence-process
+// Processes ALL due enrollments across all businesses (up to 50 per run).
+// Called by WF36 every 30 minutes. No request body needed.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/email-sequence-process', async (req, res) => {
+  res.json({ received: true, message: 'Processing email sequences' });
+
+  let processed = 0, sent = 0, completed = 0;
+  try {
+    const now = new Date().toISOString();
+    const due = await sbGet('contact_enrollments',
+      `next_send_at=lte.${now}&status=eq.active&select=*&limit=50`);
+
+    for (const enrollment of due) {
+      try {
+        processed++;
+
+        // Fetch sequence and validate step
+        const seq = (await sbGet('email_sequences', `id=eq.${enrollment.sequence_id}`))[0];
+        if (!seq?.emails?.[enrollment.current_step]) {
+          await sbPatch('contact_enrollments', `id=eq.${enrollment.id}`,
+            { status: 'completed', completed_at: now });
+          completed++;
+          continue;
+        }
+
+        const step = seq.emails[enrollment.current_step];
+        const biz  = (await sbGet('businesses',
+          `id=eq.${enrollment.business_id}&select=business_name,brand_tone,industry`))[0];
+        if (!biz) continue;
+
+        const contactName = enrollment.contact_name || enrollment.contact_email.split('@')[0];
+        const prompt =
+`Write a marketing email for ${contactName} from ${biz.business_name}.
+Tone: ${biz.brand_tone || 'professional and friendly'}
+Subject goal: ${step.subject_prompt || 'Engaging marketing subject'}
+Body goal: ${step.body_prompt || 'Valuable content with one clear CTA'}
+Max 200 words. Conversational, personal, one clear action at the end.
+Return ONLY valid JSON: {"subject":"...","body_html":"..."}`;
+
+        const email = await callClaude(prompt, 'claude-sonnet-4-5', 600);
+        if (!email.subject || !email.body_html) {
+          log('/webhook/email-sequence-process', `Claude parse fail — enrollment ${enrollment.id}`);
+          continue;
+        }
+
+        await sendEmailWithTags(
+          enrollment.contact_email,
+          email.subject,
+          email.body_html,
+          [
+            { name: 'business_id', value: enrollment.business_id },
+            { name: 'sequence_id', value: enrollment.sequence_id },
+            { name: 'step',        value: String(enrollment.current_step) }
+          ]
+        );
+        sent++;
+
+        const isLast = enrollment.current_step + 1 >= seq.emails.length;
+        if (isLast) {
+          await sbPatch('contact_enrollments', `id=eq.${enrollment.id}`,
+            { status: 'completed', completed_at: now });
+          completed++;
+        } else {
+          const nextStep   = seq.emails[enrollment.current_step + 1];
+          const delayHours = nextStep.delay_hours ?? 24;
+          await sbPatch('contact_enrollments', `id=eq.${enrollment.id}`, {
+            current_step: enrollment.current_step + 1,
+            next_send_at: new Date(Date.now() + delayHours * 3600000).toISOString()
+          });
+        }
+      } catch (stepErr) {
+        console.error(`[email-sequence-process] step error ${enrollment.id}:`, stepErr.message);
+        await logError(enrollment.business_id, 'email-sequence-process',
+          stepErr.message, { enrollment_id: enrollment.id });
+      }
+    }
+    log('/webhook/email-sequence-process',
+      `✅ processed=${processed} sent=${sent} completed=${completed}`);
+  } catch (err) {
+    console.error('[email-sequence-process ERROR]', err.message);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /webhook/no-open-candidates?days=7
+// Returns businesses with old retention_log entries whose email is NOT
+// already actively enrolled. Used by WF37.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/webhook/no-open-candidates', async (req, res) => {
+  const days   = parseInt(req.query.days || '7', 10);
+  const cutoff = new Date(Date.now() - days * 86400000).toISOString();
+  try {
+    // Step 1: get all business_ids with retention logs older than cutoff
+    const oldLogs = await sbGet('retention_logs', `sent_at=lt.${cutoff}&select=business_id`);
+    const bizIds  = [...new Set(oldLogs.map(r => r.business_id).filter(Boolean))];
+    if (!bizIds.length) return res.json({ candidates: [], count: 0 });
+
+    // Step 2: fetch those businesses
+    const businesses = await sbGet('businesses',
+      `id=in.(${bizIds.join(',')})&is_active=eq.true&select=id,email,first_name,business_name`);
+    const emails = businesses.map(b => b.email).filter(Boolean);
+    if (!emails.length) return res.json({ candidates: [], count: 0 });
+
+    // Step 3: find which emails are already actively enrolled
+    const active = await sbGet('contact_enrollments',
+      `contact_email=in.(${emails.map(e => encodeURIComponent(e)).join(',')})&status=eq.active&select=contact_email`);
+    const enrolledSet = new Set(active.map(e => e.contact_email));
+
+    // Step 4: return those NOT enrolled
+    const candidates = businesses
+      .filter(b => b.email && !enrolledSet.has(b.email))
+      .map(b => ({
+        business_id:   b.id,
+        contact_email: b.email,
+        contact_name:  b.first_name || b.business_name
+      }));
+
+    res.json({ candidates, count: candidates.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
