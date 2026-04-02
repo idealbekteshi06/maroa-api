@@ -1,0 +1,163 @@
+{
+  "name": "32 - LinkedIn Autopilot",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567801",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {}
+    },
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567802",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 460],
+      "parameters": {
+        "rule": { "interval": [{ "field": "cronExpression", "expression": "0 9 * * *" }] }
+      }
+    },
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567803",
+      "name": "Get LinkedIn Businesses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 380],
+      "parameters": {
+        "method": "GET",
+        "url": "https://zqhyrbttuqkvmdewiytf.supabase.co/rest/v1/businesses?select=id,email,first_name,business_name,industry,location,target_audience,brand_tone,marketing_goal,linkedin_access_token,linkedin_person_id,linkedin_organization_id,dream_customer,unique_differentiator,best_performing_themes&linkedin_connected=eq.true&is_active=eq.true",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567804",
+      "name": "Loop Each Business",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [680, 380],
+      "parameters": { "batchSize": 1, "options": {} }
+    },
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567805",
+      "name": "Build LinkedIn Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "parameters": {
+        "jsCode": "const biz = $('Loop Each Business').first().json;\n\nconst bestThemes = biz.best_performing_themes ? JSON.stringify(biz.best_performing_themes) : 'not available yet';\n\nconst prompt = `You are a LinkedIn content expert. Generate a professional LinkedIn post for a ${biz.industry} business.\n\nBusiness: ${biz.business_name}\nTone: ${biz.brand_tone || 'professional and approachable'}\nTarget audience: ${biz.target_audience || 'business owners and professionals'}\nLocation: ${biz.location || ''}\nMarketing goal: ${biz.marketing_goal || 'grow brand awareness'}\nDream customer: ${biz.dream_customer || ''}\nUnique differentiator: ${biz.unique_differentiator || ''}\nBest performing themes: ${bestThemes}\n\nWrite a post with:\n- Hook: first line that stops scrolling (pose a question or bold statement)\n- Value body: 3-5 lines with actionable insight or story\n- CTA: one clear call to action\n- Hashtags: 3-5 relevant hashtags\n\nFormat: plain text, no markdown, no asterisks. Max 1300 characters.\nReturn only valid JSON: {\"post_text\": \"...\", \"content_theme\": \"...\"}`;\n\nreturn [{ json: { prompt, business_id: biz.id, business_name: biz.business_name, linkedin_access_token: biz.linkedin_access_token, linkedin_person_id: biz.linkedin_person_id, linkedin_organization_id: biz.linkedin_organization_id } }];"
+      }
+    },
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567806",
+      "name": "Claude Sonnet — Write Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "={{ $env.ANTHROPIC_API_KEY }}" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "model", "value": "claude-sonnet-4-5" },
+            { "name": "max_tokens", "value": 700 },
+            { "name": "messages", "value": "=[{\"role\": \"user\", \"content\": \"{{ $json.prompt }}\"}]" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567807",
+      "name": "Parse Claude Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.content?.[0]?.text || '';\nlet c = {};\ntry { c = JSON.parse(raw); }\ncatch(e) { const m = raw.match(/{[\\s\\S]*}/); if(m) try { c = JSON.parse(m[0]); } catch(e2) {} }\n\nconst biz = $('Build LinkedIn Prompt').first().json;\n\nreturn [{ json: {\n  post_text: c.post_text || raw.replace(/^[^{]*/,'').trim() || 'Check out what we\\'re building at ' + biz.business_name,\n  content_theme: c.content_theme || 'general',\n  business_id: biz.business_id,\n  linkedin_access_token: biz.linkedin_access_token,\n  linkedin_person_id: biz.linkedin_person_id,\n  linkedin_organization_id: biz.linkedin_organization_id,\n  business_name: biz.business_name\n} }];"
+      }
+    },
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567808",
+      "name": "Publish to LinkedIn",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://maroa-api-production.up.railway.app/api/social/linkedin/publish",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "business_id", "value": "={{ $json.business_id }}" },
+            { "name": "content", "value": "={{ $json.post_text }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567809",
+      "name": "Log to generated_content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://zqhyrbttuqkvmdewiytf.supabase.co/rest/v1/generated_content",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "business_id", "value": "={{ $('Parse Claude Response').first().json.business_id }}" },
+            { "name": "content_theme", "value": "={{ $('Parse Claude Response').first().json.content_theme }}" },
+            { "name": "facebook_post", "value": "={{ $('Parse Claude Response').first().json.post_text }}" },
+            { "name": "status", "value": "published" },
+            { "name": "published_at", "value": "={{ new Date().toISOString() }}" }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger":            { "main": [[{ "node": "Get LinkedIn Businesses", "type": "main", "index": 0 }]] },
+    "Schedule Trigger":          { "main": [[{ "node": "Get LinkedIn Businesses", "type": "main", "index": 0 }]] },
+    "Get LinkedIn Businesses":   { "main": [[{ "node": "Loop Each Business",      "type": "main", "index": 0 }]] },
+    "Loop Each Business":        { "main": [[{ "node": "Build LinkedIn Prompt",   "type": "main", "index": 0 }], []] },
+    "Build LinkedIn Prompt":     { "main": [[{ "node": "Claude Sonnet — Write Post", "type": "main", "index": 0 }]] },
+    "Claude Sonnet — Write Post":{ "main": [[{ "node": "Parse Claude Response",  "type": "main", "index": 0 }]] },
+    "Parse Claude Response":     { "main": [[{ "node": "Publish to LinkedIn",     "type": "main", "index": 0 }]] },
+    "Publish to LinkedIn":       { "main": [[{ "node": "Log to generated_content","type": "main", "index": 0 }]] },
+    "Log to generated_content":  { "main": [[{ "node": "Loop Each Business",      "type": "main", "index": 0 }]] }
+  }
+}

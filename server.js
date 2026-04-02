@@ -3,10 +3,11 @@
 // The AI does everything forever and gets smarter every week.
 
 'use strict';
-const express = require('express');
-const cors    = require('cors');
-const https   = require('https');
-const http    = require('http');
+const express  = require('express');
+const cors     = require('cors');
+const https    = require('https');
+const http     = require('http');
+const planGate = require('./middleware/planGate');
 
 const app = express();
 
@@ -328,7 +329,18 @@ app.get('/', (req, res) => res.json({
     'POST /webhook/account-connected', 'POST /webhook/create-campaigns',
     'POST /webhook/content-approved', 'POST /webhook/budget-updated',
     'POST /webhook/competitor-check', 'POST /webhook/generate-landing-page',
-    'POST /test-email', 'POST /meta-oauth-exchange', 'GET  /debug'
+    'POST /test-email', 'POST /meta-oauth-exchange', 'GET  /debug',
+    'GET  /api/billing/plans', 'POST /api/billing/checkout', 'GET /api/billing/portal',
+    'POST /api/organizations/create', 'GET /api/organizations/:id',
+    'POST /api/organizations/:id/workspaces', 'GET /api/organizations/:id/workspaces',
+    'POST /api/organizations/:id/members/invite', 'PUT /api/organizations/:id/white-label',
+    'POST /api/social/linkedin/connect', 'GET /api/social/linkedin/callback',
+    'POST /api/social/linkedin/publish', 'GET /api/social/linkedin/metrics',
+    'POST /api/social/twitter/connect', 'GET /api/social/twitter/callback',
+    'POST /api/social/twitter/tweet', 'POST /api/social/twitter/thread',
+    'GET  /api/social/twitter/metrics',
+    'POST /api/social/tiktok/connect', 'GET /api/social/tiktok/callback',
+    'POST /api/social/tiktok/publish', 'GET /api/social/tiktok/metrics'
   ]
 }));
 
@@ -1403,6 +1415,818 @@ app.post('/meta-oauth-exchange', async (req, res) => {
 
   } catch (err) {
     console.error('[meta-oauth-exchange ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// BUILD 1 — BILLING + PLAN GATES
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Plans aligned with CLAUDE.md: Free ($0) · Growth ($49) · Agency ($99)
+const PLANS = {
+  free:   { name: 'Free',   price: 0,  priceId: null,                                  features: ['5 posts/mo', 'FB+IG autopilot', 'Basic analytics'] },
+  growth: { name: 'Growth', price: 49, priceId: clean(process.env.STRIPE_GROWTH_PRICE_ID) || '', features: ['Unlimited posts', 'All platforms', 'Competitor intel', 'AI ads', 'Priority support'] },
+  agency: { name: 'Agency', price: 99, priceId: clean(process.env.STRIPE_AGENCY_PRICE_ID) || '', features: ['Everything in Growth', 'Multi-workspace (20 clients)', 'White-label', 'API access', 'Dedicated support'] },
+};
+
+// GET /api/billing/plans — return all plans
+app.get('/api/billing/plans', (req, res) => {
+  res.json({ plans: PLANS });
+});
+
+// POST /api/billing/checkout — create Stripe checkout session
+// Body: { business_id, plan, success_url?, cancel_url? }
+app.post('/api/billing/checkout', async (req, res) => {
+  const { business_id, plan, success_url, cancel_url } = req.body;
+  if (!business_id || !plan) return res.status(400).json({ error: 'business_id and plan required' });
+
+  const STRIPE_KEY = clean(process.env.STRIPE_SECRET_KEY) || '';
+  if (!STRIPE_KEY) return res.status(500).json({ error: 'STRIPE_SECRET_KEY not configured on server' });
+
+  const planObj = PLANS[plan];
+  if (!planObj) return res.status(400).json({ error: `Unknown plan: ${plan}. Valid: free, growth, agency` });
+  if (!planObj.priceId) return res.status(400).json({ error: `${plan} plan has no Stripe price ID. Add STRIPE_${plan.toUpperCase()}_PRICE_ID to Railway env vars.` });
+
+  const biz = (await sbGet('businesses', `id=eq.${business_id}&select=email,first_name,business_name`))[0];
+  if (!biz) return res.status(404).json({ error: 'Business not found' });
+
+  try {
+    const session = await apiRequest('POST', 'https://api.stripe.com/v1/checkout/sessions',
+      { 'Authorization': `Bearer ${STRIPE_KEY}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      null,
+      // Stripe uses form-encoded not JSON — build manually
+    );
+
+    // Stripe requires form-encoded body, use a workaround with raw fetch
+    const params = new URLSearchParams({
+      'mode':                               'subscription',
+      'line_items[0][price]':              planObj.priceId,
+      'line_items[0][quantity]':           '1',
+      'customer_email':                    biz.email,
+      'metadata[business_id]':             business_id,
+      'metadata[plan]':                    plan,
+      'success_url':                       success_url || 'https://maroa-ai-marketing-automator.lovable.app/dashboard?upgraded=true',
+      'cancel_url':                        cancel_url  || 'https://maroa-ai-marketing-automator.lovable.app/billing',
+      'allow_promotion_codes':             'true',
+    });
+
+    const stripeResp = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+      method:  'POST',
+      headers: { 'Authorization': `Bearer ${STRIPE_KEY}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    params.toString()
+    });
+    const stripeData = await stripeResp.json();
+
+    if (!stripeData.url) {
+      return res.status(400).json({ error: 'Stripe session creation failed', detail: stripeData });
+    }
+
+    log('/api/billing/checkout', `Checkout session created for ${biz.email} → ${plan}`);
+    res.json({ checkout_url: stripeData.url, session_id: stripeData.id });
+
+  } catch (err) {
+    console.error('[billing/checkout ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/billing/portal — Stripe customer portal link
+// Query: ?business_id=...
+app.get('/api/billing/portal', async (req, res) => {
+  const { business_id } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+
+  const STRIPE_KEY = clean(process.env.STRIPE_SECRET_KEY) || '';
+  if (!STRIPE_KEY) return res.status(500).json({ error: 'STRIPE_SECRET_KEY not configured' });
+
+  const biz = (await sbGet('businesses', `id=eq.${business_id}&select=email,stripe_customer_id`))[0];
+  if (!biz?.stripe_customer_id) return res.status(400).json({ error: 'No Stripe customer found for this business. Subscribe first.' });
+
+  try {
+    const params = new URLSearchParams({
+      customer:    biz.stripe_customer_id,
+      return_url:  'https://maroa-ai-marketing-automator.lovable.app/billing'
+    });
+    const portalResp = await fetch('https://api.stripe.com/v1/billing_portal/sessions', {
+      method:  'POST',
+      headers: { 'Authorization': `Bearer ${STRIPE_KEY}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    params.toString()
+    });
+    const portal = await portalResp.json();
+    if (!portal.url) return res.status(400).json({ error: 'Portal creation failed', detail: portal });
+    res.json({ portal_url: portal.url });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// BUILD 2 — AGENCY MULTI-WORKSPACE
+// ═════════════════════════════════════════════════════════════════════════════
+
+// POST /api/organizations/create
+// Body: { business_id, name }
+app.post('/api/organizations/create', planGate('multi_workspace'), async (req, res) => {
+  const { business_id, name } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+
+  try {
+    const biz = (await sbGet('businesses', `id=eq.${business_id}&select=user_id,email`))[0];
+    if (!biz) return res.status(404).json({ error: 'Business not found' });
+
+    const org = await sbPost('organizations', {
+      name,
+      owner_user_id: biz.user_id || null,
+      plan: 'agency',
+      created_at: new Date().toISOString()
+    });
+
+    // Add owner as member
+    if (biz.user_id) {
+      await sbPost('organization_members', {
+        organization_id: org?.id,
+        user_id: biz.user_id,
+        role: 'owner',
+        accepted_at: new Date().toISOString()
+      });
+    }
+
+    // Link the business to this org
+    await sbPatch('businesses', `id=eq.${business_id}`, { organization_id: org?.id });
+
+    log('/api/organizations/create', `Created org "${name}" for business ${business_id}`);
+    res.json({ success: true, organization: org });
+  } catch (err) {
+    console.error('[organizations/create ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/organizations/:id
+app.get('/api/organizations/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const org     = (await sbGet('organizations', `id=eq.${id}`))[0];
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+    const members = await sbGet('organization_members', `organization_id=eq.${id}`);
+    const workspaces = await sbGet('workspaces', `organization_id=eq.${id}`);
+    res.json({ organization: org, members, workspaces, workspace_count: workspaces.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/organizations/:id/workspaces — add a client workspace
+// Body: { business_id, name, client_name, client_email? }
+app.post('/api/organizations/:id/workspaces', planGate('multi_workspace'), async (req, res) => {
+  const org_id = req.params.id;
+  const { name, client_name, client_email } = req.body;
+  const business_id = req.body.business_id || req.business_id;
+
+  if (!name) return res.status(400).json({ error: 'name required' });
+
+  try {
+    // Check workspace limit
+    const existing = await sbGet('workspaces', `organization_id=eq.${org_id}&select=id`);
+    const org      = (await sbGet('organizations', `id=eq.${org_id}&select=max_workspaces`))[0];
+    const limit    = org?.max_workspaces || 20;
+
+    if (existing.length >= limit) {
+      return res.status(403).json({ error: `Workspace limit reached (${limit}). Contact support to increase.` });
+    }
+
+    const ws = await sbPost('workspaces', {
+      organization_id: org_id,
+      business_id:     business_id || null,
+      name, client_name: client_name || name,
+      client_email:    client_email || null,
+      is_active:       true
+    });
+
+    // If business_id provided, link it to org + workspace
+    if (business_id) {
+      await sbPatch('businesses', `id=eq.${business_id}`, {
+        organization_id: org_id,
+        workspace_id:    ws?.id
+      });
+    }
+
+    log('/api/organizations/workspaces', `Created workspace "${name}" in org ${org_id}`);
+    res.json({ success: true, workspace: ws });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/organizations/:id/workspaces
+app.get('/api/organizations/:id/workspaces', async (req, res) => {
+  const org_id = req.params.id;
+  try {
+    const workspaces = await sbGet('workspaces', `organization_id=eq.${org_id}&select=*`);
+    res.json({ workspaces, count: workspaces.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/organizations/:id/members/invite
+// Body: { email, role, business_id }
+app.post('/api/organizations/:id/members/invite', planGate('multi_workspace'), async (req, res) => {
+  const org_id = req.params.id;
+  const { email, role = 'member' } = req.body;
+  if (!email) return res.status(400).json({ error: 'email required' });
+
+  try {
+    // Store invite (user_id will be null until they sign up)
+    await sbPost('organization_members', {
+      organization_id: org_id,
+      user_id:         null,
+      invited_email:   email,
+      role
+    });
+
+    // Send invite email
+    const org = (await sbGet('organizations', `id=eq.${org_id}&select=name`))[0];
+    const html = `<h2>You've been invited to ${org?.name || 'a maroa.ai workspace'}</h2>
+<p>You've been added as a <strong>${role}</strong> to manage marketing for clients on maroa.ai.</p>
+<p><a href="https://maroa-ai-marketing-automator.lovable.app/accept-invite?org=${org_id}&email=${encodeURIComponent(email)}"
+   style="background:#667eea;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">
+   Accept Invitation
+</a></p>`;
+    await sendEmail(email, `You've been invited to ${org?.name || 'maroa.ai'}`, html);
+
+    log('/api/organizations/invite', `Invited ${email} as ${role} to org ${org_id}`);
+    res.json({ success: true, invited: email, role });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/organizations/:id/white-label
+// Body: { business_id, white_label_logo_url, white_label_primary_color, white_label_company_name, white_label_domain, white_label_support_email, white_label_hide_powered_by }
+app.put('/api/organizations/:id/white-label', planGate('white_label'), async (req, res) => {
+  const org_id = req.params.id;
+  const allowed = ['white_label_logo_url','white_label_primary_color','white_label_company_name',
+                   'white_label_domain','white_label_support_email','white_label_hide_powered_by'];
+  const updates = {};
+  allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
+
+  if (Object.keys(updates).length === 0) {
+    return res.status(400).json({ error: 'No white-label fields provided', allowed_fields: allowed });
+  }
+
+  try {
+    await sbPatch('organizations', `id=eq.${org_id}`, updates);
+    log('/api/organizations/white-label', `Updated white-label for org ${org_id}`);
+    res.json({ success: true, updated: updates });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// BUILD 3 — LINKEDIN AUTOPILOT
+// ═════════════════════════════════════════════════════════════════════════════
+
+const LINKEDIN_CLIENT_ID     = clean(process.env.LINKEDIN_CLIENT_ID)     || '';
+const LINKEDIN_CLIENT_SECRET = clean(process.env.LINKEDIN_CLIENT_SECRET) || '';
+const LINKEDIN_REDIRECT_URI  = 'https://maroa-api-production.up.railway.app/api/social/linkedin/callback';
+
+// POST /api/social/linkedin/connect — initiate LinkedIn OAuth
+// Body: { business_id }
+app.post('/api/social/linkedin/connect', planGate('linkedin'), async (req, res) => {
+  const { business_id } = req.body;
+  if (!LINKEDIN_CLIENT_ID) return res.status(500).json({ error: 'LINKEDIN_CLIENT_ID not configured' });
+
+  // Store state in oauth_states table
+  const state = require('crypto').randomBytes(16).toString('hex');
+  try {
+    await sbPost('oauth_states', {
+      business_id, platform: 'linkedin', state,
+      redirect_uri: LINKEDIN_REDIRECT_URI,
+      expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    });
+  } catch {}
+
+  const scopes   = 'openid profile email w_member_social r_organization_social rw_organization_admin';
+  const authUrl  = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${LINKEDIN_CLIENT_ID}&redirect_uri=${encodeURIComponent(LINKEDIN_REDIRECT_URI)}&state=${state}&scope=${encodeURIComponent(scopes)}`;
+
+  res.json({ oauth_url: authUrl, state });
+});
+
+// GET /api/social/linkedin/callback — LinkedIn OAuth callback
+app.get('/api/social/linkedin/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+
+  if (error) {
+    return res.redirect(`https://maroa-ai-marketing-automator.lovable.app/social-accounts?error=linkedin_${error}`);
+  }
+
+  try {
+    // Validate state
+    const stateRow = (await sbGet('oauth_states', `state=eq.${state}&platform=eq.linkedin`))[0];
+    if (!stateRow) return res.redirect('https://maroa-ai-marketing-automator.lovable.app/social-accounts?error=invalid_state');
+    const business_id = stateRow.business_id;
+
+    // Exchange code for token
+    const tokenParams = new URLSearchParams({
+      grant_type:    'authorization_code',
+      code, redirect_uri: LINKEDIN_REDIRECT_URI,
+      client_id:     LINKEDIN_CLIENT_ID,
+      client_secret: LINKEDIN_CLIENT_SECRET
+    });
+    const tokenResp = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: tokenParams.toString()
+    });
+    const tokenData = await tokenResp.json();
+    if (!tokenData.access_token) {
+      log('/linkedin/callback', `Token exchange failed: ${JSON.stringify(tokenData)}`);
+      return res.redirect('https://maroa-ai-marketing-automator.lovable.app/social-accounts?error=linkedin_token_failed');
+    }
+
+    const accessToken   = tokenData.access_token;
+    const refreshToken  = tokenData.refresh_token || null;
+    const expiresIn     = tokenData.expires_in || 5184000; // 60 days default
+
+    // Get LinkedIn person ID + name
+    const profileResp = await fetch('https://api.linkedin.com/v2/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const profile = await profileResp.json();
+
+    // Get organization (company page) if any
+    let orgId = null;
+    const orgResp = await fetch('https://api.linkedin.com/v2/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&projection=(elements*(organization~(id,localizedName)))', {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const orgData = await orgResp.json();
+    if (orgData?.elements?.[0]) {
+      orgId = orgData.elements[0]['organization~']?.id?.toString();
+    }
+
+    // Save to Supabase
+    await sbPatch('businesses', `id=eq.${business_id}`, {
+      linkedin_access_token:    accessToken,
+      linkedin_refresh_token:   refreshToken,
+      linkedin_person_id:       profile.sub || profile.id || null,
+      linkedin_organization_id: orgId,
+      linkedin_connected:       true,
+      linkedin_token_expires_at: new Date(Date.now() + expiresIn * 1000).toISOString(),
+      next_linkedin_post_date:  new Date().toISOString()
+    });
+
+    log('/linkedin/callback', `Connected LinkedIn for business ${business_id} — person: ${profile.name}`);
+    res.redirect('https://maroa-ai-marketing-automator.lovable.app/social-accounts?connected=linkedin');
+
+  } catch (err) {
+    console.error('[linkedin/callback ERROR]', err.message);
+    res.redirect(`https://maroa-ai-marketing-automator.lovable.app/social-accounts?error=linkedin_server_error`);
+  }
+});
+
+// POST /api/social/linkedin/publish — manual publish endpoint
+// Body: { business_id, content, image_url? }
+app.post('/api/social/linkedin/publish', planGate('linkedin'), async (req, res) => {
+  const { business_id, content, image_url } = req.body;
+  if (!content) return res.status(400).json({ error: 'content required' });
+
+  try {
+    const biz = (await sbGet('businesses', `id=eq.${business_id}&select=linkedin_access_token,linkedin_person_id,linkedin_organization_id,business_name,industry,brand_tone,target_audience,dream_customer,unique_differentiator`))[0];
+    if (!biz?.linkedin_access_token) return res.status(400).json({ error: 'LinkedIn not connected for this business' });
+
+    // Generate content if not provided (AI-written)
+    let postContent = content;
+    if (content === 'AI_GENERATE') {
+      const aiResp = await apiRequest('POST', 'https://api.anthropic.com/v1/messages',
+        { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+        {
+          model: 'claude-sonnet-4-5', max_tokens: 600,
+          messages: [{ role: 'user', content: `You are a LinkedIn content expert. Generate a professional LinkedIn post for a ${biz.industry} business.
+Business: ${biz.business_name}
+Tone: ${biz.brand_tone || 'professional and approachable'}
+Target audience: ${biz.target_audience || 'business owners and professionals'}
+Unique value: ${biz.unique_differentiator || ''}
+Dream customer: ${biz.dream_customer || ''}
+Write a post with: hook (first line that stops scrolling), value body (3-5 lines), CTA, and 3-5 relevant hashtags.
+Format: plain text, no markdown. Max 1300 characters. Return only valid JSON: {"post_text":"..."}` }]
+        });
+      const raw = aiResp.body?.content?.[0]?.text || '{}';
+      try { postContent = JSON.parse(raw).post_text || raw; }
+      catch { const m = raw.match(/"post_text"\s*:\s*"([^"]+)"/); postContent = m?.[1] || raw; }
+    }
+
+    // Determine author (org page or personal)
+    const authorUrn = biz.linkedin_organization_id
+      ? `urn:li:organization:${biz.linkedin_organization_id}`
+      : `urn:li:person:${biz.linkedin_person_id}`;
+
+    const ugcPost = {
+      author: authorUrn,
+      lifecycleState: 'PUBLISHED',
+      specificContent: {
+        'com.linkedin.ugc.ShareContent': {
+          shareCommentary:  { text: postContent },
+          shareMediaCategory: 'NONE'
+        }
+      },
+      visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }
+    };
+
+    const publishResp = await fetch('https://api.linkedin.com/v2/ugcPosts', {
+      method:  'POST',
+      headers: { 'Authorization': `Bearer ${biz.linkedin_access_token}`, 'Content-Type': 'application/json', 'X-Restli-Protocol-Version': '2.0.0' },
+      body:    JSON.stringify(ugcPost)
+    });
+    const publishData = await publishResp.json();
+
+    if (publishData.id) {
+      // Log to posts table
+      await sbPost('posts', {
+        business_id, platform: 'linkedin',
+        platform_post_id: publishData.id,
+        content: postContent, image_url: image_url || null,
+        status: 'published', published_at: new Date().toISOString()
+      });
+      // Advance next post date by 2 days
+      await sbPatch('businesses', `id=eq.${business_id}`, {
+        next_linkedin_post_date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString()
+      });
+      log('/linkedin/publish', `Published to LinkedIn for ${business_id}: ${publishData.id}`);
+      res.json({ success: true, post_id: publishData.id, content: postContent });
+    } else {
+      res.status(400).json({ error: 'LinkedIn publish failed', detail: publishData });
+    }
+  } catch (err) {
+    console.error('[linkedin/publish ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/social/linkedin/metrics?business_id=...
+app.get('/api/social/linkedin/metrics', async (req, res) => {
+  const { business_id } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  try {
+    const posts = await sbGet('posts', `business_id=eq.${business_id}&platform=eq.linkedin&order=published_at.desc&limit=10`);
+    const biz   = (await sbGet('businesses', `id=eq.${business_id}&select=linkedin_connected,linkedin_person_id,linkedin_organization_id`))[0];
+    res.json({ connected: biz?.linkedin_connected || false, recent_posts: posts, post_count: posts.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// BUILD 4 — X (TWITTER) AUTOPILOT — OAuth 2.0 PKCE
+// ═════════════════════════════════════════════════════════════════════════════
+
+const TWITTER_CLIENT_ID     = clean(process.env.TWITTER_CLIENT_ID)     || '';
+const TWITTER_CLIENT_SECRET = clean(process.env.TWITTER_CLIENT_SECRET) || '';
+const TWITTER_REDIRECT_URI  = 'https://maroa-api-production.up.railway.app/api/social/twitter/callback';
+
+// POST /api/social/twitter/connect — initiate Twitter OAuth 2.0 PKCE
+app.post('/api/social/twitter/connect', planGate('twitter'), async (req, res) => {
+  const { business_id } = req.body;
+  if (!TWITTER_CLIENT_ID) return res.status(500).json({ error: 'TWITTER_CLIENT_ID not configured' });
+
+  const crypto       = require('crypto');
+  const state        = crypto.randomBytes(16).toString('hex');
+  const codeVerifier = crypto.randomBytes(32).toString('base64url');
+  const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+
+  try {
+    await sbPost('oauth_states', {
+      business_id, platform: 'twitter', state,
+      code_verifier: codeVerifier, redirect_uri: TWITTER_REDIRECT_URI,
+      expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    });
+  } catch {}
+
+  const scopes  = 'tweet.read tweet.write users.read offline.access';
+  const authUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${TWITTER_CLIENT_ID}&redirect_uri=${encodeURIComponent(TWITTER_REDIRECT_URI)}&scope=${encodeURIComponent(scopes)}&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+
+  res.json({ oauth_url: authUrl, state });
+});
+
+// GET /api/social/twitter/callback
+app.get('/api/social/twitter/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  if (error) return res.redirect(`https://maroa-ai-marketing-automator.lovable.app/social-accounts?error=twitter_${error}`);
+
+  try {
+    const stateRow = (await sbGet('oauth_states', `state=eq.${state}&platform=eq.twitter`))[0];
+    if (!stateRow) return res.redirect('https://maroa-ai-marketing-automator.lovable.app/social-accounts?error=twitter_invalid_state');
+    const { business_id, code_verifier } = stateRow;
+
+    const tokenParams = new URLSearchParams({
+      grant_type: 'authorization_code', code,
+      redirect_uri: TWITTER_REDIRECT_URI, code_verifier,
+      client_id: TWITTER_CLIENT_ID
+    });
+    const basicAuth = Buffer.from(`${TWITTER_CLIENT_ID}:${TWITTER_CLIENT_SECRET}`).toString('base64');
+    const tokenResp = await fetch('https://api.twitter.com/2/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Authorization': `Basic ${basicAuth}` },
+      body: tokenParams.toString()
+    });
+    const tokenData = await tokenResp.json();
+    if (!tokenData.access_token) return res.redirect('https://maroa-ai-marketing-automator.lovable.app/social-accounts?error=twitter_token_failed');
+
+    // Get user info
+    const userResp = await fetch('https://api.twitter.com/2/users/me?user.fields=username,name', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` }
+    });
+    const userData = await userResp.json();
+
+    await sbPatch('businesses', `id=eq.${business_id}`, {
+      twitter_access_token:    tokenData.access_token,
+      twitter_refresh_token:   tokenData.refresh_token || null,
+      twitter_user_id:         userData.data?.id || null,
+      twitter_username:        userData.data?.username || null,
+      twitter_connected:       true,
+      twitter_token_expires_at: tokenData.expires_in ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString() : null,
+      next_twitter_post_date:  new Date().toISOString()
+    });
+
+    log('/twitter/callback', `Connected Twitter @${userData.data?.username} for business ${business_id}`);
+    res.redirect('https://maroa-ai-marketing-automator.lovable.app/social-accounts?connected=twitter');
+
+  } catch (err) {
+    console.error('[twitter/callback ERROR]', err.message);
+    res.redirect('https://maroa-ai-marketing-automator.lovable.app/social-accounts?error=twitter_server_error');
+  }
+});
+
+// POST /api/social/twitter/tweet — post single tweet
+// Body: { business_id, text? } — if text omitted, AI generates it
+app.post('/api/social/twitter/tweet', planGate('twitter'), async (req, res) => {
+  const { business_id, text } = req.body;
+  try {
+    const biz = (await sbGet('businesses', `id=eq.${business_id}&select=twitter_access_token,twitter_user_id,twitter_username,business_name,industry,brand_tone,target_audience,dream_customer,unique_differentiator`))[0];
+    if (!biz?.twitter_access_token) return res.status(400).json({ error: 'Twitter not connected' });
+
+    let tweetText = text;
+    if (!tweetText || tweetText === 'AI_GENERATE') {
+      const aiResp = await apiRequest('POST', 'https://api.anthropic.com/v1/messages',
+        { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+        { model: 'claude-sonnet-4-5', max_tokens: 200,
+          messages: [{ role: 'user', content: `Generate a tweet for a ${biz.industry} business. Max 280 characters.
+Be direct, engaging, and end with a soft CTA. No hashtag spam — max 2 relevant hashtags.
+Business: ${biz.business_name}, Tone: ${biz.brand_tone || 'professional'}, Audience: ${biz.target_audience || 'small businesses'}
+Return only valid JSON: {"tweet":"..."}` }] });
+      const raw = aiResp.body?.content?.[0]?.text || '{}';
+      try { tweetText = JSON.parse(raw).tweet || raw; }
+      catch { const m = raw.match(/"tweet"\s*:\s*"([^"]+)"/); tweetText = m?.[1] || raw; }
+    }
+
+    const tweetResp = await fetch('https://api.twitter.com/2/tweets', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${biz.twitter_access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: tweetText.slice(0, 280) })
+    });
+    const tweetData = await tweetResp.json();
+
+    if (tweetData.data?.id) {
+      await sbPost('posts', {
+        business_id, platform: 'twitter',
+        platform_post_id: tweetData.data.id,
+        content: tweetText, status: 'published',
+        published_at: new Date().toISOString()
+      });
+      await sbPatch('businesses', `id=eq.${business_id}`, {
+        next_twitter_post_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+      });
+      log('/twitter/tweet', `Tweeted for ${business_id}: ${tweetData.data.id}`);
+      res.json({ success: true, tweet_id: tweetData.data.id, text: tweetText });
+    } else {
+      res.status(400).json({ error: 'Tweet failed', detail: tweetData });
+    }
+  } catch (err) {
+    console.error('[twitter/tweet ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/social/twitter/thread — post 5-tweet thread
+// Body: { business_id, topic? }
+app.post('/api/social/twitter/thread', planGate('twitter'), async (req, res) => {
+  const { business_id, topic } = req.body;
+  try {
+    const biz = (await sbGet('businesses', `id=eq.${business_id}&select=twitter_access_token,business_name,industry,brand_tone,target_audience,unique_differentiator`))[0];
+    if (!biz?.twitter_access_token) return res.status(400).json({ error: 'Twitter not connected' });
+
+    const aiResp = await apiRequest('POST', 'https://api.anthropic.com/v1/messages',
+      { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      { model: 'claude-sonnet-4-5', max_tokens: 800,
+        messages: [{ role: 'user', content: `Write a 5-tweet thread for a ${biz.industry} business about: ${topic || 'their top marketing tip'}.
+Business: ${biz.business_name}, Tone: ${biz.brand_tone || 'expert and approachable'}.
+Each tweet max 270 chars. Tweet 1 is the hook, tweets 2-4 are value, tweet 5 is CTA.
+Return only valid JSON: {"tweets":["tweet1","tweet2","tweet3","tweet4","tweet5"]}` }] });
+    const raw = aiResp.body?.content?.[0]?.text || '{}';
+    let tweets = [];
+    try { tweets = JSON.parse(raw).tweets || []; }
+    catch { const m = raw.match(/{[\s\S]*}/); try { tweets = JSON.parse(m?.[0] || '{}').tweets || []; } catch {} }
+
+    if (!tweets.length) return res.status(500).json({ error: 'AI failed to generate thread' });
+
+    // Post tweets as a thread (each reply_to previous)
+    const postedIds = [];
+    let previousId  = null;
+    for (const tweetText of tweets) {
+      const body = previousId ? { text: tweetText.slice(0, 270), reply: { in_reply_to_tweet_id: previousId } } : { text: tweetText.slice(0, 270) };
+      const r = await fetch('https://api.twitter.com/2/tweets', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${biz.twitter_access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const d = await r.json();
+      if (d.data?.id) { postedIds.push(d.data.id); previousId = d.data.id; }
+    }
+
+    await sbPost('posts', {
+      business_id, platform: 'twitter',
+      platform_post_id: postedIds[0] || null,
+      content: tweets.join('\n\n---\n'), status: 'published',
+      published_at: new Date().toISOString()
+    });
+
+    log('/twitter/thread', `Posted ${postedIds.length}-tweet thread for ${business_id}`);
+    res.json({ success: true, thread_ids: postedIds, tweet_count: postedIds.length });
+  } catch (err) {
+    console.error('[twitter/thread ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/social/twitter/metrics?business_id=...
+app.get('/api/social/twitter/metrics', async (req, res) => {
+  const { business_id } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  try {
+    const posts = await sbGet('posts', `business_id=eq.${business_id}&platform=eq.twitter&order=published_at.desc&limit=10`);
+    const biz   = (await sbGet('businesses', `id=eq.${business_id}&select=twitter_connected,twitter_username`))[0];
+    res.json({ connected: biz?.twitter_connected || false, username: biz?.twitter_username, recent_posts: posts });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// BUILD 5 — TIKTOK AUTOPILOT
+// ═════════════════════════════════════════════════════════════════════════════
+
+const TIKTOK_CLIENT_KEY    = clean(process.env.TIKTOK_CLIENT_KEY)    || '';
+const TIKTOK_CLIENT_SECRET = clean(process.env.TIKTOK_CLIENT_SECRET) || '';
+const TIKTOK_REDIRECT_URI  = 'https://maroa-api-production.up.railway.app/api/social/tiktok/callback';
+
+// POST /api/social/tiktok/connect
+app.post('/api/social/tiktok/connect', planGate('tiktok'), async (req, res) => {
+  const { business_id } = req.body;
+  if (!TIKTOK_CLIENT_KEY) return res.status(500).json({ error: 'TIKTOK_CLIENT_KEY not configured' });
+
+  const crypto   = require('crypto');
+  const state    = crypto.randomBytes(16).toString('hex');
+  const verifier = crypto.randomBytes(32).toString('base64url');
+  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+
+  try {
+    await sbPost('oauth_states', {
+      business_id, platform: 'tiktok', state,
+      code_verifier: verifier, redirect_uri: TIKTOK_REDIRECT_URI,
+      expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    });
+  } catch {}
+
+  const scopes  = 'user.info.basic,video.list,video.publish';
+  const authUrl = `https://www.tiktok.com/v2/auth/authorize/?client_key=${TIKTOK_CLIENT_KEY}&response_type=code&scope=${encodeURIComponent(scopes)}&redirect_uri=${encodeURIComponent(TIKTOK_REDIRECT_URI)}&state=${state}&code_challenge=${challenge}&code_challenge_method=S256`;
+
+  res.json({ oauth_url: authUrl, state });
+});
+
+// GET /api/social/tiktok/callback
+app.get('/api/social/tiktok/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  if (error) return res.redirect(`https://maroa-ai-marketing-automator.lovable.app/social-accounts?error=tiktok_${error}`);
+
+  try {
+    const stateRow = (await sbGet('oauth_states', `state=eq.${state}&platform=eq.tiktok`))[0];
+    if (!stateRow) return res.redirect('https://maroa-ai-marketing-automator.lovable.app/social-accounts?error=tiktok_invalid_state');
+    const { business_id, code_verifier } = stateRow;
+
+    const tokenResp = await fetch('https://open.tiktokapis.com/v2/oauth/token/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_key: TIKTOK_CLIENT_KEY, client_secret: TIKTOK_CLIENT_SECRET,
+        grant_type: 'authorization_code', code,
+        redirect_uri: TIKTOK_REDIRECT_URI, code_verifier
+      }).toString()
+    });
+    const tokenData = await tokenResp.json();
+    if (!tokenData.data?.access_token) return res.redirect('https://maroa-ai-marketing-automator.lovable.app/social-accounts?error=tiktok_token_failed');
+
+    const access_token  = tokenData.data.access_token;
+    const refresh_token = tokenData.data.refresh_token;
+
+    // Get user info
+    const userResp = await fetch('https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,username', {
+      headers: { Authorization: `Bearer ${access_token}` }
+    });
+    const userData = await userResp.json();
+    const user     = userData?.data?.user || {};
+
+    await sbPatch('businesses', `id=eq.${business_id}`, {
+      tiktok_access_token:    access_token,
+      tiktok_refresh_token:   refresh_token,
+      tiktok_user_id:         user.open_id || null,
+      tiktok_username:        user.username || user.display_name || null,
+      tiktok_connected:       true,
+      tiktok_token_expires_at: tokenData.data.expires_in ? new Date(Date.now() + tokenData.data.expires_in * 1000).toISOString() : null,
+      next_tiktok_post_date:  new Date().toISOString()
+    });
+
+    log('/tiktok/callback', `Connected TikTok for business ${business_id}`);
+    res.redirect('https://maroa-ai-marketing-automator.lovable.app/social-accounts?connected=tiktok');
+
+  } catch (err) {
+    console.error('[tiktok/callback ERROR]', err.message);
+    res.redirect('https://maroa-ai-marketing-automator.lovable.app/social-accounts?error=tiktok_server_error');
+  }
+});
+
+// POST /api/social/tiktok/publish — generate caption + log (TikTok requires video upload via their own SDK)
+// Body: { business_id, video_url, caption? }
+app.post('/api/social/tiktok/publish', planGate('tiktok'), async (req, res) => {
+  const { business_id, video_url, caption } = req.body;
+  if (!video_url) return res.status(400).json({ error: 'video_url required' });
+
+  try {
+    const biz = (await sbGet('businesses', `id=eq.${business_id}&select=tiktok_access_token,business_name,industry,brand_tone,target_audience`))[0];
+    if (!biz?.tiktok_access_token) return res.status(400).json({ error: 'TikTok not connected' });
+
+    // Generate script + caption via Claude if not provided
+    let finalCaption = caption;
+    let hookScript   = '';
+    if (!finalCaption || finalCaption === 'AI_GENERATE') {
+      const aiResp = await apiRequest('POST', 'https://api.anthropic.com/v1/messages',
+        { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+        { model: 'claude-sonnet-4-5', max_tokens: 400,
+          messages: [{ role: 'user', content: `Write a TikTok video script for a ${biz.industry} business.
+Format: Hook (0-3 sec), Problem (3-8 sec), Solution (8-20 sec), CTA (last 3 sec).
+Also write the caption (max 150 chars) and 5 trending hashtags for ${biz.industry}.
+Business: ${biz.business_name}, Tone: ${biz.brand_tone || 'fun and energetic'}.
+Return only valid JSON: {"hook":"...","script":"...","caption":"...","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5"]}` }] });
+      const raw = aiResp.body?.content?.[0]?.text || '{}';
+      try {
+        const p = JSON.parse(raw);
+        finalCaption = `${p.caption} ${(p.hashtags||[]).join(' ')}`;
+        hookScript   = p.hook || '';
+      } catch {}
+    }
+
+    // Initiate TikTok video upload
+    const initResp = await fetch('https://open.tiktokapis.com/v2/post/publish/video/init/', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${biz.tiktok_access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        post_info: { title: finalCaption?.slice(0, 150) || 'New post', privacy_level: 'PUBLIC_TO_EVERYONE', disable_duet: false, disable_comment: false, disable_stitch: false },
+        source_info: { source: 'PULL_FROM_URL', video_url }
+      })
+    });
+    const initData = await initResp.json();
+
+    if (initData.data?.publish_id) {
+      await sbPost('posts', {
+        business_id, platform: 'tiktok',
+        platform_post_id: initData.data.publish_id,
+        content: finalCaption, image_url: null,
+        status: 'published', published_at: new Date().toISOString()
+      });
+      await sbPatch('businesses', `id=eq.${business_id}`, {
+        next_tiktok_post_date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString()
+      });
+      log('/tiktok/publish', `TikTok publish initiated for ${business_id}: ${initData.data.publish_id}`);
+      res.json({ success: true, publish_id: initData.data.publish_id, caption: finalCaption, hook: hookScript });
+    } else {
+      res.status(400).json({ error: 'TikTok publish initiation failed', detail: initData });
+    }
+  } catch (err) {
+    console.error('[tiktok/publish ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/social/tiktok/metrics?business_id=...
+app.get('/api/social/tiktok/metrics', async (req, res) => {
+  const { business_id } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  try {
+    const posts = await sbGet('posts', `business_id=eq.${business_id}&platform=eq.tiktok&order=published_at.desc&limit=10`);
+    const biz   = (await sbGet('businesses', `id=eq.${business_id}&select=tiktok_connected,tiktok_username`))[0];
+    res.json({ connected: biz?.tiktok_connected || false, username: biz?.tiktok_username, recent_posts: posts });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

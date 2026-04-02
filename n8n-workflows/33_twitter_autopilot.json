@@ -1,0 +1,168 @@
+{
+  "name": "33 - Twitter Autopilot",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {}
+    },
+    {
+      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678902",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 460],
+      "parameters": {
+        "rule": { "interval": [{ "field": "cronExpression", "expression": "0 11 * * *" }] }
+      }
+    },
+    {
+      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678903",
+      "name": "Get Twitter Businesses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 380],
+      "parameters": {
+        "method": "GET",
+        "url": "https://zqhyrbttuqkvmdewiytf.supabase.co/rest/v1/businesses?select=id,email,first_name,business_name,industry,location,target_audience,brand_tone,marketing_goal,twitter_access_token,twitter_user_id,twitter_username,dream_customer,unique_differentiator,best_performing_themes&twitter_connected=eq.true&is_active=eq.true",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678904",
+      "name": "Loop Each Business",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [680, 380],
+      "parameters": { "batchSize": 1, "options": {} }
+    },
+    {
+      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678905",
+      "name": "Decide Tweet or Thread",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "parameters": {
+        "jsCode": "const biz = $('Loop Each Business').first().json;\n\n// Alternate: tweet on odd days, thread on even days\nconst dayOfMonth = new Date().getDate();\nconst isThread = dayOfMonth % 3 === 0; // thread every 3rd day\n\nconst tweetPrompt = `Generate a tweet for a ${biz.industry} business. Max 280 characters.\nBe direct, engaging, and end with a soft CTA. No hashtag spam — max 2 relevant hashtags.\nBusiness: ${biz.business_name}, Tone: ${biz.brand_tone || 'professional'}, Audience: ${biz.target_audience || 'small businesses'}\nUnique differentiator: ${biz.unique_differentiator || ''}\nReturn only valid JSON: {\"tweet\": \"...\", \"content_theme\": \"...\"}`;\n\nconst threadPrompt = `Write a 5-tweet thread for a ${biz.industry} business.\nBusiness: ${biz.business_name}, Tone: ${biz.brand_tone || 'expert and approachable'}.\nTweet 1: hook (bold statement or question), Tweets 2-4: value (tips/insights), Tweet 5: CTA.\nEach tweet max 270 chars. No hashtag spam — 1-2 total across the thread.\nReturn only valid JSON: {\"tweets\": [\"tweet1\",\"tweet2\",\"tweet3\",\"tweet4\",\"tweet5\"], \"content_theme\": \"...\"}`;\n\nreturn [{ json: {\n  prompt: isThread ? threadPrompt : tweetPrompt,\n  post_type: isThread ? 'thread' : 'tweet',\n  business_id: biz.id,\n  business_name: biz.business_name,\n  twitter_access_token: biz.twitter_access_token,\n  twitter_user_id: biz.twitter_user_id\n} }];"
+      }
+    },
+    {
+      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678906",
+      "name": "Claude Sonnet — Write Tweet",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "={{ $env.ANTHROPIC_API_KEY }}" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "model", "value": "claude-sonnet-4-5" },
+            { "name": "max_tokens", "value": 600 },
+            { "name": "messages", "value": "=[{\"role\": \"user\", \"content\": \"{{ $json.prompt }}\"}]" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678907",
+      "name": "Parse and Publish",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.content?.[0]?.text || '';\nlet c = {};\ntry { c = JSON.parse(raw); }\ncatch(e) { const m = raw.match(/{[\\s\\S]*}/); if(m) try { c = JSON.parse(m[0]); } catch(e2) {} }\n\nconst meta = $('Decide Tweet or Thread').first().json;\n\nreturn [{ json: {\n  post_type: meta.post_type,\n  tweet: c.tweet || '',\n  tweets: c.tweets || [],\n  content_theme: c.content_theme || 'general',\n  business_id: meta.business_id,\n  business_name: meta.business_name,\n  twitter_access_token: meta.twitter_access_token\n} }];"
+      }
+    },
+    {
+      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678908",
+      "name": "Post Tweet",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 220],
+      "parameters": {
+        "method": "POST",
+        "url": "https://maroa-api-production.up.railway.app/api/social/twitter/tweet",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "business_id", "value": "={{ $json.business_id }}" },
+            { "name": "text", "value": "={{ $json.tweet }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678909",
+      "name": "Post Thread",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 380],
+      "parameters": {
+        "method": "POST",
+        "url": "https://maroa-api-production.up.railway.app/api/social/twitter/thread",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "business_id", "value": "={{ $json.business_id }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678910",
+      "name": "Route Tweet vs Thread",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1340, 460],
+      "parameters": {
+        "mode": "expression",
+        "output": "={{ $json.post_type === 'thread' ? 1 : 0 }}"
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger":           { "main": [[{ "node": "Get Twitter Businesses", "type": "main", "index": 0 }]] },
+    "Schedule Trigger":         { "main": [[{ "node": "Get Twitter Businesses", "type": "main", "index": 0 }]] },
+    "Get Twitter Businesses":   { "main": [[{ "node": "Loop Each Business",     "type": "main", "index": 0 }]] },
+    "Loop Each Business":       { "main": [[{ "node": "Decide Tweet or Thread", "type": "main", "index": 0 }], []] },
+    "Decide Tweet or Thread":   { "main": [[{ "node": "Claude Sonnet — Write Tweet", "type": "main", "index": 0 }]] },
+    "Claude Sonnet — Write Tweet": { "main": [[{ "node": "Parse and Publish",   "type": "main", "index": 0 }]] },
+    "Parse and Publish":        { "main": [[{ "node": "Route Tweet vs Thread",  "type": "main", "index": 0 }]] },
+    "Route Tweet vs Thread":    { "main": [[{ "node": "Post Tweet",  "type": "main", "index": 0 }], [{ "node": "Post Thread", "type": "main", "index": 0 }]] },
+    "Post Tweet":               { "main": [[{ "node": "Loop Each Business",     "type": "main", "index": 0 }]] },
+    "Post Thread":              { "main": [[{ "node": "Loop Each Business",     "type": "main", "index": 0 }]] }
+  }
+}
