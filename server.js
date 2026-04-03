@@ -18,6 +18,7 @@ app.use(cors({
     'https://maroa-frontend.vercel.app',
     'https://maroa.ai',
     'http://localhost:3000',
+    'http://localhost:3001',
     'http://localhost:5173'
   ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
