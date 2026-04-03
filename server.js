@@ -178,6 +178,69 @@ async function serpSearch(query, num = 5) {
   } catch { return []; }
 }
 
+// ─── Save image to Supabase Storage (permanent URL) ──────────────────────────
+async function saveImageToSupabase(imageUrl, businessId) {
+  if (!imageUrl || !imageUrl.startsWith('http')) return imageUrl;
+  try {
+    // Download image as binary buffer
+    const imgBuf = await new Promise((resolve, reject) => {
+      const u = new URL(imageUrl);
+      const proto = u.protocol === 'https:' ? https : http;
+      proto.get(imageUrl, { headers: { 'Accept': '*/*' } }, res => {
+        // Follow redirects
+        if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
+          return saveImageToSupabase(res.headers.location, businessId).then(resolve).catch(reject);
+        }
+        if (res.statusCode !== 200) return reject(new Error(`Download failed: ${res.statusCode}`));
+        const chunks = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+        res.on('error', reject);
+      }).on('error', reject);
+    });
+
+    // Detect content type from URL or default to jpeg
+    const ext = imageUrl.includes('.webp') ? 'webp' : imageUrl.includes('.png') ? 'png' : 'jpg';
+    const contentType = ext === 'webp' ? 'image/webp' : ext === 'png' ? 'image/png' : 'image/jpeg';
+    const fileName = `${businessId}/${Date.now()}.${ext}`;
+
+    // Upload to Supabase Storage via REST API
+    const uploadUrl = `${SUPABASE_URL}/storage/v1/object/business-photos/${fileName}`;
+    const uploadResp = await new Promise((resolve, reject) => {
+      const u = new URL(uploadUrl);
+      const req = https.request({
+        hostname: u.hostname, port: 443, path: u.pathname,
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': contentType,
+          'Content-Length': imgBuf.length,
+          'x-upsert': 'false'
+        }
+      }, res => {
+        let data = '';
+        res.on('data', c => data += c);
+        res.on('end', () => resolve({ status: res.statusCode, body: data }));
+      });
+      req.on('error', reject);
+      req.write(imgBuf);
+      req.end();
+    });
+
+    if (uploadResp.status >= 200 && uploadResp.status < 300) {
+      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/business-photos/${fileName}`;
+      log('saveImageToSupabase', `✅ saved ${fileName} (${imgBuf.length} bytes)`);
+      return publicUrl;
+    }
+    log('saveImageToSupabase', `⚠️ upload failed (${uploadResp.status}): ${uploadResp.body?.slice(0, 200)}`);
+    return imageUrl; // fallback to original URL
+  } catch (err) {
+    log('saveImageToSupabase', `⚠️ error: ${err.message}`);
+    return imageUrl; // fallback to original URL
+  }
+}
+
 // ─── Replicate image generation (Flux 1.1 Pro) ───────────────────────────────
 async function generateImage(prompt, fallbackQuery = 'business marketing professional') {
   // Try Replicate first
@@ -658,9 +721,10 @@ async function generateInstantContent(bizId, emailOverride) {
     score   = scoreContent(content);
   }
 
-  // Generate image
+  // Generate image and save to Supabase Storage for permanent URL
   const imgQuery  = biz.industry || biz.business_type || 'small business marketing professional';
   const imgResult = await generateImage(content.image_prompt || `Professional marketing photo for ${biz.business_name}`, imgQuery);
+  if (imgResult.url) imgResult.url = await saveImageToSupabase(imgResult.url, bizId);
 
   // Save to generated_content
   const saved = await sbPost('generated_content', {
@@ -2837,7 +2901,7 @@ Return exactly this JSON:
     const campaignObj  = strategy.objective || objective;
     const campBudget   = strategy.daily_budget_usd || dailyBudget;
 
-    // 2. Generate images via Flux / Pexels fallback
+    // 2. Generate images via Flux / Pexels fallback → save to Supabase Storage
     const creativesWithImages = [];
     for (const cr of rawCreatives) {
       try {
@@ -2845,7 +2909,8 @@ Return exactly this JSON:
           cr.image_prompt || `${biz.industry} advertisement ${biz.business_name}`,
           `${biz.industry} marketing professional advertisement`
         );
-        creativesWithImages.push({ ...cr, image_url: img.url, image_source: img.source });
+        const permanentUrl = img.url ? await saveImageToSupabase(img.url, business_id) : null;
+        creativesWithImages.push({ ...cr, image_url: permanentUrl, image_source: img.source });
       } catch { creativesWithImages.push({ ...cr, image_url: null, image_source: 'none' }); }
     }
 
@@ -4076,12 +4141,12 @@ Return ONLY valid JSON:
 
       const content = await callClaude(prompt, model, maxTok);
 
-      // Generate featured image for blog posts
+      // Generate featured image for blog posts → save to Supabase Storage
       let featured_image_url = null;
       if (type === 'blog' && content.title) {
         try {
           const imgResult = await generateImage(`Professional blog header image for: ${content.title}. ${biz.industry} themed, modern, clean.`);
-          featured_image_url = imgResult?.url || null;
+          featured_image_url = imgResult?.url ? await saveImageToSupabase(imgResult.url, business_id) : null;
         } catch {}
       }
 
@@ -4502,12 +4567,12 @@ Return ONLY valid JSON:
 
       const script = await callClaude(prompt, 'claude-sonnet-4-5', 1000);
 
-      // Generate thumbnail via Flux
+      // Generate thumbnail via Flux → save to Supabase Storage
       let thumbnail_url = null;
       const thumbPrompt = `${script.thumbnail_text || useTopic} — ${biz.business_name}, vibrant ${platform} thumbnail, bold text overlay, 9:16 vertical`;
       try {
         const img = await generateImage(thumbPrompt, `${biz.industry} social media`);
-        thumbnail_url = img?.url || null;
+        thumbnail_url = img?.url ? await saveImageToSupabase(img.url, business_id) : null;
       } catch {}
 
       // Save to video_generations
