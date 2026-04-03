@@ -15,6 +15,7 @@ const app = express();
 app.use(cors({
   origin: [
     'https://maroa-ai-marketing-automator.lovable.app',
+    'https://maroa-frontend.vercel.app',
     'https://maroa.ai',
     'http://localhost:3000',
     'http://localhost:5173'
