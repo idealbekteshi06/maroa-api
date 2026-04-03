@@ -14,7 +14,7 @@ const app = express();
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 app.use(cors({
   origin: [
-    'https://maroa-ai-marketing-automator.lovable.app',
+    'https://maroa-ai-marketing-automator.vercel.app',
     'https://maroa-frontend.vercel.app',
     'https://maroa.ai',
     'http://localhost:3000',
@@ -710,7 +710,7 @@ app.post('/webhook/instant-content', async (req, res) => {
 <p>Theme: <strong>${result.content_theme || 'Weekly Content'}</strong></p>
 <p>Quality Score: <strong>${result.quality_score}/100</strong></p>
 <p>All platforms ready: Instagram, Facebook, LinkedIn, TikTok, Google Ads, Email</p>
-<p><a href="https://maroa-ai-marketing-automator.lovable.app" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Approve Content</a></p>`;
+<p><a href="https://maroa-ai-marketing-automator.vercel.app" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Approve Content</a></p>`;
         await sendEmail(email, `Your ${result.content_theme || 'weekly'} content is ready!`, html);
       }
       log('/webhook/instant-content', `✅ done — theme: ${result.content_theme}`);
@@ -856,7 +856,7 @@ app.post('/webhook/account-connected', async (req, res) => {
     if (biz?.email) {
       const html = `<h2>Platforms Connected!</h2><p>You've successfully connected: <strong>${connected.join(', ')}</strong></p>
 <p>Your AI will now post automatically and track performance across all platforms.</p>
-<p><a href="https://maroa-ai-marketing-automator.lovable.app" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Go to Dashboard</a></p>`;
+<p><a href="https://maroa-ai-marketing-automator.vercel.app" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Go to Dashboard</a></p>`;
       await sendEmail(biz.email, `${connected.length} platform${connected.length > 1 ? 's' : ''} connected to maroa.ai!`, html);
     }
 
@@ -938,7 +938,7 @@ app.post('/webhook/create-campaigns', async (req, res) => {
 <p>We've created 3 optimized Meta ad campaigns for <strong>${biz.business_name}</strong>:</p>
 <ul><li>Awareness Campaign (40% budget)</li><li>Engagement Campaign (25% budget)</li><li>Retargeting Campaign (35% budget)</li></ul>
 <p>All campaigns are set to PAUSED — activate them when ready in your dashboard.</p>
-<p><a href="https://maroa-ai-marketing-automator.lovable.app" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Manage Campaigns</a></p>`;
+<p><a href="https://maroa-ai-marketing-automator.vercel.app" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Manage Campaigns</a></p>`;
       await sendEmail(biz.email, `Your ad campaigns are ready, ${biz.first_name || biz.business_name}!`, html);
     }
 
@@ -1308,7 +1308,7 @@ app.post('/meta-oauth-exchange', async (req, res) => {
 
   const APP_ID     = clean(process.env.META_APP_ID)     || '26551713411132003';
   const APP_SECRET = clean(process.env.META_APP_SECRET) || '';
-  const REDIRECT   = redirect_uri || 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
+  const REDIRECT   = redirect_uri || 'https://maroa-ai-marketing-automator.vercel.app/social-callback';
 
   // Guard: fail immediately if secret is missing — saves a confusing Facebook error
   if (!APP_SECRET) {
@@ -1463,8 +1463,8 @@ app.post('/webhook/create-checkout', async (req, res) => {
       'customer_email':                biz.email,
       'metadata[business_id]':         business_id,
       'metadata[plan]':                plan,
-      'success_url':                   success_url || 'https://maroa-ai-marketing-automator.lovable.app/dashboard?upgraded=true',
-      'cancel_url':                    cancel_url  || 'https://maroa-ai-marketing-automator.lovable.app/billing',
+      'success_url':                   success_url || 'https://maroa-ai-marketing-automator.vercel.app/dashboard?upgraded=true',
+      'cancel_url':                    cancel_url  || 'https://maroa-ai-marketing-automator.vercel.app/billing',
       'allow_promotion_codes':         'true',
     });
     const r = await fetch('https://api.stripe.com/v1/checkout/sessions', {
@@ -1573,7 +1573,7 @@ app.post('/webhook/org-invite-member', planGate('multi_workspace'), async (req, 
     });
     const html = `<h2>You've been invited to ${org?.name || 'a maroa.ai workspace'}</h2>
 <p>You've been added as a <strong>${role}</strong>. Click below to accept:</p>
-<p><a href="https://maroa-ai-marketing-automator.lovable.app/accept-invite?org=${org_id}&email=${encodeURIComponent(email)}"
+<p><a href="https://maroa-ai-marketing-automator.vercel.app/accept-invite?org=${org_id}&email=${encodeURIComponent(email)}"
    style="background:#667eea;color:white;padding:12px 24px;border-radius:6px;text-decoration:none">
    Accept Invitation
 </a></p>`;
@@ -1612,7 +1612,7 @@ app.post('/webhook/org-white-label-update', planGate('white_label'), async (req,
 
 const LINKEDIN_CLIENT_ID     = (process.env.LINKEDIN_CLIENT_ID     || '').replace(/[^\x20-\x7E]/g,'').trim();
 const LINKEDIN_CLIENT_SECRET = (process.env.LINKEDIN_CLIENT_SECRET || '').replace(/[^\x20-\x7E]/g,'').trim();
-const LINKEDIN_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
+const LINKEDIN_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.vercel.app/social-callback';
 
 // POST /webhook/linkedin-oauth-exchange
 // Called by Lovable /social-callback with { code, business_id, redirect_uri? }
@@ -1808,7 +1808,7 @@ Return only valid JSON: {"post_text":"...","content_theme":"..."}`;
 
 const TWITTER_CLIENT_ID     = (process.env.TWITTER_CLIENT_ID     || '').replace(/[^\x20-\x7E]/g,'').trim();
 const TWITTER_CLIENT_SECRET = (process.env.TWITTER_CLIENT_SECRET || '').replace(/[^\x20-\x7E]/g,'').trim();
-const TWITTER_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
+const TWITTER_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.vercel.app/social-callback';
 
 // POST /webhook/twitter-oauth-exchange
 // Body: { code, business_id, code_verifier, redirect_uri? }
@@ -1978,7 +1978,7 @@ Return only valid JSON: {"tweet":"...","content_theme":"..."}`;
 
 const TIKTOK_CLIENT_KEY    = (process.env.TIKTOK_CLIENT_KEY    || '').replace(/[^\x20-\x7E]/g,'').trim();
 const TIKTOK_CLIENT_SECRET = (process.env.TIKTOK_CLIENT_SECRET || '').replace(/[^\x20-\x7E]/g,'').trim();
-const TIKTOK_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
+const TIKTOK_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.vercel.app/social-callback';
 
 // POST /webhook/tiktok-oauth-exchange
 // Body: { code, business_id, code_verifier, redirect_uri? }
@@ -2429,7 +2429,7 @@ Return exactly this JSON structure:
     Posts: ${totals.posts_published} &nbsp;·&nbsp;
     Active Campaigns: ${activeCampaigns}
   </p>
-  <a href="https://maroa-ai-marketing-automator.lovable.app/analytics"
+  <a href="https://maroa-ai-marketing-automator.vercel.app/analytics"
      style="display:inline-block;background:#667eea;color:white;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:8px">
     View Full Analytics →
   </a>
@@ -4107,7 +4107,7 @@ Return ONLY valid JSON:
 <p><strong>Title:</strong> ${content.title || keyword}</p>
 <p><strong>Word count:</strong> ${content.word_count || 0} words</p>
 <p><strong>SEO score:</strong> ${content.seo_score || 0}/100</p>
-<p><a href="https://maroa-ai-marketing-automator.lovable.app/content" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Approve</a></p>`;
+<p><a href="https://maroa-ai-marketing-automator.vercel.app/content" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Approve</a></p>`;
         await sendEmail(biz.email, `New ${typeLabel} ready: ${content.title || keyword}`, html).catch(() => {});
       }
 
@@ -4527,7 +4527,7 @@ Return ONLY valid JSON:
 <p><strong>Hook:</strong> "${(script.scenes || [])[0]?.text || ''}"</p>
 <p><strong>Caption:</strong> ${script.caption || ''}</p>
 ${thumbnail_url ? `<img src="${thumbnail_url}" style="max-width:300px;border-radius:8px"><br>` : ''}
-<p><a href="https://maroa-ai-marketing-automator.lovable.app/video" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View & Film</a></p>`;
+<p><a href="https://maroa-ai-marketing-automator.vercel.app/video" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View & Film</a></p>`;
         await sendEmail(biz.email, `Your ${platformLabel} script is ready: "${script.thumbnail_text || useTopic}"`, html).catch(() => {});
       }
 
@@ -4929,7 +4929,7 @@ Return ONLY valid JSON: { "response_text": "..." }`;
 <p><strong>Reviewer:</strong> ${review.reviewer_name || 'Anonymous'} — ${stars}⭐</p>
 <p><strong>Review:</strong> "${review.review_text || ''}"</p>
 <p><strong>Draft Response:</strong></p><blockquote>${response_text}</blockquote>
-<p><a href="https://maroa-ai-marketing-automator.lovable.app/reviews" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Publish</a></p>`;
+<p><a href="https://maroa-ai-marketing-automator.vercel.app/reviews" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Publish</a></p>`;
       await sendEmail(biz.email, `Review response draft ready — ${stars}⭐ from ${review.reviewer_name || 'customer'}`, html).catch(() => {});
     }
 
