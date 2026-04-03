@@ -447,212 +447,131 @@ app.get('/debug', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WF03: POST /webhook/new-user-signup — 7-step intelligent onboarding
+// WF03: POST /webhook/new-user-signup — Onboarding (creates business record)
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/webhook/new-user-signup', async (req, res) => {
-  const body = req.body;
-  const { email, first_name, business_name, industry, business_id } = body;
-  log('/webhook/new-user-signup', `email=${email} business=${business_name}`);
+  // Respond immediately so the frontend doesn't time out
+  res.json({ received: true });
 
-  if (!email) return res.status(400).json({ error: 'email required' });
-
-  // Respond immediately so frontend doesn't time out
-  res.json({ received: true, message: 'Onboarding started — your strategy is being built now', steps: 7 });
-
-  // All 7 steps run async
   try {
-    // ── Step 1: Save all onboarding data immediately ──────────────────────────
-    const onboardingData = {
-      email, first_name, business_name, industry,
-      location         : body.location,
-      city             : body.city,
-      state            : body.state,
-      business_type    : body.business_type || industry,
-      target_audience  : body.target_audience,
-      brand_tone       : body.brand_tone,
-      marketing_goal   : body.marketing_goal,
-      dream_customer   : body.dream_customer,
-      unique_differentiator : body.unique_differentiator,
-      customer_pain_points  : body.customer_pain_points,
-      primary_goal     : body.primary_goal || body.marketing_goal,
-      monthly_budget   : body.monthly_budget || body.daily_budget * 30 || 300,
-      daily_budget     : body.daily_budget || 10,
-      selected_platforms    : body.selected_platforms ? JSON.stringify(body.selected_platforms) : JSON.stringify(['instagram', 'facebook']),
-      website_url      : body.website_url,
-      num_employees    : body.num_employees,
-      business_description  : body.business_description,
-      onboarding_step  : 1,
-      onboarding_complete   : false,
-      autopilot_enabled     : true,
-      performance_baseline  : JSON.stringify({ reach: 0, impressions: 0, clicks: 0, leads: 0, spend: 0, roas: 0 })
-    };
+    const {
+      user_id, email, business_name, industry, website, first_name,
+      target_audience, main_goal, platforms, monthly_budget,
+      posting_frequency, plan = 'free'
+    } = req.body;
 
-    // Remove undefined values
-    Object.keys(onboardingData).forEach(k => onboardingData[k] === undefined && delete onboardingData[k]);
+    log('/webhook/new-user-signup', `user_id=${user_id} email=${email} business=${business_name}`);
 
-    let bizId = business_id;
-    if (bizId) {
-      await sbPatch('businesses', `id=eq.${bizId}`, onboardingData);
-    } else {
-      // Try to find existing by email
+    if (!email && !user_id) {
+      log('/webhook/new-user-signup', 'Missing email and user_id — skipping');
+      return;
+    }
+
+    // ── Check if business already exists for this user ──────────────────────
+    let bizId = null;
+
+    // Try by user_id first
+    if (user_id) {
+      const existing = await sbGet('businesses', `user_id=eq.${user_id}&select=id`);
+      if (existing[0]) {
+        bizId = existing[0].id;
+        log('/webhook/new-user-signup', `Found existing business by user_id: ${bizId}`);
+      }
+    }
+
+    // Try by email if not found by user_id
+    if (!bizId && email) {
       const existing = await sbGet('businesses', `email=eq.${encodeURIComponent(email)}&select=id`);
       if (existing[0]) {
         bizId = existing[0].id;
-        await sbPatch('businesses', `id=eq.${bizId}`, onboardingData);
-      } else {
-        const created = await sbPost('businesses', { ...onboardingData, is_active: true });
-        bizId = created?.id;
+        log('/webhook/new-user-signup', `Found existing business by email: ${bizId}`);
       }
     }
 
-    log('/webhook/new-user-signup', `Step 1 ✅ saved onboarding — bizId=${bizId}`);
+    // ── Build the data object (remove undefined values) ────────────────────
+    const bizData = {
+      business_name: business_name,
+      industry: industry,
+      website_url: website,
+      target_audience: target_audience,
+      marketing_goal: main_goal,
+      selected_platforms: Array.isArray(platforms) ? JSON.stringify(platforms) : platforms,
+      monthly_budget: monthly_budget,
+      posting_frequency: posting_frequency,
+      onboarding_complete: true,
+      autopilot_enabled: true,
+    };
+    Object.keys(bizData).forEach(k => bizData[k] === undefined && delete bizData[k]);
 
-    // ── Step 2: Brand voice extraction from website ───────────────────────────
-    let brandVoice = null;
-    if (body.website_url) {
+    if (bizId) {
+      // ── Update existing business ───────────────────────────────────────────
+      await sbPatch('businesses', `id=eq.${bizId}`, bizData);
+      log('/webhook/new-user-signup', `Updated existing business: ${bizId}`);
+    } else {
+      // ── Create new business ────────────────────────────────────────────────
+      const insertData = {
+        ...bizData,
+        user_id: user_id,
+        email: email,
+        first_name: first_name,
+        plan: plan,
+        is_active: true,
+        created_at: new Date().toISOString(),
+      };
+      Object.keys(insertData).forEach(k => insertData[k] === undefined && delete insertData[k]);
+
+      const created = await sbPost('businesses', insertData);
+      bizId = created?.id;
+      log('/webhook/new-user-signup', `Created new business: ${bizId}`);
+    }
+
+    if (!bizId) {
+      log('/webhook/new-user-signup', 'ERROR: Could not create or find business');
+      return;
+    }
+
+    // ── Run background enrichment (non-blocking, errors are just warnings) ──
+
+    // Brand voice extraction from website
+    if (website) {
       try {
-        brandVoice = await callClaude(
-          `You are analyzing a business website to extract their complete brand identity.\n` +
-          `Extract from this website URL ${body.website_url}:\n` +
-          `1. Exact brand voice described in 3 adjectives\n` +
-          `2. Writing style (formal/casual/funny/professional)\n` +
-          `3. Key phrases they use repeatedly\n` +
-          `4. Main products or services with descriptions\n` +
-          `5. Unique selling proposition in one sentence\n` +
-          `6. Target audience described as a real person\n` +
-          `7. Pricing strategy (premium/budget/mid-range)\n` +
-          `8. Emotional tone of their copy\n` +
-          `Return only valid JSON with keys: voice_adjectives, writing_style, key_phrases, products_services, usp, target_person, pricing_strategy, emotional_tone`,
-          'claude-opus-4-5', 1500
+        const brandVoice = await callClaude(
+          `Analyze this business website: ${website}\n` +
+          `Extract: voice_adjectives (3 words), writing_style, key_phrases, usp, target_person, emotional_tone.\n` +
+          `Return only valid JSON.`,
+          'claude-sonnet-4-5', 1000
         );
         if (brandVoice && !brandVoice._raw) {
           await sbPatch('businesses', `id=eq.${bizId}`, { brand_voice_locked: JSON.stringify(brandVoice) });
-          log('/webhook/new-user-signup', `Step 2 ✅ brand voice extracted`);
+          log('/webhook/new-user-signup', `Brand voice extracted for ${bizId}`);
         }
-      } catch (e) { log('/webhook/new-user-signup', `Step 2 WARN: ${e.message}`); }
+      } catch (e) { log('/webhook/new-user-signup', `Brand voice WARN: ${e.message}`); }
     }
 
-    // ── Step 3: Competitor research via SerpAPI ───────────────────────────────
-    let competitorData = [];
-    try {
-      const city  = body.city  || body.location || '';
-      const state = body.state || '';
-      const btype = body.business_type || industry || business_name;
-      const query = `${btype} ${city} ${state} near me`.trim();
-      const results = await serpSearch(query, 5);
-      competitorData = results.map(r => r.title + ': ' + r.snippet).join('\n');
-      if (competitorData) {
-        await sbPatch('businesses', `id=eq.${bizId}`, { competitors: competitorData });
-        log('/webhook/new-user-signup', `Step 3 ✅ found ${results.length} competitors`);
-      }
-    } catch (e) { log('/webhook/new-user-signup', `Step 3 WARN: ${e.message}`); }
-
-    // ── Step 4: Build comprehensive 30-day marketing strategy ─────────────────
-    let strategy = null;
-    try {
-      const biz = (await sbGet('businesses', `id=eq.${bizId}&select=*`))[0] || body;
-      const stratPrompt =
-        `You are a world-class marketing strategist. Build a comprehensive 30-day marketing strategy.\n\n` +
-        `BUSINESS PROFILE:\n` +
-        `- Name: ${biz.business_name || business_name}\n` +
-        `- Industry: ${biz.industry || industry}\n` +
-        `- Location: ${biz.city || ''} ${biz.state || ''}\n` +
-        `- Description: ${biz.business_description || ''}\n` +
-        `- Dream Customer: ${biz.dream_customer || biz.target_audience || ''}\n` +
-        `- Unique Differentiator: ${biz.unique_differentiator || ''}\n` +
-        `- Customer Pain Points: ${biz.customer_pain_points || ''}\n` +
-        `- Primary Goal: ${biz.primary_goal || biz.marketing_goal || ''}\n` +
-        `- Monthly Budget: $${biz.monthly_budget || 300}\n` +
-        `- Selected Platforms: ${biz.selected_platforms || '["instagram","facebook"]'}\n` +
-        `- Brand Voice: ${biz.brand_voice_locked || biz.brand_tone || 'professional and friendly'}\n\n` +
-        `COMPETITOR LANDSCAPE:\n${competitorData || 'Research needed'}\n\n` +
-        `Build a strategy with:\n` +
-        `1. 4 content pillars with rationale\n` +
-        `2. Platform-specific tactics for each selected platform\n` +
-        `3. Audience targeting parameters per platform\n` +
-        `4. Budget allocation breakdown (awareness/engagement/retargeting)\n` +
-        `5. Week-by-week 30-day action plan\n` +
-        `6. KPIs and targets\n` +
-        `7. Competitive positioning statement\n\n` +
-        `Return only valid JSON with keys: content_pillars, platform_tactics, targeting, budget_allocation, week1, week2, week3, week4, kpis, positioning_statement, strategy_summary`;
-
-      strategy = await callClaude(stratPrompt, 'claude-opus-4-5', 3000);
-      if (strategy && !strategy._raw) {
-        await sbPatch('businesses', `id=eq.${bizId}`, {
-          marketing_strategy : JSON.stringify(strategy),
-          onboarding_step    : 4,
-          onboarding_complete: true
-        });
-        log('/webhook/new-user-signup', `Step 4 ✅ strategy built`);
-      }
-    } catch (e) { log('/webhook/new-user-signup', `Step 4 WARN: ${e.message}`); }
-
-    // ── Step 5: Generate first week of content ────────────────────────────────
-    let firstContent = null;
-    try {
-      const contentResult = await generateInstantContent(bizId, email);
-      firstContent = contentResult;
-      log('/webhook/new-user-signup', `Step 5 ✅ first week content generated`);
-    } catch (e) { log('/webhook/new-user-signup', `Step 5 WARN: ${e.message}`); }
-
-    // ── Step 6: Save performance baseline ─────────────────────────────────────
-    try {
-      await sbPatch('businesses', `id=eq.${bizId}`, {
-        performance_baseline : JSON.stringify({ reach:0, impressions:0, clicks:0, leads:0, spend:0, roas:0, posts:0 }),
-        onboarding_step      : 6
-      });
-      log('/webhook/new-user-signup', `Step 6 ✅ baseline saved`);
-    } catch (e) { log('/webhook/new-user-signup', `Step 6 WARN: ${e.message}`); }
-
-    // ── Step 7: Send beautiful welcome email ──────────────────────────────────
-    try {
-      const firstName = first_name || business_name || 'there';
-      const stratSummary = strategy?.strategy_summary || 'Your personalized strategy is ready.';
-      const pillars = strategy?.content_pillars ? (Array.isArray(strategy.content_pillars) ?
-        strategy.content_pillars.slice(0,4).map(p => `<li>${typeof p === 'string' ? p : p.pillar || JSON.stringify(p)}</li>`).join('') : '') : '';
-      const contentPreview = firstContent?.content_theme ? `<strong>${firstContent.content_theme}</strong>` : 'Ready to view in dashboard';
-
-      const html = `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333">
-<div style="background:linear-gradient(135deg,#667eea,#764ba2);padding:40px;border-radius:16px;text-align:center;margin-bottom:30px">
-  <h1 style="color:white;margin:0;font-size:28px">Welcome to maroa.ai, ${firstName}!</h1>
+    // Welcome email
+    if (email) {
+      try {
+        const firstName = first_name || business_name || 'there';
+        const html = `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333">
+<div style="background:linear-gradient(135deg,#0A84FF,#BF5AF2);padding:40px;border-radius:16px;text-align:center;margin-bottom:30px">
+  <h1 style="color:white;margin:0;font-size:28px">Welcome to Maroa AI, ${firstName}!</h1>
   <p style="color:rgba(255,255,255,0.9);margin:10px 0 0;font-size:16px">Your AI marketing team is ready</p>
 </div>
-<div style="background:#f8f9ff;border-left:4px solid #667eea;padding:20px;border-radius:8px;margin-bottom:25px">
-  <h3 style="margin:0 0 10px;color:#1a1a2e">Your 30-Day Strategy Summary</h3>
-  <p style="margin:0;color:#555">${stratSummary}</p>
+<p style="color:#555;font-size:16px;line-height:1.6">Your business <strong>${business_name}</strong> is all set up. Head to your dashboard to see your AI marketing engine in action.</p>
+<div style="text-align:center;margin:30px 0">
+  <a href="https://maroa-frontend.vercel.app/dashboard" style="background:#0A84FF;color:white;padding:14px 32px;border-radius:12px;text-decoration:none;font-weight:bold;font-size:16px">Open Dashboard</a>
 </div>
-${pillars ? `<div style="margin-bottom:25px"><h3 style="color:#1a1a2e">Your 4 Content Pillars</h3><ul style="color:#555;line-height:2">${pillars}</ul></div>` : ''}
-<div style="background:#f0fdf4;border:1px solid #86efac;padding:20px;border-radius:8px;margin-bottom:25px">
-  <h3 style="margin:0 0 10px;color:#166534">First Week of Content</h3>
-  <p style="margin:0;color:#555">Theme: ${contentPreview}</p>
-  <p style="margin:10px 0 0;color:#555">Instagram, Facebook, Email, Google Ads — all ready to review in your dashboard.</p>
-</div>
-<div style="background:#fff8e7;border:1px solid #ffd166;padding:20px;border-radius:8px;margin-bottom:25px">
-  <h3 style="margin:0 0 10px;color:#92400e">What Happens Next Week</h3>
-  <ul style="color:#555;margin:0;padding-left:20px;line-height:2">
-    <li>Your AI posts content automatically on the best days/times</li>
-    <li>Ad campaigns launch and optimize themselves daily</li>
-    <li>Competitor intelligence is analyzed every Friday</li>
-    <li>Weekly strategy review happens every Sunday night</li>
-    <li>Monthly performance report arrives on the 1st</li>
-  </ul>
-</div>
-<div style="text-align:center;margin-bottom:30px">
-  <a href="https://maroa-ai-marketing-automator.lovable.app" style="background:#667eea;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px">View Your Dashboard</a>
-</div>
-<div style="border-top:1px solid #e8e8f0;padding-top:20px;text-align:center">
-  <p style="margin:0;font-size:12px;color:#999">Sent by maroa.ai · <a href="mailto:hello@maroa.ai" style="color:#667eea">hello@maroa.ai</a></p>
-</div></body></html>`;
+</body></html>`;
+        await sendEmail(email, `Welcome ${firstName}! Your AI marketing is live`, html);
+        log('/webhook/new-user-signup', `Welcome email sent to ${email}`);
+      } catch (e) { log('/webhook/new-user-signup', `Email WARN: ${e.message}`); }
+    }
 
-      await sendEmail(email, `Welcome ${firstName}! Your AI marketing strategy is ready`, html);
-      log('/webhook/new-user-signup', `Step 7 ✅ welcome email sent`);
-    } catch (e) { log('/webhook/new-user-signup', `Step 7 WARN: ${e.message}`); }
-
-    log('/webhook/new-user-signup', `✅ All 7 steps complete for ${business_name}`);
+    log('/webhook/new-user-signup', `✅ Complete for ${business_name} (${bizId})`);
 
   } catch (err) {
     console.error('[new-user-signup ERROR]', err.message);
-    await logError(business_id, 'new-user-signup', err.message, req.body);
+    try { await logError(null, 'new-user-signup', err.message, req.body); } catch (_) {}
   }
 });
 
