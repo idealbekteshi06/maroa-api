@@ -7,6 +7,7 @@ const express  = require('express');
 const cors     = require('cors');
 const https    = require('https');
 const http     = require('http');
+const crypto   = require('crypto');
 const planGate = require('./middleware/planGate');
 
 const app = express();
@@ -1678,8 +1679,22 @@ const LINKEDIN_CLIENT_ID     = (process.env.LINKEDIN_CLIENT_ID     || '').replac
 const LINKEDIN_CLIENT_SECRET = (process.env.LINKEDIN_CLIENT_SECRET || '').replace(/[^\x20-\x7E]/g,'').trim();
 const LINKEDIN_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.vercel.app/social-callback';
 
+// GET /linkedin-oauth-start — redirect user to LinkedIn consent screen
+app.get('/linkedin-oauth-start', (req, res) => {
+  const { business_id } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  if (!LINKEDIN_CLIENT_ID) return res.status(500).json({ error: 'LINKEDIN_CLIENT_ID not configured' });
+
+  const scope = 'openid profile email w_member_social';
+  const state = `${business_id}:linkedin`;
+  const authUrl = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${LINKEDIN_CLIENT_ID}&redirect_uri=${encodeURIComponent(LINKEDIN_REDIRECT_URI)}&state=${encodeURIComponent(state)}&scope=${encodeURIComponent(scope)}`;
+
+  log('/linkedin-oauth-start', `Redirecting business_id=${business_id} to LinkedIn`);
+  res.redirect(authUrl);
+});
+
 // POST /webhook/linkedin-oauth-exchange
-// Called by Lovable /social-callback with { code, business_id, redirect_uri? }
+// Called by /social-callback with { code, business_id, redirect_uri? }
 app.post('/webhook/linkedin-oauth-exchange', async (req, res) => {
   const { code, business_id, redirect_uri } = req.body;
   if (!code || !business_id) return res.status(400).json({ error: 'code and business_id required' });
@@ -1874,9 +1889,29 @@ const TWITTER_CLIENT_ID     = (process.env.TWITTER_CLIENT_ID     || '').replace(
 const TWITTER_CLIENT_SECRET = (process.env.TWITTER_CLIENT_SECRET || '').replace(/[^\x20-\x7E]/g,'').trim();
 const TWITTER_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.vercel.app/social-callback';
 
+// GET /twitter-oauth-start — redirect user to Twitter consent screen (PKCE)
+app.get('/twitter-oauth-start', async (req, res) => {
+  const { business_id } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  if (!TWITTER_CLIENT_ID) return res.status(500).json({ error: 'TWITTER_CLIENT_ID not configured' });
+
+  const state = `${business_id}:twitter`;
+  const codeVerifier  = crypto.randomBytes(32).toString('base64url');
+  const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+
+  // Store code_verifier so the exchange route can use it later
+  try {
+    await sbPost('oauth_states', { business_id, platform: 'twitter', state, code_verifier: codeVerifier });
+  } catch (err) { log('/twitter-oauth-start', `Failed to store PKCE state: ${err.message}`); }
+
+  const authUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${TWITTER_CLIENT_ID}&redirect_uri=${encodeURIComponent(TWITTER_REDIRECT_URI)}&scope=${encodeURIComponent('tweet.read tweet.write users.read offline.access')}&state=${encodeURIComponent(state)}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+
+  log('/twitter-oauth-start', `Redirecting business_id=${business_id} to Twitter`);
+  res.redirect(authUrl);
+});
+
 // POST /webhook/twitter-oauth-exchange
 // Body: { code, business_id, code_verifier, redirect_uri? }
-// Note: Lovable generates code_verifier + challenge client-side and sends verifier here
 app.post('/webhook/twitter-oauth-exchange', async (req, res) => {
   const { code, business_id, code_verifier, redirect_uri } = req.body;
   if (!code || !business_id || !code_verifier) {
@@ -2043,6 +2078,27 @@ Return only valid JSON: {"tweet":"...","content_theme":"..."}`;
 const TIKTOK_CLIENT_KEY    = (process.env.TIKTOK_CLIENT_KEY    || '').replace(/[^\x20-\x7E]/g,'').trim();
 const TIKTOK_CLIENT_SECRET = (process.env.TIKTOK_CLIENT_SECRET || '').replace(/[^\x20-\x7E]/g,'').trim();
 const TIKTOK_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.vercel.app/social-callback';
+
+// GET /tiktok-oauth-start — redirect user to TikTok consent screen (PKCE)
+app.get('/tiktok-oauth-start', async (req, res) => {
+  const { business_id } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  if (!TIKTOK_CLIENT_KEY) return res.status(500).json({ error: 'TIKTOK_CLIENT_KEY not configured' });
+
+  const state = `${business_id}:tiktok`;
+  const codeVerifier  = crypto.randomBytes(32).toString('base64url');
+  const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+
+  // Store code_verifier so the exchange route can use it later
+  try {
+    await sbPost('oauth_states', { business_id, platform: 'tiktok', state, code_verifier: codeVerifier });
+  } catch (err) { log('/tiktok-oauth-start', `Failed to store PKCE state: ${err.message}`); }
+
+  const authUrl = `https://www.tiktok.com/v2/auth/authorize?client_key=${TIKTOK_CLIENT_KEY}&response_type=code&scope=${encodeURIComponent('user.info.basic,video.upload,video.list')}&redirect_uri=${encodeURIComponent(TIKTOK_REDIRECT_URI)}&state=${encodeURIComponent(state)}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+
+  log('/tiktok-oauth-start', `Redirecting business_id=${business_id} to TikTok`);
+  res.redirect(authUrl);
+});
 
 // POST /webhook/tiktok-oauth-exchange
 // Body: { code, business_id, code_verifier, redirect_uri? }
