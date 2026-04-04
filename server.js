@@ -425,6 +425,10 @@ async function logError(businessId, workflowName, errorMessage, retryPayload = n
   } catch {}
 }
 
+// ─── UUID validation helper ──────────────────────────────────────────────────
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUUID(v) { return typeof v === 'string' && UUID_RE.test(v); }
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ROUTES
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1583,7 +1587,7 @@ app.post('/webhook/org-create', planGate('multi_workspace'), async (req, res) =>
 
 // GET /webhook/org-get?org_id=...&business_id=...
 app.get('/webhook/org-get', async (req, res) => {
-  const { org_id } = req.query;
+  const org_id = req.query.org_id || req.query.organization_id;
   if (!org_id) return res.status(400).json({ error: 'org_id required' });
   try {
     const org        = (await sbGet('organizations',       `id=eq.${org_id}`))[0];
@@ -3845,6 +3849,7 @@ app.post('/webhook/contact-activity-log', async (req, res) => {
   const { business_id, contact_id, activity_type, metadata = {} } = req.body;
   if (!business_id || !contact_id || !activity_type)
     return res.status(400).json({ error: 'business_id, contact_id, activity_type required' });
+  if (!isUUID(contact_id)) return res.status(400).json({ error: 'contact_id must be a valid UUID' });
 
   try {
     // Insert activity
@@ -4270,8 +4275,10 @@ app.get('/webhook/content-pieces-get', async (req, res) => {
 // Approve a content piece and optionally mark it published.
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/webhook/content-approve', async (req, res) => {
-  const { piece_id, published_url } = req.body;
+  const piece_id = req.body.piece_id || req.body.content_id;
+  const { published_url } = req.body;
   if (!piece_id) return res.status(400).json({ error: 'piece_id required' });
+  if (!isUUID(piece_id)) return res.status(400).json({ error: 'piece_id must be a valid UUID' });
   try {
     const updates = { status: published_url ? 'published' : 'approved' };
     if (published_url) updates.published_url = published_url;
@@ -4472,6 +4479,7 @@ app.get('/webhook/seo-recommendations-get', async (req, res) => {
 app.post('/webhook/seo-recommendation-apply', async (req, res) => {
   const { business_id, recommendation_id } = req.body;
   if (!recommendation_id) return res.status(400).json({ error: 'recommendation_id required' });
+  if (!isUUID(recommendation_id)) return res.status(400).json({ error: 'recommendation_id must be a valid UUID' });
   try {
     await sbPatch('seo_recommendations', `id=eq.${recommendation_id}`, { status: 'applied' });
     const rows = await sbGet('seo_recommendations', `id=eq.${recommendation_id}`);
@@ -5013,6 +5021,7 @@ app.post('/webhook/review-response-generate', async (req, res) => {
   const { business_id, review_id } = req.body;
   if (!business_id || !review_id)
     return res.status(400).json({ error: 'business_id and review_id required' });
+  if (!isUUID(review_id)) return res.status(400).json({ error: 'review_id must be a valid UUID' });
 
   try {
     const [bizArr, reviewArr] = await Promise.all([
@@ -5069,6 +5078,7 @@ app.post('/webhook/review-response-publish', async (req, res) => {
   const { business_id, review_id } = req.body;
   if (!business_id || !review_id)
     return res.status(400).json({ error: 'business_id and review_id required' });
+  if (!isUUID(review_id)) return res.status(400).json({ error: 'review_id must be a valid UUID' });
 
   try {
     const [bizArr, reviewArr] = await Promise.all([
@@ -5288,7 +5298,7 @@ app.get('/webhook/ab-tests-get', async (req, res) => {
   if (!business_id) return res.status(400).json({ error: 'business_id required' });
   try {
     const tests = await sbGet('ab_tests',
-      `business_id=eq.${business_id}&order=tested_at.desc&limit=20`);
+      `business_id=eq.${business_id}&order=started_at.desc&limit=20`);
 
     const summary = {
       total:          tests.length,
@@ -5300,6 +5310,104 @@ app.get('/webhook/ab-tests-get', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/ai-brain-run
+// Central AI brain — gathers all data for a business, runs Claude Opus to make
+// strategic decisions, and saves them to businesses.ai_brain_decisions.
+// Body: { business_id }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/ai-brain-run', async (req, res) => {
+  const { business_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  if (!isUUID(business_id)) return res.status(400).json({ error: 'business_id must be a valid UUID' });
+
+  res.json({ received: true, message: 'AI brain analysis started' });
+
+  setImmediate(async () => {
+    try {
+      const [bizArr, contentArr, campaignsArr, compArr, snapArr] = await Promise.all([
+        sbGet('businesses', `id=eq.${business_id}&select=*`),
+        sbGet('generated_content', `business_id=eq.${business_id}&order=created_at.desc&limit=10&select=content_theme,status,created_at`),
+        sbGet('ad_campaigns', `business_id=eq.${business_id}&select=status,daily_budget,roas,clicks,impressions`),
+        sbGet('competitor_insights', `business_id=eq.${business_id}&order=recorded_at.desc&limit=1`),
+        sbGet('analytics_snapshots', `business_id=eq.${business_id}&order=snapshot_date.desc&limit=7`)
+      ]);
+
+      const biz  = bizArr[0];
+      if (!biz) return;
+      const comp = compArr[0] || {};
+
+      const totalReach      = snapArr.reduce((s, r) => s + (r.reach || 0), 0);
+      const totalClicks     = snapArr.reduce((s, r) => s + (r.clicks || 0), 0);
+      const totalEngagement = snapArr.reduce((s, r) => s + (r.engagement || 0), 0);
+      const activeCampaigns = campaignsArr.filter(c => c.status === 'active');
+      const avgRoas         = activeCampaigns.length
+        ? (activeCampaigns.reduce((s, c) => s + (c.roas || 0), 0) / activeCampaigns.length).toFixed(2)
+        : '0';
+
+      const prompt =
+`You are the central AI brain for ${biz.business_name} (${biz.industry || 'general'}).
+
+CURRENT STATE:
+- Plan: ${biz.plan || 'free'}
+- Total reach (7d): ${totalReach}
+- Total clicks (7d): ${totalClicks}
+- Total engagement (7d): ${totalEngagement}
+- Active campaigns: ${activeCampaigns.length}
+- Average ROAS: ${avgRoas}
+- Content pieces (recent 10): ${contentArr.length}
+- Content themes used: ${contentArr.map(c => c.content_theme).filter(Boolean).join(', ') || 'none'}
+
+COMPETITOR INTEL:
+- Doing well: ${comp.competitor_doing_well || 'unknown'}
+- Gap opportunity: ${comp.gap_opportunity || 'unknown'}
+
+BUSINESS CONTEXT:
+- Target audience: ${biz.target_audience || 'general'}
+- Marketing goal: ${biz.marketing_goal || 'grow'}
+- Brand tone: ${biz.brand_tone || 'professional'}
+
+Based on ALL this data, make strategic decisions for the next 7 days.
+Return ONLY valid JSON:
+{
+  "content_strategy": "what content themes to focus on this week",
+  "ad_strategy": "budget allocation and campaign decisions",
+  "growth_priorities": ["priority 1", "priority 2", "priority 3"],
+  "risk_alerts": ["any concerns"],
+  "confidence_score": 0-100
+}`;
+
+      const decisions = await callClaude(prompt, 'claude-opus-4-5', 1500);
+
+      await sbPatch('businesses', `id=eq.${business_id}`, {
+        ai_brain_decisions: JSON.stringify(decisions)
+      });
+
+      log('/webhook/ai-brain-run', `AI brain decisions saved for ${biz.business_name}`);
+    } catch (err) {
+      console.error('[ai-brain-run ERROR]', err.message);
+      await logError(business_id, 'ai-brain-run', err.message, req.body).catch(() => {});
+    }
+  });
+});
+
+// ─── n8n workflow route aliases (internal URL rewrite) ───────────────────────
+// WF32 calls /api/social/linkedin/publish instead of /webhook/linkedin-publish
+app.post('/api/social/linkedin/publish', (req, res) => {
+  req.url = '/webhook/linkedin-publish';
+  app.handle(req, res);
+});
+// WF33 calls /api/social/twitter/tweet and /api/social/twitter/thread
+app.post('/api/social/twitter/tweet', (req, res) => {
+  req.url = '/webhook/twitter-publish';
+  app.handle(req, res);
+});
+app.post('/api/social/twitter/thread', (req, res) => {
+  req.body.post_type = 'thread';
+  req.url = '/webhook/twitter-publish';
+  app.handle(req, res);
 });
 
 // ─── 404 ──────────────────────────────────────────────────────────────────────
