@@ -5393,6 +5393,29 @@ Return ONLY valid JSON:
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/log-error
+// Centralized error logging endpoint — n8n error-handler workflow posts here.
+// Body: { workflow_name, error_message, business_id? }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/log-error', async (req, res) => {
+  res.json({ received: true });
+  try {
+    const { workflow_name, error_message, business_id } = req.body;
+    await sbPost('errors', {
+      business_id: business_id || null,
+      workflow_name: workflow_name || 'unknown',
+      error_message: error_message || 'No error message',
+      created_at: new Date().toISOString(),
+      resolved: false,
+      retry_count: 0
+    });
+    console.log('[log-error] Logged:', workflow_name, error_message);
+  } catch (err) {
+    console.error('[log-error] Failed to log error:', err.message);
+  }
+});
+
 // POST /webhook/agent-run — alias for /webhook/ai-brain-run
 app.post('/webhook/agent-run', (req, res) => {
   req.url = '/webhook/ai-brain-run';
