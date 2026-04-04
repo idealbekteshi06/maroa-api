@@ -5393,6 +5393,12 @@ Return ONLY valid JSON:
   });
 });
 
+// POST /webhook/agent-run — alias for /webhook/ai-brain-run
+app.post('/webhook/agent-run', (req, res) => {
+  req.url = '/webhook/ai-brain-run';
+  app.handle(req, res);
+});
+
 // ─── n8n workflow route aliases (internal URL rewrite) ───────────────────────
 // WF32 calls /api/social/linkedin/publish instead of /webhook/linkedin-publish
 app.post('/api/social/linkedin/publish', (req, res) => {
