@@ -48,6 +48,8 @@ const PINECONE_API_KEY    = clean(process.env.PINECONE_API_KEY)    || '';
 const PINECONE_HOST       = clean(process.env.PINECONE_HOST)       || ''; // full index host URL
 // Sprint 6 — Video Generation
 const RUNWAY_API_KEY      = clean(process.env.RUNWAY_API_KEY)      || '';
+// Smart Image System
+const GOOGLE_AI_API_KEY   = clean(process.env.GOOGLE_AI_API_KEY)   || '';
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
 function apiRequest(method, url, headers = {}, body = null) {
@@ -242,46 +244,173 @@ async function saveImageToSupabase(imageUrl, businessId) {
   }
 }
 
-// ─── Replicate image generation (Flux 1.1 Pro) ───────────────────────────────
-async function generateImage(prompt, fallbackQuery = 'business marketing professional') {
-  // Try Replicate first
-  try {
-    const pred = await apiRequest('POST', 'https://api.replicate.com/v1/models/black-forest-labs/flux-1.1-pro/predictions',
-      { 'Authorization': `Bearer ${REPLICATE_API_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'wait' },
-      { input: { prompt: prompt.slice(0, 500), aspect_ratio: '1:1', output_format: 'webp', safety_tolerance: 2 } });
+// ═════════════════════════════════════════════════════════════════════════════
+// SMART IMAGE GENERATION SYSTEM — Multi-model with plan-based routing
+// ═════════════════════════════════════════════════════════════════════════════
 
-    if (pred.status === 200 || pred.status === 201) {
-      let output = pred.body?.output;
-      // If not immediately ready, poll
-      if (!output && pred.body?.id) {
-        const predId = pred.body.id;
-        for (let i = 0; i < 15; i++) {
-          await new Promise(r => setTimeout(r, 3000));
-          const poll = await apiRequest('GET', `https://api.replicate.com/v1/predictions/${predId}`,
-            { 'Authorization': `Bearer ${REPLICATE_API_KEY}` });
-          if (poll.body?.status === 'succeeded') { output = poll.body.output; break; }
-          if (poll.body?.status === 'failed') break;
+// ── Model: Flux 1.1 Pro via Replicate ────────────────────────────────────────
+async function generateWithFlux(prompt) {
+  if (!REPLICATE_API_KEY) throw new Error('REPLICATE_API_KEY not set');
+  const pred = await apiRequest('POST', 'https://api.replicate.com/v1/models/black-forest-labs/flux-1.1-pro/predictions',
+    { 'Authorization': `Bearer ${REPLICATE_API_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'wait' },
+    { input: { prompt: prompt.slice(0, 500), aspect_ratio: '1:1', output_format: 'webp', safety_tolerance: 2 } });
+  if (pred.status === 200 || pred.status === 201) {
+    let output = pred.body?.output;
+    if (!output && pred.body?.id) {
+      const predId = pred.body.id;
+      for (let i = 0; i < 15; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const poll = await apiRequest('GET', `https://api.replicate.com/v1/predictions/${predId}`,
+          { 'Authorization': `Bearer ${REPLICATE_API_KEY}` });
+        if (poll.body?.status === 'succeeded') { output = poll.body.output; break; }
+        if (poll.body?.status === 'failed') break;
+      }
+    }
+    if (output) {
+      const url = Array.isArray(output) ? output[0] : output;
+      if (url && url.startsWith('http')) return url;
+    }
+  }
+  throw new Error('Flux generation failed');
+}
+
+// ── Model: DALL-E 3 via OpenAI ───────────────────────────────────────────────
+async function generateWithDalle3(prompt) {
+  if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not set');
+  const r = await apiRequest('POST', 'https://api.openai.com/v1/images/generations',
+    { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+    { model: 'dall-e-3', prompt: (prompt + '. Professional marketing image, clean composition, no text.').slice(0, 4000), n: 1, size: '1024x1024', quality: 'hd', style: 'natural' });
+  if (r.status !== 200) throw new Error(`DALL-E 3: ${r.status} ${JSON.stringify(r.body).slice(0,200)}`);
+  const url = r.body?.data?.[0]?.url;
+  if (!url) throw new Error('No URL in DALL-E 3 response');
+  return url;
+}
+
+// ── Model: Gemini image generation ───────────────────────────────────────────
+async function generateWithGemini(prompt, businessId) {
+  if (!GOOGLE_AI_API_KEY) throw new Error('GOOGLE_AI_API_KEY not set');
+  const fullPrompt = prompt + '. Professional marketing image, photorealistic, high quality, no text overlays, clean composition.';
+  const body = {
+    contents: [{ parts: [{ text: fullPrompt }] }],
+    generationConfig: { responseModalities: ['IMAGE', 'TEXT'] }
+  };
+  // Try gemini-2.0-flash-exp (image generation capable model)
+  const r = await apiRequest('POST',
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GOOGLE_AI_API_KEY}`,
+    { 'Content-Type': 'application/json' }, body);
+  if (r.status !== 200) throw new Error(`Gemini: ${r.status}`);
+  const parts = r.body?.candidates?.[0]?.content?.parts || [];
+  const imgPart = parts.find(p => p.inlineData);
+  if (!imgPart?.inlineData?.data) throw new Error('No image in Gemini response');
+  // Upload base64 buffer to Supabase directly
+  const buf = Buffer.from(imgPart.inlineData.data, 'base64');
+  const mime = imgPart.inlineData.mimeType || 'image/jpeg';
+  const ext = mime.includes('png') ? 'png' : 'jpg';
+  const fileName = `${businessId}/${Date.now()}_gemini.${ext}`;
+  const uploadUrl = `${SUPABASE_URL}/storage/v1/object/business-photos/${fileName}`;
+  const uploadResp = await new Promise((resolve, reject) => {
+    const u = new URL(uploadUrl);
+    const req = https.request({ hostname: u.hostname, port: 443, path: u.pathname, method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': mime, 'Content-Length': buf.length, 'x-upsert': 'false' }
+    }, res => { let d = ''; res.on('data', c => d += c); res.on('end', () => resolve({ status: res.statusCode, body: d })); });
+    req.on('error', reject); req.write(buf); req.end();
+  });
+  if (uploadResp.status >= 200 && uploadResp.status < 300) {
+    return `${SUPABASE_URL}/storage/v1/object/public/business-photos/${fileName}`;
+  }
+  throw new Error(`Gemini upload failed: ${uploadResp.status}`);
+}
+
+// ── Model: Pexels stock photo ────────────────────────────────────────────────
+async function generateWithPexels(query) {
+  if (!PEXELS_API_KEY) throw new Error('PEXELS_API_KEY not set');
+  const r = await apiRequest('GET',
+    `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=3&orientation=square`,
+    { 'Authorization': PEXELS_API_KEY });
+  if (r.status === 200 && r.body?.photos?.[0]) {
+    const photo = r.body.photos[Math.floor(Math.random() * Math.min(3, r.body.photos.length))];
+    return { url: photo.src?.medium || photo.src?.original, credit: photo.photographer };
+  }
+  throw new Error('No Pexels results');
+}
+
+// ── Model order by plan + content type ───────────────────────────────────────
+function getModelOrder(plan, contentType) {
+  if (plan === 'agency') {
+    if (['ad_creative','hero_image','product_photo'].includes(contentType))
+      return ['gemini','flux','dalle3','pexels'];
+    if (['blog_featured','landing_page'].includes(contentType))
+      return ['dalle3','gemini','flux','pexels'];
+    return ['gemini','flux','pexels'];
+  }
+  if (plan === 'growth') {
+    if (['ad_creative','blog_featured'].includes(contentType))
+      return ['flux','dalle3','pexels'];
+    return ['flux','pexels'];
+  }
+  // free plan — stock photos only
+  return ['pexels'];
+}
+
+// ── Smart prompt builder ─────────────────────────────────────────────────────
+async function buildImagePrompt(basePrompt, contentType, plan) {
+  if (plan === 'agency') {
+    try {
+      const result = await callClaude(
+        `You are an expert AI image prompt engineer. Transform this into a detailed prompt for a stunning marketing image.\nOriginal: "${basePrompt}"\nContent type: ${contentType}\nRequirements: professional quality, no text overlays, clean modern aesthetic, photorealistic, specific lighting/composition/mood. Return ONLY the enhanced prompt, max 200 words.`,
+        'claude-sonnet-4-5', 300);
+      return result._raw || (typeof result === 'string' ? result : basePrompt);
+    } catch { return basePrompt; }
+  }
+  if (plan === 'growth') {
+    return `${basePrompt}, professional photography, clean background, marketing quality, high resolution, 4k`;
+  }
+  return basePrompt;
+}
+
+// ── MAIN: generateSmartImage ─────────────────────────────────────────────────
+async function generateSmartImage(businessId, prompt, contentType = 'social_post', plan = 'free') {
+  const startTime = Date.now();
+  const enhanced  = await buildImagePrompt(prompt, contentType, plan);
+  const models    = getModelOrder(plan, contentType);
+  const fallbackQ = prompt.split(',')[0] || 'professional business marketing';
+
+  for (const model of models) {
+    try {
+      let url = null;
+      if (model === 'gemini') {
+        url = await generateWithGemini(enhanced, businessId);
+        // Gemini already uploaded to Supabase, URL is permanent
+        return { url, source: 'gemini', model_used: 'gemini', generation_time_ms: Date.now() - startTime };
+      } else if (model === 'flux') {
+        url = await generateWithFlux(enhanced);
+      } else if (model === 'dalle3') {
+        url = await generateWithDalle3(enhanced);
+      } else if (model === 'pexels') {
+        const pex = await generateWithPexels(fallbackQ);
+        url = pex.url;
+        if (url) {
+          const permUrl = await saveImageToSupabase(url, businessId);
+          return { url: permUrl, source: 'pexels', credit: pex.credit, model_used: 'pexels', generation_time_ms: Date.now() - startTime };
         }
+        continue;
       }
-      if (output) {
-        const url = Array.isArray(output) ? output[0] : output;
-        if (url && url.startsWith('http')) return { url, source: 'replicate' };
+      if (url) {
+        const permUrl = await saveImageToSupabase(url, businessId);
+        return { url: permUrl, source: model, model_used: model, generation_time_ms: Date.now() - startTime };
       }
+    } catch (err) {
+      log('generateSmartImage', `${model} failed: ${err.message}`);
+      continue;
     }
-  } catch (e) { console.error('[Replicate] error:', e.message); }
+  }
+  return { url: null, source: 'none', model_used: 'none', generation_time_ms: Date.now() - startTime };
+}
 
-  // Pexels fallback
-  try {
-    const r = await apiRequest('GET',
-      `https://api.pexels.com/v1/search?query=${encodeURIComponent(fallbackQuery)}&per_page=1&orientation=square`,
-      { 'Authorization': PEXELS_API_KEY });
-    if (r.status === 200 && r.body?.photos?.[0]) {
-      const photo = r.body.photos[0];
-      return { url: photo.src?.medium || photo.src?.original, source: 'pexels', credit: photo.photographer };
-    }
-  } catch (e) { console.error('[Pexels] error:', e.message); }
-
-  return { url: null, source: 'none' };
+// ── Backwards compat: old generateImage still works ──────────────────────────
+async function generateImage(prompt, fallbackQuery = 'business marketing professional') {
+  const result = await generateSmartImage('default', prompt, 'social_post', 'growth');
+  return { url: result.url, source: result.source, credit: result.credit };
 }
 
 // ─── Email helper (Resend HTTPS API — works on Railway, no SMTP needed) ──────
@@ -448,7 +577,8 @@ app.get('/health', (req, res) => {
     tiktok:     !!process.env.TIKTOK_CLIENT_KEY || !!process.env.TIKTOK_CLIENT_SECRET,
     twitter:    !!process.env.TWITTER_CLIENT_ID || !!process.env.TWITTER_CLIENT_SECRET,
     stripe:     !!process.env.STRIPE_SECRET_KEY || !!process.env.STRIPE_KEY,
-    runway:     !!RUNWAY_API_KEY || !!process.env.RUNWAY_API_KEY
+    runway:     !!RUNWAY_API_KEY || !!process.env.RUNWAY_API_KEY,
+    google_ai:  !!GOOGLE_AI_API_KEY
   };
   const missing = Object.entries(vars).filter(([,v]) => !v).map(([k]) => k);
   // Diagnostic: show raw env var presence for the missing ones
@@ -460,7 +590,8 @@ app.get('/health', (req, res) => {
     RUNWAY_API_KEY:     process.env.RUNWAY_API_KEY    ? `set (${process.env.RUNWAY_API_KEY.slice(0,8)}...)` : 'NOT SET',
     TIKTOK_CLIENT_KEY:  process.env.TIKTOK_CLIENT_KEY ? 'set' : 'NOT SET',
     TIKTOK_CLIENT_SECRET: process.env.TIKTOK_CLIENT_SECRET ? 'set' : 'NOT SET',
-    TWITTER_CLIENT_ID:  process.env.TWITTER_CLIENT_ID ? 'set' : 'NOT SET'
+    TWITTER_CLIENT_ID:  process.env.TWITTER_CLIENT_ID ? 'set' : 'NOT SET',
+    GOOGLE_AI_API_KEY:  process.env.GOOGLE_AI_API_KEY ? `set (${process.env.GOOGLE_AI_API_KEY.slice(0,8)}...)` : 'NOT SET'
   };
   res.json({ status: missing.length <= 3 ? 'ok' : 'degraded', timestamp: new Date().toISOString(), env_vars: vars, missing_vars: missing, missing_count: missing.length, raw_check });
 });
@@ -776,10 +907,9 @@ async function generateInstantContent(bizId, emailOverride) {
     log('generateContent', `3-variation contest: scores=[${variations.map(v=>v.score).join(',')}] winner=${score}`);
   }
 
-  // Generate image and save to Supabase Storage for permanent URL
-  const imgQuery  = biz.industry || biz.business_type || 'small business marketing professional';
-  const imgResult = await generateImage(content.image_prompt || `Professional marketing photo for ${biz.business_name}`, imgQuery);
-  if (imgResult.url) imgResult.url = await saveImageToSupabase(imgResult.url, bizId);
+  // Generate image via smart model router (plan-aware)
+  const imgPrompt = content.image_prompt || `Professional marketing photo for ${biz.business_name}, ${biz.industry || 'business'}`;
+  const imgResult = await generateSmartImage(bizId, imgPrompt, 'social_post', biz.plan || 'free');
 
   // ── LEVEL 6: Automated A/B testing — save both winner (A) and runner-up (B) ─
   let abTestId = null;
@@ -4455,8 +4585,8 @@ Return ONLY valid JSON:
       let featured_image_url = null;
       if (type === 'blog' && content.title) {
         try {
-          const imgResult = await generateImage(`Professional blog header image for: ${content.title}. ${biz.industry} themed, modern, clean.`);
-          featured_image_url = imgResult?.url ? await saveImageToSupabase(imgResult.url, business_id) : null;
+          const imgResult = await generateSmartImage(business_id, `Professional blog header image for: ${content.title}. ${biz.industry} themed, modern, clean.`, 'blog_featured', biz.plan || 'free');
+          featured_image_url = imgResult?.url || null;
         } catch {}
       }
 
@@ -7014,6 +7144,46 @@ app.post('/webhook/publish-approved-content', async (req, res) => {
 
     res.json({ published, failed, platforms: [...allPlatforms], total: approved.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/generate-image — On-demand image generation API
+// Body: { business_id, prompt, content_type? }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/generate-image', async (req, res) => {
+  const { business_id, prompt, content_type = 'social_post' } = req.body;
+  if (!business_id || !prompt) return res.status(400).json({ error: 'business_id and prompt required' });
+  try {
+    const bizArr = await sbGet('businesses', `id=eq.${business_id}&select=plan`);
+    const plan = bizArr[0]?.plan || 'free';
+    const result = await generateSmartImage(business_id, prompt, content_type, plan);
+    res.json({ url: result.url, model_used: result.model_used, source: result.source, generation_time_ms: result.generation_time_ms });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/score-image — Claude Vision rates an image 1-10
+// Body: { business_id, image_url, content_type? }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/score-image', async (req, res) => {
+  const { business_id, image_url, content_type = 'social_post' } = req.body;
+  if (!business_id || !image_url) return res.status(400).json({ error: 'business_id and image_url required' });
+  try {
+    const r = await apiRequest('POST', 'https://api.anthropic.com/v1/messages', {
+      'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json'
+    }, {
+      model: 'claude-sonnet-4-5', max_tokens: 300,
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'url', url: image_url } },
+        { type: 'text', text: `Score this marketing image for a ${content_type} post. Rate 1-10 on: professional quality, visual appeal, marketing effectiveness. Return ONLY valid JSON: {"overall_score":1-10,"recommendation":"use"|"regenerate"|"reject","feedback":"one sentence"}` }
+      ] }]
+    });
+    if (r.status !== 200) return res.json({ overall_score: 5, recommendation: 'use', feedback: 'Could not score — using as-is' });
+    const raw = r.body?.content?.[0]?.text || '';
+    let parsed = {};
+    try { parsed = JSON.parse(raw); } catch { const m = raw.match(/\{[\s\S]*\}/); if (m) try { parsed = JSON.parse(m[0]); } catch {} }
+    res.json(parsed);
+  } catch (err) { res.json({ overall_score: 5, recommendation: 'use', feedback: err.message }); }
 });
 
 // Short alias: /webhook/score-content → /webhook/score-content-before-posting
