@@ -7153,12 +7153,27 @@ app.post('/webhook/publish-approved-content', async (req, res) => {
 app.post('/webhook/generate-image', async (req, res) => {
   const { business_id, prompt, content_type = 'social_post' } = req.body;
   if (!business_id || !prompt) return res.status(400).json({ error: 'business_id and prompt required' });
-  try {
-    const bizArr = await sbGet('businesses', `id=eq.${business_id}&select=plan`);
-    const plan = bizArr[0]?.plan || 'free';
-    const result = await generateSmartImage(business_id, prompt, content_type, plan);
-    res.json({ url: result.url, model_used: result.model_used, source: result.source, generation_time_ms: result.generation_time_ms });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+
+  // Return immediately — generation happens async (Flux can take 30-60s)
+  res.json({ received: true, message: 'Image generation started — result saved to business_photos' });
+
+  setImmediate(async () => {
+    try {
+      const bizArr = await sbGet('businesses', `id=eq.${business_id}&select=plan`);
+      const plan = bizArr[0]?.plan || 'free';
+      const result = await generateSmartImage(business_id, prompt, content_type, plan);
+      if (result.url) {
+        await sbPost('business_photos', {
+          business_id, photo_url: result.url, photo_type: content_type,
+          description: prompt.slice(0, 200), is_active: true
+        }).catch(() => {});
+        log('/webhook/generate-image', `✅ ${result.model_used}: ${result.url}`);
+      }
+    } catch (err) {
+      console.error('[generate-image ERROR]', err.message);
+      await logError(business_id, 'generate-image', err.message).catch(() => {});
+    }
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
