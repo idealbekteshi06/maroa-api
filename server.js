@@ -5072,8 +5072,9 @@ app.get('/webhook/videos-get', async (req, res) => {
 app.post('/webhook/brand-memory-store', async (req, res) => {
   const { business_id, content_type, text, performance_score = 0 } = req.body;
   if (!business_id || !text) return res.status(400).json({ error: 'business_id and text required' });
-  if (!['social_post','email','ad_copy','blog'].includes(content_type))
-    return res.status(400).json({ error: 'content_type must be social_post|email|ad_copy|blog' });
+  const validTypes = ['social_post','email','ad_copy','blog','video_script','competitor_intelligence'];
+  if (!validTypes.includes(content_type))
+    return res.status(400).json({ error: `content_type must be one of: ${validTypes.join('|')}` });
 
   if (performance_score < 7)
     return res.json({ stored: false, reason: 'performance_score below threshold (7)', performance_score });
@@ -5136,21 +5137,29 @@ app.post('/webhook/brand-memory-train', async (req, res) => {
   const { business_id } = req.body;
   if (!business_id) return res.status(400).json({ error: 'business_id required' });
 
-  try {
-    const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
-    const pieces = await sbGet('generated_content',
-      `business_id=eq.${business_id}&status=eq.published&published_at=gte.${since}&select=*`);
+  if (!OPENAI_API_KEY || !PINECONE_API_KEY || !PINECONE_HOST)
+    return res.json({ trained_on: 0, stored: 0, reason: 'Brand memory not configured — set OPENAI_API_KEY, PINECONE_API_KEY, PINECONE_HOST' });
 
-    if (!pieces.length) return res.json({ trained_on: 0, stored: 0, reason: 'No published content in last 7 days' });
+  try {
+    const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+    const pieces = await sbGet('generated_content',
+      `business_id=eq.${business_id}&status=eq.published&published_at=gte.${since}&select=id,instagram_caption,facebook_post,email_body,blog_title,content_theme,performance_score,image_url`);
+
+    if (!pieces.length) return res.json({ trained_on: 0, stored: 0, reason: 'No published content in last 30 days' });
 
     let stored = 0;
     const results = [];
 
     for (const p of pieces) {
-      // Score: published = 10, has image = +2
-      const score = 10 + (p.image_url ? 2 : 0);
+      // Use real performance_score from DB, clamped to 0-10
+      const score = Math.min(10, Math.max(0, Number(p.performance_score) || 0));
 
-      // Map each content field to a content_type and store independently
+      // Only store content scoring 7+ (quality threshold)
+      if (score < 7) {
+        results.push({ theme: p.content_theme, score, stored: false, reason: 'below_threshold' });
+        continue;
+      }
+
       const candidates = [
         { type: 'social_post', text: p.instagram_caption || p.facebook_post },
         { type: 'email',       text: p.email_body },
@@ -5159,13 +5168,25 @@ app.post('/webhook/brand-memory-train', async (req, res) => {
 
       for (const c of candidates) {
         try {
-          const storeResp = await apiRequest('POST',
-            `http://localhost:${PORT}/webhook/brand-memory-store`,
-            { 'Content-Type': 'application/json' },
-            { business_id, content_type: c.type, text: c.text, performance_score: score });
-          if (storeResp.body?.stored) stored++;
-          results.push({ type: c.type, score, stored: storeResp.body?.stored });
-        } catch {}
+          // Call Pinecone directly — not via HTTP localhost
+          const vector = await getEmbedding(c.text);
+          const vectorId = `${business_id}-${p.id}-${c.type}`;
+          await pineconeUpsert([{
+            id: vectorId,
+            values: vector,
+            metadata: {
+              businessId: business_id,
+              contentType: c.type,
+              performance_score: score,
+              text: c.text.slice(0, 500),
+              theme: p.content_theme || ''
+            }
+          }]);
+          stored++;
+          results.push({ type: c.type, score, stored: true });
+        } catch (e) {
+          results.push({ type: c.type, score, stored: false, error: e.message });
+        }
       }
     }
 
