@@ -445,7 +445,7 @@ app.get('/health', (req, res) => {
     replicate:  !!REPLICATE_API_KEY,
     openai:     !!OPENAI_API_KEY || !!process.env.OPENAI_API_KEY,
     linkedin:   !!process.env.LINKEDIN_CLIENT_ID,
-    tiktok:     !!process.env.TIKTOK_CLIENT_KEY || !!process.env.TIKTOK_CLIENT_ID,
+    tiktok:     !!process.env.TIKTOK_CLIENT_KEY || !!process.env.TIKTOK_CLIENT_SECRET,
     twitter:    !!process.env.TWITTER_CLIENT_ID || !!process.env.TWITTER_CLIENT_SECRET,
     stripe:     !!process.env.STRIPE_SECRET_KEY || !!process.env.STRIPE_KEY,
     runway:     !!RUNWAY_API_KEY || !!process.env.RUNWAY_API_KEY
@@ -459,6 +459,7 @@ app.get('/health', (req, res) => {
     STRIPE_SECRET_KEY:  process.env.STRIPE_SECRET_KEY ? `set (${process.env.STRIPE_SECRET_KEY.slice(0,8)}...)` : 'NOT SET',
     RUNWAY_API_KEY:     process.env.RUNWAY_API_KEY    ? `set (${process.env.RUNWAY_API_KEY.slice(0,8)}...)` : 'NOT SET',
     TIKTOK_CLIENT_KEY:  process.env.TIKTOK_CLIENT_KEY ? 'set' : 'NOT SET',
+    TIKTOK_CLIENT_SECRET: process.env.TIKTOK_CLIENT_SECRET ? 'set' : 'NOT SET',
     TWITTER_CLIENT_ID:  process.env.TWITTER_CLIENT_ID ? 'set' : 'NOT SET'
   };
   res.json({ status: missing.length <= 3 ? 'ok' : 'degraded', timestamp: new Date().toISOString(), env_vars: vars, missing_vars: missing, missing_count: missing.length, raw_check });
