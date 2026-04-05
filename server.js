@@ -677,8 +677,18 @@ async function generateInstantContent(bizId, emailOverride) {
 
   const recentThemes = recentContent.map(c => c.content_theme).filter(Boolean).join(', ') || 'None yet';
 
+  // ── UPGRADE 3: Fetch brand memory examples + latest competitor report ──
+  const brandContext = await getBrandExamples(bizId, 'social_post', `${biz.business_name} ${biz.industry || ''} marketing`);
+  let competitorReport = '';
+  try {
+    const compReports = await sbGet('competitor_reports', `business_id=eq.${bizId}&order=created_at.desc&limit=1`);
+    if (compReports[0]?.recommendation) {
+      competitorReport = `LATEST COMPETITOR REPORT RECOMMENDATION:\n${compReports[0].recommendation}\n\n`;
+    }
+  } catch {}
+
   const prompt =
-    `You are the AI marketing brain for ${biz.business_name}. Here is everything you know:\n\n` +
+    `${brandContext}${competitorReport}You are the AI marketing brain for ${biz.business_name}. Here is everything you know:\n\n` +
     `BRAND VOICE (LOCKED — use this exact voice in EVERY piece): ${brandVoice}\n` +
     `DREAM CUSTOMER: ${biz.dream_customer || biz.target_audience || 'General audience'}\n` +
     `UNIQUE DIFFERENTIATOR: ${biz.unique_differentiator || 'To be highlighted'}\n` +
@@ -717,13 +727,21 @@ async function generateInstantContent(bizId, emailOverride) {
   let content = await callClaude(prompt, 'claude-sonnet-4-5', 3000);
   let score   = scoreContent(content);
 
-  // Retry if quality below 80
-  if (score < 80 && !content._raw) {
-    log('generateContent', `Score ${score}/100 < 80, retrying for ${biz.business_name}...`);
-    const retryPrompt = prompt + `\n\nIMPORTANT: Previous attempt scored ${score}/100. ` +
-      `Fix these specific issues and ensure ALL quality requirements are met exactly.`;
-    content = await callClaude(retryPrompt, 'claude-sonnet-4-5', 3000);
-    score   = scoreContent(content);
+  // ── UPGRADE 3: Generate 3 variations, pick the highest scoring one ────
+  const variations = [{ content, score }];
+  if (score < 90 && !content._raw) {
+    // Generate 2 more variations in parallel
+    const [v2, v3] = await Promise.all([
+      callClaude(prompt + `\n\nVARIATION 2: Use a completely different angle, hook, and content theme. Be creative and bold.`, 'claude-sonnet-4-5', 3000).catch(() => null),
+      callClaude(prompt + `\n\nVARIATION 3: Focus on storytelling and emotion. Make the audience FEEL something.`, 'claude-sonnet-4-5', 3000).catch(() => null)
+    ]);
+    if (v2 && !v2._raw) variations.push({ content: v2, score: scoreContent(v2) });
+    if (v3 && !v3._raw) variations.push({ content: v3, score: scoreContent(v3) });
+    // Pick the winner
+    variations.sort((a, b) => b.score - a.score);
+    content = variations[0].content;
+    score   = variations[0].score;
+    log('generateContent', `3-variation contest: scores=[${variations.map(v=>v.score).join(',')}] winner=${score}`);
   }
 
   // Generate image and save to Supabase Storage for permanent URL
@@ -754,6 +772,55 @@ async function generateInstantContent(bizId, emailOverride) {
 
   // Update learning data after every generation
   setImmediate(() => updateLearning(bizId));
+
+  // ── Performance feedback loop: check engagement after 24 hours ────────
+  if (saved?.id && biz.meta_access_token && biz.facebook_page_id) {
+    const contentId = saved.id;
+    const token     = biz.meta_access_token;
+    const pageId    = biz.facebook_page_id;
+    setTimeout(async () => {
+      try {
+        log('feedback-loop', `Checking 24h performance for content ${contentId}`);
+        // Fetch page post insights from Meta Graph API
+        const postsResp = await apiRequest('GET',
+          `https://graph.facebook.com/v19.0/${pageId}/posts?fields=id,message,insights.metric(post_impressions,post_engaged_users)&limit=5&access_token=${token}`, {});
+        const posts = postsResp.body?.data || [];
+        // Find the most recent post (likely the one we published)
+        let totalImpressions = 0, totalEngagement = 0;
+        for (const p of posts) {
+          const metrics = p.insights?.data || [];
+          for (const m of metrics) {
+            if (m.name === 'post_impressions') totalImpressions += (m.values?.[0]?.value || 0);
+            if (m.name === 'post_engaged_users') totalEngagement += (m.values?.[0]?.value || 0);
+          }
+        }
+        const performanceScore = totalImpressions > 0
+          ? Math.min(10, Math.round((totalEngagement / totalImpressions) * 100))
+          : 0;
+        // Update content with performance score + reach
+        await sbPatch('generated_content', `id=eq.${contentId}`, {
+          performance_score: performanceScore,
+          total_reach: totalImpressions
+        });
+        log('feedback-loop', `Content ${contentId}: score=${performanceScore} reach=${totalImpressions} engagement=${totalEngagement}`);
+        // If high performing, store in brand memory
+        if (performanceScore >= 7) {
+          try {
+            const bestText = content.instagram_caption || content.facebook_post || '';
+            if (bestText && OPENAI_API_KEY && PINECONE_API_KEY && PINECONE_HOST) {
+              const vector = await getEmbedding(bestText);
+              await pineconeUpsert([{
+                id: contentId,
+                values: vector,
+                metadata: { businessId: bizId, contentType: 'social_post', text: bestText.slice(0, 1000), score: performanceScore }
+              }]);
+              log('feedback-loop', `✅ High-performing content stored in brand memory: ${contentId}`);
+            }
+          } catch (memErr) { log('feedback-loop', `Brand memory store failed: ${memErr.message}`); }
+        }
+      } catch (err) { log('feedback-loop', `24h check error: ${err.message}`); }
+    }, 24 * 60 * 60 * 1000); // 24 hours
+  }
 
   return { ...content, row_id: saved?.id, quality_score: score, image: imgResult };
 }
@@ -3842,8 +3909,10 @@ app.get('/webhook/contacts-get', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /webhook/contact-activity-log
-// Log activity, recalculate score, auto-qualify if score crosses 50.
+// POST /webhook/contact-activity-log  — UPGRADE 6: AI LEAD SCORING
+// Log activity, use Claude Sonnet to evaluate full contact history,
+// returns score 0-100 + intent_level + recommended_action.
+// If ready_to_buy: enroll in priority sequence + send alert email.
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/webhook/contact-activity-log', async (req, res) => {
   const { business_id, contact_id, activity_type, metadata = {} } = req.body;
@@ -3855,48 +3924,124 @@ app.post('/webhook/contact-activity-log', async (req, res) => {
     // Insert activity
     await sbPost('contact_activities', { business_id, contact_id, activity_type, metadata });
 
-    // Recalculate total score from all activities
-    const activities = await sbGet('contact_activities',
-      `contact_id=eq.${contact_id}&select=activity_type`);
-    const new_score = activities.reduce((sum, a) =>
-      sum + (SCORE_WEIGHTS[a.activity_type] || 0), 0);
-
-    // Fetch current contact
-    const contacts = await sbGet('contacts',
-      `id=eq.${contact_id}&select=lead_score,stage&limit=1`);
-    const contact = contacts[0];
+    // Fetch full contact + all activities for AI scoring
+    const [contactArr, activities, bizArr] = await Promise.all([
+      sbGet('contacts', `id=eq.${contact_id}&select=*&limit=1`),
+      sbGet('contact_activities', `contact_id=eq.${contact_id}&select=activity_type,metadata,created_at&order=created_at.desc&limit=30`),
+      sbGet('businesses', `id=eq.${business_id}&select=business_name,industry,email`)
+    ]);
+    const contact  = contactArr[0];
+    const biz      = bizArr[0];
     const old_score = contact?.lead_score || 0;
     const old_stage = contact?.stage || 'lead';
+    const old_intent = contact?.intent_level || 'cold';
 
-    // Update score + last_activity_at
-    const updates = { lead_score: Math.max(0, new_score), last_activity_at: new Date().toISOString() };
+    // ── Static score as baseline (fast) ──────────────────────────────────
+    const staticScore = activities.reduce((sum, a) =>
+      sum + (SCORE_WEIGHTS[a.activity_type] || 0), 0);
+
+    // ── AI scoring with Claude Sonnet (full context) ─────────────────────
+    let aiScore = staticScore;
+    let intentLevel = old_intent;
+    let recommendedAction = '';
+
+    // Only call Claude if there are enough activities to justify it
+    if (activities.length >= 3) {
+      try {
+        const activitySummary = activities.map(a =>
+          `${a.activity_type} at ${a.created_at}${a.metadata ? ' | ' + JSON.stringify(a.metadata) : ''}`
+        ).join('\n');
+
+        const prompt =
+`You are an AI lead scoring engine. Evaluate this contact's buying intent.
+
+CONTACT: ${contact?.first_name || ''} ${contact?.last_name || ''} (${contact?.email || ''})
+SOURCE: ${contact?.source || 'unknown'} | CURRENT STAGE: ${old_stage}
+COMPANY: ${contact?.company || 'unknown'}
+BUSINESS: ${biz?.business_name || ''} (${biz?.industry || ''})
+
+FULL ACTIVITY HISTORY (most recent first):
+${activitySummary}
+
+SCORING GUIDE:
+- email_open=5, email_click=10, page_visit=3, form_fill=20, ad_click=8, purchase=50, meeting=30, call=15
+
+Evaluate the PATTERN of behavior, not just the sum. Consider:
+- Recency (recent activity = higher intent)
+- Frequency (multiple touches = building interest)
+- Depth (form fills, meetings > casual opens)
+- Velocity (how fast they're moving through the funnel)
+
+Return ONLY valid JSON:
+{
+  "score": 0-100,
+  "intent_level": "cold" | "warm" | "hot" | "ready_to_buy",
+  "recommended_action": "specific next step",
+  "reasoning": "1-2 sentences why"
+}`;
+
+        const aiResult = await callClaude(prompt, 'claude-sonnet-4-5', 500);
+        if (aiResult.score !== undefined) aiScore = Math.max(0, Math.min(100, aiResult.score));
+        if (aiResult.intent_level) intentLevel = aiResult.intent_level;
+        if (aiResult.recommended_action) recommendedAction = aiResult.recommended_action;
+      } catch (aiErr) {
+        log('/webhook/contact-activity-log', `AI scoring fallback to static: ${aiErr.message}`);
+      }
+    }
+
+    // ── Update contact ──────────────────────────────────────────────────
+    const updates = {
+      lead_score: aiScore,
+      intent_level: intentLevel,
+      recommended_action: recommendedAction,
+      last_activity_at: new Date().toISOString()
+    };
     let stage_changed = false;
 
-    // Auto-qualify: score crosses 50 for first time while still 'lead'
-    if (old_score < 50 && new_score >= 50 && old_stage === 'lead') {
+    // Auto-qualify if score >= 50 and still a lead
+    if (old_score < 50 && aiScore >= 50 && old_stage === 'lead') {
       updates.stage = 'qualified';
       stage_changed = true;
-      // Enroll in qualified sequence
+    }
+
+    // Auto-escalate: ready_to_buy → enroll in priority sequence + alert
+    if (intentLevel === 'ready_to_buy' && old_intent !== 'ready_to_buy') {
+      updates.stage = 'opportunity';
+      stage_changed = true;
+
+      // Enroll in priority / ready_to_buy sequence
       try {
-        const [contactRow, seqs] = await Promise.all([
-          sbGet('contacts', `id=eq.${contact_id}&select=email,first_name,last_name`),
-          sbGet('email_sequences',
-            `business_id=eq.${business_id}&trigger_type=eq.qualified&is_active=eq.true&limit=1`)
-        ]);
-        const c = contactRow[0];
-        if (c && seqs[0]) {
+        const seqs = await sbGet('email_sequences',
+          `business_id=eq.${business_id}&trigger_type=eq.ready_to_buy&is_active=eq.true&limit=1`);
+        // Fall back to qualified sequence
+        const seq = seqs[0] || (await sbGet('email_sequences',
+          `business_id=eq.${business_id}&trigger_type=eq.qualified&is_active=eq.true&limit=1`))[0];
+        if (seq && contact) {
           await sbPost('contact_enrollments', {
-            business_id, contact_email: c.email,
-            contact_name: [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email,
-            sequence_id: seqs[0].id, current_step: 0, status: 'active',
+            business_id, contact_email: contact.email,
+            contact_name: [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contact.email,
+            sequence_id: seq.id, current_step: 0, status: 'active',
             next_send_at: new Date().toISOString()
           });
         }
       } catch {}
+
+      // Send alert email to business owner
+      if (biz?.email && contact) {
+        const html = `<h2>🔥 Ready-to-Buy Lead Detected!</h2>
+<p><strong>${contact.first_name || ''} ${contact.last_name || ''}</strong> (${contact.email}) scored <strong>${aiScore}/100</strong> and is ready to buy.</p>
+<p><strong>Recommended action:</strong> ${recommendedAction}</p>
+<p><a href="https://maroa-ai-marketing-automator.vercel.app/crm" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View in CRM</a></p>`;
+        sendEmail(biz.email, `🔥 ${contact.first_name || 'Lead'} is ready to buy — ${biz.business_name}`, html).catch(() => {});
+      }
     }
 
     await sbPatch('contacts', `id=eq.${contact_id}`, updates);
-    res.json({ success: true, new_score: Math.max(0, new_score), old_score, stage_changed });
+    res.json({
+      success: true, new_score: aiScore, old_score,
+      intent_level: intentLevel, recommended_action: recommendedAction,
+      stage_changed, ai_scored: activities.length >= 3
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -5416,10 +5561,437 @@ app.post('/webhook/log-error', async (req, res) => {
   }
 });
 
-// POST /webhook/agent-run — alias for /webhook/ai-brain-run
-app.post('/webhook/agent-run', (req, res) => {
-  req.url = '/webhook/ai-brain-run';
-  app.handle(req, res);
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/agent-run  — TRUE AUTONOMOUS AI AGENT
+// Gathers ALL business data, calls Claude Opus for strategic decisions,
+// then EXECUTES those decisions (trigger content, adjust budgets, send alerts).
+// Body: { business_id }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/agent-run', async (req, res) => {
+  const { business_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  if (!isUUID(business_id)) return res.status(400).json({ error: 'business_id must be a valid UUID' });
+
+  res.json({ received: true, message: 'Autonomous agent started — decisions + execution in progress' });
+
+  setImmediate(async () => {
+    const actions_taken = [];
+    try {
+      // ── 1. Gather ALL data ──────────────────────────────────────────────
+      const [bizArr, contentArr, campaignsArr, compArr, snapArr, contactsArr, revenueArr, seqArr] = await Promise.all([
+        sbGet('businesses', `id=eq.${business_id}&select=*`),
+        sbGet('generated_content', `business_id=eq.${business_id}&order=created_at.desc&limit=20&select=id,content_theme,status,created_at,performance_score`),
+        sbGet('ad_campaigns', `business_id=eq.${business_id}&select=id,status,daily_budget,roas,clicks,impressions,total_spend,campaign_type`),
+        sbGet('competitor_reports', `business_id=eq.${business_id}&order=created_at.desc&limit=1`),
+        sbGet('analytics_snapshots', `business_id=eq.${business_id}&order=snapshot_date.desc&limit=14`),
+        sbGet('contacts', `business_id=eq.${business_id}&select=id,lead_score,stage,intent_level&order=lead_score.desc&limit=50`),
+        sbGet('revenue_attribution', `business_id=eq.${business_id}&order=attributed_at.desc&limit=10`).catch(() => []),
+        sbGet('email_sequences', `business_id=eq.${business_id}&select=id,name,trigger_type,is_active`).catch(() => [])
+      ]);
+
+      const biz = bizArr[0];
+      if (!biz) return;
+      const comp = compArr[0] || {};
+
+      // ── 2. Compute metrics ──────────────────────────────────────────────
+      const week1 = snapArr.slice(0, 7);
+      const week2 = snapArr.slice(7, 14);
+      const sum = (arr, k) => arr.reduce((s, r) => s + (r[k] || 0), 0);
+      const thisWeek  = { reach: sum(week1,'reach'), clicks: sum(week1,'clicks'), engagement: sum(week1,'engagement') };
+      const lastWeek  = { reach: sum(week2,'reach'), clicks: sum(week2,'clicks'), engagement: sum(week2,'engagement') };
+      const activeCampaigns = campaignsArr.filter(c => c.status === 'active');
+      const avgRoas = activeCampaigns.length
+        ? (activeCampaigns.reduce((s,c) => s + (c.roas||0), 0) / activeCampaigns.length).toFixed(2) : '0';
+      const totalSpend = campaignsArr.reduce((s,c) => s + (c.total_spend||0), 0);
+      const totalRevenue = revenueArr.reduce((s,r) => s + (Number(r.amount)||0), 0);
+      const hotLeads = contactsArr.filter(c => c.intent_level === 'hot' || c.intent_level === 'ready_to_buy').length;
+      const pendingContent = contentArr.filter(c => c.status === 'pending_approval').length;
+      const topThemes = contentArr.filter(c => (c.performance_score||0) >= 7).map(c => c.content_theme).filter(Boolean);
+
+      // ── 3. Claude Opus — full strategic decision ────────────────────────
+      const prompt =
+`You are the autonomous AI marketing agent for ${biz.business_name} (${biz.industry || 'general'}).
+You don't just advise — you DECIDE and I will EXECUTE your decisions automatically.
+
+FULL BUSINESS STATE:
+- Plan: ${biz.plan || 'free'} | Goal: ${biz.marketing_goal || 'grow'}
+- Brand tone: ${biz.brand_tone || 'professional'}
+- Target audience: ${biz.target_audience || 'general'}
+
+PERFORMANCE (this week vs last week):
+- Reach: ${thisWeek.reach} (was ${lastWeek.reach}) ${thisWeek.reach > lastWeek.reach ? '↑' : '↓'}
+- Clicks: ${thisWeek.clicks} (was ${lastWeek.clicks}) ${thisWeek.clicks > lastWeek.clicks ? '↑' : '↓'}
+- Engagement: ${thisWeek.engagement} (was ${lastWeek.engagement}) ${thisWeek.engagement > lastWeek.engagement ? '↑' : '↓'}
+
+CAMPAIGNS: ${activeCampaigns.length} active, avg ROAS: ${avgRoas}, total spend: $${totalSpend.toFixed(2)}
+REVENUE: $${totalRevenue.toFixed(2)} attributed | LEADS: ${contactsArr.length} total, ${hotLeads} hot
+CONTENT: ${pendingContent} pending approval, ${contentArr.length} recent pieces
+TOP THEMES (score>=7): ${topThemes.join(', ') || 'none yet'}
+
+COMPETITOR INTEL:
+${comp.recommendation || 'No competitor data yet'}
+
+CURRENT AI BRAIN DECISIONS: ${biz.ai_brain_decisions || 'None yet'}
+
+Based on ALL data, return ONLY valid JSON with your decisions:
+{
+  "content_strategy": "specific themes and angles for this week",
+  "ad_strategy": "budget changes and campaign decisions",
+  "growth_priorities": ["priority 1", "priority 2", "priority 3"],
+  "risk_alerts": ["any urgent concerns"],
+  "actions": {
+    "generate_content": true/false,
+    "pause_low_roas_campaigns": [campaign_ids to pause] or [],
+    "increase_budget_campaigns": [{"id":"campaign_id","new_daily":N}] or [],
+    "send_win_alert": true/false,
+    "trigger_competitor_check": true/false,
+    "send_lead_alert": true/false
+  },
+  "confidence_score": 0-100,
+  "reasoning": "why these decisions"
+}`;
+
+      const decisions = await callClaude(prompt, 'claude-opus-4-5', 2000);
+
+      // ── 4. EXECUTE decisions automatically ──────────────────────────────
+      const acts = decisions.actions || {};
+
+      // 4a. Generate content if decided
+      if (acts.generate_content) {
+        try {
+          await generateInstantContent(business_id);
+          actions_taken.push('generated_content');
+        } catch (e) { actions_taken.push(`content_error: ${e.message}`); }
+      }
+
+      // 4b. Pause low-ROAS campaigns
+      if (Array.isArray(acts.pause_low_roas_campaigns)) {
+        for (const cid of acts.pause_low_roas_campaigns) {
+          if (isUUID(cid)) {
+            try {
+              await sbPatch('ad_campaigns', `id=eq.${cid}`, { status: 'paused', last_decision: 'AI Agent paused — low ROAS', last_optimized_at: new Date().toISOString() });
+              actions_taken.push(`paused_campaign:${cid}`);
+            } catch {}
+          }
+        }
+      }
+
+      // 4c. Increase budget on winning campaigns
+      if (Array.isArray(acts.increase_budget_campaigns)) {
+        for (const item of acts.increase_budget_campaigns) {
+          if (item?.id && isUUID(item.id) && item.new_daily > 0) {
+            try {
+              await sbPatch('ad_campaigns', `id=eq.${item.id}`, { daily_budget: item.new_daily, last_decision: `AI Agent budget → $${item.new_daily}`, last_optimized_at: new Date().toISOString() });
+              actions_taken.push(`budget_change:${item.id}→$${item.new_daily}`);
+            } catch {}
+          }
+        }
+      }
+
+      // 4d. Send win alert email
+      if (acts.send_win_alert && biz.email) {
+        const html = `<h2>🎉 Win Alert from your AI Agent</h2>
+<p>Your AI agent detected positive momentum:</p>
+<ul><li>Reach: ${thisWeek.reach} (${thisWeek.reach > lastWeek.reach ? 'up' : 'down'} from ${lastWeek.reach})</li>
+<li>Active campaigns: ${activeCampaigns.length} | Avg ROAS: ${avgRoas}</li>
+<li>Hot leads: ${hotLeads}</li></ul>
+<p><strong>Strategy:</strong> ${decisions.content_strategy || ''}</p>
+<p><a href="https://maroa-ai-marketing-automator.vercel.app/dashboard" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View Dashboard</a></p>`;
+        await sendEmail(biz.email, `📈 ${biz.business_name} — AI Agent Win Alert`, html).catch(() => {});
+        actions_taken.push('sent_win_alert');
+      }
+
+      // 4e. Send hot lead alert
+      if (acts.send_lead_alert && hotLeads > 0 && biz.email) {
+        const html = `<h2>🔥 Hot Lead Alert</h2><p>You have ${hotLeads} leads ready to buy. Check your CRM now!</p>
+<p><a href="https://maroa-ai-marketing-automator.vercel.app/crm" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View Leads</a></p>`;
+        await sendEmail(biz.email, `🔥 ${hotLeads} hot leads detected — ${biz.business_name}`, html).catch(() => {});
+        actions_taken.push('sent_lead_alert');
+      }
+
+      // ── 5. Save decisions + log ─────────────────────────────────────────
+      await sbPatch('businesses', `id=eq.${business_id}`, {
+        ai_brain_decisions: JSON.stringify(decisions),
+        strategy_updated_at: new Date().toISOString()
+      });
+
+      await sbPost('learning_logs', {
+        business_id,
+        decision_date: new Date().toISOString(),
+        decision_data: JSON.stringify(decisions),
+        actions_taken: JSON.stringify(actions_taken),
+        performance_before: JSON.stringify({ thisWeek, lastWeek, avgRoas, hotLeads })
+      }).catch(() => {});
+
+      log('/webhook/agent-run', `✅ Agent done for ${biz.business_name}: ${actions_taken.length} actions taken`);
+    } catch (err) {
+      console.error('[agent-run ERROR]', err.message);
+      await logError(business_id, 'agent-run', err.message, req.body).catch(() => {});
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/optimize-posting-times  — UPGRADE 4: PREDICTIVE POSTING
+// Analyze 30 days of analytics_snapshots, find top engagement hours,
+// update businesses.optimal_posting_times.
+// Body: { business_id }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/optimize-posting-times', async (req, res) => {
+  const { business_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  if (!isUUID(business_id)) return res.status(400).json({ error: 'business_id must be a valid UUID' });
+
+  res.json({ received: true, message: 'Analyzing optimal posting times' });
+
+  setImmediate(async () => {
+    try {
+      const [bizArr, snapshots] = await Promise.all([
+        sbGet('businesses', `id=eq.${business_id}&select=business_name,industry,email`),
+        sbGet('analytics_snapshots', `business_id=eq.${business_id}&order=snapshot_date.desc&limit=30&select=snapshot_date,engagement,reach,clicks,impressions`)
+      ]);
+      const biz = bizArr[0];
+      if (!biz) return;
+
+      // If we have snapshots, ask Claude to analyze patterns
+      const prompt =
+`Analyze these daily analytics snapshots for ${biz.business_name} (${biz.industry || 'business'}) and determine the optimal posting schedule.
+
+DATA (last 30 days):
+${JSON.stringify(snapshots.map(s => ({ date: s.snapshot_date, engagement: s.engagement || 0, reach: s.reach || 0, clicks: s.clicks || 0 })))}
+
+Based on engagement patterns (day of week, implied time windows), recommend:
+1. The top 3 best days/hours to post
+2. Days/hours to avoid
+3. Platform-specific recommendations
+
+Return ONLY valid JSON:
+{
+  "optimal_times": [
+    {"day": "Monday", "hour": 9, "reason": "highest engagement window"},
+    {"day": "Wednesday", "hour": 12, "reason": "..."},
+    {"day": "Friday", "hour": 17, "reason": "..."}
+  ],
+  "avoid_times": [{"day": "Sunday", "hour": 22, "reason": "..."}],
+  "platform_tips": {"instagram": "...", "facebook": "...", "linkedin": "..."},
+  "confidence": 0-100
+}`;
+
+      const result = await callClaude(prompt, 'claude-sonnet-4-5', 1000);
+
+      await sbPatch('businesses', `id=eq.${business_id}`, {
+        optimal_posting_times: JSON.stringify(result)
+      });
+
+      log('/webhook/optimize-posting-times', `✅ Optimal times saved for ${biz.business_name}`);
+    } catch (err) {
+      console.error('[optimize-posting-times ERROR]', err.message);
+      await logError(business_id, 'optimize-posting-times', err.message, req.body).catch(() => {});
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/competitor-alert-check  — UPGRADE 5: REAL-TIME ALERTS
+// Compare last 2 competitor reports. If major change detected, email alert.
+// Body: { business_id }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/competitor-alert-check', async (req, res) => {
+  const { business_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  if (!isUUID(business_id)) return res.status(400).json({ error: 'business_id must be a valid UUID' });
+
+  res.json({ received: true, message: 'Checking for competitor changes' });
+
+  setImmediate(async () => {
+    try {
+      const [bizArr, reports] = await Promise.all([
+        sbGet('businesses', `id=eq.${business_id}&select=business_name,industry,email`),
+        sbGet('competitor_reports', `business_id=eq.${business_id}&order=created_at.desc&limit=2`)
+      ]);
+      const biz = bizArr[0];
+      if (!biz || reports.length < 2) return log('/webhook/competitor-alert-check', 'Not enough reports to compare');
+
+      const [latest, previous] = reports;
+
+      const prompt =
+`Compare these two competitor intelligence reports for ${biz.business_name} and detect significant changes.
+
+LATEST REPORT (${latest.report_date || latest.created_at}):
+- Content themes: ${JSON.stringify(latest.content_themes || [])}
+- New offers: ${JSON.stringify(latest.new_offers || [])}
+- Ad angles: ${JSON.stringify(latest.ad_angles || [])}
+- Pricing changes: ${JSON.stringify(latest.pricing_changes || [])}
+
+PREVIOUS REPORT (${previous.report_date || previous.created_at}):
+- Content themes: ${JSON.stringify(previous.content_themes || [])}
+- New offers: ${JSON.stringify(previous.new_offers || [])}
+- Ad angles: ${JSON.stringify(previous.ad_angles || [])}
+- Pricing changes: ${JSON.stringify(previous.pricing_changes || [])}
+
+Identify NEW changes between the two reports. Only flag genuinely significant shifts.
+Return ONLY valid JSON:
+{
+  "has_major_change": true/false,
+  "changes": [{"type": "pricing/content/ads/offer", "description": "what changed", "severity": "high/medium/low", "recommended_action": "what to do"}],
+  "summary": "1-2 sentence summary of changes"
+}`;
+
+      const result = await callClaude(prompt, 'claude-sonnet-4-5', 800);
+
+      if (result.has_major_change && biz.email) {
+        const changesList = (result.changes || []).map(c =>
+          `<li><strong>[${c.severity}]</strong> ${c.description}<br/>→ ${c.recommended_action}</li>`
+        ).join('');
+        const html = `<h2>⚡ Competitor Alert — ${biz.business_name}</h2>
+<p>${result.summary || 'Significant competitor changes detected.'}</p>
+<ul>${changesList}</ul>
+<p><a href="https://maroa-ai-marketing-automator.vercel.app/competitors" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View Full Report</a></p>`;
+        await sendEmail(biz.email, `⚡ Competitor change detected — ${biz.business_name}`, html);
+        log('/webhook/competitor-alert-check', `⚡ Alert sent for ${biz.business_name}: ${result.summary}`);
+      } else {
+        log('/webhook/competitor-alert-check', `No major changes for ${biz.business_name}`);
+      }
+    } catch (err) {
+      console.error('[competitor-alert-check ERROR]', err.message);
+      await logError(business_id, 'competitor-alert-check', err.message, req.body).catch(() => {});
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/weekly-strategy-update  — UPGRADE 7: STRATEGY EVOLUTION
+// Compares this week vs last week, Claude Opus evolves strategy.
+// Body: { business_id }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/weekly-strategy-update', async (req, res) => {
+  const { business_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  if (!isUUID(business_id)) return res.status(400).json({ error: 'business_id must be a valid UUID' });
+
+  res.json({ received: true, message: 'Weekly strategy evolution started' });
+
+  setImmediate(async () => {
+    try {
+      const [bizArr, snapshots, contentArr, compArr] = await Promise.all([
+        sbGet('businesses', `id=eq.${business_id}&select=*`),
+        sbGet('analytics_snapshots', `business_id=eq.${business_id}&order=snapshot_date.desc&limit=14`),
+        sbGet('generated_content', `business_id=eq.${business_id}&order=created_at.desc&limit=20&select=content_theme,status,performance_score`),
+        sbGet('competitor_reports', `business_id=eq.${business_id}&order=created_at.desc&limit=1`)
+      ]);
+      const biz = bizArr[0];
+      if (!biz) return;
+
+      const week1 = snapshots.slice(0, 7);
+      const week2 = snapshots.slice(7, 14);
+      const sum = (arr, k) => arr.reduce((s, r) => s + (r[k] || 0), 0);
+      const thisWeek = { reach: sum(week1,'reach'), clicks: sum(week1,'clicks'), engagement: sum(week1,'engagement') };
+      const lastWeek = { reach: sum(week2,'reach'), clicks: sum(week2,'clicks'), engagement: sum(week2,'engagement') };
+
+      const topContent = contentArr.filter(c => (c.performance_score||0) >= 7).map(c => c.content_theme).filter(Boolean);
+      const lowContent = contentArr.filter(c => (c.performance_score||0) > 0 && (c.performance_score||0) < 4).map(c => c.content_theme).filter(Boolean);
+
+      const prompt =
+`You are the chief marketing strategist AI for ${biz.business_name} (${biz.industry || 'general'}).
+
+CURRENT STRATEGY: ${biz.marketing_strategy || 'No strategy set yet'}
+CURRENT BEST THEMES: ${biz.best_performing_themes || '[]'}
+CURRENT WORST THEMES: ${biz.worst_performing_themes || '[]'}
+
+THIS WEEK PERFORMANCE:
+- Reach: ${thisWeek.reach} | Clicks: ${thisWeek.clicks} | Engagement: ${thisWeek.engagement}
+
+LAST WEEK PERFORMANCE:
+- Reach: ${lastWeek.reach} | Clicks: ${lastWeek.clicks} | Engagement: ${lastWeek.engagement}
+
+TREND: Reach ${thisWeek.reach >= lastWeek.reach ? 'UP' : 'DOWN'}, Clicks ${thisWeek.clicks >= lastWeek.clicks ? 'UP' : 'DOWN'}, Engagement ${thisWeek.engagement >= lastWeek.engagement ? 'UP' : 'DOWN'}
+
+HIGH-PERFORMING CONTENT THEMES: ${topContent.join(', ') || 'none yet'}
+LOW-PERFORMING CONTENT THEMES: ${lowContent.join(', ') || 'none yet'}
+
+COMPETITOR RECOMMENDATION: ${compArr[0]?.recommendation || 'No data'}
+
+BUSINESS CONTEXT:
+- Target audience: ${biz.target_audience || 'general'}
+- Goal: ${biz.marketing_goal || 'grow'}
+- Brand tone: ${biz.brand_tone || 'professional'}
+
+Evolve the marketing strategy based on what worked and what didn't.
+Double down on winning themes, abandon losing themes, adapt to competitor moves.
+Return ONLY valid JSON:
+{
+  "marketing_strategy": "full evolved strategy paragraph (200+ words)",
+  "best_performing_themes": ["theme1", "theme2", "theme3"],
+  "worst_performing_themes": ["theme1", "theme2"],
+  "audience_insights": "what we learned about the audience this week",
+  "weekly_forecast": {
+    "expected_reach_change": "+15%",
+    "content_focus": "what to focus on",
+    "risk_level": "low/medium/high"
+  },
+  "key_changes": ["change 1 from last strategy", "change 2"]
+}`;
+
+      const result = await callClaude(prompt, 'claude-opus-4-5', 2000);
+
+      const updates = { strategy_updated_at: new Date().toISOString() };
+      if (result.marketing_strategy) updates.marketing_strategy = result.marketing_strategy;
+      if (result.best_performing_themes) updates.best_performing_themes = JSON.stringify(result.best_performing_themes);
+      if (result.worst_performing_themes) updates.worst_performing_themes = JSON.stringify(result.worst_performing_themes);
+      if (result.weekly_forecast) updates.weekly_forecast = JSON.stringify(result.weekly_forecast);
+
+      await sbPatch('businesses', `id=eq.${business_id}`, updates);
+
+      // Log the strategy evolution
+      await sbPost('learning_logs', {
+        business_id,
+        decision_date: new Date().toISOString(),
+        decision_data: JSON.stringify(result),
+        actions_taken: JSON.stringify(result.key_changes || []),
+        performance_before: JSON.stringify({ thisWeek, lastWeek })
+      }).catch(() => {});
+
+      log('/webhook/weekly-strategy-update', `✅ Strategy evolved for ${biz.business_name}`);
+    } catch (err) {
+      console.error('[weekly-strategy-update ERROR]', err.message);
+      await logError(business_id, 'weekly-strategy-update', err.message, req.body).catch(() => {});
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/attribute-revenue  — UPGRADE 8: REVENUE ATTRIBUTION
+// Accept { business_id, revenue_amount, source, campaign_id?, content_id? }
+// Store in revenue_attribution, update businesses.estimated_revenue.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/attribute-revenue', async (req, res) => {
+  const { business_id, revenue_amount, source, campaign_id, content_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  if (!revenue_amount || isNaN(Number(revenue_amount))) return res.status(400).json({ error: 'revenue_amount required (number)' });
+  if (!source) return res.status(400).json({ error: 'source required' });
+
+  try {
+    const row = await sbPost('revenue_attribution', {
+      business_id,
+      amount: Number(revenue_amount),
+      source,
+      campaign_id: campaign_id || null,
+      content_id: content_id || null
+    });
+
+    // Recalculate total estimated revenue
+    const allRevenue = await sbGet('revenue_attribution',
+      `business_id=eq.${business_id}&select=amount`);
+    const total = allRevenue.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
+    await sbPatch('businesses', `id=eq.${business_id}`, {
+      estimated_revenue: total
+    });
+
+    res.json({ success: true, attribution_id: row?.id, total_revenue: total });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── n8n workflow route aliases (internal URL rewrite) ───────────────────────
