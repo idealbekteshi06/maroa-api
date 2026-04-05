@@ -433,6 +433,27 @@ function isUUID(v) { return typeof v === 'string' && UUID_RE.test(v); }
 // ROUTES
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ─── GET /health — detailed environment check ───────────────────────────────
+app.get('/health', (req, res) => {
+  const vars = {
+    anthropic:  !!ANTHROPIC_KEY,
+    supabase:   !!SUPABASE_KEY,
+    meta:       !!(process.env.META_APP_ID || process.env.META_APP_SECRET),
+    resend:     !!RESEND_API_KEY,
+    serpapi:    !!SERPAPI_KEY,
+    pinecone:   !!(PINECONE_API_KEY && PINECONE_HOST),
+    replicate:  !!REPLICATE_API_KEY,
+    openai:     !!OPENAI_API_KEY,
+    linkedin:   !!process.env.LINKEDIN_CLIENT_ID,
+    tiktok:     !!process.env.TIKTOK_CLIENT_KEY,
+    twitter:    !!process.env.TWITTER_CLIENT_ID,
+    stripe:     !!process.env.STRIPE_SECRET_KEY,
+    runway:     !!RUNWAY_API_KEY
+  };
+  const missing = Object.entries(vars).filter(([,v]) => !v).map(([k]) => k);
+  res.json({ status: missing.length <= 3 ? 'ok' : 'degraded', timestamp: new Date().toISOString(), env_vars: vars, missing_vars: missing, missing_count: missing.length });
+});
+
 // Health check
 app.get('/', (req, res) => res.json({
   status: 'ok', service: 'maroa-api', version: '2.0.0',
@@ -2993,10 +3014,53 @@ app.post('/webhook/meta-campaign-create', async (req, res) => {
       `location,brand_tone,marketing_goal,competitors,meta_access_token,ad_account_id,` +
       `facebook_page_id,target_cpc,avg_order_value`))[0];
     if (!biz) return res.status(404).json({ error: 'business not found' });
-    if (!biz.meta_access_token)
-      return res.status(400).json({ error: 'meta_ads_not_connected', detail: 'No Meta access token' });
-    if (!biz.ad_account_id)
-      return res.status(400).json({ error: 'meta_ads_not_connected', detail: 'No ad_account_id — connect Meta Ads in Settings' });
+    const draftMode = !biz.meta_access_token || !biz.ad_account_id;
+    if (draftMode) {
+      // DRAFT MODE — build strategy + creatives without Meta API
+      res.json({ received: true, status: 'draft', message: 'Campaign strategy being built in draft mode — connect Meta Ads to launch' });
+
+      setImmediate(async () => {
+        try {
+          const dailyBudget = Math.max(1, Math.round(monthly_budget / 30));
+          const strategyPrompt =
+`You are a Meta Ads expert. Create a campaign strategy for ${biz.business_name} (${biz.industry}).
+Goal: ${biz.marketing_goal || 'grow'} | Budget: $${monthly_budget}/mo | Audience: ${biz.target_audience || 'general'}
+Location: ${biz.location || 'United States'} | Tone: ${biz.brand_tone || 'professional'}
+Return ONLY valid JSON: { "objective": "OUTCOME_TRAFFIC", "daily_budget_usd": ${dailyBudget}, "targeting": { "age_min": 25, "age_max": 55 }, "creatives": [{ "headline": "max 40 chars", "primary_text": "max 125 chars", "description": "max 30 chars", "cta": "LEARN_MORE", "image_prompt": "image description" }] }`;
+          const strategy = await callClaude(strategyPrompt, 'claude-opus-4-5', 1500);
+          const creatives = Array.isArray(strategy.creatives) ? strategy.creatives.slice(0, 3) : [];
+
+          // Save draft campaign
+          await sbPost('ad_campaigns', {
+            business_id, platform: 'meta', status: 'draft',
+            daily_budget: dailyBudget, objective: strategy.objective || objective,
+            ai_strategy: JSON.stringify(strategy), last_decision: 'Draft — awaiting Meta Ads connection',
+            last_decision_reason: 'Campaign ready to launch when ad account connected',
+            business_name: biz.business_name
+          });
+
+          // Save draft creatives
+          for (const cr of creatives) {
+            await sbPost('ad_creatives', {
+              business_id, platform: 'meta', headline: cr.headline,
+              primary_text: cr.primary_text, description: cr.description,
+              cta: cr.cta, image_prompt: cr.image_prompt, status: 'draft'
+            }).catch(() => {});
+          }
+
+          if (biz.email) {
+            await sendEmail(biz.email, `Your ad campaign strategy is ready — ${biz.business_name}`,
+              `<h2>Your AI Ad Campaign is Ready (Draft)</h2><p>Your AI built a complete ad strategy with ${creatives.length} creative variations.</p><p><strong>To launch:</strong> Connect your Meta Ads account in Settings.</p><p><a href="https://maroa-ai-marketing-automator.vercel.app/settings" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Connect Meta Ads →</a></p>`
+            ).catch(() => {});
+          }
+          log('/webhook/meta-campaign-create', `✅ Draft campaign saved for ${biz.business_name}`);
+        } catch (err) {
+          console.error('[meta-campaign-create DRAFT ERROR]', err.message);
+          await logError(business_id, 'meta-campaign-create-draft', err.message).catch(() => {});
+        }
+      });
+      return; // exit — draft mode handled
+    }
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
@@ -4520,11 +4584,12 @@ app.post('/webhook/seo-audit', async (req, res) => {
         } catch (e) { log('/webhook/seo-audit', `saveRec error: ${e.message}`); }
       };
 
-      // ── CHECK 1: Keyword gap via SerpAPI ──────────────────────────────────
+      // ── CHECK 1: Keyword gap + LOCAL SEO via SerpAPI ──────────────────────
       const kwGapPromise = (async () => {
         if (!SERPAPI_KEY) return;
         try {
-          const baseQuery = `${biz.industry} ${biz.location || ''}`.trim();
+          const loc = biz.location || '';
+          const baseQuery = `${biz.industry} ${loc}`.trim();
           const bizResults = await serpSearch(baseQuery, 10);
           const bizLinks   = new Set(bizResults.map(r => r.link));
 
@@ -4546,6 +4611,25 @@ app.post('/webhook/seo-audit', async (req, res) => {
             await saveRec('keyword_gap', null,
               `Optimise homepage for: "${baseQuery}"`,
               baseQuery, 'high', '+20% local organic traffic', biz.website_url);
+          }
+
+          // ── LOCAL SEO: geo-specific keyword gaps ────────────────────────────
+          if (loc) {
+            const localQueries = [
+              `${biz.industry} in ${loc}`,
+              `${biz.industry} near me`,
+              `best ${biz.industry} ${loc}`
+            ];
+            for (const lq of localQueries) {
+              const lRes = await serpSearch(lq, 5);
+              const domain = (biz.website_url || '').replace(/https?:\/\//, '').split('/')[0];
+              const isRanking = lRes.some(r => (r.link || '').includes(domain));
+              if (!isRanking) {
+                await saveRec('local_seo', null,
+                  `Target local keyword: "${lq}" — not currently ranking`,
+                  lq, 'high', '+25% local discovery traffic', biz.website_url);
+              }
+            }
           }
         } catch (e) { log('/webhook/seo-audit', `kwGap error: ${e.message}`); }
       })();
@@ -6751,6 +6835,153 @@ Return ONLY valid JSON:
       await logError(business_id, 'growth-engine', err.message).catch(() => {});
     }
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/auto-approve-content — FIX 1
+// Scores all pending content, auto-approves score>=7, sends review for 5-6,
+// regenerates <5. Returns counts.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/auto-approve-content', async (req, res) => {
+  const { business_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+
+  try {
+    const [bizArr, pending] = await Promise.all([
+      sbGet('businesses', `id=eq.${business_id}&select=business_name,email,facebook_page_id,meta_access_token,instagram_account_id,linkedin_access_token,autopilot_enabled`),
+      sbGet('generated_content', `business_id=eq.${business_id}&status=eq.pending_approval&order=created_at.desc&limit=50&select=id,instagram_caption,facebook_post,content_theme`)
+    ]);
+    const biz = bizArr[0];
+    if (!biz) return res.status(404).json({ error: 'business not found' });
+    if (!pending.length) return res.json({ approved: 0, sent_for_review: 0, regenerated: 0, message: 'No pending content' });
+
+    let approved = 0, sent_for_review = 0, regenerated = 0;
+
+    for (const piece of pending) {
+      try {
+        const caption = piece.instagram_caption || piece.facebook_post || '';
+        if (!caption) { regenerated++; continue; }
+
+        // Score internally via callClaude (faster than HTTP round-trip)
+        const scorePrompt = `Rate this social media caption 1-10 for a ${biz.business_name || 'business'}. Consider brand voice, engagement potential, uniqueness, audience relevance. Caption: "${caption.slice(0, 500)}" Return ONLY valid JSON: {"score":1-10}`;
+        const scoreResult = await callClaude(scorePrompt, 'claude-sonnet-4-5', 200);
+        const score = scoreResult.score || 0;
+
+        if (score >= 7) {
+          await sbPatch('generated_content', `id=eq.${piece.id}`, {
+            status: 'approved', approved_at: new Date().toISOString(),
+            approval_method: 'auto_ai', pre_post_score: score
+          });
+          approved++;
+        } else if (score >= 5) {
+          // Send for human review
+          if (biz.email) {
+            await sendEmail(biz.email,
+              `Content needs your review — ${piece.content_theme || 'new post'}`,
+              `<h2>Quick Review Needed</h2><p>AI scored this <strong>${score}/10</strong>:</p><blockquote>${caption.slice(0, 300)}</blockquote><p><a href="https://maroa-ai-marketing-automator.vercel.app/content" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Approve</a></p>`
+            ).catch(() => {});
+          }
+          sent_for_review++;
+        } else {
+          // Auto-regenerate
+          await sbPatch('generated_content', `id=eq.${piece.id}`, { status: 'rejected' });
+          regenerated++;
+        }
+      } catch (e) { log('/webhook/auto-approve-content', `Piece ${piece.id} error: ${e.message}`); }
+    }
+
+    // Trigger regeneration if any were rejected
+    if (regenerated > 0) {
+      apiRequest('POST', 'https://maroa-api-production.up.railway.app/webhook/instant-content',
+        { 'Content-Type': 'application/json' },
+        { business_id, email: biz.email }).catch(() => {});
+    }
+
+    res.json({ approved, sent_for_review, regenerated, total: pending.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /webhook/publish-approved-content — FIX 8
+// Publishes all approved-but-unpublished content to connected platforms.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/webhook/publish-approved-content', async (req, res) => {
+  const { business_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+
+  try {
+    const [bizArr, approved] = await Promise.all([
+      sbGet('businesses', `id=eq.${business_id}&select=business_name,meta_access_token,facebook_page_id,instagram_account_id,linkedin_access_token,linkedin_person_id,autopilot_enabled,posts_published`),
+      sbGet('generated_content', `business_id=eq.${business_id}&status=eq.approved&published_at=is.null&order=created_at.asc&limit=10&select=id,instagram_caption,facebook_post,image_url,content_theme`)
+    ]);
+    const biz = bizArr[0];
+    if (!biz) return res.status(404).json({ error: 'business not found' });
+    if (!approved.length) return res.json({ published: 0, failed: 0, platforms: [], message: 'No approved content to publish' });
+
+    let published = 0, failed = 0;
+    const allPlatforms = new Set();
+
+    for (const piece of approved) {
+      const platforms = [];
+      try {
+        // Facebook
+        if (biz.meta_access_token && biz.facebook_page_id) {
+          try {
+            const fbResp = await apiRequest('POST',
+              `https://graph.facebook.com/v19.0/${biz.facebook_page_id}/feed`,
+              { 'Content-Type': 'application/json' },
+              { message: piece.facebook_post || piece.instagram_caption, access_token: biz.meta_access_token, ...(piece.image_url ? { link: piece.image_url } : {}) });
+            if (fbResp.body?.id) platforms.push('facebook');
+          } catch {}
+        }
+
+        // Instagram
+        if (biz.meta_access_token && biz.instagram_account_id && piece.image_url) {
+          try {
+            const step1 = await apiRequest('POST',
+              `https://graph.facebook.com/v19.0/${biz.instagram_account_id}/media`,
+              { 'Content-Type': 'application/json' },
+              { image_url: piece.image_url, caption: piece.instagram_caption, access_token: biz.meta_access_token });
+            if (step1.body?.id) {
+              const step2 = await apiRequest('POST',
+                `https://graph.facebook.com/v19.0/${biz.instagram_account_id}/media_publish`,
+                { 'Content-Type': 'application/json' },
+                { creation_id: step1.body.id, access_token: biz.meta_access_token });
+              if (step2.body?.id) platforms.push('instagram');
+            }
+          } catch {}
+        }
+
+        // LinkedIn
+        if (biz.linkedin_access_token && biz.linkedin_person_id) {
+          try {
+            const authorUrn = `urn:li:person:${biz.linkedin_person_id}`;
+            const ugc = { author: authorUrn, lifecycleState: 'PUBLISHED',
+              specificContent: { 'com.linkedin.ugc.ShareContent': { shareCommentary: { text: piece.instagram_caption || piece.facebook_post }, shareMediaCategory: 'NONE' } },
+              visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' } };
+            const liResp = await apiRequest('POST', 'https://api.linkedin.com/v2/ugcPosts',
+              { 'Authorization': `Bearer ${biz.linkedin_access_token}`, 'Content-Type': 'application/json', 'X-Restli-Protocol-Version': '2.0.0' }, ugc);
+            if (liResp.body?.id) platforms.push('linkedin');
+          } catch {}
+        }
+
+        if (platforms.length > 0) {
+          await sbPatch('generated_content', `id=eq.${piece.id}`, { status: 'published', published_at: new Date().toISOString() });
+          platforms.forEach(p => allPlatforms.add(p));
+          published++;
+        } else {
+          failed++;
+        }
+      } catch { failed++; }
+    }
+
+    // Update posts_published count
+    if (published > 0) {
+      await sbPatch('businesses', `id=eq.${business_id}`, { posts_published: (biz.posts_published || 0) + published }).catch(() => {});
+    }
+
+    res.json({ published, failed, platforms: [...allPlatforms], total: approved.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Short alias: /webhook/score-content → /webhook/score-content-before-posting
