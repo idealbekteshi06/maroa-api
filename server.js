@@ -50,6 +50,15 @@ const PINECONE_HOST       = clean(process.env.PINECONE_HOST)       || ''; // ful
 const RUNWAY_API_KEY      = clean(process.env.RUNWAY_API_KEY)      || '';
 // Smart Image System
 const GOOGLE_AI_API_KEY   = clean(process.env.GOOGLE_AI_API_KEY)   || '';
+// Twilio WhatsApp
+const TWILIO_ACCOUNT_SID  = clean(process.env.TWILIO_ACCOUNT_SID)  || '';
+const TWILIO_AUTH_TOKEN   = clean(process.env.TWILIO_AUTH_TOKEN)   || '';
+const TWILIO_WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM     || 'whatsapp:+14155238886';
+// Stripe Billing
+const STRIPE_SECRET_KEY    = clean(process.env.STRIPE_SECRET_KEY)    || '';
+const STRIPE_WEBHOOK_SECRET= clean(process.env.STRIPE_WEBHOOK_SECRET)|| '';
+const STRIPE_GROWTH_PRICE  = clean(process.env.STRIPE_GROWTH_PRICE_ID)|| '';
+const STRIPE_AGENCY_PRICE  = clean(process.env.STRIPE_AGENCY_PRICE_ID)|| '';
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
 function apiRequest(method, url, headers = {}, body = null) {
@@ -444,6 +453,48 @@ async function sendEmail(to, subject, html) {
   }
 }
 
+// ─── WhatsApp helper (Twilio) ────────────────────────────────────────────────
+async function sendWhatsApp(to, message) {
+  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !to) {
+    console.log(`[WHATSAPP QUEUED] To: ${to} — Twilio not configured`);
+    return { queued: true };
+  }
+  try {
+    const auth = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64');
+    const body = `From=${encodeURIComponent(TWILIO_WHATSAPP_FROM)}&To=${encodeURIComponent('whatsapp:' + to)}&Body=${encodeURIComponent(message)}`;
+    // Twilio needs form-encoded, use raw https
+    const resp = await new Promise((resolve, reject) => {
+      const u = new URL(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`);
+      const req = https.request({ hostname: u.hostname, port: 443, path: u.pathname, method: 'POST',
+        headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) }
+      }, res => { let d = ''; res.on('data', c => d += c); res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve({ raw: d }); } }); });
+      req.on('error', reject); req.write(body); req.end();
+    });
+    if (resp.sid) { console.log(`[WHATSAPP SENT] To: ${to} SID: ${resp.sid}`); return { sent: true, sid: resp.sid }; }
+    return { error: resp.message || 'unknown' };
+  } catch (e) { console.error('[WHATSAPP ERROR]', e.message); return { error: e.message }; }
+}
+
+// ─── Webhook dispatcher (fires external webhook subscriptions) ──────────────
+async function fireWebhooks(businessId, eventType, data) {
+  try {
+    const subs = await sbGet('webhook_subscriptions', `business_id=eq.${businessId}&event_type=eq.${eventType}&active=eq.true`);
+    for (const sub of subs) {
+      apiRequest('POST', sub.webhook_url, { 'Content-Type': 'application/json', 'X-Maroa-Secret': sub.secret || '' },
+        { event: eventType, business_id: businessId, timestamp: new Date().toISOString(), data }).catch(() => {});
+    }
+  } catch {}
+}
+
+// ─── SSE client store ────────────────────────────────────────────────────────
+const sseClients = new Map();
+function sendSSE(businessId, eventType, data) {
+  const client = sseClients.get(businessId);
+  if (client && !client.writableEnded) {
+    try { client.write(`data: ${JSON.stringify({ type: eventType, timestamp: new Date().toISOString(), ...data })}\n\n`); } catch {}
+  }
+}
+
 // ─── Utility: season + holidays ──────────────────────────────────────────────
 function getSeason() {
   const m = new Date().getMonth() + 1;
@@ -578,7 +629,9 @@ app.get('/health', (req, res) => {
     twitter:    !!process.env.TWITTER_CLIENT_ID || !!process.env.TWITTER_CLIENT_SECRET,
     stripe:     !!process.env.STRIPE_SECRET_KEY || !!process.env.STRIPE_KEY,
     runway:     !!RUNWAY_API_KEY || !!process.env.RUNWAY_API_KEY,
-    google_ai:  !!GOOGLE_AI_API_KEY
+    google_ai:  !!GOOGLE_AI_API_KEY,
+    twilio:     !!TWILIO_ACCOUNT_SID,
+    stripe_billing: !!STRIPE_SECRET_KEY
   };
   const missing = Object.entries(vars).filter(([,v]) => !v).map(([k]) => k);
   // Diagnostic: show raw env var presence for the missing ones
@@ -7205,6 +7258,321 @@ app.post('/webhook/score-image', async (req, res) => {
 app.post('/webhook/score-content', (req, res) => {
   req.url = '/webhook/score-content-before-posting';
   app.handle(req, res);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// FINAL COMPLETE PLATFORM — Missing Pieces 2-15
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── PIECE 2: WhatsApp Notifications ─────────────────────────────────────────
+app.post('/webhook/whatsapp-send', async (req, res) => {
+  const { business_id, message } = req.body;
+  if (!business_id || !message) return res.status(400).json({ error: 'business_id and message required' });
+  try {
+    const biz = (await sbGet('businesses', `id=eq.${business_id}&select=whatsapp_number,whatsapp_enabled,business_name`))[0];
+    if (!biz?.whatsapp_number || !biz.whatsapp_enabled) return res.json({ sent: false, reason: 'WhatsApp not configured' });
+    const result = await sendWhatsApp(biz.whatsapp_number, message);
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/webhook/whatsapp-test', async (req, res) => {
+  const { business_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  try {
+    const biz = (await sbGet('businesses', `id=eq.${business_id}&select=whatsapp_number,whatsapp_enabled,business_name`))[0];
+    if (!biz?.whatsapp_number) return res.json({ sent: false, reason: 'No whatsapp_number set — add it in Settings' });
+    if (!TWILIO_ACCOUNT_SID) return res.json({ sent: false, reason: 'Twilio not configured — set TWILIO_ACCOUNT_SID in Railway' });
+    const msg = `✅ *maroa.ai WhatsApp Connected!*\n\nHi! This is your AI marketing assistant for ${biz.business_name}.\n\nYou'll receive:\n📊 Weekly performance digests\n🔥 Hot lead alerts\n🚀 Viral content notifications\n⚡ Competitor alerts\n\nYour AI is always working. 🤖`;
+    const result = await sendWhatsApp(biz.whatsapp_number, msg);
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/webhook/whatsapp-weekly-digest', async (req, res) => {
+  const { business_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  res.json({ received: true, message: 'Weekly digest being sent' });
+  setImmediate(async () => {
+    try {
+      const biz = (await sbGet('businesses', `id=eq.${business_id}&select=business_name,whatsapp_number,whatsapp_enabled,ai_brain_decisions,posts_published`))[0];
+      if (!biz?.whatsapp_number || !biz.whatsapp_enabled) return;
+      const weekAgo = new Date(Date.now() - 7*86400000).toISOString();
+      const [contacts, content] = await Promise.all([
+        sbGet('contacts', `business_id=eq.${business_id}&created_at=gte.${weekAgo}&select=id`),
+        sbGet('generated_content', `business_id=eq.${business_id}&created_at=gte.${weekAgo}&status=eq.published&select=content_theme,performance_score`)
+      ]);
+      const bestTheme = content.sort((a,b) => (b.performance_score||0)-(a.performance_score||0))[0]?.content_theme || 'various topics';
+      let brain = {}; try { brain = JSON.parse(biz.ai_brain_decisions || '{}'); } catch {}
+      const msg = `📊 *Your AI Marketing Week — ${biz.business_name}*\n\n✅ Posts published: ${content.length}\n👥 New leads: ${contacts.length}\n🎯 Best post: ${bestTheme}\n💡 Focus: ${brain.content_strategy || brain.highest_leverage_action?.what || 'growing your brand'}\n\nYour AI is running. Nothing to do. 🤖`;
+      await sendWhatsApp(biz.whatsapp_number, msg);
+    } catch (err) { console.error('[whatsapp-digest ERROR]', err.message); }
+  });
+});
+
+// ── PIECE 3: One-Tap Email Approvals ────────────────────────────────────────
+app.get('/webhook/email-approve', async (req, res) => {
+  const { token, action } = req.query;
+  if (!token || !action) return res.status(400).send('<h1>Invalid link</h1>');
+  try {
+    const rows = await sbGet('content_approvals', `token=eq.${token}&used_at=is.null&select=*`);
+    const approval = rows[0];
+    if (!approval) return res.send('<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h1>Link expired or already used</h1></body></html>');
+    if (new Date(approval.expires_at) < new Date()) return res.send('<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h1>Link expired</h1></body></html>');
+    await sbPatch('content_approvals', `id=eq.${approval.id}`, { action, used_at: new Date().toISOString() });
+    if (action === 'approve') {
+      await sbPatch('generated_content', `id=eq.${approval.content_id}`, { status: 'approved', approved_at: new Date().toISOString(), approval_method: 'email_one_tap' });
+      apiRequest('POST', `https://maroa-api-production.up.railway.app/webhook/publish-approved-content`, { 'Content-Type': 'application/json' }, { business_id: approval.business_id }).catch(() => {});
+      sendSSE(approval.business_id, 'content_approved', { content_id: approval.content_id });
+      return res.send('<html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#f0fdf4"><h1 style="color:#16a34a">✅ Content Approved!</h1><p>It will publish at your optimal posting time.</p></body></html>');
+    } else if (action === 'reject') {
+      await sbPatch('generated_content', `id=eq.${approval.content_id}`, { status: 'rejected' });
+      return res.send('<html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#fef2f2"><h1 style="color:#dc2626">❌ Content Rejected</h1><p>Your AI will generate better content.</p></body></html>');
+    } else if (action === 'regenerate') {
+      await sbPatch('generated_content', `id=eq.${approval.content_id}`, { status: 'rejected' });
+      apiRequest('POST', `https://maroa-api-production.up.railway.app/webhook/instant-content`, { 'Content-Type': 'application/json' }, { business_id: approval.business_id }).catch(() => {});
+      return res.send('<html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#fffbeb"><h1 style="color:#d97706">🔄 Regenerating</h1><p>New content will be ready in ~2 minutes.</p></body></html>');
+    }
+    res.send('<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h1>Done</h1></body></html>');
+  } catch (err) { res.status(500).send(`<h1>Error: ${err.message}</h1>`); }
+});
+
+// ── PIECE 4: Real-Time Dashboard Events (SSE) ──────────────────────────────
+app.get('/webhook/dashboard-events', (req, res) => {
+  const { business_id } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.write(`data: ${JSON.stringify({ type: 'connected', business_id })}\n\n`);
+  sseClients.set(business_id, res);
+  const heartbeat = setInterval(() => { if (!res.writableEnded) res.write(`data: ${JSON.stringify({ type: 'heartbeat' })}\n\n`); }, 30000);
+  req.on('close', () => { clearInterval(heartbeat); sseClients.delete(business_id); });
+});
+
+// ── PIECE 5: Stripe Webhook Handler (create-checkout already exists above) ──
+app.post('/webhook/stripe-webhook', async (req, res) => {
+  res.json({ received: true });
+  try {
+    const event = req.body;
+    if (!event?.type) return;
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data?.object;
+      const businessId = session?.metadata?.business_id;
+      const plan = session?.metadata?.plan;
+      if (businessId && plan) {
+        await sbPatch('businesses', `id=eq.${businessId}`, { plan, stripe_customer_id: session.customer, stripe_subscription_id: session.subscription });
+        const biz = (await sbGet('businesses', `id=eq.${businessId}&select=email,business_name,whatsapp_number,whatsapp_enabled`))[0];
+        if (biz?.email) await sendEmail(biz.email, `Welcome to ${plan} plan! — ${biz.business_name}`, `<h2>🎉 You're now on the ${plan} plan!</h2><p>Your AI just unlocked: ${plan === 'agency' ? 'white-label, multi-workspace, priority support' : 'ad campaigns, competitor intel, advanced analytics'}.</p>`).catch(() => {});
+        if (biz?.whatsapp_number && biz.whatsapp_enabled) sendWhatsApp(biz.whatsapp_number, `🎉 *Upgraded to ${plan}!* Your AI just unlocked new features.`).catch(() => {});
+        sendSSE(businessId, 'plan_upgraded', { plan });
+      }
+    } else if (event.type === 'customer.subscription.deleted') {
+      const sub = event.data?.object;
+      const bizArr = await sbGet('businesses', `stripe_subscription_id=eq.${sub?.id}&select=id,email`);
+      if (bizArr[0]) { await sbPatch('businesses', `id=eq.${bizArr[0].id}`, { plan: 'free' }); }
+    }
+  } catch (err) { console.error('[stripe-webhook ERROR]', err.message); }
+});
+
+// ── PIECE 6: Google My Business Auto-Post ───────────────────────────────────
+app.post('/webhook/gmb-post', async (req, res) => {
+  const { business_id, content_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  try {
+    const biz = (await sbGet('businesses', `id=eq.${business_id}&select=gmb_access_token,gmb_location_id,website_url`))[0];
+    if (!biz?.gmb_access_token || !biz?.gmb_location_id) return res.json({ posted: false, reason: 'GMB not connected' });
+    let caption = '';
+    if (content_id) {
+      const cont = (await sbGet('generated_content', `id=eq.${content_id}&select=facebook_post,instagram_caption,image_url`))[0];
+      caption = cont?.facebook_post || cont?.instagram_caption || '';
+    }
+    if (!caption) return res.json({ posted: false, reason: 'No content to post' });
+    const gmbResp = await apiRequest('POST', `https://mybusiness.googleapis.com/v4/${biz.gmb_location_id}/localPosts`,
+      { 'Authorization': `Bearer ${biz.gmb_access_token}`, 'Content-Type': 'application/json' },
+      { languageCode: 'en-US', summary: caption.slice(0, 1500), topicType: 'STANDARD',
+        callToAction: { actionType: 'LEARN_MORE', url: biz.website_url || '' } });
+    if (gmbResp.body?.name) {
+      if (content_id) await sbPatch('generated_content', `id=eq.${content_id}`, { gmb_post_id: gmbResp.body.name }).catch(() => {});
+      return res.json({ posted: true, post_id: gmbResp.body.name });
+    }
+    res.json({ posted: false, error: gmbResp.body });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PIECE 7: AI Video Generation (Runway) ───────────────────────────────────
+app.post('/webhook/video-generate', async (req, res) => {
+  const { business_id, video_id } = req.body;
+  if (!business_id || !video_id) return res.status(400).json({ error: 'business_id and video_id required' });
+  if (!RUNWAY_API_KEY) return res.json({ generated: false, reason: 'RUNWAY_API_KEY not set' });
+  res.json({ received: true, message: 'Video generation started — this takes 2-5 minutes' });
+  setImmediate(async () => {
+    try {
+      const video = (await sbGet('video_generations', `id=eq.${video_id}&select=*`))[0];
+      if (!video) return;
+      const promptText = video.script?.scenes?.[0]?.text || video.caption || 'marketing video';
+      const thumbUrl = video.thumbnail_url || '';
+      const body = thumbUrl
+        ? { promptImage: thumbUrl, promptText, model: 'gen3a_turbo', duration: 10, ratio: '9:16', watermark: false }
+        : { promptText, model: 'gen3a_turbo', duration: 10, ratio: '9:16', watermark: false };
+      const endpoint = thumbUrl ? 'image_to_video' : 'text_to_video';
+      const taskResp = await apiRequest('POST', `https://api.dev.runwayml.com/v1/${endpoint}`,
+        { 'Authorization': `Bearer ${RUNWAY_API_KEY}`, 'Content-Type': 'application/json', 'X-Runway-Version': '2024-11-06' }, body);
+      const taskId = taskResp.body?.id;
+      if (!taskId) { await sbPatch('video_generations', `id=eq.${video_id}`, { status: 'failed' }); return; }
+      await sbPatch('video_generations', `id=eq.${video_id}`, { runway_task_id: taskId, status: 'generating' });
+      // Poll for completion
+      for (let i = 0; i < 60; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        const poll = await apiRequest('GET', `https://api.dev.runwayml.com/v1/tasks/${taskId}`,
+          { 'Authorization': `Bearer ${RUNWAY_API_KEY}`, 'X-Runway-Version': '2024-11-06' });
+        if (poll.body?.status === 'SUCCEEDED') {
+          const videoUrl = poll.body.output?.[0];
+          if (videoUrl) {
+            const permUrl = await saveImageToSupabase(videoUrl, business_id);
+            await sbPatch('video_generations', `id=eq.${video_id}`, { video_url: permUrl, status: 'ready' });
+            sendSSE(business_id, 'video_ready', { video_id, url: permUrl });
+          }
+          break;
+        }
+        if (poll.body?.status === 'FAILED') { await sbPatch('video_generations', `id=eq.${video_id}`, { status: 'failed' }); break; }
+      }
+    } catch (err) { console.error('[video-generate ERROR]', err.message); await logError(business_id, 'video-generate', err.message).catch(() => {}); }
+  });
+});
+
+// ── PIECE 9: Referral System ────────────────────────────────────────────────
+app.post('/webhook/referral-create', async (req, res) => {
+  const { business_id, referee_email } = req.body;
+  if (!business_id || !referee_email) return res.status(400).json({ error: 'business_id and referee_email required' });
+  try {
+    const biz = (await sbGet('businesses', `id=eq.${business_id}&select=business_name,email,referral_code`))[0];
+    if (!biz) return res.status(404).json({ error: 'business not found' });
+    const code = biz.referral_code || crypto.randomBytes(4).toString('hex');
+    if (!biz.referral_code) await sbPatch('businesses', `id=eq.${business_id}`, { referral_code: code }).catch(() => {});
+    const ref = await sbPost('referrals', { referrer_business_id: business_id, referee_email, referral_code: code, status: 'pending' });
+    const signupUrl = `https://maroa-ai-marketing-automator.vercel.app/signup?ref=${code}`;
+    await sendEmail(referee_email, `${biz.business_name} thinks maroa.ai could help you`,
+      `<h2>You've been referred!</h2><p>${biz.business_name} thinks AI marketing could help your business.</p><p>Get <strong>30 days free</strong> when you sign up:</p><p><a href="${signupUrl}" style="background:#667eea;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">Start Free →</a></p>`
+    ).catch(() => {});
+    res.json({ referral_id: ref?.id, referral_code: code, signup_url: signupUrl, email_sent: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/webhook/referral-convert', async (req, res) => {
+  const { referral_code, new_business_id } = req.body;
+  if (!referral_code) return res.status(400).json({ error: 'referral_code required' });
+  try {
+    const refs = await sbGet('referrals', `referral_code=eq.${referral_code}&status=eq.pending&limit=1`);
+    if (!refs[0]) return res.json({ converted: false, reason: 'Referral not found or already used' });
+    await sbPatch('referrals', `id=eq.${refs[0].id}`, { status: 'converted', referee_business_id: new_business_id || null });
+    res.json({ converted: true, referrer_business_id: refs[0].referrer_business_id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/webhook/referral-stats', async (req, res) => {
+  const { business_id } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  try {
+    const refs = await sbGet('referrals', `referrer_business_id=eq.${business_id}&select=status`);
+    res.json({ total: refs.length, converted: refs.filter(r => r.status === 'converted').length, pending: refs.filter(r => r.status === 'pending').length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PIECE 11: Predictive Revenue Forecasting ────────────────────────────────
+app.post('/webhook/revenue-forecast', async (req, res) => {
+  const { business_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  res.json({ received: true, message: 'Revenue forecast being generated' });
+  setImmediate(async () => {
+    try {
+      const [bizArr, snaps, campaigns, contacts, revenue] = await Promise.all([
+        sbGet('businesses', `id=eq.${business_id}&select=business_name,industry,plan,marketing_goal`),
+        sbGet('analytics_snapshots', `business_id=eq.${business_id}&order=snapshot_date.desc&limit=90`),
+        sbGet('ad_campaigns', `business_id=eq.${business_id}&select=status,roas,total_spend,daily_budget`),
+        sbGet('contacts', `business_id=eq.${business_id}&select=lead_score,intent_level,stage`),
+        sbGet('revenue_attribution', `business_id=eq.${business_id}&select=amount,source`).catch(() => [])
+      ]);
+      const biz = bizArr[0]; if (!biz) return;
+      const totalRev = revenue.reduce((s,r) => s + (Number(r.amount)||0), 0);
+      const totalReach = snaps.reduce((s,r) => s + (r.reach||0), 0);
+      const activeCamps = campaigns.filter(c => c.status === 'active');
+      const hotLeads = contacts.filter(c => c.intent_level === 'hot' || c.intent_level === 'ready_to_buy').length;
+      const prompt =
+`You are a revenue forecasting AI for ${biz.business_name} (${biz.industry}).
+Data: Revenue last 90d: $${totalRev.toFixed(2)} | Reach: ${totalReach} | Active campaigns: ${activeCamps.length} | Hot leads: ${hotLeads} | Total contacts: ${contacts.length} | Avg campaign ROAS: ${activeCamps.length ? (activeCamps.reduce((s,c)=>s+(c.roas||0),0)/activeCamps.length).toFixed(2) : '0'}
+Plan: ${biz.plan} | Goal: ${biz.marketing_goal || 'grow'}
+Return ONLY valid JSON:
+{"forecast_30d":{"revenue":0,"confidence":"low/medium/high"},"forecast_90d":{"revenue":0,"confidence":"low/medium/high"},"top_revenue_actions":[{"action":"string","expected_impact":"string","effort":"low/medium/high"}],"risk_factors":[{"risk":"string","probability":"low/medium/high"}],"forecast_summary":"2-3 sentences"}`;
+      const forecast = await callClaude(prompt, 'claude-opus-4-5', 1500);
+      await sbPatch('businesses', `id=eq.${business_id}`, { revenue_forecast: JSON.stringify(forecast) });
+      sendSSE(business_id, 'forecast_updated', { summary: forecast.forecast_summary });
+      log('/webhook/revenue-forecast', `✅ Forecast for ${biz.business_name}`);
+    } catch (err) { console.error('[revenue-forecast ERROR]', err.message); await logError(business_id, 'revenue-forecast', err.message).catch(() => {}); }
+  });
+});
+
+// ── PIECE 13: Competitor Ad Spy ─────────────────────────────────────────────
+app.post('/webhook/spy-competitor-ads', async (req, res) => {
+  const { business_id } = req.body;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  res.json({ received: true, message: 'Competitor ad spy running' });
+  setImmediate(async () => {
+    try {
+      const biz = (await sbGet('businesses', `id=eq.${business_id}&select=business_name,industry,competitors,meta_access_token`))[0];
+      if (!biz?.meta_access_token) return;
+      let competitors = []; try { competitors = JSON.parse(biz.competitors || '[]'); } catch {}
+      for (const comp of competitors.slice(0, 3)) {
+        const name = typeof comp === 'string' ? comp : (comp.name || comp);
+        try {
+          const r = await apiRequest('GET',
+            `https://graph.facebook.com/v19.0/ads_archive?search_terms=${encodeURIComponent(name)}&ad_reached_countries=["US"]&ad_type=ALL&fields=id,ad_creative_bodies,ad_creative_link_titles&limit=5&access_token=${biz.meta_access_token}`, {});
+          const ads = r.body?.data || [];
+          for (const ad of ads) {
+            await sbPost('competitor_ads', {
+              business_id, competitor_name: name, ad_id: ad.id || `${name}-${Date.now()}`,
+              ad_body: (ad.ad_creative_bodies || []).join(' ').slice(0, 1000),
+              ad_headline: (ad.ad_creative_link_titles || []).join(' ').slice(0, 500)
+            }).catch(() => {});
+          }
+        } catch {}
+      }
+      log('/webhook/spy-competitor-ads', `✅ Spied on ${competitors.length} competitors for ${biz.business_name}`);
+    } catch (err) { console.error('[spy-competitor-ads ERROR]', err.message); }
+  });
+});
+
+// ── PIECE 15: Zapier/Make Webhook Subscriptions ─────────────────────────────
+app.post('/webhook/webhook-subscribe', async (req, res) => {
+  const { business_id, event_type, webhook_url } = req.body;
+  if (!business_id || !event_type || !webhook_url) return res.status(400).json({ error: 'business_id, event_type, webhook_url required' });
+  try {
+    const secret = crypto.randomBytes(16).toString('hex');
+    const sub = await sbPost('webhook_subscriptions', { business_id, event_type, webhook_url, secret, active: true });
+    // Test ping
+    apiRequest('POST', webhook_url, { 'Content-Type': 'application/json', 'X-Maroa-Secret': secret },
+      { event: 'test', business_id, message: 'Webhook connected successfully' }).catch(() => {});
+    res.json({ subscription_id: sub?.id, event_type, webhook_url, secret });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/webhook/webhook-list', async (req, res) => {
+  const { business_id } = req.query;
+  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  try {
+    const subs = await sbGet('webhook_subscriptions', `business_id=eq.${business_id}&active=eq.true&select=id,event_type,webhook_url,created_at`);
+    res.json({ subscriptions: subs, count: subs.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/webhook/webhook-delete', async (req, res) => {
+  const { subscription_id } = req.body;
+  if (!subscription_id) return res.status(400).json({ error: 'subscription_id required' });
+  try {
+    await sbPatch('webhook_subscriptions', `id=eq.${subscription_id}`, { active: false });
+    res.json({ deleted: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ─── n8n workflow route aliases (internal URL rewrite) ───────────────────────
