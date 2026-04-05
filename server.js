@@ -5216,9 +5216,10 @@ app.get('/webhook/video-status', async (req, res) => {
     if (!RUNWAY_API_KEY)
       return res.json({ video_id, status: vid.status, note: 'RUNWAY_API_KEY not configured' });
 
-    // Poll each task
+    // Poll each task (handle single string or JSON array)
     let taskIds = [];
-    try { taskIds = JSON.parse(vid.runway_task_id); } catch {}
+    try { taskIds = JSON.parse(vid.runway_task_id); } catch { taskIds = vid.runway_task_id ? [vid.runway_task_id] : []; }
+    if (!Array.isArray(taskIds)) taskIds = [taskIds];
     const completedUrls = [];
 
     for (const t of taskIds) {
@@ -7296,6 +7297,18 @@ app.post('/webhook/score-content', (req, res) => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
+// GET /webhook/errors-get?business_id=X — view recent errors for debugging
+app.get('/webhook/errors-get', async (req, res) => {
+  const { business_id, workflow_name, limit: lim = 10 } = req.query;
+  try {
+    let filter = `order=created_at.desc&limit=${lim}&select=id,business_id,workflow_name,error_message,created_at,resolved`;
+    if (business_id) filter += `&business_id=eq.${business_id}`;
+    if (workflow_name) filter += `&workflow_name=eq.${workflow_name}`;
+    const errors = await sbGet('errors', filter);
+    res.json({ errors, count: errors.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // FINAL COMPLETE PLATFORM — Missing Pieces 2-15
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -7458,15 +7471,32 @@ app.post('/webhook/video-generate', async (req, res) => {
       log('/webhook/video-generate', `promptText: "${promptText.slice(0,80)}" | thumb: ${thumbUrl ? 'yes' : 'no'} | RUNWAY_KEY: ${RUNWAY_API_KEY.slice(0,8)}...`);
 
       // Build Runway request — image_to_video requires promptImage
-      const runwayBody = { model: 'gen3a_turbo', duration: 10, ratio: '9:16', watermark: false };
+      const runwayBody = { model: 'gen3a_turbo', duration: 5, ratio: '16:9', watermark: false };
       let endpoint = 'image_to_video';
       if (thumbUrl && thumbUrl.startsWith('http')) {
         runwayBody.promptImage = thumbUrl;
         runwayBody.promptText = promptText.slice(0, 512);
       } else {
-        // No image — use text_to_video (Runway requires promptImage for image_to_video)
-        endpoint = 'text_to_video';
-        runwayBody.promptText = promptText.slice(0, 512);
+        // No image — Runway image_to_video REQUIRES an image, so generate a placeholder first
+        // Fall back to Pexels thumbnail
+        try {
+          const biz = (await sbGet('businesses', `id=eq.${business_id}&select=industry`))[0];
+          const pexResult = await generateWithPexels(biz?.industry || 'business marketing');
+          if (pexResult?.url) {
+            runwayBody.promptImage = pexResult.url;
+            runwayBody.promptText = promptText.slice(0, 512);
+            log('/webhook/video-generate', `Generated Pexels placeholder thumbnail: ${pexResult.url}`);
+          } else {
+            log('/webhook/video-generate', 'No thumbnail and no Pexels fallback — cannot generate video');
+            await sbPatch('video_generations', `id=eq.${video_id}`, { status: 'failed' });
+            await logError(business_id, 'video-generate', 'No image available for image_to_video', { video_id }).catch(() => {});
+            return;
+          }
+        } catch (pexErr) {
+          log('/webhook/video-generate', `Pexels fallback failed: ${pexErr.message}`);
+          await sbPatch('video_generations', `id=eq.${video_id}`, { status: 'failed' });
+          return;
+        }
       }
 
       log('/webhook/video-generate', `Calling Runway ${endpoint}: ${JSON.stringify(runwayBody).slice(0,200)}`);
