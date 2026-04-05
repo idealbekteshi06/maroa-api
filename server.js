@@ -7444,36 +7444,84 @@ app.post('/webhook/video-generate', async (req, res) => {
   res.json({ received: true, message: 'Video generation started — this takes 2-5 minutes' });
   setImmediate(async () => {
     try {
+      log('/webhook/video-generate', `Starting for video ${video_id}`);
       const video = (await sbGet('video_generations', `id=eq.${video_id}&select=*`))[0];
-      if (!video) return;
-      const promptText = video.script?.scenes?.[0]?.text || video.caption || 'marketing video';
+      if (!video) { log('/webhook/video-generate', `Video ${video_id} not found`); return; }
+
+      // Parse script — may be stored as string or object
+      let script = video.script;
+      if (typeof script === 'string') { try { script = JSON.parse(script); } catch { script = {}; } }
+      const hookScene = script?.scenes?.[0];
+      const promptText = hookScene?.text || video.hook_preview || video.caption || 'professional marketing video';
       const thumbUrl = video.thumbnail_url || '';
-      const body = thumbUrl
-        ? { promptImage: thumbUrl, promptText, model: 'gen3a_turbo', duration: 10, ratio: '9:16', watermark: false }
-        : { promptText, model: 'gen3a_turbo', duration: 10, ratio: '9:16', watermark: false };
-      const endpoint = thumbUrl ? 'image_to_video' : 'text_to_video';
+
+      log('/webhook/video-generate', `promptText: "${promptText.slice(0,80)}" | thumb: ${thumbUrl ? 'yes' : 'no'} | RUNWAY_KEY: ${RUNWAY_API_KEY.slice(0,8)}...`);
+
+      // Build Runway request — image_to_video requires promptImage
+      const runwayBody = { model: 'gen3a_turbo', duration: 10, ratio: '9:16', watermark: false };
+      let endpoint = 'image_to_video';
+      if (thumbUrl && thumbUrl.startsWith('http')) {
+        runwayBody.promptImage = thumbUrl;
+        runwayBody.promptText = promptText.slice(0, 512);
+      } else {
+        // No image — use text_to_video (Runway requires promptImage for image_to_video)
+        endpoint = 'text_to_video';
+        runwayBody.promptText = promptText.slice(0, 512);
+      }
+
+      log('/webhook/video-generate', `Calling Runway ${endpoint}: ${JSON.stringify(runwayBody).slice(0,200)}`);
+
       const taskResp = await apiRequest('POST', `https://api.dev.runwayml.com/v1/${endpoint}`,
-        { 'Authorization': `Bearer ${RUNWAY_API_KEY}`, 'Content-Type': 'application/json', 'X-Runway-Version': '2024-11-06' }, body);
+        { 'Authorization': `Bearer ${RUNWAY_API_KEY}`, 'Content-Type': 'application/json', 'X-Runway-Version': '2024-11-06' },
+        runwayBody);
+
+      log('/webhook/video-generate', `Runway response: ${taskResp.status} ${JSON.stringify(taskResp.body).slice(0,300)}`);
+
       const taskId = taskResp.body?.id;
-      if (!taskId) { await sbPatch('video_generations', `id=eq.${video_id}`, { status: 'failed' }); return; }
+      if (!taskId) {
+        const errMsg = taskResp.body?.error || taskResp.body?.message || JSON.stringify(taskResp.body).slice(0, 300);
+        log('/webhook/video-generate', `Runway failed to create task: ${errMsg}`);
+        await sbPatch('video_generations', `id=eq.${video_id}`, { status: 'failed' });
+        await logError(business_id, 'video-generate', `Runway ${taskResp.status}: ${errMsg}`, { video_id }).catch(() => {});
+        return;
+      }
+
+      log('/webhook/video-generate', `Task created: ${taskId} — polling for completion`);
       await sbPatch('video_generations', `id=eq.${video_id}`, { runway_task_id: taskId, status: 'generating' });
-      // Poll for completion
+
+      // Poll for completion (max 5 minutes)
       for (let i = 0; i < 60; i++) {
         await new Promise(r => setTimeout(r, 5000));
         const poll = await apiRequest('GET', `https://api.dev.runwayml.com/v1/tasks/${taskId}`,
           { 'Authorization': `Bearer ${RUNWAY_API_KEY}`, 'X-Runway-Version': '2024-11-06' });
-        if (poll.body?.status === 'SUCCEEDED') {
+
+        const pollStatus = poll.body?.status;
+        if (i % 6 === 0) log('/webhook/video-generate', `Poll ${i}: status=${pollStatus}`);
+
+        if (pollStatus === 'SUCCEEDED') {
           const videoUrl = poll.body.output?.[0];
           if (videoUrl) {
             const permUrl = await saveImageToSupabase(videoUrl, business_id);
             await sbPatch('video_generations', `id=eq.${video_id}`, { video_url: permUrl, status: 'ready' });
             sendSSE(business_id, 'video_ready', { video_id, url: permUrl });
+            log('/webhook/video-generate', `✅ Video ready: ${permUrl}`);
           }
           break;
         }
-        if (poll.body?.status === 'FAILED') { await sbPatch('video_generations', `id=eq.${video_id}`, { status: 'failed' }); break; }
+        if (pollStatus === 'FAILED') {
+          const failReason = poll.body?.failure || poll.body?.error || 'unknown';
+          log('/webhook/video-generate', `❌ Runway task failed: ${failReason}`);
+          await sbPatch('video_generations', `id=eq.${video_id}`, { status: 'failed' });
+          await logError(business_id, 'video-generate', `Runway FAILED: ${failReason}`, { video_id, taskId }).catch(() => {});
+          break;
+        }
       }
-    } catch (err) { console.error('[video-generate ERROR]', err.message); await logError(business_id, 'video-generate', err.message).catch(() => {}); }
+    } catch (err) {
+      console.error('[video-generate ERROR]', err.message);
+      log('/webhook/video-generate', `EXCEPTION: ${err.message}`);
+      await sbPatch('video_generations', `id=eq.${video_id}`, { status: 'failed' }).catch(() => {});
+      await logError(business_id, 'video-generate', err.message, { video_id }).catch(() => {});
+    }
   });
 });
 
