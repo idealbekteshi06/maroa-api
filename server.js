@@ -35,7 +35,7 @@ const clean = (v) => (v || '').replace(/[^\x20-\x7E]/g, '').trim();
 
 const SUPABASE_URL        = clean(process.env.SUPABASE_URL)        || 'https://zqhyrbttuqkvmdewiytf.supabase.co';
 const SUPABASE_KEY        = clean(process.env.SUPABASE_KEY)        || '';
-const ANTHROPIC_KEY       = clean(process.env.ANTHROPIC_KEY)       || '';
+const ANTHROPIC_KEY       = clean(process.env.ANTHROPIC_KEY) || clean(process.env.ANTHROPIC_API_KEY) || '';
 const SERPAPI_KEY         = clean(process.env.SERPAPI_KEY)         || '';
 const REPLICATE_API_KEY   = clean(process.env.REPLICATE_API_KEY)   || '';
 const PEXELS_API_KEY      = clean(process.env.PEXELS_API_KEY)      || '';
@@ -436,19 +436,19 @@ function isUUID(v) { return typeof v === 'string' && UUID_RE.test(v); }
 // ─── GET /health — detailed environment check ───────────────────────────────
 app.get('/health', (req, res) => {
   const vars = {
-    anthropic:  !!ANTHROPIC_KEY,
+    anthropic:  !!ANTHROPIC_KEY || !!process.env.ANTHROPIC_API_KEY,
     supabase:   !!SUPABASE_KEY,
     meta:       !!(process.env.META_APP_ID || process.env.META_APP_SECRET),
     resend:     !!RESEND_API_KEY,
     serpapi:    !!SERPAPI_KEY,
-    pinecone:   !!(PINECONE_API_KEY && PINECONE_HOST),
+    pinecone:   !!(PINECONE_API_KEY && PINECONE_HOST) || !!(process.env.PINECONE_API_KEY && process.env.PINECONE_HOST),
     replicate:  !!REPLICATE_API_KEY,
-    openai:     !!OPENAI_API_KEY,
+    openai:     !!OPENAI_API_KEY || !!process.env.OPENAI_API_KEY,
     linkedin:   !!process.env.LINKEDIN_CLIENT_ID,
-    tiktok:     !!process.env.TIKTOK_CLIENT_KEY,
-    twitter:    !!process.env.TWITTER_CLIENT_ID,
-    stripe:     !!process.env.STRIPE_SECRET_KEY,
-    runway:     !!RUNWAY_API_KEY
+    tiktok:     !!process.env.TIKTOK_CLIENT_KEY || !!process.env.TIKTOK_CLIENT_ID,
+    twitter:    !!process.env.TWITTER_CLIENT_ID || !!process.env.TWITTER_CLIENT_SECRET,
+    stripe:     !!process.env.STRIPE_SECRET_KEY || !!process.env.STRIPE_KEY,
+    runway:     !!RUNWAY_API_KEY || !!process.env.RUNWAY_API_KEY
   };
   const missing = Object.entries(vars).filter(([,v]) => !v).map(([k]) => k);
   res.json({ status: missing.length <= 3 ? 'ok' : 'degraded', timestamp: new Date().toISOString(), env_vars: vars, missing_vars: missing, missing_count: missing.length });
