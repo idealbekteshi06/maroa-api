@@ -7471,7 +7471,7 @@ app.post('/webhook/video-generate', async (req, res) => {
       log('/webhook/video-generate', `promptText: "${promptText.slice(0,80)}" | thumb: ${thumbUrl ? 'yes' : 'no'} | RUNWAY_KEY: ${RUNWAY_API_KEY.slice(0,8)}...`);
 
       // Build Runway request — image_to_video requires promptImage
-      const runwayBody = { model: 'gen3a_turbo', duration: 5, ratio: '16:9', watermark: false };
+      const runwayBody = { model: 'gen3a_turbo', duration: 5, ratio: '768:1280', watermark: false };
       let endpoint = 'image_to_video';
       if (thumbUrl && thumbUrl.startsWith('http')) {
         runwayBody.promptImage = thumbUrl;
