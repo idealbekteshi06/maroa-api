@@ -6753,6 +6753,12 @@ Return ONLY valid JSON:
   });
 });
 
+// Short alias: /webhook/score-content → /webhook/score-content-before-posting
+app.post('/webhook/score-content', (req, res) => {
+  req.url = '/webhook/score-content-before-posting';
+  app.handle(req, res);
+});
+
 // ─── n8n workflow route aliases (internal URL rewrite) ───────────────────────
 // WF32 calls /api/social/linkedin/publish instead of /webhook/linkedin-publish
 app.post('/api/social/linkedin/publish', (req, res) => {
