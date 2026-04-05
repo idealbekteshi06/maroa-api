@@ -451,7 +451,17 @@ app.get('/health', (req, res) => {
     runway:     !!RUNWAY_API_KEY || !!process.env.RUNWAY_API_KEY
   };
   const missing = Object.entries(vars).filter(([,v]) => !v).map(([k]) => k);
-  res.json({ status: missing.length <= 3 ? 'ok' : 'degraded', timestamp: new Date().toISOString(), env_vars: vars, missing_vars: missing, missing_count: missing.length });
+  // Diagnostic: show raw env var presence for the missing ones
+  const raw_check = {
+    OPENAI_API_KEY:     process.env.OPENAI_API_KEY    ? `set (${process.env.OPENAI_API_KEY.slice(0,8)}...)` : 'NOT SET',
+    PINECONE_API_KEY:   process.env.PINECONE_API_KEY  ? `set (${process.env.PINECONE_API_KEY.slice(0,8)}...)` : 'NOT SET',
+    PINECONE_HOST:      process.env.PINECONE_HOST     ? `set (${process.env.PINECONE_HOST.slice(0,20)}...)` : 'NOT SET',
+    STRIPE_SECRET_KEY:  process.env.STRIPE_SECRET_KEY ? `set (${process.env.STRIPE_SECRET_KEY.slice(0,8)}...)` : 'NOT SET',
+    RUNWAY_API_KEY:     process.env.RUNWAY_API_KEY    ? `set (${process.env.RUNWAY_API_KEY.slice(0,8)}...)` : 'NOT SET',
+    TIKTOK_CLIENT_KEY:  process.env.TIKTOK_CLIENT_KEY ? 'set' : 'NOT SET',
+    TWITTER_CLIENT_ID:  process.env.TWITTER_CLIENT_ID ? 'set' : 'NOT SET'
+  };
+  res.json({ status: missing.length <= 3 ? 'ok' : 'degraded', timestamp: new Date().toISOString(), env_vars: vars, missing_vars: missing, missing_count: missing.length, raw_check });
 });
 
 // Health check
