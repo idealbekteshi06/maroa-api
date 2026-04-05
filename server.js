@@ -486,6 +486,37 @@ async function fireWebhooks(businessId, eventType, data) {
   } catch {}
 }
 
+// ─── Simple rate limiter ─────────────────────────────────────────────────────
+const rateLimitStore = new Map();
+function rateLimit(key, maxPerWindow, windowMs = 60000) {
+  const now = Date.now();
+  const bucket = rateLimitStore.get(key) || [];
+  const valid = bucket.filter(ts => ts > now - windowMs);
+  if (valid.length >= maxPerWindow) return false; // over limit
+  valid.push(now);
+  rateLimitStore.set(key, valid);
+  return true; // allowed
+}
+// Clean stale entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of rateLimitStore) {
+    const valid = v.filter(ts => ts > now - 300000);
+    if (valid.length === 0) rateLimitStore.delete(k);
+    else rateLimitStore.set(k, valid);
+  }
+}, 300000);
+
+// ─── Simple response cache (30s TTL) ────────────────────────────────────────
+const responseCache = new Map();
+function getCached(key) {
+  const entry = responseCache.get(key);
+  if (entry && Date.now() - entry.ts < 30000) return entry.data;
+  responseCache.delete(key);
+  return null;
+}
+function setCache(key, data) { responseCache.set(key, { data, ts: Date.now() }); }
+
 // ─── SSE client store ────────────────────────────────────────────────────────
 const sseClients = new Map();
 function sendSSE(businessId, eventType, data) {
@@ -5266,7 +5297,9 @@ app.post('/webhook/brand-memory-store', async (req, res) => {
     return res.json({ stored: false, reason: 'Brand memory not configured — set OPENAI_API_KEY, PINECONE_API_KEY, PINECONE_HOST' });
 
   try {
-    const vector = await getEmbedding(text);
+    let vector;
+    try { vector = await getEmbedding(text); }
+    catch (embedErr) { return res.json({ stored: false, reason: `Embedding failed: ${embedErr.message.slice(0, 100)}` }); }
     const vector_id = `${business_id}-${Date.now()}`;
     await pineconeUpsert([{
       id: vector_id,
@@ -5297,7 +5330,9 @@ app.post('/webhook/brand-memory-retrieve', async (req, res) => {
     return res.json({ examples: [], reason: 'Brand memory not configured' });
 
   try {
-    const vector  = await getEmbedding(topic);
+    let vector;
+    try { vector = await getEmbedding(topic); }
+    catch (embedErr) { return res.json({ examples: [], count: 0, reason: `Embedding failed: ${embedErr.message.slice(0, 100)}` }); }
     const result  = await pineconeQuery(
       vector,
       { businessId: { $eq: business_id }, contentType: { $eq: content_type } },
@@ -5307,7 +5342,7 @@ app.post('/webhook/brand-memory-retrieve', async (req, res) => {
     const examples = matches.map(m => m.metadata.text);
     res.json({ examples, count: examples.length, content_type, topic });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.json({ examples: [], count: 0, error: err.message });
   }
 });
 
@@ -7449,14 +7484,16 @@ app.post('/webhook/referral-create', async (req, res) => {
   try {
     const biz = (await sbGet('businesses', `id=eq.${business_id}&select=business_name,email,referral_code`))[0];
     if (!biz) return res.status(404).json({ error: 'business not found' });
-    const code = biz.referral_code || crypto.randomBytes(4).toString('hex');
-    if (!biz.referral_code) await sbPatch('businesses', `id=eq.${business_id}`, { referral_code: code }).catch(() => {});
-    const ref = await sbPost('referrals', { referrer_business_id: business_id, referee_email, referral_code: code, status: 'pending' });
-    const signupUrl = `https://maroa-ai-marketing-automator.vercel.app/signup?ref=${code}`;
+    const bizCode = biz.referral_code || crypto.randomBytes(4).toString('hex');
+    if (!biz.referral_code) await sbPatch('businesses', `id=eq.${business_id}`, { referral_code: bizCode }).catch(() => {});
+    // Unique code per referral to avoid duplicate key errors
+    const refCode = bizCode + '-' + crypto.randomBytes(3).toString('hex');
+    const ref = await sbPost('referrals', { referrer_business_id: business_id, referee_email, referral_code: refCode, status: 'pending' });
+    const signupUrl = `https://maroa-ai-marketing-automator.vercel.app/signup?ref=${refCode}`;
     await sendEmail(referee_email, `${biz.business_name} thinks maroa.ai could help you`,
       `<h2>You've been referred!</h2><p>${biz.business_name} thinks AI marketing could help your business.</p><p>Get <strong>30 days free</strong> when you sign up:</p><p><a href="${signupUrl}" style="background:#667eea;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">Start Free →</a></p>`
     ).catch(() => {});
-    res.json({ referral_id: ref?.id, referral_code: code, signup_url: signupUrl, email_sent: true });
+    res.json({ referral_id: ref?.id, referral_code: refCode, signup_url: signupUrl, email_sent: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
