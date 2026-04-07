@@ -913,10 +913,17 @@ async function generateInstantContent(bizId, emailOverride) {
   let masterSystemPrompt = '';
   if (profile && profile.physical_locations && Array.isArray(profile.physical_locations) && profile.physical_locations.length > 0) {
     try {
-      const { buildMasterPrompt: bmp } = require('./services/masterPromptBuilder');
-      masterSystemPrompt = bmp(profile, 'social_post') + '\n\n';
-      log('generateContent', `Using master prompt for ${biz.business_name} (profile score: ${profile.profile_score})`);
-    } catch (e) { log('generateContent', `Master prompt build failed: ${e.message}`); }
+      const { buildMasterPromptWithSkills } = require('./services/masterPromptBuilder');
+      masterSystemPrompt = await buildMasterPromptWithSkills(profile, 'social_post', getEmbedding, pineconeQuery) + '\n\n';
+      log('generateContent', `Using master prompt + marketing skills for ${biz.business_name} (profile score: ${profile.profile_score})`);
+    } catch (e) {
+      // Fallback to basic master prompt without skills
+      try {
+        const { buildMasterPrompt: bmp } = require('./services/masterPromptBuilder');
+        masterSystemPrompt = bmp(profile, 'social_post') + '\n\n';
+      } catch {}
+      log('generateContent', `Master prompt fallback (skills unavailable): ${e.message}`);
+    }
   }
 
   const comp    = compInsights[0];
@@ -7314,6 +7321,24 @@ app.post('/webhook/score-image', async (req, res) => {
     try { parsed = JSON.parse(raw); } catch { const m = raw.match(/\{[\s\S]*\}/); if (m) try { parsed = JSON.parse(m[0]); } catch {} }
     res.json(parsed);
   } catch (err) { res.json({ overall_score: 5, recommendation: 'use', feedback: err.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/inject-marketing-skills — Inject 15 expert frameworks into Pinecone
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/api/inject-marketing-skills', async (req, res) => {
+  if (!OPENAI_API_KEY || !PINECONE_API_KEY || !PINECONE_HOST)
+    return res.status(400).json({ error: 'OPENAI_API_KEY, PINECONE_API_KEY, PINECONE_HOST required' });
+  res.json({ received: true, message: 'Injecting 15 marketing skill frameworks into Pinecone — takes ~2 minutes' });
+  setImmediate(async () => {
+    try {
+      const { injectAllSkills } = require('./services/marketingKnowledgeBase');
+      await injectAllSkills(getEmbedding, pineconeUpsert);
+      log('/api/inject-marketing-skills', '✅ All 15 marketing skills injected');
+    } catch (err) {
+      console.error('[inject-marketing-skills ERROR]', err.message);
+    }
+  });
 });
 
 // Short alias: /webhook/score-content → /webhook/score-content-before-posting
