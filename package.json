@@ -12,8 +12,14 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "sharp": "^0.34.5"
   },
-  "keywords": ["maroa", "marketing", "automation", "webhook"],
+  "keywords": [
+    "maroa",
+    "marketing",
+    "automation",
+    "webhook"
+  ],
   "license": "MIT"
 }

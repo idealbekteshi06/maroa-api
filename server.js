@@ -50,6 +50,8 @@ const PINECONE_HOST       = clean(process.env.PINECONE_HOST)       || ''; // ful
 const RUNWAY_API_KEY      = clean(process.env.RUNWAY_API_KEY)      || '';
 // Smart Image System
 const GOOGLE_AI_API_KEY   = clean(process.env.GOOGLE_AI_API_KEY)   || '';
+const IDEOGRAM_API_KEY    = clean(process.env.IDEOGRAM_API_KEY)    || '';
+let sharp; try { sharp = require('sharp'); } catch { sharp = null; }
 // Twilio WhatsApp
 const TWILIO_ACCOUNT_SID  = clean(process.env.TWILIO_ACCOUNT_SID)  || '';
 const TWILIO_AUTH_TOKEN   = clean(process.env.TWILIO_AUTH_TOKEN)   || '';
@@ -343,19 +345,234 @@ async function generateWithPexels(query) {
   throw new Error('No Pexels results');
 }
 
+// ── Model: Ideogram V2 Turbo ─────────────────────────────────────────────────
+async function generateWithIdeogram(prompt, aspectRatio = '1:1') {
+  if (!IDEOGRAM_API_KEY) throw new Error('IDEOGRAM_API_KEY not set');
+  const aspectMap = { '1:1': 'ASPECT_1_1', '9:16': 'ASPECT_9_16', '16:9': 'ASPECT_16_9', '1.91:1': 'ASPECT_10_16', '4:5': 'ASPECT_4_5' };
+  const r = await apiRequest('POST', 'https://api.ideogram.ai/generate',
+    { 'Api-Key': IDEOGRAM_API_KEY, 'Content-Type': 'application/json' },
+    { image_request: {
+      prompt: (prompt + '. No text, no words, no letters, no watermarks.').slice(0, 1200),
+      negative_prompt: IMAGE_NEGATIVE_PROMPT + ', text, words, letters, numbers, watermark, signature',
+      model: 'V_2_TURBO',
+      magic_prompt_option: 'AUTO',
+      style_type: 'REALISTIC',
+      aspect_ratio: aspectMap[aspectRatio] || 'ASPECT_1_1'
+    }});
+  if (r.status !== 200) throw new Error(`Ideogram: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+  const images = r.body?.data || [];
+  if (!images.length || !images[0].url) throw new Error('No image from Ideogram');
+  return images[0].url;
+}
+
+// ── Platform sizing for brand overlays ───────────────────────────────────────
+const PLATFORM_SIZES = {
+  instagram_post: { w: 1080, h: 1080 }, instagram_story: { w: 1080, h: 1920 },
+  facebook_post: { w: 1200, h: 630 }, linkedin_post: { w: 1200, h: 627 },
+  twitter_post: { w: 1200, h: 675 }, ad_banner: { w: 1200, h: 628 },
+  email_header: { w: 600, h: 300 }
+};
+
+// ── SVG brand overlay builder ────────────────────────────────────────────────
+function buildBrandOverlaySVG(w, h, opts) {
+  const { brandColor, textColor, businessName, headline, subtext, offer, layout } = opts;
+  const bc = parseCSSColor(brandColor);
+  const els = [];
+
+  // Brand bar (bottom 28%)
+  if (layout === 'bottom_bar' || !layout) {
+    const barH = Math.floor(h * 0.28);
+    const barY = h - barH;
+    els.push(`<rect x="0" y="${barY}" width="${w}" height="${barH}" fill="rgba(${bc},0.92)"/>`);
+  } else if (layout === 'gradient') {
+    els.push(`<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(0,0,0,0)"/><stop offset="60%" stop-color="rgba(${bc},0.3)"/><stop offset="100%" stop-color="rgba(${bc},0.88)"/></linearGradient></defs><rect x="0" y="0" width="${w}" height="${h}" fill="url(#g)"/>`);
+  } else if (layout === 'left_bar') {
+    const barW = Math.floor(w * 0.38);
+    els.push(`<defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="rgba(${bc},0.93)"/><stop offset="100%" stop-color="rgba(${bc},0)"/></linearGradient></defs><rect x="0" y="0" width="${barW}" height="${h}" fill="url(#lg)"/>`);
+  }
+
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // Headline
+  if (headline) {
+    const fs = Math.floor(h * 0.055);
+    const y = layout === 'left_bar' ? Math.floor(h * 0.35) : Math.floor(h * 0.58);
+    const x = Math.floor(w * 0.05);
+    els.push(`<text x="${x}" y="${y}" font-size="${fs}" font-weight="800" fill="${textColor}" font-family="system-ui,sans-serif">${esc(headline.slice(0,60))}</text>`);
+    if (headline.length > 30) {
+      const words = headline.split(' ');
+      const mid = Math.ceil(words.length / 2);
+      els.pop();
+      els.push(`<text x="${x}" y="${y}" font-size="${fs}" font-weight="800" fill="${textColor}" font-family="system-ui,sans-serif">${esc(words.slice(0,mid).join(' '))}</text>`);
+      els.push(`<text x="${x}" y="${y + fs * 1.2}" font-size="${fs}" font-weight="800" fill="${textColor}" font-family="system-ui,sans-serif">${esc(words.slice(mid).join(' '))}</text>`);
+    }
+  }
+  // Subtext
+  if (subtext) {
+    const fs = Math.floor(h * 0.032);
+    const y = layout === 'left_bar' ? Math.floor(h * 0.55) : Math.floor(h * 0.74);
+    els.push(`<text x="${Math.floor(w*0.05)}" y="${y}" font-size="${fs}" font-weight="400" fill="${textColor}" opacity="0.88" font-family="system-ui,sans-serif">${esc(subtext.slice(0,80))}</text>`);
+  }
+  // Business name
+  if (businessName) {
+    const fs = Math.floor(h * 0.026);
+    const y = Math.floor(h * 0.92);
+    els.push(`<text x="${Math.floor(w*0.05)}" y="${y}" font-size="${fs}" font-weight="600" fill="${textColor}" opacity="0.8" font-family="system-ui,sans-serif">${esc(businessName)}</text>`);
+  }
+  // Offer badge
+  if (offer) {
+    const bw = Math.floor(w * 0.30);
+    const bh = Math.floor(h * 0.08);
+    const bx = Math.floor(w * 0.65);
+    const by = Math.floor(h * 0.04);
+    const badgeText = textColor === '#ffffff' ? '#1a1a1a' : '#ffffff';
+    els.push(`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="${badgeText}" rx="${Math.floor(bh*0.3)}"/>`);
+    els.push(`<text x="${bx+bw/2}" y="${by+bh*0.65}" font-size="${Math.floor(bh*0.4)}" font-weight="700" fill="rgb(${bc})" text-anchor="middle" font-family="system-ui,sans-serif">${esc(offer)}</text>`);
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">${els.join('')}</svg>`;
+}
+
+function parseCSSColor(c) {
+  if (!c) return '30,30,30';
+  if (c.startsWith('#')) { const h = c.slice(1); return `${parseInt(h.slice(0,2),16)},${parseInt(h.slice(2,4),16)},${parseInt(h.slice(4,6),16)}`; }
+  const m = c.match(/(\d+)/g); return m ? m.slice(0,3).join(',') : '30,30,30';
+}
+
+function getTextColorForBg(brandColor) {
+  const parts = parseCSSColor(brandColor).split(',').map(Number);
+  const lum = (0.299 * parts[0] + 0.587 * parts[1] + 0.114 * parts[2]) / 255;
+  return lum > 0.5 ? '#1a1a1a' : '#ffffff';
+}
+
+// ── Composite branded image using Sharp ──────────────────────────────────────
+async function compositeBrandedImage(bgImageUrl, profile, textContent, platform) {
+  if (!sharp) { log('compositeBrandedImage', 'Sharp not available — returning background only'); return bgImageUrl; }
+  const size = PLATFORM_SIZES[platform] || PLATFORM_SIZES.instagram_post;
+  try {
+    // Download background
+    const bgBuf = await new Promise((resolve, reject) => {
+      const u = new URL(bgImageUrl);
+      const proto = u.protocol === 'https:' ? https : http;
+      proto.get(bgImageUrl, { headers: { 'Accept': '*/*' } }, res => {
+        if ([301,302,307,308].includes(res.statusCode) && res.headers.location) {
+          return compositeBrandedImage(res.headers.location, profile, textContent, platform).then(resolve).catch(reject);
+        }
+        if (res.statusCode !== 200) return reject(new Error(`Download: ${res.statusCode}`));
+        const chunks = []; res.on('data', c => chunks.push(c)); res.on('end', () => resolve(Buffer.concat(chunks)));
+      }).on('error', reject);
+    });
+
+    // Resize to exact platform dimensions
+    const resized = await sharp(bgBuf).resize(size.w, size.h, { fit: 'cover', position: 'centre' }).toBuffer();
+
+    // Build SVG overlay
+    const brandColor = profile.brand_color || '#1a1a1a';
+    const textColor = getTextColorForBg(brandColor);
+    const layouts = ['bottom_bar', 'gradient', 'left_bar'];
+    const layout = layouts[Math.floor(Math.random() * layouts.length)];
+
+    const svg = buildBrandOverlaySVG(size.w, size.h, {
+      brandColor, textColor, layout,
+      businessName: profile.business_name || '',
+      headline: textContent.headline || '',
+      subtext: textContent.subtext || '',
+      offer: textContent.offer || null
+    });
+
+    // Composite
+    const final = await sharp(resized)
+      .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+      .jpeg({ quality: 92 })
+      .toBuffer();
+
+    // Upload to Supabase
+    const businessId = profile.user_id || profile.id || 'unknown';
+    const fileName = `${businessId}/${Date.now()}_branded_${layout}.jpg`;
+    const uploadUrl = `${SUPABASE_URL}/storage/v1/object/business-photos/${fileName}`;
+    const uploadResp = await new Promise((resolve, reject) => {
+      const u = new URL(uploadUrl);
+      const req = https.request({ hostname: u.hostname, port: 443, path: u.pathname, method: 'POST',
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'image/jpeg', 'Content-Length': final.length, 'x-upsert': 'false' }
+      }, res => { let d = ''; res.on('data', c => d += c); res.on('end', () => resolve({ status: res.statusCode, body: d })); });
+      req.on('error', reject); req.write(final); req.end();
+    });
+
+    if (uploadResp.status >= 200 && uploadResp.status < 300) {
+      const url = `${SUPABASE_URL}/storage/v1/object/public/business-photos/${fileName}`;
+      log('compositeBrandedImage', `✅ ${layout} ${size.w}x${size.h} → ${url}`);
+      return url;
+    }
+    log('compositeBrandedImage', `Upload failed: ${uploadResp.status}`);
+    return bgImageUrl;
+  } catch (err) {
+    log('compositeBrandedImage', `Error: ${err.message} — returning raw background`);
+    return bgImageUrl;
+  }
+}
+
+// ── Generate 3 branded variants ──────────────────────────────────────────────
+async function generateBrandedVariants(businessId, profile, textContent, platform, count = 3) {
+  const size = PLATFORM_SIZES[platform] || PLATFORM_SIZES.instagram_post;
+  const aspect = size.w === size.h ? '1:1' : size.w > size.h ? '16:9' : '9:16';
+  const plan = profile.plan || 'growth';
+
+  // Generate background image
+  const bgPrompt = await buildImagePrompt(
+    textContent.headline || textContent.subtext || `${profile.business_type || 'business'} marketing`,
+    platform.includes('ad') ? 'ad_creative' : 'social_post', plan, profile);
+
+  const layouts = ['bottom_bar', 'gradient', 'left_bar'];
+  const variants = [];
+  const brandColor = profile.brand_color || '#1a1a1a';
+  const textColor = getTextColorForBg(brandColor);
+
+  for (let i = 0; i < count; i++) {
+    try {
+      // Generate unique background per variant
+      let bgUrl;
+      if (IDEOGRAM_API_KEY && (plan === 'agency' || plan === 'growth')) {
+        try { bgUrl = await generateWithIdeogram(bgPrompt, aspect); } catch {}
+      }
+      if (!bgUrl) {
+        const result = await generateSmartImage(businessId, bgPrompt, 'social_post', plan);
+        bgUrl = result.url;
+      }
+      if (!bgUrl) continue;
+
+      // Composite brand overlay (different layout per variant)
+      const layout = layouts[i % layouts.length];
+      let finalUrl = bgUrl;
+      if (sharp) {
+        finalUrl = await compositeBrandedImage(bgUrl, { ...profile, brand_color: brandColor }, textContent, platform);
+      } else {
+        finalUrl = await saveImageToSupabase(bgUrl, businessId);
+      }
+
+      variants.push({
+        variant_index: i,
+        layout_name: layout.replace('_', ' '),
+        background_url: bgUrl,
+        final_url: finalUrl
+      });
+    } catch (err) {
+      log('generateBrandedVariants', `Variant ${i} failed: ${err.message}`);
+    }
+  }
+  return variants;
+}
+
 // ── Model order by plan + content type ───────────────────────────────────────
 function getModelOrder(plan, contentType) {
   if (plan === 'agency') {
     if (['ad_creative','hero_image','product_photo'].includes(contentType))
-      return ['gemini','flux','dalle3','pexels'];
+      return ['ideogram','gemini','flux','dalle3','pexels'];
     if (['blog_featured','landing_page'].includes(contentType))
-      return ['dalle3','gemini','flux','pexels'];
-    return ['gemini','flux','pexels'];
+      return ['ideogram','dalle3','gemini','flux','pexels'];
+    return ['ideogram','gemini','flux','pexels'];
   }
   if (plan === 'growth') {
     if (['ad_creative','blog_featured'].includes(contentType))
-      return ['flux','dalle3','pexels'];
-    return ['flux','pexels'];
+      return ['ideogram','flux','dalle3','pexels'];
+    return ['ideogram','flux','pexels'];
   }
   // free plan — stock photos only
   return ['pexels'];
@@ -439,13 +656,15 @@ async function generateSmartImage(businessId, prompt, contentType = 'social_post
   const enhanced  = await buildImagePrompt(prompt, contentType, plan, profile);
   const models    = getModelOrder(plan, contentType);
   const fallbackQ = prompt.split(',')[0] || 'professional business marketing';
+  const aspect    = ['video_thumbnail','reel_cover','instagram_story'].includes(contentType) ? '9:16' : ['blog_featured','landing_page','facebook_post','ad_creative'].includes(contentType) ? '16:9' : '1:1';
 
   for (const model of models) {
     try {
       let url = null;
-      if (model === 'gemini') {
+      if (model === 'ideogram') {
+        url = await generateWithIdeogram(enhanced, aspect);
+      } else if (model === 'gemini') {
         url = await generateWithGemini(enhanced, businessId);
-        // Gemini already uploaded to Supabase, URL is permanent
         return { url, source: 'gemini', model_used: 'gemini', generation_time_ms: Date.now() - startTime };
       } else if (model === 'flux') {
         url = await generateWithFlux(enhanced);
@@ -717,6 +936,8 @@ app.get('/health', (req, res) => {
     stripe:     !!process.env.STRIPE_SECRET_KEY || !!process.env.STRIPE_KEY,
     runway:     !!RUNWAY_API_KEY || !!process.env.RUNWAY_API_KEY,
     google_ai:  !!GOOGLE_AI_API_KEY,
+    ideogram:   !!IDEOGRAM_API_KEY,
+    sharp:      !!sharp,
     twilio:     !!TWILIO_ACCOUNT_SID,
     stripe_billing: !!STRIPE_SECRET_KEY
   };
@@ -7370,6 +7591,99 @@ app.post('/webhook/score-image', async (req, res) => {
     try { parsed = JSON.parse(raw); } catch { const m = raw.match(/\{[\s\S]*\}/); if (m) try { parsed = JSON.parse(m[0]); } catch {} }
     res.json(parsed);
   } catch (err) { res.json({ overall_score: 5, recommendation: 'use', feedback: err.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/images/generate — Premium branded image variant generator
+// Body: { userId, platform, textContent: { headline, subtext, offer, goal, contentType }, generateVideo? }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/api/images/generate', async (req, res) => {
+  const { userId, platform = 'instagram_post', textContent = {}, generateVideo = false } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  if (!textContent.headline && !textContent.subtext) return res.status(400).json({ error: 'textContent.headline or subtext required' });
+
+  res.json({ received: true, message: 'Generating 3 branded image variants' });
+
+  setImmediate(async () => {
+    try {
+      // Fetch profile
+      let profile = null;
+      try {
+        const rows = await sbGet('business_profiles', `user_id=eq.${userId}&select=*`);
+        profile = rows[0];
+      } catch {}
+      if (!profile) {
+        try {
+          const bizArr = await sbGet('businesses', `id=eq.${userId}&select=*`);
+          const b = bizArr[0];
+          if (b) profile = { user_id: userId, business_name: b.business_name, business_type: b.industry, plan: b.plan, physical_locations: b.location ? [{ city: b.location }] : [], audience_description: b.target_audience, tone_keywords: [], brand_color: null };
+        } catch {}
+      }
+      if (!profile) { log('/api/images/generate', `No profile for ${userId}`); return; }
+
+      const variants = await generateBrandedVariants(userId, profile, textContent, platform, 3);
+
+      // Store variants in generated_images table
+      for (const v of variants) {
+        await sbPost('generated_images', {
+          user_id: userId, platform,
+          variant_index: v.variant_index, layout_name: v.layout_name,
+          background_url: v.background_url, final_url: v.final_url,
+          was_selected: false
+        }).catch(() => {});
+      }
+
+      // Generate video from best variant if requested
+      let videoUrl = null;
+      if (generateVideo && variants[0]?.final_url && RUNWAY_API_KEY) {
+        try {
+          const taskResp = await apiRequest('POST', 'https://api.dev.runwayml.com/v1/image_to_video',
+            { 'Authorization': `Bearer ${RUNWAY_API_KEY}`, 'Content-Type': 'application/json', 'X-Runway-Version': '2024-11-06' },
+            { promptImage: variants[0].final_url, promptText: textContent.headline || 'professional marketing animation', model: 'gen3a_turbo', duration: 5, ratio: '768:1280', watermark: false });
+          if (taskResp.body?.id) {
+            log('/api/images/generate', `Runway video task: ${taskResp.body.id}`);
+          }
+        } catch (err) { log('/api/images/generate', `Video generation failed: ${err.message}`); }
+      }
+
+      log('/api/images/generate', `✅ ${variants.length} variants generated for ${profile.business_name}`);
+    } catch (err) {
+      console.error('[images/generate ERROR]', err.message);
+      await logError(userId, 'images-generate', err.message).catch(() => {});
+    }
+  });
+});
+
+// GET /api/images/variants?user_id=X — get latest generated variants
+app.get('/api/images/variants', async (req, res) => {
+  const { user_id } = req.query;
+  if (!user_id) return res.status(400).json({ error: 'user_id required' });
+  try {
+    const images = await sbGet('generated_images', `user_id=eq.${user_id}&order=created_at.desc&limit=9&select=*`);
+    res.json({ variants: images, count: images.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/images/select — record user's variant preference
+app.post('/api/images/select', async (req, res) => {
+  const { userId, imageId, platform } = req.body;
+  if (!userId || !imageId) return res.status(400).json({ error: 'userId and imageId required' });
+  try {
+    await sbPatch('generated_images', `id=eq.${imageId}`, { was_selected: true });
+    // Get the layout of selected image and store preference
+    const rows = await sbGet('generated_images', `id=eq.${imageId}&select=layout_name`);
+    if (rows[0]?.layout_name) {
+      await sbPost('image_preferences', {
+        user_id: userId, platform: platform || 'instagram_post',
+        preferred_layout: rows[0].layout_name, updated_at: new Date().toISOString()
+      }).catch(() => {
+        // If exists, update
+        sbPatch('image_preferences', `user_id=eq.${userId}&platform=eq.${platform || 'instagram_post'}`,
+          { preferred_layout: rows[0].layout_name, updated_at: new Date().toISOString() }).catch(() => {});
+      });
+    }
+    res.json({ selected: true, image_id: imageId });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Short alias: /webhook/score-content → /webhook/score-content-before-posting
