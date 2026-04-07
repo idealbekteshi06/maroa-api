@@ -262,7 +262,7 @@ async function generateWithFlux(prompt) {
   if (!REPLICATE_API_KEY) throw new Error('REPLICATE_API_KEY not set');
   const pred = await apiRequest('POST', 'https://api.replicate.com/v1/models/black-forest-labs/flux-1.1-pro/predictions',
     { 'Authorization': `Bearer ${REPLICATE_API_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'wait' },
-    { input: { prompt: prompt.slice(0, 500), aspect_ratio: '1:1', output_format: 'webp', safety_tolerance: 2 } });
+    { input: { prompt: prompt.slice(0, 500), negative_prompt: IMAGE_NEGATIVE_PROMPT, aspect_ratio: '1:1', output_format: 'webp', safety_tolerance: 2 } });
   if (pred.status === 200 || pred.status === 201) {
     let output = pred.body?.output;
     if (!output && pred.body?.id) {
@@ -288,7 +288,7 @@ async function generateWithDalle3(prompt) {
   if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not set');
   const r = await apiRequest('POST', 'https://api.openai.com/v1/images/generations',
     { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-    { model: 'dall-e-3', prompt: (prompt + '. Professional marketing image, clean composition, no text.').slice(0, 4000), n: 1, size: '1024x1024', quality: 'hd', style: 'natural' });
+    { model: 'dall-e-3', prompt: (prompt + '. Do NOT include: ' + IMAGE_NEGATIVE_PROMPT).slice(0, 4000), n: 1, size: '1024x1024', quality: 'hd', style: 'natural' });
   if (r.status !== 200) throw new Error(`DALL-E 3: ${r.status} ${JSON.stringify(r.body).slice(0,200)}`);
   const url = r.body?.data?.[0]?.url;
   if (!url) throw new Error('No URL in DALL-E 3 response');
@@ -298,7 +298,7 @@ async function generateWithDalle3(prompt) {
 // ── Model: Gemini image generation ───────────────────────────────────────────
 async function generateWithGemini(prompt, businessId) {
   if (!GOOGLE_AI_API_KEY) throw new Error('GOOGLE_AI_API_KEY not set');
-  const fullPrompt = prompt + '. Professional marketing image, photorealistic, high quality, no text overlays, clean composition.';
+  const fullPrompt = prompt + '. Avoid: ' + IMAGE_NEGATIVE_PROMPT;
   const body = {
     contents: [{ parts: [{ text: fullPrompt }] }],
     generationConfig: { responseModalities: ['IMAGE', 'TEXT'] }
@@ -361,26 +361,82 @@ function getModelOrder(plan, contentType) {
   return ['pexels'];
 }
 
-// ── Smart prompt builder ─────────────────────────────────────────────────────
-async function buildImagePrompt(basePrompt, contentType, plan) {
+// ── Business-type image style rules ─────────────────────────────────────────
+const IMAGE_STYLE_RULES = {
+  'Restaurant/Cafe/Bar': { lighting: 'warm studio lighting with soft golden glow', mood: 'appetizing and luxurious', aesthetic: 'Michelin restaurant food photography', colors: 'rich warm golden tones', subjects: 'plated dish, ingredients, dining atmosphere', extra: 'shallow depth of field, steam rising, close-up textures' },
+  'Restaurant & Food':   { lighting: 'warm studio lighting with soft golden glow', mood: 'appetizing and luxurious', aesthetic: 'Michelin restaurant food photography', colors: 'rich warm golden tones', subjects: 'plated dish, ingredients, dining atmosphere', extra: 'shallow depth of field, steam rising, close-up textures' },
+  'Fitness/Gym/Sports':  { lighting: 'dramatic side lighting with rim light', mood: 'intense and aspirational', aesthetic: 'Nike campaign sports photography', colors: 'high contrast warm tones with deep shadows', subjects: 'athletic person in motion, gym environment', extra: 'motion blur or frozen action, strong shadows' },
+  'Health & Fitness':    { lighting: 'dramatic side lighting with rim light', mood: 'intense and aspirational', aesthetic: 'Nike campaign sports photography', colors: 'high contrast warm tones with deep shadows', subjects: 'athletic person in motion, gym environment', extra: 'motion blur or frozen action, strong shadows' },
+  'Beauty & Wellness':   { lighting: 'soft diffused lighting, clean whites', mood: 'elegant and luxurious', aesthetic: 'luxury beauty brand campaign', colors: 'soft pastels, blush pink, clean white', subjects: 'beauty product close-up, salon detail', extra: 'macro detail shots, dewy textures' },
+  'Beauty & Salon':      { lighting: 'soft diffused lighting, clean whites', mood: 'elegant and luxurious', aesthetic: 'luxury beauty brand campaign', colors: 'soft pastels, blush pink, clean white', subjects: 'beauty product close-up, salon detail', extra: 'macro detail shots, dewy textures' },
+  'Retail Shop':         { lighting: 'bright clean studio lighting', mood: 'fresh and inviting', aesthetic: 'lifestyle product photography', colors: 'bright and airy, natural tones', subjects: 'product in lifestyle context', extra: 'clean background, styled flat lay' },
+  'Retail Store':        { lighting: 'bright clean studio lighting', mood: 'fresh and inviting', aesthetic: 'lifestyle product photography', colors: 'bright and airy, natural tones', subjects: 'product in lifestyle context', extra: 'clean background, styled flat lay' },
+  'Health & Medical':    { lighting: 'clean even lighting, clinical whites', mood: 'trustworthy and calm', aesthetic: 'healthcare brand photography', colors: 'calm blues, clean whites, soft greens', subjects: 'medical professional, clean clinic', extra: 'trust-building composition' },
+  'Medical & Dental':    { lighting: 'clean even lighting, clinical whites', mood: 'trustworthy and calm', aesthetic: 'healthcare brand photography', colors: 'calm blues, clean whites, soft greens', subjects: 'medical professional, clean clinic', extra: 'trust-building composition' },
+  'Real Estate':         { lighting: 'golden hour natural lighting', mood: 'aspirational and inviting', aesthetic: 'architectural photography', colors: 'warm golden hour tones, blue sky', subjects: 'property exterior or interior', extra: 'wide angle, HDR look' },
+  'Education':           { lighting: 'bright warm natural lighting', mood: 'optimistic and engaging', aesthetic: 'education brand photography', colors: 'warm friendly tones, bright accents', subjects: 'people learning, classroom, books', extra: 'candid feel, genuine expression' },
+  'Education/Tutoring':  { lighting: 'bright warm natural lighting', mood: 'optimistic and engaging', aesthetic: 'education brand photography', colors: 'warm friendly tones, bright accents', subjects: 'people learning, classroom, books', extra: 'candid feel, genuine expression' },
+  'Events/Entertainment':{ lighting: 'dramatic colored lighting, stage lights', mood: 'energetic and exciting', aesthetic: 'event photography', colors: 'vibrant saturated colors, light trails', subjects: 'crowd, stage, celebration', extra: 'motion, energy, bokeh lights' },
+  'Technology/Software': { lighting: 'clean modern lighting, cool tones', mood: 'innovative and sleek', aesthetic: 'tech brand photography', colors: 'cool blues, dark backgrounds, neon accents', subjects: 'device, interface, workspace', extra: 'minimalist, futuristic feel' },
+  'Automotive':          { lighting: 'dramatic automotive lighting, reflections', mood: 'powerful and sleek', aesthetic: 'car advertisement photography', colors: 'deep blacks, metallic highlights', subjects: 'vehicle detail, driving scene', extra: 'motion blur, reflection shots' },
+};
+const IMAGE_NEGATIVE_PROMPT = 'blurry, low quality, stock photo, watermark, text, logo, oversaturated, dark, muddy, amateur, pixelated, distorted, cartoon, illustration, painting';
+
+const PLATFORM_ASPECT = { instagram: '1:1', facebook: '1.91:1', story: '9:16', tiktok: '9:16', linkedin: '1.91:1', blog: '16:9', ad: '1:1' };
+
+// ── Smart prompt builder (profile-aware) ────────────────────────────────────
+async function buildImagePrompt(basePrompt, contentType, plan, profile) {
+  // Get style rules from business type
+  const bizType = profile?.business_type || '';
+  const style = IMAGE_STYLE_RULES[bizType] || { lighting: 'professional studio lighting', mood: 'modern and polished', aesthetic: 'commercial brand photography', colors: 'clean natural tones', subjects: 'business context', extra: 'clean composition' };
+
+  // Determine platform format
+  const platform = ['ad_creative','paid_ad'].includes(contentType) ? 'ad' : ['video_thumbnail','reel_cover'].includes(contentType) ? 'story' : ['blog_featured','landing_page'].includes(contentType) ? 'blog' : 'instagram';
+  const aspect = PLATFORM_ASPECT[platform] || '1:1';
+
+  // Audience context
+  const audienceCtx = profile?.audience_description ? `, relatable to ${profile.audience_description}` : '';
+  const locationCtx = (() => {
+    const locs = Array.isArray(profile?.physical_locations) ? profile.physical_locations : [];
+    return locs[0]?.city ? `, local feel of ${locs[0].city}` : '';
+  })();
+
+  // Build structured prompt
+  const structured = `${basePrompt}, ${style.lighting}, composition with clear space for text overlay in top or bottom third, ${style.mood} mood, ${style.aesthetic}, ${style.colors}, ${aspect} format, professional marketing photography, commercial quality, ${style.extra}${audienceCtx}${locationCtx}, no text on image, no watermarks`;
+
+  // Agency plan: Claude enhances further
   if (plan === 'agency') {
     try {
       const result = await callClaude(
-        `You are an expert AI image prompt engineer. Transform this into a detailed prompt for a stunning marketing image.\nOriginal: "${basePrompt}"\nContent type: ${contentType}\nRequirements: professional quality, no text overlays, clean modern aesthetic, photorealistic, specific lighting/composition/mood. Return ONLY the enhanced prompt, max 200 words.`,
+        `You are an expert AI image prompt engineer for a ${bizType || 'business'}.\n\nENHANCE this prompt to be more specific and visually compelling. Keep ALL the technical details (lighting, composition, colors, format) but make the subject more vivid and specific.\n\nOriginal: "${structured}"\n\nReturn ONLY the enhanced prompt, max 200 words. No explanation.`,
         'claude-sonnet-4-5', 300);
-      return result._raw || (typeof result === 'string' ? result : basePrompt);
-    } catch { return basePrompt; }
+      const enhanced = result._raw || (typeof result === 'string' ? result : structured);
+      log('buildImagePrompt', `[AGENCY ENHANCED] ${enhanced.slice(0, 150)}...`);
+      return enhanced;
+    } catch { /* fall through to structured */ }
   }
-  if (plan === 'growth') {
-    return `${basePrompt}, professional photography, clean background, marketing quality, high resolution, 4k`;
-  }
-  return basePrompt;
+
+  log('buildImagePrompt', `[${plan.toUpperCase()}] ${structured.slice(0, 150)}...`);
+  return structured;
 }
 
 // ── MAIN: generateSmartImage ─────────────────────────────────────────────────
 async function generateSmartImage(businessId, prompt, contentType = 'social_post', plan = 'free') {
   const startTime = Date.now();
-  const enhanced  = await buildImagePrompt(prompt, contentType, plan);
+  // Fetch business profile for style rules
+  let profile = null;
+  try {
+    const profileArr = await sbGet('business_profiles', `user_id=eq.${businessId}&select=business_type,physical_locations,audience_description,audience_gender,audience_age_min,audience_age_max,tone_keywords`);
+    profile = profileArr[0] || null;
+  } catch {}
+  // If no profile, try businesses table for business_type
+  if (!profile) {
+    try {
+      const bizArr = await sbGet('businesses', `id=eq.${businessId}&select=industry,location,target_audience`);
+      if (bizArr[0]) profile = { business_type: bizArr[0].industry, physical_locations: bizArr[0].location ? [{ city: bizArr[0].location }] : [], audience_description: bizArr[0].target_audience };
+    } catch {}
+  }
+  const enhanced  = await buildImagePrompt(prompt, contentType, plan, profile);
   const models    = getModelOrder(plan, contentType);
   const fallbackQ = prompt.split(',')[0] || 'professional business marketing';
 
