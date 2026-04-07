@@ -7741,6 +7741,397 @@ app.delete('/webhook/webhook-delete', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ═════════════════════════════════════════════════════════════════════════════
+// 19 SKILL MODULES — Expert Marketing Automation
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Helper: fetch business profile for skill modules
+async function getProfile(userId) {
+  let p = null;
+  try { const r = await sbGet('business_profiles', `user_id=eq.${userId}&select=*`); p = r[0]; } catch {}
+  if (!p) { try { const r = await sbGet('businesses', `id=eq.${userId}&select=*`); const b = r[0]; if (b) p = { user_id: userId, business_name: b.business_name, business_type: b.industry, physical_locations: b.location ? [{ city: b.location }] : [], primary_language: 'Albanian', audience_description: b.target_audience, primary_goal: b.marketing_goal, monthly_budget: b.daily_budget ? '€' + b.daily_budget * 30 : '€300', tone_keywords: b.brand_tone ? [b.brand_tone] : [], usp: '', pain_point: '', we_do_better: '', current_offer: '', products: [], avg_spend: '', business_age: 'established' }; } catch {} }
+  return p;
+}
+function pCity(p) { const l = Array.isArray(p?.physical_locations) ? p.physical_locations : []; return l[0]?.city || 'local area'; }
+
+// ── MODULE 1: Referral Program ──────────────────────────────────────────────
+app.post('/api/referral/setup', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  res.json({ received: true, message: 'Generating referral program' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      if (!p) return;
+      const code = crypto.randomBytes(4).toString('hex');
+      const result = await callClaude(`You are a referral program expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAvg spend: ${p.avg_spend || 'moderate'}\nLanguage: ${p.primary_language || 'Albanian'}\n\nDesign a double-sided referral reward program.\nReturn ONLY valid JSON:\n{"reward_for_referrer":"string","reward_for_referee":"string","trigger_moments":["string"],"share_message":"string (${p.primary_language}, max 160 chars)","email_subject":"string","email_body":"string"}`, 'claude-sonnet-4-5', 1000);
+      await sbPost('referral_programs', { user_id: userId, referral_code: code, reward_type: 'discount', reward_value: result.reward_for_referee || '20%', is_active: true });
+      log('/api/referral/setup', `✅ Referral program created for ${p.business_name}`);
+    } catch (err) { console.error('[referral/setup]', err.message); }
+  });
+});
+app.get('/api/referral/status/:userId', async (req, res) => {
+  try { const r = await sbGet('referral_programs', `user_id=eq.${req.params.userId}&select=*`); res.json(r[0] || { active: false }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/referral/track', async (req, res) => {
+  const { referral_code, referred_email } = req.body;
+  if (!referral_code) return res.status(400).json({ error: 'referral_code required' });
+  try {
+    const progs = await sbGet('referral_programs', `referral_code=eq.${referral_code}&select=user_id`);
+    if (!progs[0]) return res.status(404).json({ error: 'Invalid referral code' });
+    await sbPost('referrals', { referrer_id: progs[0].user_id, referred_email, status: 'pending' });
+    res.json({ tracked: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── MODULE 2: Lead Magnets ──────────────────────────────────────────────────
+app.post('/api/lead-magnets/generate', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  res.json({ received: true, message: 'Generating lead magnet' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      if (!p) return;
+      const result = await callClaude(`You are a lead magnet strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAudience: ${p.audience_description || 'local customers'}, age ${p.audience_age_min || 18}-${p.audience_age_max || 65}\nPain point: ${p.pain_point || 'not specified'}\nLanguage: ${p.primary_language || 'Albanian'}\n\nGenerate the BEST lead magnet. Solve ONE specific problem. High value, consumable in 10 min.\nReturn ONLY valid JSON:\n{"title":"string","type":"checklist|guide|template","headline":"string","subheadline":"string","content":"string (full content)","cta_button":"string"}`, 'claude-sonnet-4-5', 2000);
+      await sbPost('lead_magnets', { user_id: userId, title: result.title || 'Lead Magnet', type: result.type || 'guide', content: JSON.stringify(result), is_active: true });
+      log('/api/lead-magnets/generate', `✅ Lead magnet: ${result.title}`);
+    } catch (err) { console.error('[lead-magnets]', err.message); }
+  });
+});
+app.get('/api/lead-magnets/:userId', async (req, res) => {
+  try { const r = await sbGet('lead_magnets', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=10`); res.json({ magnets: r }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── MODULE 3: Launch Strategy ───────────────────────────────────────────────
+app.post('/api/launch/create', async (req, res) => {
+  const { userId, productName, launchDate, productDescription } = req.body;
+  if (!userId || !productName) return res.status(400).json({ error: 'userId and productName required' });
+  res.json({ received: true, message: 'Building launch campaign' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      if (!p) return;
+      const result = await callClaude(`You are a launch strategist for ${p.business_name} launching: ${productName}\nDescription: ${productDescription || 'new product'}\nLaunch date: ${launchDate || 'in 2 weeks'}\nBusiness: ${p.business_type} in ${pCity(p)}\nLanguage: ${p.primary_language}\nBudget: ${p.monthly_budget}\nAudience: ${p.audience_description}\n\nUsing ORB launch framework, create complete launch plan:\n- PRE-LAUNCH: 3 teaser posts + 1 email\n- LAUNCH DAY: announcement post + launch email + ad copy\n- POST-LAUNCH: 2 social proof posts + follow-up email\n\nReturn ONLY valid JSON:\n{"pre_launch":{"posts":["string"],"email":{"subject":"string","body":"string"}},"launch_day":{"post":"string","email":{"subject":"string","body":"string"},"ad_copy":"string"},"post_launch":{"posts":["string"],"email":{"subject":"string","body":"string"}}}`, 'claude-opus-4-5', 3000);
+      await sbPost('launch_campaigns', { user_id: userId, product_name: productName, launch_date: launchDate || new Date(Date.now() + 14 * 86400000).toISOString(), phase: 'pre_launch', content_plan: JSON.stringify(result) });
+      log('/api/launch/create', `✅ Launch plan for ${productName}`);
+    } catch (err) { console.error('[launch]', err.message); }
+  });
+});
+app.get('/api/launch/:userId', async (req, res) => {
+  try { const r = await sbGet('launch_campaigns', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=5`); res.json({ campaigns: r }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── MODULE 4: Customer Research ─────────────────────────────────────────────
+app.post('/api/research/analyze', async (req, res) => {
+  const { userId, reviews, feedback } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  res.json({ received: true, message: 'Analyzing customer insights' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      if (!p) return;
+      const reviewText = Array.isArray(reviews) ? reviews.join('\n') : (feedback || 'No reviews provided — analyze based on typical customers for this business type');
+      const result = await callClaude(`You are a customer research expert analyzing ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nCurrent audience: ${p.audience_description}\nReviews/feedback:\n${reviewText}\n\nExtract:\n1. JOBS TO BE DONE (functional, emotional, social)\n2. Top 3 PAIN POINTS with emotional language\n3. TRIGGER EVENTS\n4. DESIRED OUTCOMES in customer words\n5. KEY PHRASES to use in marketing\n\nReturn ONLY valid JSON:\n{"jobs_to_be_done":["string"],"pain_points":["string"],"trigger_events":["string"],"desired_outcomes":["string"],"key_phrases":["string"],"improved_audience_description":"string","content_recommendations":["string"]}`, 'claude-sonnet-4-5', 1500);
+      await sbPost('customer_insights', { user_id: userId, source: reviews ? 'reviews' : 'ai_analysis', insight_type: 'full_analysis', content: JSON.stringify(result), actionable_suggestion: (result.content_recommendations || []).join('; ') });
+      log('/api/research/analyze', `✅ Customer insights for ${p.business_name}`);
+    } catch (err) { console.error('[research]', err.message); }
+  });
+});
+
+// ── MODULE 5: Marketing Ideas Engine ────────────────────────────────────────
+app.post('/api/ideas/generate', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  res.json({ received: true, message: 'Generating 10 marketing ideas' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      if (!p) return;
+      const result = await callClaude(`You are a marketing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nBudget: ${p.monthly_budget}\nGoal: ${p.primary_goal}\nLanguage: ${p.primary_language}\n\nGenerate 10 SPECIFIC, ACTIONABLE marketing ideas ranked by impact.\nEach must be executable with available budget, specific to this business.\n\nReturn ONLY valid JSON array:\n[{"idea":"string","category":"string","priority":"high|medium|low","estimated_impact":"string","how_to_execute":"string (3 steps)","budget_required":"string","time_to_results":"string"}]`, 'claude-sonnet-4-5', 2000);
+      const ideas = Array.isArray(result) ? result : (result.ideas || [result]);
+      for (const idea of ideas.slice(0, 10)) {
+        await sbPost('marketing_ideas', { user_id: userId, idea: idea.idea || idea, category: idea.category, priority: idea.priority || 'medium', estimated_impact: idea.estimated_impact, how_to_execute: idea.how_to_execute, budget_required: idea.budget_required, time_to_results: idea.time_to_results }).catch(() => {});
+      }
+      log('/api/ideas/generate', `✅ ${ideas.length} marketing ideas generated`);
+    } catch (err) { console.error('[ideas]', err.message); }
+  });
+});
+app.get('/api/ideas/:userId', async (req, res) => {
+  try { const r = await sbGet('marketing_ideas', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=20`); res.json({ ideas: r }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.patch('/api/ideas/:ideaId', async (req, res) => {
+  try { await sbPatch('marketing_ideas', `id=eq.${req.params.ideaId}`, req.body); res.json({ updated: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── MODULE 6: AI SEO ────────────────────────────────────────────────────────
+app.post('/api/ai-seo/optimize', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  res.json({ received: true, message: 'Generating AI SEO content' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      if (!p) return;
+      const result = await callClaude(`You are an AI SEO expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nUSP: ${p.usp}\nLanguage: ${p.primary_language}\n\nOptimize for ChatGPT, Perplexity, Google AI Overviews:\n1. Create 10 FAQ entries (question as users ask AI + direct citable answer)\n2. Write 3 authority paragraphs (specific numbers, structured for extraction)\n3. Generate local search queries\n\nReturn ONLY valid JSON:\n{"faqs":[{"question":"string","answer":"string"}],"authority_paragraphs":["string"],"target_queries":["string"]}`, 'claude-sonnet-4-5', 2000);
+      await sbPost('ai_seo_content', { user_id: userId, content_type: 'full_optimization', optimized_content: JSON.stringify(result) });
+      log('/api/ai-seo/optimize', `✅ AI SEO content for ${p.business_name}`);
+    } catch (err) { console.error('[ai-seo]', err.message); }
+  });
+});
+
+// ── MODULE 7: Schema Markup ─────────────────────────────────────────────────
+app.post('/api/schema/generate', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  try {
+    const p = await getProfile(userId);
+    if (!p) return res.status(404).json({ error: 'Profile not found' });
+    const result = await callClaude(`Generate LocalBusiness + FAQPage JSON-LD schema for:\nBusiness: ${p.business_name}\nType: ${p.business_type}\nCity: ${pCity(p)}\nUSP: ${p.usp || ''}\n\nReturn ONLY valid JSON-LD (no markdown):\n{"@context":"https://schema.org","@type":"LocalBusiness","name":"...","description":"...","address":{"@type":"PostalAddress","addressLocality":"${pCity(p)}"}}`, 'claude-sonnet-4-5', 800);
+    const schemaJson = JSON.stringify(result);
+    await sbPost('schema_markups', { user_id: userId, schema_type: 'LocalBusiness', schema_json: schemaJson });
+    res.json({ schema: result, copyable: `<script type="application/ld+json">${schemaJson}</script>` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.get('/api/schema/:userId', async (req, res) => {
+  try { const r = await sbGet('schema_markups', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=5`); res.json({ schemas: r }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── MODULE 8: Programmatic SEO Pages ────────────────────────────────────────
+app.post('/api/seo-pages/generate', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  res.json({ received: true, message: 'Generating SEO pages' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      if (!p) return;
+      const cities = Array.isArray(p.service_area) ? p.service_area : [pCity(p)];
+      for (const city of cities.slice(0, 5)) {
+        const result = await callClaude(`Generate SEO page for "${p.business_type} in ${city}".\nBusiness: ${p.business_name}\nUSP: ${p.usp}\nLanguage: ${p.primary_language}\n\nReturn ONLY valid JSON:\n{"meta_title":"string (60 chars)","meta_description":"string (155 chars)","h1":"string","intro":"string (150 words)","services_section":"string","why_us":"string","faq":[{"q":"string","a":"string"}],"cta":"string"}`, 'claude-sonnet-4-5', 1500);
+        await sbPost('seo_pages', { user_id: userId, page_type: 'service_location', keyword: `${p.business_type} in ${city}`, location: city, content: JSON.stringify(result), meta_title: result.meta_title, meta_description: result.meta_description }).catch(() => {});
+      }
+      log('/api/seo-pages/generate', `✅ ${cities.length} SEO pages for ${p.business_name}`);
+    } catch (err) { console.error('[seo-pages]', err.message); }
+  });
+});
+app.get('/api/seo-pages/:userId', async (req, res) => {
+  try { const r = await sbGet('seo_pages', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=20`); res.json({ pages: r }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── MODULE 9: Pricing Recommendations ───────────────────────────────────────
+app.post('/api/pricing/analyze', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  res.json({ received: true, message: 'Analyzing pricing strategy' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      if (!p) return;
+      const prods = Array.isArray(p.products) ? p.products : [];
+      const result = await callClaude(`You are a pricing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAvg spend: ${p.avg_spend || 'unknown'}\nProducts: ${prods.map(pr => `${pr.name}: ${pr.price || 'N/A'}`).join(', ')}\nGoal: ${p.primary_goal}\n\nUsing value-based pricing:\n1. Analyze current pricing\n2. Recommend 3-tier structure\n3. Psychological tactics\n4. ROI framing\n\nReturn ONLY valid JSON:\n{"pricing_analysis":"string","recommended_tiers":[{"name":"string","price":"string","includes":["string"],"target_customer":"string"}],"psychological_tactics":["string"],"roi_framing":"string","marketing_message":"string"}`, 'claude-sonnet-4-5', 1500);
+      await sbPost('pricing_recommendations', { user_id: userId, tier_structure: JSON.stringify(result.recommended_tiers), reasoning: result.pricing_analysis });
+      log('/api/pricing/analyze', `✅ Pricing analysis for ${p.business_name}`);
+    } catch (err) { console.error('[pricing]', err.message); }
+  });
+});
+app.get('/api/pricing/:userId', async (req, res) => {
+  try { const r = await sbGet('pricing_recommendations', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=3`); res.json({ recommendations: r }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── MODULE 10: Community Marketing ──────────────────────────────────────────
+app.post('/api/community/generate-posts', async (req, res) => {
+  const { userId, platform = 'facebook_group' } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  res.json({ received: true, message: 'Generating community posts' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      if (!p) return;
+      const result = await callClaude(`You are a community marketing expert for ${p.business_name} in ${pCity(p)}.\nPlatform: ${platform}\nAudience: ${p.audience_description}\nLanguage: ${p.primary_language}\n\nGenerate 5 community posts focused on SHARED IDENTITY (not promotion).\nValue to members first.\n\nReturn ONLY valid JSON:\n{"strategy":"string","posts":[{"content":"string","post_type":"value|question|story|tip|engagement","best_day":"string"}]}`, 'claude-sonnet-4-5', 1500);
+      const posts = result.posts || [];
+      for (const post of posts) {
+        await sbPost('community_posts', { user_id: userId, platform, content: post.content, post_type: post.post_type, status: 'draft' }).catch(() => {});
+      }
+      log('/api/community/generate-posts', `✅ ${posts.length} community posts`);
+    } catch (err) { console.error('[community]', err.message); }
+  });
+});
+
+// ── MODULE 11: Sales Enablement ─────────────────────────────────────────────
+app.post('/api/sales/generate-pitch', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  try {
+    const p = await getProfile(userId);
+    if (!p) return res.status(404).json({ error: 'Profile not found' });
+    const result = await callClaude(`Create a sales one-pager for ${p.business_name}.\nBusiness: ${p.business_type} in ${pCity(p)}\nUSP: ${p.usp}\nWe are better at: ${p.we_do_better}\nOffer: ${p.current_offer}\nLanguage: ${p.primary_language}\n\nLead with outcomes, scannable in 3 seconds, specific numbers.\nReturn ONLY valid JSON:\n{"headline":"string","subheadline":"string","key_benefits":["string"],"social_proof":"string","cta":"string","full_pitch":"string"}`, 'claude-sonnet-4-5', 1000);
+    await sbPost('sales_assets', { user_id: userId, asset_type: 'one_pager', title: result.headline || 'Sales Pitch', content: JSON.stringify(result) });
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/sales/objection-handler', async (req, res) => {
+  const { userId, objection } = req.body;
+  if (!userId || !objection) return res.status(400).json({ error: 'userId and objection required' });
+  try {
+    const p = await getProfile(userId);
+    const result = await callClaude(`Handle this sales objection for ${p?.business_name || 'the business'}:\nObjection: "${objection}"\nUSP: ${p?.usp || 'quality service'}\nLanguage: ${p?.primary_language || 'English'}\n\nReturn ONLY valid JSON:\n{"response":"string","tone":"empathetic|confident|educational","follow_up_question":"string"}`, 'claude-sonnet-4-5', 500);
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── MODULE 12: RevOps Lead Scoring ──────────────────────────────────────────
+app.post('/api/revops/score-lead', async (req, res) => {
+  const { userId, leadData } = req.body;
+  if (!userId || !leadData) return res.status(400).json({ error: 'userId and leadData required' });
+  try {
+    const p = await getProfile(userId);
+    const result = await callClaude(`Score this lead for ${p?.business_name || 'the business'}:\nLead: ${JSON.stringify(leadData)}\nIdeal customer: ${p?.audience_description || 'local customer'}\nCity: ${pCity(p)}\n\nFIT (0-50): matches audience? +20, in area? +15, right spend? +15\nENGAGEMENT (0-50): form filled? +25, multiple visits? +15, time>2min? +10\n\nReturn ONLY valid JSON:\n{"fit_score":0,"engagement_score":0,"total_score":0,"stage":"lead|MQL|SQL","recommended_action":"string","follow_up_message":"string"}`, 'claude-sonnet-4-5', 500);
+    await sbPost('lead_scores', { user_id: userId, lead_email: leadData.email || null, fit_score: result.fit_score || 0, engagement_score: result.engagement_score || 0, total_score: result.total_score || 0, stage: result.stage || 'lead', recommended_action: result.recommended_action });
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.get('/api/revops/scores/:userId', async (req, res) => {
+  try { const r = await sbGet('lead_scores', `user_id=eq.${req.params.userId}&order=updated_at.desc&limit=20`); res.json({ scores: r }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── MODULE 13: A/B Test Manager ─────────────────────────────────────────────
+app.post('/api/ab-tests/create', async (req, res) => {
+  const { userId, testType, currentVersion } = req.body;
+  if (!userId || !testType || !currentVersion) return res.status(400).json({ error: 'userId, testType, currentVersion required' });
+  try {
+    const p = await getProfile(userId);
+    const result = await callClaude(`Create A/B test variant for ${p?.business_name || 'business'}.\nCurrent (A): "${currentVersion}"\nType: ${testType}\nLanguage: ${p?.primary_language || 'English'}\n\nChange ONE variable. Return ONLY valid JSON:\n{"variant_a":"string","variant_b":"string","hypothesis":"string","primary_metric":"string","minimum_runtime":"string"}`, 'claude-sonnet-4-5', 500);
+    const row = await sbPost('ab_tests', { user_id: userId, test_name: `${testType} test`, variant_a: result.variant_a || currentVersion, variant_b: result.variant_b, metric: result.primary_metric, status: 'running' });
+    res.json({ test_id: row?.id, ...result });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.get('/api/ab-tests/:userId', async (req, res) => {
+  try { const r = await sbGet('ab_tests', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=10`); res.json({ tests: r }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── MODULE 14: Free Tool Generator ──────────────────────────────────────────
+app.post('/api/tools/suggest', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  try {
+    const p = await getProfile(userId);
+    const result = await callClaude(`Suggest 3 free marketing tools for ${p?.business_name || 'business'}, a ${p?.business_type || 'local business'}.\nAudience: ${p?.audience_description || 'local customers'}\nCity: ${pCity(p)}\n\nTool must solve a REAL problem, be adjacent to business, simple to use.\n\nReturn ONLY valid JSON:\n[{"tool_name":"string","tool_type":"calculator|generator|checklist|analyzer","description":"string","how_it_generates_leads":"string","build_complexity":"simple|medium"}]`, 'claude-sonnet-4-5', 800);
+    res.json({ suggestions: Array.isArray(result) ? result : [result] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.get('/api/tools/:userId', async (req, res) => {
+  try { const r = await sbGet('free_tools', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=10`); res.json({ tools: r }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── MODULE 15: Popup CRO ────────────────────────────────────────────────────
+app.post('/api/popup/generate', async (req, res) => {
+  const { userId, popupType = 'email_capture' } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  try {
+    const p = await getProfile(userId);
+    const tones = Array.isArray(p?.tone_keywords) ? p.tone_keywords.join(', ') : 'professional';
+    const result = await callClaude(`Write popup copy for ${p?.business_name || 'business'}.\nType: ${popupType}\nBusiness: ${p?.business_type || 'local'} in ${pCity(p)}\nOffer: ${p?.current_offer || 'main service'}\nLanguage: ${p?.primary_language || 'Albanian'}\nTone: ${tones}\n\nReturn ONLY valid JSON:\n{"headline":"string (max 8 words)","subheadline":"string (max 15 words)","cta_button":"string (max 4 words)","dismiss_text":"string","timing":"string","trigger":"exit_intent|scroll_50|time_30s"}`, 'claude-sonnet-4-5', 400);
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── MODULE 16: Onboarding CRO (for client's customers) ─────────────────────
+app.post('/api/onboarding-cro/generate', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  res.json({ received: true, message: 'Generating customer onboarding sequence' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      if (!p) return;
+      const prods = Array.isArray(p.products) ? p.products.map(pr => pr.name).join(', ') : 'their service';
+      const result = await callClaude(`Design customer onboarding for ${p.business_name}.\nBusiness: ${p.business_type} in ${pCity(p)}\nProducts: ${prods}\nGoal: get them to come back and refer friends\nLanguage: ${p.primary_language}\n\nCreate 5-email sequence:\n1 (immediate): Welcome + next action\n2 (day 1): Quick win tip\n3 (day 3): Your story/why\n4 (day 5): Social proof\n5 (day 7): Special offer for second visit\n\nEach: subject, preview, body (max 150 words), CTA. All in ${p.primary_language}.\nReturn ONLY valid JSON:\n{"emails":[{"day":0,"subject":"string","preview":"string","body":"string","cta":"string"}]}`, 'claude-sonnet-4-5', 2000);
+      log('/api/onboarding-cro/generate', `✅ 5-email onboarding for ${p.business_name}`);
+    } catch (err) { console.error('[onboarding-cro]', err.message); }
+  });
+});
+
+// ── MODULE 17: Upgrade CRO ──────────────────────────────────────────────────
+app.post('/api/upgrade/generate-prompts', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  try {
+    const p = await getProfile(userId);
+    const result = await callClaude(`Write 3 upgrade moment prompts for ${p?.business_name || 'business'} customers.\nMain service: ${p?.current_offer || 'standard'}\nPremium benefits: ${p?.usp || 'premium features'}\nLanguage: ${p?.primary_language || 'Albanian'}\n\n1. Feature gate prompt\n2. Usage limit prompt\n3. Time-based prompt (30 days)\n\nEach: headline, body (2 sentences), CTA, dismiss text.\nReturn ONLY valid JSON:\n{"prompts":[{"trigger":"feature_gate|usage_limit|time_based","headline":"string","body":"string","cta":"string","dismiss":"string"}]}`, 'claude-sonnet-4-5', 800);
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── MODULE 18: Signup Flow CRO ──────────────────────────────────────────────
+app.post('/api/signup-cro/analyze', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  try {
+    const p = await getProfile(userId);
+    const result = await callClaude(`Optimize signup/booking flow for ${p?.business_name || 'business'}, a ${p?.business_type || 'local business'}.\nUSP: ${p?.usp || ''}\nLanguage: ${p?.primary_language || 'Albanian'}\n\nGenerate:\n1. Landing step copy\n2. Form optimization (fields, order)\n3. Confirmation page copy\n4. Follow-up SMS/email (immediate after signup)\n\nReturn ONLY valid JSON:\n{"landing":{"headline":"string","subheadline":"string","cta":"string"},"form":{"recommended_fields":["string"],"field_order":["string"]},"confirmation":{"headline":"string","body":"string","next_action":"string"},"followup":{"sms":"string (160 chars)","email_subject":"string","email_body":"string"}}`, 'claude-sonnet-4-5', 1200);
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── MODULE 19: Autonomous Daily Orchestrator ────────────────────────────────
+app.post('/api/orchestrator/run/:userId', async (req, res) => {
+  const userId = req.params.userId;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  res.json({ received: true, message: 'Running daily orchestration' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      if (!p) return;
+      const dayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+      const plan = await callClaude(`You are the AI brain for ${p.business_name}.\nToday: ${dayName}\nGoal: ${p.primary_goal}\nBudget: ${p.monthly_budget}\nSeason: ${p.seasonal || 'year_round'}\n\nDecide what 2-3 marketing tasks to execute TODAY.\nChoose from: social_post, email, ai_seo, marketing_ideas, customer_research, schema_markup, lead_magnet, community_post\n\nReturn ONLY valid JSON:\n{"tasks":[{"type":"string","priority":1,"reason":"string"}]}`, 'claude-sonnet-4-5', 500);
+      const tasks = plan.tasks || [];
+      const executed = [];
+      const SELF = 'https://maroa-api-production.up.railway.app';
+      for (const task of tasks.slice(0, 3)) {
+        try {
+          const endpoints = { social_post: '/webhook/instant-content', email: '/webhook/email-sequence-process', ai_seo: '/api/ai-seo/optimize', marketing_ideas: '/api/ideas/generate', customer_research: '/api/research/analyze', schema_markup: '/api/schema/generate', lead_magnet: '/api/lead-magnets/generate', community_post: '/api/community/generate-posts' };
+          const ep = endpoints[task.type];
+          if (ep) {
+            apiRequest('POST', `${SELF}${ep}`, { 'Content-Type': 'application/json' }, { business_id: userId, userId }).catch(() => {});
+            executed.push(task.type);
+          }
+        } catch {}
+      }
+      await sbPost('orchestration_logs', { user_id: userId, tasks_planned: JSON.stringify(tasks), tasks_executed: JSON.stringify(executed), report: `Executed ${executed.length}/${tasks.length} tasks: ${executed.join(', ')}` }).catch(() => {});
+      log('/api/orchestrator/run', `✅ ${p.business_name}: ${executed.length} tasks executed`);
+    } catch (err) { console.error('[orchestrator]', err.message); }
+  });
+});
+app.post('/api/orchestrator/run-all', async (req, res) => {
+  res.json({ received: true, message: 'Running orchestration for all active users' });
+  setImmediate(async () => {
+    try {
+      const users = await sbGet('businesses', 'is_active=eq.true&select=id');
+      log('/api/orchestrator/run-all', `Running for ${users.length} businesses`);
+      for (const u of users) {
+        apiRequest('POST', `https://maroa-api-production.up.railway.app/api/orchestrator/run/${u.id}`, { 'Content-Type': 'application/json' }, {}).catch(() => {});
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    } catch (err) { console.error('[orchestrator/run-all]', err.message); }
+  });
+});
+app.get('/api/orchestrator/log/:userId', async (req, res) => {
+  try { const r = await sbGet('orchestration_logs', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=10`); res.json({ logs: r }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── n8n workflow route aliases (internal URL rewrite) ───────────────────────
 // WF32 calls /api/social/linkedin/publish instead of /webhook/linkedin-publish
 app.post('/api/social/linkedin/publish', (req, res) => {
