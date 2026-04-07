@@ -896,16 +896,28 @@ app.post('/webhook/new-user-signup', async (req, res) => {
 // Core content generation function (shared by signup + instant-content)
 // ─────────────────────────────────────────────────────────────────────────────
 async function generateInstantContent(bizId, emailOverride) {
-  // Fetch all context
-  const [bizArr, recentContent, compInsights, learningArr] = await Promise.all([
+  // Fetch all context (including new business_profiles for master prompt)
+  const [bizArr, recentContent, compInsights, learningArr, profileArr] = await Promise.all([
     sbGet('businesses', `id=eq.${bizId}&select=*`),
     sbGet('generated_content', `business_id=eq.${bizId}&order=created_at.desc&limit=5`),
     sbGet('competitor_insights', `business_id=eq.${bizId}&order=recorded_at.desc&limit=1`),
-    sbGet('learning_logs', `business_id=eq.${bizId}&order=created_at.desc&limit=1`)
+    sbGet('learning_logs', `business_id=eq.${bizId}&order=created_at.desc&limit=1`),
+    sbGet('business_profiles', `user_id=eq.${bizId}&select=*`).catch(() => [])
   ]);
 
   const biz   = bizArr[0];
   if (!biz) throw new Error(`Business ${bizId} not found`);
+
+  // If rich profile exists, build master prompt for enhanced accuracy
+  const profile = profileArr[0] || null;
+  let masterSystemPrompt = '';
+  if (profile && profile.physical_locations && Array.isArray(profile.physical_locations) && profile.physical_locations.length > 0) {
+    try {
+      const { buildMasterPrompt: bmp } = require('./services/masterPromptBuilder');
+      masterSystemPrompt = bmp(profile, 'social_post') + '\n\n';
+      log('generateContent', `Using master prompt for ${biz.business_name} (profile score: ${profile.profile_score})`);
+    } catch (e) { log('generateContent', `Master prompt build failed: ${e.message}`); }
+  }
 
   const comp    = compInsights[0];
   const lesson  = learningArr[0];
@@ -935,7 +947,7 @@ async function generateInstantContent(bizId, emailOverride) {
   } catch {}
 
   const prompt =
-    `${brandContext}${competitorReport}You are the AI marketing brain for ${biz.business_name}. Here is everything you know:\n\n` +
+    `${masterSystemPrompt}${brandContext}${competitorReport}You are the AI marketing brain for ${biz.business_name}. Here is everything you know:\n\n` +
     `BRAND VOICE (LOCKED — use this exact voice in EVERY piece): ${brandVoice}\n` +
     `DREAM CUSTOMER: ${biz.dream_customer || biz.target_audience || 'General audience'}\n` +
     `UNIQUE DIFFERENTIATOR: ${biz.unique_differentiator || 'To be highlighted'}\n` +
@@ -5737,9 +5749,23 @@ app.post('/webhook/ad-creative-generate', async (req, res) => {
   if (!business_id) return res.status(400).json({ error: 'business_id required' });
 
   try {
-    const biz = (await sbGet('businesses',
-      `id=eq.${business_id}&select=business_name,industry,target_audience,brand_tone,marketing_goal`))[0];
+    const [biz, profileArr] = await Promise.all([
+      sbGet('businesses', `id=eq.${business_id}&select=business_name,industry,target_audience,brand_tone,marketing_goal`).then(r => r[0]),
+      sbGet('business_profiles', `user_id=eq.${business_id}&select=*`).catch(() => [])
+    ]);
     if (!biz) return res.status(404).json({ error: 'business not found' });
+
+    // Use master prompt if profile exists
+    const adProfile = profileArr[0];
+    let masterAdPrompt = '';
+    if (adProfile?.physical_locations?.length > 0) {
+      try {
+        const { buildMasterPrompt: bmp, validateBeforeGeneration: vbg } = require('./services/masterPromptBuilder');
+        const errors = vbg(adProfile, 'paid_ad');
+        if (errors.length > 0) return res.status(400).json({ error: 'profile_incomplete', message: errors[0], all_errors: errors });
+        masterAdPrompt = bmp(adProfile, 'paid_ad') + '\n\n';
+      } catch {}
+    }
 
     // Pull existing creatives to avoid repetition
     let existingFilter = `business_id=eq.${business_id}&platform=eq.${platform}&order=created_at.desc&limit=5&select=headline,primary_text`;
@@ -5747,7 +5773,7 @@ app.post('/webhook/ad-creative-generate', async (req, res) => {
     const existingHeadlines = existing.map(c => c.headline).filter(Boolean).join('; ');
 
     const prompt =
-`You are a world-class Meta/Google ad copywriter. Create ${count} distinct ad creative variants for this business.
+`${masterAdPrompt}You are a world-class Meta/Google ad copywriter. Create ${count} distinct ad creative variants for this business.
 
 Business: ${biz.business_name} | Industry: ${biz.industry}
 Target Audience: ${biz.target_audience || 'general consumers'}
@@ -7705,6 +7731,170 @@ app.post('/api/social/twitter/thread', (req, res) => {
   req.body.post_type = 'thread';
   req.url = '/webhook/twitter-publish';
   app.handle(req, res);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ONBOARDING v2 — Structured Business Profiles
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const { buildMasterPrompt, calculateProfileScore, getMissingFields, validateBeforeGeneration } = require('./services/masterPromptBuilder');
+const { buildAndStorePineconeProfile } = require('./services/pineconeProfileBuilder');
+
+// ─── POST /api/onboarding/save ─ Full profile upsert ────────────────────────
+app.post('/api/onboarding/save', async (req, res) => {
+  try {
+    const data = req.body;
+    // Validate required fields
+    const required = ['business_name', 'business_type', 'primary_language', 'primary_goal', 'monthly_budget'];
+    const missingRequired = required.filter(f => !data[f]);
+    const locs = Array.isArray(data.physical_locations) ? data.physical_locations : [];
+    if (locs.length === 0 || !locs[0]?.city) missingRequired.push('physical_locations');
+    if (missingRequired.length > 0) {
+      return res.status(400).json({ error: 'missing_required', missing: missingRequired });
+    }
+
+    const userId = data.user_id;
+    if (!userId) return res.status(400).json({ error: 'user_id is required' });
+
+    // Calculate profile score
+    const profile_score = calculateProfileScore(data);
+
+    // Build payload for Supabase (only known columns)
+    const profilePayload = {
+      user_id: userId,
+      business_name: data.business_name,
+      business_type: data.business_type,
+      business_age: data.business_age || null,
+      usp: data.usp || null,
+      tagline: data.tagline || null,
+      physical_locations: data.physical_locations || [],
+      operation_model: data.operation_model || null,
+      service_area: data.service_area || [],
+      ad_targeting_area: data.ad_targeting_area || [],
+      primary_language: data.primary_language || 'Albanian',
+      secondary_languages: data.secondary_languages || [],
+      audience_age_min: data.audience_age_min || 18,
+      audience_age_max: data.audience_age_max || 65,
+      audience_gender: data.audience_gender || 'mixed',
+      audience_description: data.audience_description || null,
+      pain_point: data.pain_point || null,
+      avg_spend: data.avg_spend || null,
+      products: data.products || [],
+      current_offer: data.current_offer || null,
+      primary_goal: data.primary_goal,
+      monthly_budget: data.monthly_budget,
+      ads_experience: data.ads_experience || null,
+      tone_keywords: data.tone_keywords || [],
+      never_do: data.never_do || null,
+      business_hours: data.business_hours || {},
+      seasonal: data.seasonal || 'year_round',
+      busy_months: data.busy_months || [],
+      best_posting_times: data.best_posting_times || 'auto',
+      competitors: data.competitors || [],
+      they_do_better: data.they_do_better || null,
+      we_do_better: data.we_do_better || null,
+      profile_score,
+      updated_at: new Date().toISOString()
+    };
+
+    // Upsert: check if profile exists
+    const existing = await sbGet('business_profiles', `user_id=eq.${userId}&select=id`).catch(() => []);
+    if (existing.length > 0) {
+      await sbPatch('business_profiles', `user_id=eq.${userId}`, profilePayload);
+    } else {
+      await sbPost('business_profiles', profilePayload);
+    }
+
+    // Store in Pinecone (non-blocking — don't fail the request)
+    buildAndStorePineconeProfile(userId, profilePayload, getEmbedding, pineconeUpsert)
+      .catch(err => console.warn('Pinecone profile store failed (non-critical):', err.message));
+
+    const missing = getMissingFields(profilePayload);
+    res.json({ success: true, profile_score, missing_fields: missing });
+  } catch (err) {
+    console.error('Onboarding save error:', err);
+    res.status(500).json({ error: err.message || 'Failed to save profile' });
+  }
+});
+
+// ─── GET /api/onboarding/profile/:userId ─ Fetch profile ────────────────────
+app.get('/api/onboarding/profile/:userId', async (req, res) => {
+  try {
+    const rows = await sbGet('business_profiles', `user_id=eq.${req.params.userId}&select=*`);
+    if (rows.length === 0) return res.status(404).json({ error: 'Profile not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PATCH /api/onboarding/profile/:userId ─ Partial update ─────────────────
+app.patch('/api/onboarding/profile/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const updates = req.body;
+    delete updates.user_id; // prevent changing ownership
+    delete updates.id;
+
+    // Apply update
+    await sbPatch('business_profiles', `user_id=eq.${userId}`, { ...updates, updated_at: new Date().toISOString() });
+
+    // Recalculate score from full profile
+    const rows = await sbGet('business_profiles', `user_id=eq.${userId}&select=*`);
+    if (rows[0]) {
+      const newScore = calculateProfileScore(rows[0]);
+      await sbPatch('business_profiles', `user_id=eq.${userId}`, { profile_score: newScore });
+      const missing = getMissingFields(rows[0]);
+      res.json({ success: true, profile_score: newScore, missing_fields: missing });
+    } else {
+      res.json({ success: true });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /api/onboarding/score/:userId ─ Profile completeness scoring ───────
+app.get('/api/onboarding/score/:userId', async (req, res) => {
+  try {
+    const rows = await sbGet('business_profiles', `user_id=eq.${req.params.userId}&select=*`);
+    const profile = rows[0];
+    const score = profile ? calculateProfileScore(profile) : 0;
+    const missing = profile ? getMissingFields(profile) : ['all'];
+
+    const thresholds = {
+      social_posts: { required: 30, unlocked: score >= 30 },
+      email_sms: { required: 50, unlocked: score >= 50 },
+      paid_ads: { required: 70, unlocked: score >= 70 },
+      full_autopilot: { required: 90, unlocked: score >= 90 },
+      premium_accuracy: { required: 100, unlocked: score >= 100 },
+    };
+
+    const unlocked = Object.entries(thresholds).filter(([, v]) => v.unlocked).map(([k]) => k);
+    const locked = Object.entries(thresholds).filter(([, v]) => !v.unlocked).map(([k]) => k);
+    const nextUnlock = locked[0] || null;
+
+    // Figure out what's missing for next unlock
+    const missingForNext = [];
+    if (nextUnlock) {
+      if (score < 30) missingForNext.push('business_name', 'business_type', 'physical_locations', 'primary_language');
+      else if (score < 50) missingForNext.push('audience_description', 'pain_point', 'products');
+      else if (score < 70) missingForNext.push('primary_goal', 'monthly_budget', 'ad_targeting_area');
+      else if (score < 90) missingForNext.push('tone_keywords', 'never_do', 'business_hours', 'competitors');
+      else missingForNext.push(...missing);
+    }
+
+    res.json({
+      score,
+      unlocked,
+      locked,
+      next_unlock: nextUnlock,
+      missing_for_next: missingForNext.filter(m => missing.includes(m)),
+      thresholds
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── 404 ──────────────────────────────────────────────────────────────────────

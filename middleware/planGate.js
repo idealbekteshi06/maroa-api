@@ -1,63 +1,57 @@
 // middleware/planGate.js — Feature access gates by plan
-// Plans: free → growth → agency
-// Usage: app.post('/route', planGate('multi_workspace'), handler)
+// Plans (matching live DB + CLAUDE.md): free($0) · growth($49) · agency($99)
+// Usage: app.post('/webhook/org-create', planGate('multi_workspace'), handler)
 
 'use strict';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://zqhyrbttuqkvmdewiytf.supabase.co';
 const SUPABASE_KEY = (process.env.SUPABASE_KEY || '').replace(/[^\x20-\x7E]/g, '').trim();
 
-// Feature → minimum plan(s) required
+// ── Feature gates — which plans unlock each feature ──────────────────────────
 const PLAN_FEATURES = {
+  // Agency-only
   multi_workspace:  ['agency'],
-  paid_ads:         ['growth', 'agency'],
   white_label:      ['agency'],
+  api_access:       ['agency'],
+  // Growth + Agency
+  paid_ads:         ['growth', 'agency'],
   sms:              ['growth', 'agency'],
   competitor_intel: ['growth', 'agency'],
-  api_access:       ['agency'],
-  linkedin:         ['growth', 'agency'],
-  twitter:          ['growth', 'agency'],
-  tiktok:           ['growth', 'agency'],
   analytics:        ['growth', 'agency'],
   crm:              ['growth', 'agency'],
   long_form:        ['growth', 'agency'],
+  linkedin:         ['growth', 'agency'],
+  twitter:          ['growth', 'agency'],
+  tiktok:           ['growth', 'agency'],
 };
 
-// Plan hierarchy — higher index = higher plan
-const PLAN_RANK = { free: 0, starter: 1, growth: 2, agency: 3 };
-
+// ── Fetch plan from Supabase ──────────────────────────────────────────────────
 async function getBusinessPlan(business_id) {
-  const url = `${SUPABASE_URL}/rest/v1/businesses?select=plan&id=eq.${business_id}`;
-  const resp = await fetch(url, {
-    headers: {
-      apikey:        SUPABASE_KEY,
-      Authorization: `Bearer ${SUPABASE_KEY}`,
-    }
-  });
-  const data = await resp.json();
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/businesses?select=plan&id=eq.${business_id}`,
+    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+  );
+  const data = await res.json();
   return data?.[0]?.plan || 'free';
 }
 
 // ── Main middleware factory ────────────────────────────────────────────────────
 const planGate = (feature) => async (req, res, next) => {
-  // Extract business_id from body, params, query — in that priority order
+  // Accept business_id from body, params, or query — in that priority
   const business_id =
-    req.body?.business_id ||
-    req.params?.business_id ||
-    req.params?.id ||
+    req.body?.business_id    ||
+    req.params?.business_id  ||
+    req.params?.id           ||
     req.query?.business_id;
 
   if (!business_id) {
-    return res.status(400).json({
-      error: 'business_id required for plan verification',
-      feature
-    });
+    return res.status(400).json({ error: 'business_id required', feature });
   }
 
   const allowedPlans = PLAN_FEATURES[feature];
   if (!allowedPlans) {
-    // Unknown feature gate — allow through (fail open for unknown features)
-    console.warn(`[planGate] Unknown feature: ${feature} — allowing through`);
+    // Unknown feature — fail open so new features don't break
+    console.warn(`[planGate] Unknown feature: "${feature}" — passing through`);
     return next();
   }
 
@@ -65,36 +59,35 @@ const planGate = (feature) => async (req, res, next) => {
     const plan = await getBusinessPlan(business_id);
 
     if (!allowedPlans.includes(plan)) {
-      const minPlan = allowedPlans[0];
       return res.status(403).json({
-        error:         'upgrade_required',
+        error:          'upgrade_required',
         feature,
-        current_plan:  plan,
+        current_plan:   plan,
         required_plans: allowedPlans,
-        message:       `This feature requires the ${minPlan} plan or higher. You are on the ${plan} plan.`,
-        upgrade_url:   'https://maroa-ai-marketing-automator.lovable.app/billing'
+        message:        `The "${feature}" feature requires the ${allowedPlans[0]} plan or higher. You are on the "${plan}" plan.`,
+        upgrade_url:    'https://maroa-ai-marketing-automator.lovable.app/billing'
       });
     }
 
-    // Attach plan to request for downstream use
+    // Attach to request for use in downstream handlers
     req.business_plan = plan;
     req.business_id   = business_id;
     next();
 
   } catch (err) {
-    console.error('[planGate] Error checking plan:', err.message);
-    // Fail open — don't block users if plan check fails
+    // Fail open — don't block users if Supabase is slow
+    console.error('[planGate] Error fetching plan:', err.message);
     next();
   }
 };
 
-// ── Convenience: check plan inline (non-middleware) ───────────────────────────
+// ── Inline plan check (non-middleware helper) ─────────────────────────────────
 planGate.check = async (business_id, feature) => {
   const allowed = PLAN_FEATURES[feature] || [];
   const plan    = await getBusinessPlan(business_id);
   return { allowed: allowed.includes(plan), plan, required: allowed };
 };
 
-planGate.features = PLAN_FEATURES;
+planGate.FEATURES = PLAN_FEATURES;
 
 module.exports = planGate;
