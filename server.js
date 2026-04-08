@@ -120,15 +120,24 @@ async function callClaude(prompt, model = 'claude-sonnet-4-5', maxTokens = 2000)
   if (r.status !== 200) throw new Error(`Claude ${model}: ${r.status} ${JSON.stringify(r.body).slice(0,200)}`);
 
   const raw = r.body?.content?.[0]?.text || '';
-  try { return JSON.parse(raw); } catch {}
-  const stripped = raw.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
-  try { return JSON.parse(stripped); } catch {}
-  const s = raw.indexOf('{'), e = raw.lastIndexOf('}');
-  if (s !== -1 && e > s) { try { return JSON.parse(raw.slice(s, e + 1)); } catch {} }
-  // Try array too
-  const as = raw.indexOf('['), ae = raw.lastIndexOf(']');
-  if (as !== -1 && ae > as) { try { return JSON.parse(raw.slice(as, ae + 1)); } catch {} }
-  return { _raw: raw };
+  return extractJSON(raw) || { _raw: raw };
+}
+
+// ─── Universal JSON extractor — handles markdown fences, mixed text, arrays ─
+function extractJSON(text) {
+  if (!text) return null;
+  // 1. Direct parse
+  try { return JSON.parse(text); } catch {}
+  // 2. Strip ALL markdown code fences (global, not just start/end)
+  const cleaned = text.replace(/```(?:json|javascript|js)?\s*/g, '').replace(/```/g, '').trim();
+  try { return JSON.parse(cleaned); } catch {}
+  // 3. Find JSON array (greedy — outermost brackets)
+  const arrMatch = cleaned.match(/\[[\s\S]*\]/);
+  if (arrMatch) { try { return JSON.parse(arrMatch[0]); } catch {} }
+  // 4. Find JSON object (greedy — outermost braces)
+  const objMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (objMatch) { try { return JSON.parse(objMatch[0]); } catch {} }
+  return null;
 }
 
 // ─── OpenAI embedding helper ─────────────────────────────────────────────────
@@ -2192,10 +2201,7 @@ Return only valid JSON: {"post_text":"...","content_theme":"..."}`;
         { model: 'claude-sonnet-4-5', max_tokens: 700, messages: [{ role: 'user', content: prompt }] });
 
       const raw = aiResp.body?.content?.[0]?.text || '{}';
-      const _cl1 = raw.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
-      let parsed = {};
-      try { parsed = JSON.parse(_cl1); }
-      catch { const m = _cl1.match(/\{[\s\S]*\}/); if(m) try { parsed = JSON.parse(m[0]); } catch {} }
+      const parsed = extractJSON(raw) || {};
       postText = parsed.post_text || raw;
 
       // Save to generated_content
@@ -2391,10 +2397,7 @@ Return only valid JSON: {"tweet":"...","content_theme":"..."}`;
         { model: 'claude-sonnet-4-5', max_tokens: 500, messages: [{ role: 'user', content: prompt }] });
 
       const raw = aiResp.body?.content?.[0]?.text || '{}';
-      const _cl2 = raw.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
-      let parsed = {};
-      try { parsed = JSON.parse(_cl2); }
-      catch { const m = _cl2.match(/\{[\s\S]*\}/); if(m) try { parsed = JSON.parse(m[0]); } catch {} }
+      const parsed = extractJSON(raw) || {};
 
       tweetText = parsed.tweet     || '';
       tweets    = parsed.tweets    || [];
@@ -2589,10 +2592,7 @@ Return only valid JSON: {"hook":"...","script":"...","caption":"...","hashtags":
       { model: 'claude-sonnet-4-5', max_tokens: 600, messages: [{ role: 'user', content: prompt }] });
 
     const raw = aiResp.body?.content?.[0]?.text || '{}';
-    const _cl3 = raw.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
-    let parsed = {};
-    try { parsed = JSON.parse(_cl3); }
-    catch { const m = _cl3.match(/\{[\s\S]*\}/); if(m) try { parsed = JSON.parse(m[0]); } catch {} }
+    const parsed = extractJSON(raw) || {};
 
     const fullCaption = `${parsed.caption || ''} ${(parsed.hashtags || []).join(' ')}`.trim();
 
@@ -7317,8 +7317,7 @@ app.post('/webhook/score-image', async (req, res) => {
     });
     if (r.status !== 200) return res.json({ overall_score: 5, recommendation: 'use', feedback: 'Could not score — using as-is' });
     const raw = r.body?.content?.[0]?.text || '';
-    let parsed = {};
-    try { parsed = JSON.parse(raw); } catch { const m = raw.match(/\{[\s\S]*\}/); if (m) try { parsed = JSON.parse(m[0]); } catch {} }
+    const parsed = extractJSON(raw) || { overall_score: 5, recommendation: 'use', feedback: 'Could not parse score' };
     res.json(parsed);
   } catch (err) { res.json({ overall_score: 5, recommendation: 'use', feedback: err.message }); }
 });
