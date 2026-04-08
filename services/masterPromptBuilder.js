@@ -91,6 +91,44 @@ function getMissingFields(p) {
 }
 
 /**
+ * Kosovo/Albania holidays + seasonal context
+ */
+function getKosovoAlbaniaHolidays(date) {
+  const holidays = {
+    '01-01': 'Viti i Ri', '01-07': 'Krishtlindjet Ortodokse', '02-17': 'Dita e Pavarësisë së Kosovës',
+    '03-08': 'Dita e Gruas', '04-09': 'Dita e Kushtetutës', '05-01': 'Dita e Punës',
+    '05-09': 'Dita e Evropës', '06-01': 'Dita e Fëmijëve', '06-12': 'Dita e Paqes',
+    '11-28': 'Dita e Flamurit', '11-29': 'Dita e Çlirimit', '12-25': 'Krishtlindjet', '12-31': 'Nata e Vitit të Ri'
+  };
+  const upcoming = [];
+  const d = new Date(date);
+  for (let i = 0; i <= 14; i++) {
+    const check = new Date(d); check.setDate(check.getDate() + i);
+    const key = `${String(check.getMonth()+1).padStart(2,'0')}-${String(check.getDate()).padStart(2,'0')}`;
+    if (holidays[key]) upcoming.push(`${holidays[key]} (${i === 0 ? 'today' : 'in ' + i + ' days'})`);
+  }
+  return upcoming;
+}
+
+function getSeason(date) {
+  const m = (date || new Date()).getMonth() + 1;
+  if (m >= 3 && m <= 5) return 'spring'; if (m >= 6 && m <= 8) return 'summer';
+  if (m >= 9 && m <= 11) return 'autumn'; return 'winter';
+}
+
+function getAudiencePsychology(businessType, gender, ageMin) {
+  const type = (businessType || '').toLowerCase();
+  if (type.includes('fitness') || type.includes('gym')) return 'transformation desire, achievement motivation, social comparison, before/after framing';
+  if (type.includes('restaurant') || type.includes('food') || type.includes('cafe')) return 'sensory language, social experience, FOMO, tradition and comfort';
+  if (type.includes('beauty') || type.includes('salon')) return 'confidence boost, self-image improvement, luxury aspiration, visible results';
+  if (type.includes('retail') || type.includes('shop')) return 'value perception, exclusivity, trend awareness, social proof';
+  if (type.includes('medical') || type.includes('health') || type.includes('dental')) return 'trust and safety, expert credibility, relief from worry, family protection';
+  if (type.includes('real estate') || type.includes('property')) return 'aspiration, security, investment thinking, lifestyle upgrade';
+  if (type.includes('education') || type.includes('tutor')) return 'growth mindset, future potential, parental pride, career advancement';
+  return 'trust building, value demonstration, social proof, local connection';
+}
+
+/**
  * Build the master system prompt for Claude
  * @param {Object} p - profile data from business_profiles table
  * @param {string} taskType - 'social_post' | 'paid_ad' | 'email' | 'sms' | 'image' | 'content_calendar' | 'general'
@@ -155,6 +193,16 @@ Competitors are better at: ${p.they_do_better || 'not specified'} — do not mak
 ═══ OPERATIONS ═══
 Business hours: ${buildHoursSummary(p.business_hours)}
 Seasonal: ${p.seasonal || 'year_round'}${busyMonths.length ? ', busy months: ' + busyMonths.join(', ') : ''}
+
+═══ TIMING CONTEXT ═══
+Today: ${new Date().toLocaleDateString('sq-AL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+Season: ${getSeason(new Date())}
+Upcoming holidays: ${getKosovoAlbaniaHolidays(new Date()).join(', ') || 'none in next 14 days'}
+Use seasonal and local timing to make content feel current and relevant.
+
+═══ AUDIENCE PSYCHOLOGY ═══
+Key psychological triggers for this audience: ${getAudiencePsychology(p.business_type, p.audience_gender, p.audience_age_min)}
+Apply these triggers naturally in all content — never forced.
 
 ═══ ABSOLUTE RULES ═══
 1. Never mention a city or location not listed in TARGET AREA
@@ -276,5 +324,8 @@ module.exports = {
   calculateProfileScore,
   getMissingFields,
   validateBeforeGeneration,
-  buildHoursSummary
+  buildHoursSummary,
+  getKosovoAlbaniaHolidays,
+  getSeason,
+  getAudiencePsychology
 };

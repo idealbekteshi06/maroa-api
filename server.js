@@ -999,7 +999,7 @@ async function generateInstantContent(bizId, emailOverride) {
     `"linkedin_post":"...","tiktok_script":"...","email_subject":"...","email_body":"...",` +
     `"blog_title":"...","google_ad_headline":"...","google_ad_description":"...","content_theme":"...","image_prompt":"..."}`;
 
-  let content = await callClaude(prompt, 'claude-sonnet-4-5', 3000);
+  let content = await callClaude(prompt, 'claude-opus-4-5', 3000);
   let score   = scoreContent(content);
 
   // ── UPGRADE 3: Generate 3 variations, pick the highest scoring one ────
@@ -1022,6 +1022,20 @@ async function generateInstantContent(bizId, emailOverride) {
   // Generate image via smart model router (plan-aware)
   const imgPrompt = content.image_prompt || `Professional marketing photo for ${biz.business_name}, ${biz.industry || 'business'}`;
   const imgResult = await generateSmartImage(bizId, imgPrompt, 'social_post', biz.plan || 'free');
+
+  // ── Content Validation ─────────────────────────────────────────────────────
+  try {
+    const { validateGeneratedContent } = require('./services/contentValidator');
+    const mainText = content.instagram_caption || content.facebook_post || '';
+    const validation = validateGeneratedContent(mainText, { ...biz, physical_locations: profile?.physical_locations, ad_targeting_area: profile?.ad_targeting_area, primary_language: profile?.primary_language || 'Albanian', business_name: biz.business_name }, 'social_post');
+    if (!validation.valid && validation.issues.length > 0) {
+      log('contentValidator', `Issues found: ${validation.issues.join(', ')} — regenerating...`);
+      const fixPrompt = prompt + `\n\nPREVIOUS ATTEMPT HAD THESE ISSUES — FIX THEM:\n${validation.issues.join('\n')}\nGenerate corrected content.`;
+      const fixed = await callClaude(fixPrompt, 'claude-opus-4-5', 3000);
+      if (fixed && !fixed._raw) { content = fixed; score = scoreContent(content); }
+    }
+    content._quality_score = validation.quality_score;
+  } catch (valErr) { log('contentValidator', `Validation skipped: ${valErr.message}`); }
 
   // ── LEVEL 6: Automated A/B testing — save both winner (A) and runner-up (B) ─
   let abTestId = null;
@@ -2201,7 +2215,7 @@ Return only valid JSON: {"post_text":"...","content_theme":"..."}`;
 
       const aiResp = await apiRequest('POST', 'https://api.anthropic.com/v1/messages',
         { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-        { model: 'claude-sonnet-4-5', max_tokens: 700, messages: [{ role: 'user', content: prompt }] });
+        { model: 'claude-opus-4-5', max_tokens: 700, messages: [{ role: 'user', content: prompt }] });
 
       const raw = aiResp.body?.content?.[0]?.text || '{}';
       const parsed = extractJSON(raw) || {};
@@ -2397,7 +2411,7 @@ Return only valid JSON: {"tweet":"...","content_theme":"..."}`;
 
       const aiResp = await apiRequest('POST', 'https://api.anthropic.com/v1/messages',
         { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-        { model: 'claude-sonnet-4-5', max_tokens: 500, messages: [{ role: 'user', content: prompt }] });
+        { model: 'claude-opus-4-5', max_tokens: 500, messages: [{ role: 'user', content: prompt }] });
 
       const raw = aiResp.body?.content?.[0]?.text || '{}';
       const parsed = extractJSON(raw) || {};
@@ -2592,7 +2606,7 @@ Return only valid JSON: {"hook":"...","script":"...","caption":"...","hashtags":
 
     const aiResp = await apiRequest('POST', 'https://api.anthropic.com/v1/messages',
       { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-      { model: 'claude-sonnet-4-5', max_tokens: 600, messages: [{ role: 'user', content: prompt }] });
+      { model: 'claude-opus-4-5', max_tokens: 600, messages: [{ role: 'user', content: prompt }] });
 
     const raw = aiResp.body?.content?.[0]?.text || '{}';
     const parsed = extractJSON(raw) || {};
@@ -5138,7 +5152,7 @@ Return ONLY valid JSON:
   "thumbnail_text": "5 words max for overlay"
 }`;
 
-      const script = await callClaude(prompt, 'claude-sonnet-4-5', 1000);
+      const script = await callClaude(prompt, 'claude-opus-4-5', 1000);
 
       // Generate thumbnail via Flux → save to Supabase Storage
       let thumbnail_url = null;
@@ -7814,6 +7828,74 @@ async function getProfile(userId) {
   return p;
 }
 function pCity(p) { const l = Array.isArray(p?.physical_locations) ? p.physical_locations : []; return l[0]?.city || 'local area'; }
+
+// ── IMPROVEMENT 6: Content Calendar Engine ──────────────────────────────────
+app.post('/api/calendar/generate', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  res.json({ received: true, message: 'Generating 30-day content calendar' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      if (!p) return;
+      const intel = await buildIntelligenceContext(userId);
+      const { getKosovoAlbaniaHolidays, getSeason } = require('./services/masterPromptBuilder');
+      const holidays = typeof getKosovoAlbaniaHolidays === 'function' ? getKosovoAlbaniaHolidays(new Date()).join(', ') : '';
+      const season = typeof getSeason === 'function' ? getSeason(new Date()) : 'current';
+      const prods = Array.isArray(p.products) ? p.products.map(pr => pr.name).join(', ') : 'main service';
+      const result = await callClaude(`You are a content calendar strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nLanguage: ${p.primary_language || 'Albanian'}\nGoal: ${p.primary_goal}\nBudget: ${p.monthly_budget}\nProducts: ${prods}\nSeason: ${season}\nUpcoming holidays: ${holidays || 'none soon'}\n${intel}\n\nCreate a 30-day content calendar following content pillar framework:\n- 30% educational\n- 20% social proof\n- 20% behind the scenes\n- 20% engagement\n- 10% promotional\n\nReturn ONLY valid JSON:\n{"calendar":[{"day":1,"type":"educational|social_proof|behind_scenes|engagement|promotional","platform":"instagram|facebook|both","topic":"specific topic","caption_idea":"brief idea","hashtags":"3-5 relevant hashtags"}],"posting_frequency":"X posts per week","best_days":["string"]}`, 'claude-opus-4-5', 3000);
+      try { storeInsight(userId, 'calendar', 'content_strategy', 'posting_plan', `${(result.calendar || []).length} days planned, ${result.posting_frequency || ''}`); } catch {}
+      log('/api/calendar/generate', `✅ 30-day calendar for ${p.business_name}`);
+    } catch (err) { console.error('[calendar]', err.message); }
+  });
+});
+
+// ── IMPROVEMENT 7: Content Feedback Loop ────────────────────────────────────
+app.post('/api/content/feedback', async (req, res) => {
+  const { contentId, userId, action, editedVersion } = req.body;
+  if (!contentId || !userId || !action) return res.status(400).json({ error: 'contentId, userId, action required' });
+  try {
+    if (action === 'approved') {
+      await sbPatch('generated_content', `id=eq.${contentId}`, { status: 'approved', approved_at: new Date().toISOString(), approval_method: 'client_feedback' });
+      storeInsight(userId, 'feedback', 'content_preference', 'approved_style', 'client approved this content style').catch(() => {});
+    } else if (action === 'rejected') {
+      await sbPatch('generated_content', `id=eq.${contentId}`, { status: 'rejected' });
+      storeInsight(userId, 'feedback', 'content_preference', 'rejected_reason', 'client rejected — needs different approach').catch(() => {});
+    } else if (action === 'edited' && editedVersion) {
+      await sbPatch('generated_content', `id=eq.${contentId}`, { status: 'approved', instagram_caption: editedVersion, approved_at: new Date().toISOString(), approval_method: 'client_edited' });
+      storeInsight(userId, 'feedback', 'content_preference', 'edited_style', `client edited content — prefer this style: ${editedVersion.slice(0, 100)}`).catch(() => {});
+    }
+    res.json({ success: true, action });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── IMPROVEMENT 9: Performance Tracking ─────────────────────────────────────
+app.post('/api/performance/update', async (req, res) => {
+  const { userId, platform, metric, value, date } = req.body;
+  if (!userId || !platform || !metric) return res.status(400).json({ error: 'userId, platform, metric required' });
+  try {
+    await sbPost('analytics_snapshots', { business_id: userId, platform, [metric]: value || 0, snapshot_date: date || new Date().toISOString().slice(0, 10) });
+    storeInsight(userId, 'performance', 'performance_data', `${platform}_${metric}`, String(value || 0)).catch(() => {});
+    res.json({ stored: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/performance/summary/:userId', async (req, res) => {
+  try {
+    const uid = req.params.userId;
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const twoWeeksAgo = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+    const [thisWeek, lastWeek] = await Promise.all([
+      sbGet('analytics_snapshots', `business_id=eq.${uid}&snapshot_date=gte.${weekAgo}&select=reach,engagement,clicks,impressions`),
+      sbGet('analytics_snapshots', `business_id=eq.${uid}&snapshot_date=gte.${twoWeeksAgo}&snapshot_date=lt.${weekAgo}&select=reach,engagement,clicks,impressions`)
+    ]);
+    const sum = (arr, k) => arr.reduce((s, r) => s + (r[k] || 0), 0);
+    const tw = { reach: sum(thisWeek, 'reach'), engagement: sum(thisWeek, 'engagement'), clicks: sum(thisWeek, 'clicks') };
+    const lw = { reach: sum(lastWeek, 'reach'), engagement: sum(lastWeek, 'engagement'), clicks: sum(lastWeek, 'clicks') };
+    const change = (a, b) => b > 0 ? Math.round((a - b) / b * 100) : 0;
+    res.json({ this_week: tw, last_week: lw, change: { reach: change(tw.reach, lw.reach) + '%', engagement: change(tw.engagement, lw.engagement) + '%', clicks: change(tw.clicks, lw.clicks) + '%' } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 // ── MODULE 1: Referral Program ──────────────────────────────────────────────
 app.post('/api/referral/setup', async (req, res) => {
