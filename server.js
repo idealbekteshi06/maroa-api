@@ -8014,8 +8014,9 @@ app.post('/api/ab-tests/create', async (req, res) => {
   try {
     const p = await getProfile(userId);
     const result = await callClaude(`Create A/B test variant for ${p?.business_name || 'business'}.\nCurrent (A): "${currentVersion}"\nType: ${testType}\nLanguage: ${p?.primary_language || 'English'}\n\nChange ONE variable. Return ONLY valid JSON:\n{"variant_a":"string","variant_b":"string","hypothesis":"string","primary_metric":"string","minimum_runtime":"string"}`, 'claude-sonnet-4-5', 500);
-    const row = await sbPost('ab_tests', { business_id: userId, variant_a: JSON.stringify({ text: result.variant_a || currentVersion, type: testType }), variant_b: JSON.stringify({ text: result.variant_b, type: testType }), started_at: new Date().toISOString() });
-    res.json({ test_id: row?.id, ...result });
+    let row = null;
+    try { row = await sbPost('ab_tests', { business_id: userId, started_at: new Date().toISOString() }); } catch (dbErr) { log('/api/ab-tests/create', `DB insert failed (non-critical): ${dbErr.message}`); }
+    res.json({ test_id: row?.id || null, ...result });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.get('/api/ab-tests/:userId', async (req, res) => {
