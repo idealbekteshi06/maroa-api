@@ -833,7 +833,7 @@ app.get('/health', (req, res) => {
 
 // Health check
 app.get('/', (req, res) => res.json({
-  status: 'ok', service: 'maroa-api', version: '2.1.0',
+  status: 'ok', service: 'maroa-api', version: '2.2.0',
   env: {
     SUPABASE_KEY  : SUPABASE_KEY  ? `set (${SUPABASE_KEY.slice(0,8)}...)`  : 'MISSING',
     ANTHROPIC_KEY : ANTHROPIC_KEY ? `set (${ANTHROPIC_KEY.slice(0,15)}...)`: 'MISSING',
