@@ -245,28 +245,29 @@ function validateBeforeGeneration(profile, taskType) {
  * @param {Function} getEmbedding - embedding function
  * @param {Function} pineconeQuery - Pinecone query function
  */
-async function buildMasterPromptWithSkills(profile, taskType, getEmbedding, pineconeQuery) {
+async function buildMasterPromptWithSkills(profile, taskType, getEmbedding, pineconeQuery, buildIntelligenceCtx) {
   const basePrompt = buildMasterPrompt(profile, taskType);
 
+  let skillsSection = '';
   try {
     const { getRelevantSkills } = require('./marketingKnowledgeBase');
-    const skills = await getRelevantSkills(
-      getEmbedding, pineconeQuery,
-      taskType,
-      profile.business_type,
-      profile.primary_goal,
-      2
-    );
-    if (!skills.length) return basePrompt;
+    const skills = await getRelevantSkills(getEmbedding, pineconeQuery, taskType, profile.business_type, profile.primary_goal, 2);
+    if (skills.length) {
+      skillsSection = `\n\n═══ EXPERT MARKETING FRAMEWORKS TO APPLY ═══\n${skills.map(s =>
+        `[${s.name.toUpperCase()} — relevance: ${(s.score * 100).toFixed(0)}%]\n${s.content}`
+      ).join('\n\n')}\n\n═══ APPLY THESE FRAMEWORKS TO ALL CONTENT ABOVE ═══`;
+    }
+  } catch {}
 
-    const skillsSection = `\n\n═══ EXPERT MARKETING FRAMEWORKS TO APPLY ═══\n${skills.map(s =>
-      `[${s.name.toUpperCase()} — relevance: ${(s.score * 100).toFixed(0)}%]\n${s.content}`
-    ).join('\n\n')}\n\n═══ APPLY THESE FRAMEWORKS TO ALL CONTENT ABOVE ═══`;
+  let intelligenceSection = '';
+  try {
+    if (typeof buildIntelligenceCtx === 'function') {
+      const ctx = await buildIntelligenceCtx(profile.user_id);
+      if (ctx) intelligenceSection = '\n\n' + ctx;
+    }
+  } catch {}
 
-    return basePrompt + skillsSection;
-  } catch {
-    return basePrompt;
-  }
+  return basePrompt + skillsSection + intelligenceSection;
 }
 
 module.exports = {

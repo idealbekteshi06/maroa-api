@@ -914,7 +914,7 @@ async function generateInstantContent(bizId, emailOverride) {
   if (profile && profile.physical_locations && Array.isArray(profile.physical_locations) && profile.physical_locations.length > 0) {
     try {
       const { buildMasterPromptWithSkills } = require('./services/masterPromptBuilder');
-      masterSystemPrompt = await buildMasterPromptWithSkills(profile, 'social_post', getEmbedding, pineconeQuery) + '\n\n';
+      masterSystemPrompt = await buildMasterPromptWithSkills(profile, 'social_post', getEmbedding, pineconeQuery, buildIntelligenceContext) + '\n\n';
       log('generateContent', `Using master prompt + marketing skills for ${biz.business_name} (profile score: ${profile.profile_score})`);
     } catch (e) {
       // Fallback to basic master prompt without skills
@@ -7745,6 +7745,53 @@ app.delete('/webhook/webhook-delete', async (req, res) => {
 // 19 SKILL MODULES — Expert Marketing Automation
 // ═════════════════════════════════════════════════════════════════════════════
 
+// ── Shared Intelligence Layer ────────────────────────────────────────────────
+async function storeInsight(userId, sourceModule, insightType, insightKey, insightValue) {
+  try {
+    const val = typeof insightValue === 'object' ? JSON.stringify(insightValue) : String(insightValue || '');
+    if (!val || val === '""') return;
+    // Upsert: check if this key already exists for this user+module
+    const existing = await sbGet('business_intelligence', `user_id=eq.${userId}&source_module=eq.${sourceModule}&insight_key=eq.${encodeURIComponent(insightKey)}&select=id`).catch(() => []);
+    if (existing.length > 0) {
+      await sbPatch('business_intelligence', `id=eq.${existing[0].id}`, { insight_value: val.slice(0, 2000), updated_at: new Date().toISOString() });
+    } else {
+      await sbPost('business_intelligence', { user_id: userId, source_module: sourceModule, insight_type: insightType, insight_key: insightKey, insight_value: val.slice(0, 2000) });
+    }
+  } catch (err) { log('storeInsight', `${sourceModule}/${insightKey}: ${err.message}`); }
+}
+
+async function getAllIntelligence(userId) {
+  try {
+    return await sbGet('business_intelligence', `user_id=eq.${userId}&order=updated_at.desc&limit=50`);
+  } catch { return []; }
+}
+
+async function buildIntelligenceContext(userId) {
+  const rows = await getAllIntelligence(userId);
+  if (!rows.length) return '';
+  const grouped = {};
+  for (const r of rows) {
+    const mod = r.source_module || 'general';
+    if (!grouped[mod]) grouped[mod] = [];
+    grouped[mod].push(`${r.insight_key}: ${r.insight_value}`);
+  }
+  const lines = Object.entries(grouped).map(([mod, items]) => `[${mod}]\n${items.slice(0, 5).join('\n')}`);
+  return `═══ SHARED INTELLIGENCE FROM ALL MODULES ═══\n${lines.join('\n\n')}\nUse this intelligence to inform all content.\n`;
+}
+
+// GET /api/intelligence/:userId — view all shared intelligence
+app.get('/api/intelligence/:userId', async (req, res) => {
+  try {
+    const rows = await getAllIntelligence(req.params.userId);
+    const grouped = {};
+    for (const r of rows) {
+      if (!grouped[r.source_module]) grouped[r.source_module] = [];
+      grouped[r.source_module].push({ key: r.insight_key, value: r.insight_value, type: r.insight_type, updated: r.updated_at });
+    }
+    res.json({ intelligence: grouped, total: rows.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Helper: fetch business profile for skill modules
 async function getProfile(userId) {
   let p = null;
@@ -7766,6 +7813,7 @@ app.post('/api/referral/setup', async (req, res) => {
       const code = crypto.randomBytes(4).toString('hex');
       const result = await callClaude(`You are a referral program expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAvg spend: ${p.avg_spend || 'moderate'}\nLanguage: ${p.primary_language || 'Albanian'}\n\nDesign a double-sided referral reward program.\nReturn ONLY valid JSON:\n{"reward_for_referrer":"string","reward_for_referee":"string","trigger_moments":["string"],"share_message":"string (${p.primary_language}, max 160 chars)","email_subject":"string","email_body":"string"}`, 'claude-sonnet-4-5', 1000);
       await sbPost('referral_programs', { user_id: userId, referral_code: code, reward_type: 'discount', reward_value: result.reward_for_referee || '20%', is_active: true });
+      storeInsight(userId, 'referral', 'program', 'reward_structure', `${result.reward_for_referrer || ''} / ${result.reward_for_referee || ''}`);
       log('/api/referral/setup', `✅ Referral program created for ${p.business_name}`);
     } catch (err) { console.error('[referral/setup]', err.message); }
   });
@@ -7796,6 +7844,8 @@ app.post('/api/lead-magnets/generate', async (req, res) => {
       if (!p) return;
       const result = await callClaude(`You are a lead magnet strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAudience: ${p.audience_description || 'local customers'}, age ${p.audience_age_min || 18}-${p.audience_age_max || 65}\nPain point: ${p.pain_point || 'not specified'}\nLanguage: ${p.primary_language || 'Albanian'}\n\nGenerate the BEST lead magnet. Solve ONE specific problem. High value, consumable in 10 min.\nReturn ONLY valid JSON:\n{"title":"string","type":"checklist|guide|template","headline":"string","subheadline":"string","content":"string (full content)","cta_button":"string"}`, 'claude-sonnet-4-5', 2000);
       await sbPost('lead_magnets', { user_id: userId, title: result.title || 'Lead Magnet', type: result.type || 'guide', content: JSON.stringify(result), is_active: true });
+      storeInsight(userId, 'lead_magnets', 'content', 'lead_magnet_topic', result.title || 'lead magnet');
+      storeInsight(userId, 'lead_magnets', 'content', 'lead_magnet_type', result.type || 'guide');
       log('/api/lead-magnets/generate', `✅ Lead magnet: ${result.title}`);
     } catch (err) { console.error('[lead-magnets]', err.message); }
   });
@@ -7816,6 +7866,7 @@ app.post('/api/launch/create', async (req, res) => {
       if (!p) return;
       const result = await callClaude(`You are a launch strategist for ${p.business_name} launching: ${productName}\nDescription: ${productDescription || 'new product'}\nLaunch date: ${launchDate || 'in 2 weeks'}\nBusiness: ${p.business_type} in ${pCity(p)}\nLanguage: ${p.primary_language}\nBudget: ${p.monthly_budget}\nAudience: ${p.audience_description}\n\nUsing ORB launch framework, create complete launch plan:\n- PRE-LAUNCH: 3 teaser posts + 1 email\n- LAUNCH DAY: announcement post + launch email + ad copy\n- POST-LAUNCH: 2 social proof posts + follow-up email\n\nReturn ONLY valid JSON:\n{"pre_launch":{"posts":["string"],"email":{"subject":"string","body":"string"}},"launch_day":{"post":"string","email":{"subject":"string","body":"string"},"ad_copy":"string"},"post_launch":{"posts":["string"],"email":{"subject":"string","body":"string"}}}`, 'claude-opus-4-5', 3000);
       await sbPost('launch_campaigns', { user_id: userId, product_name: productName, launch_date: launchDate || new Date(Date.now() + 14 * 86400000).toISOString(), phase: 'pre_launch', content_plan: JSON.stringify(result) });
+      storeInsight(userId, 'launch', 'campaign', 'product_launching', productName);
       log('/api/launch/create', `✅ Launch plan for ${productName}`);
     } catch (err) { console.error('[launch]', err.message); }
   });
@@ -7837,6 +7888,9 @@ app.post('/api/research/analyze', async (req, res) => {
       const reviewText = Array.isArray(reviews) ? reviews.join('\n') : (feedback || 'No reviews provided — analyze based on typical customers for this business type');
       const result = await callClaude(`You are a customer research expert analyzing ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nCurrent audience: ${p.audience_description}\nReviews/feedback:\n${reviewText}\n\nExtract:\n1. JOBS TO BE DONE (functional, emotional, social)\n2. Top 3 PAIN POINTS with emotional language\n3. TRIGGER EVENTS\n4. DESIRED OUTCOMES in customer words\n5. KEY PHRASES to use in marketing\n\nReturn ONLY valid JSON:\n{"jobs_to_be_done":["string"],"pain_points":["string"],"trigger_events":["string"],"desired_outcomes":["string"],"key_phrases":["string"],"improved_audience_description":"string","content_recommendations":["string"]}`, 'claude-sonnet-4-5', 1500);
       await sbPost('customer_insights', { user_id: userId, source: reviews ? 'reviews' : 'ai_analysis', insight_type: 'full_analysis', content: JSON.stringify(result), actionable_suggestion: (result.content_recommendations || []).join('; ') });
+      storeInsight(userId, 'research', 'customer', 'top_pain_points', (result.pain_points || []).slice(0, 3).join('; '));
+      storeInsight(userId, 'research', 'customer', 'customer_language', (result.key_phrases || []).slice(0, 5).join('; '));
+      storeInsight(userId, 'research', 'customer', 'trigger_events', (result.trigger_events || []).slice(0, 3).join('; '));
       log('/api/research/analyze', `✅ Customer insights for ${p.business_name}`);
     } catch (err) { console.error('[research]', err.message); }
   });
@@ -7856,6 +7910,8 @@ app.post('/api/ideas/generate', async (req, res) => {
       for (const idea of ideas.slice(0, 10)) {
         await sbPost('marketing_ideas', { user_id: userId, idea: idea.idea || idea, category: idea.category, priority: idea.priority || 'medium', estimated_impact: idea.estimated_impact, how_to_execute: idea.how_to_execute, budget_required: idea.budget_required, time_to_results: idea.time_to_results }).catch(() => {});
       }
+      const topIdeas = ideas.filter(i => i.priority === 'high').slice(0, 3).map(i => i.idea).join('; ');
+      storeInsight(userId, 'ideas', 'strategy', 'top_priority_ideas', topIdeas || ideas[0]?.idea || '');
       log('/api/ideas/generate', `✅ ${ideas.length} marketing ideas generated`);
     } catch (err) { console.error('[ideas]', err.message); }
   });
@@ -7880,6 +7936,7 @@ app.post('/api/ai-seo/optimize', async (req, res) => {
       if (!p) return;
       const result = await callClaude(`You are an AI SEO expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nUSP: ${p.usp}\nLanguage: ${p.primary_language}\n\nOptimize for ChatGPT, Perplexity, Google AI Overviews:\n1. Create 10 FAQ entries (question as users ask AI + direct citable answer)\n2. Write 3 authority paragraphs (specific numbers, structured for extraction)\n3. Generate local search queries\n\nReturn ONLY valid JSON:\n{"faqs":[{"question":"string","answer":"string"}],"authority_paragraphs":["string"],"target_queries":["string"]}`, 'claude-sonnet-4-5', 2000);
       await sbPost('ai_seo_content', { user_id: userId, content_type: 'full_optimization', optimized_content: JSON.stringify(result) });
+      storeInsight(userId, 'ai_seo', 'seo', 'target_queries', (result.target_queries || []).slice(0, 5).join('; '));
       log('/api/ai-seo/optimize', `✅ AI SEO content for ${p.business_name}`);
     } catch (err) { console.error('[ai-seo]', err.message); }
   });
@@ -7917,6 +7974,7 @@ app.post('/api/seo-pages/generate', async (req, res) => {
         const result = await callClaude(`Generate SEO page for "${p.business_type} in ${city}".\nBusiness: ${p.business_name}\nUSP: ${p.usp}\nLanguage: ${p.primary_language}\n\nReturn ONLY valid JSON:\n{"meta_title":"string (60 chars)","meta_description":"string (155 chars)","h1":"string","intro":"string (150 words)","services_section":"string","why_us":"string","faq":[{"q":"string","a":"string"}],"cta":"string"}`, 'claude-sonnet-4-5', 1500);
         await sbPost('seo_pages', { user_id: userId, page_type: 'service_location', keyword: `${p.business_type} in ${city}`, location: city, content: JSON.stringify(result), meta_title: result.meta_title, meta_description: result.meta_description }).catch(() => {});
       }
+      storeInsight(userId, 'seo_pages', 'seo', 'pages_created', cities.join(', '));
       log('/api/seo-pages/generate', `✅ ${cities.length} SEO pages for ${p.business_name}`);
     } catch (err) { console.error('[seo-pages]', err.message); }
   });
@@ -7938,6 +7996,8 @@ app.post('/api/pricing/analyze', async (req, res) => {
       const prods = Array.isArray(p.products) ? p.products : [];
       const result = await callClaude(`You are a pricing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAvg spend: ${p.avg_spend || 'unknown'}\nProducts: ${prods.map(pr => `${pr.name}: ${pr.price || 'N/A'}`).join(', ')}\nGoal: ${p.primary_goal}\n\nUsing value-based pricing:\n1. Analyze current pricing\n2. Recommend 3-tier structure\n3. Psychological tactics\n4. ROI framing\n\nReturn ONLY valid JSON:\n{"pricing_analysis":"string","recommended_tiers":[{"name":"string","price":"string","includes":["string"],"target_customer":"string"}],"psychological_tactics":["string"],"roi_framing":"string","marketing_message":"string"}`, 'claude-sonnet-4-5', 1500);
       await sbPost('pricing_recommendations', { user_id: userId, tier_structure: JSON.stringify(result.recommended_tiers), reasoning: result.pricing_analysis });
+      storeInsight(userId, 'pricing', 'strategy', 'recommended_pricing', JSON.stringify(result.recommended_tiers || []).slice(0, 500));
+      storeInsight(userId, 'pricing', 'strategy', 'roi_framing', result.roi_framing || '');
       log('/api/pricing/analyze', `✅ Pricing analysis for ${p.business_name}`);
     } catch (err) { console.error('[pricing]', err.message); }
   });
@@ -7961,6 +8021,7 @@ app.post('/api/community/generate-posts', async (req, res) => {
       for (const post of posts) {
         await sbPost('community_posts', { user_id: userId, platform, content: post.content, post_type: post.post_type, status: 'draft' }).catch(() => {});
       }
+      storeInsight(userId, 'community', 'content', 'post_types', posts.map(p2 => p2.post_type).join(', '));
       log('/api/community/generate-posts', `✅ ${posts.length} community posts`);
     } catch (err) { console.error('[community]', err.message); }
   });
@@ -7977,6 +8038,7 @@ app.post('/api/sales/generate-pitch', async (req, res) => {
       if (!p) return;
       const result = await callClaude(`Create a sales one-pager for ${p.business_name}.\nBusiness: ${p.business_type} in ${pCity(p)}\nUSP: ${p.usp}\nWe are better at: ${p.we_do_better}\nOffer: ${p.current_offer}\nLanguage: ${p.primary_language}\n\nLead with outcomes, scannable in 3 seconds, specific numbers.\nReturn ONLY valid JSON:\n{"headline":"string","subheadline":"string","key_benefits":["string"],"social_proof":"string","cta":"string","full_pitch":"string"}`, 'claude-sonnet-4-5', 1000);
       await sbPost('sales_assets', { user_id: userId, asset_type: 'one_pager', title: result.headline || 'Sales Pitch', content: JSON.stringify(result) }).catch(() => {});
+      storeInsight(userId, 'sales', 'messaging', 'key_pitch', result.headline || '');
       log('/api/sales/generate-pitch', `✅ Pitch for ${p.business_name}`);
     } catch (err) { console.error('[sales/pitch]', err.message); }
   });
@@ -8110,7 +8172,8 @@ app.post('/api/orchestrator/run/:userId', async (req, res) => {
       const p = await getProfile(userId);
       if (!p) return;
       const dayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-      const plan = await callClaude(`You are the AI brain for ${p.business_name}.\nToday: ${dayName}\nGoal: ${p.primary_goal}\nBudget: ${p.monthly_budget}\nSeason: ${p.seasonal || 'year_round'}\n\nDecide what 2-3 marketing tasks to execute TODAY.\nChoose from: social_post, email, ai_seo, marketing_ideas, customer_research, schema_markup, lead_magnet, community_post\n\nReturn ONLY valid JSON:\n{"tasks":[{"type":"string","priority":1,"reason":"string"}]}`, 'claude-sonnet-4-5', 500);
+      const intel = await buildIntelligenceContext(userId);
+      const plan = await callClaude(`You are the AI brain for ${p.business_name}.\nToday: ${dayName}\nGoal: ${p.primary_goal}\nBudget: ${p.monthly_budget}\nSeason: ${p.seasonal || 'year_round'}\n\n${intel}\n\nBased on ALL intelligence above, decide what 2-3 marketing tasks to execute TODAY.\nChoose from: social_post, email, ai_seo, marketing_ideas, customer_research, schema_markup, lead_magnet, community_post\n\nReturn ONLY valid JSON:\n{"tasks":[{"type":"string","priority":1,"reason":"string"}]}`, 'claude-sonnet-4-5', 500);
       const tasks = plan.tasks || [];
       const executed = [];
       const SELF = 'https://maroa-api-production.up.railway.app';
