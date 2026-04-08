@@ -194,6 +194,17 @@ Competitors are better at: ${p.they_do_better || 'not specified'} — do not mak
 Business hours: ${buildHoursSummary(p.business_hours)}
 Seasonal: ${p.seasonal || 'year_round'}${busyMonths.length ? ', busy months: ' + busyMonths.join(', ') : ''}
 
+═══ LOCAL MARKET INTELLIGENCE (Kosovo/Albania) ═══
+${(p.primary_language || '').toLowerCase().includes('alban') || (p.physical_locations || [])[0]?.city?.match(/prishtinë|prizren|pejë|ferizaj|gjakovë|gjilan|mitrovicë|tiranë|durrës|shkodër|vlorë/i) ? `- Trust is built through personal relationships — use warm, personal language
+- "Falas" (free) is the most powerful word in Albanian marketing
+- Facebook dominates for 30+ audience; Instagram Reels for 18-30
+- WhatsApp is the #1 communication channel — direct and conversational
+- Local pride is strong — "nga ${(p.physical_locations || [])[0]?.city || 'Kosova'}" resonates deeply
+- Word of mouth is the #1 growth channel — encourage sharing
+- Use "ju" for professional services, "ti" for fitness/beauty/youth
+- Short sentences: 5-8 words per sentence ideal for Albanian social
+- Peak social media: 7-9am, 12-2pm, 8-11pm` : 'Apply standard marketing best practices for this market.'}
+
 ═══ TIMING CONTEXT ═══
 Today: ${new Date().toLocaleDateString('sq-AL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
 Season: ${getSeason(new Date())}
@@ -293,7 +304,7 @@ function validateBeforeGeneration(profile, taskType) {
  * @param {Function} getEmbedding - embedding function
  * @param {Function} pineconeQuery - Pinecone query function
  */
-async function buildMasterPromptWithSkills(profile, taskType, getEmbedding, pineconeQuery, buildIntelligenceCtx) {
+async function buildMasterPromptWithSkills(profile, taskType, getEmbedding, pineconeQuery, buildIntelligenceCtx, getMemoryCtx) {
   const basePrompt = buildMasterPrompt(profile, taskType);
 
   let skillsSection = '';
@@ -315,7 +326,15 @@ async function buildMasterPromptWithSkills(profile, taskType, getEmbedding, pine
     }
   } catch {}
 
-  return basePrompt + skillsSection + intelligenceSection;
+  let memorySection = '';
+  try {
+    if (typeof getMemoryCtx === 'function') {
+      const mem = await getMemoryCtx(profile.user_id);
+      if (mem) memorySection = '\n' + mem;
+    }
+  } catch {}
+
+  return basePrompt + skillsSection + intelligenceSection + memorySection;
 }
 
 module.exports = {

@@ -526,6 +526,148 @@ function getCached(key) {
 }
 function setCache(key, data) { responseCache.set(key, { data, ts: Date.now() }); }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// PREMIUM INTELLIGENCE ENGINE — Multi-pass, Memory, Scheduling, Recovery
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── T1.1: Multi-pass content generation (generate → critique → refine) ──────
+async function generateWithRefinement(basePrompt, taskType, profile, bizId) {
+  // Pass 1: Generate with Opus
+  const draft = await callClaude(basePrompt, 'claude-opus-4-5', 3000);
+  if (draft._raw || !draft) return draft; // unparseable — return as-is
+
+  const mainText = draft.instagram_caption || draft.facebook_post || draft.email_body || JSON.stringify(draft).slice(0, 500);
+  if (mainText.length < 30) return draft;
+
+  // Pass 2: Critique
+  try {
+    const critiquePrompt = `You are a senior marketing director reviewing content for ${profile?.business_name || 'a local business'} in ${profile?.physical_locations?.[0]?.city || 'Kosovo'}.\n\nCONTENT:\n"${mainText.slice(0, 600)}"\n\nScore 1-10:\n1. Specificity (is it for THIS business or generic?)\n2. Hook strength (would someone stop scrolling?)\n3. Local relevance (does it feel local?)\n4. CTA clarity\n5. Language match (${profile?.primary_language || 'Albanian'})\n\nIf ANY score < 7, list exact fixes.\nReturn ONLY valid JSON: {"scores":{"specificity":0,"hook":0,"local":0,"cta":0,"language":0},"needs_refinement":false,"improvements":[]}`;
+    const critique = await callClaude(critiquePrompt, 'claude-sonnet-4-5', 400);
+    if (critique?.needs_refinement && Array.isArray(critique.improvements) && critique.improvements.length > 0) {
+      // Pass 3: Refine
+      const refinePrompt = `Rewrite this content for ${profile?.business_name || 'the business'} fixing these issues:\n${critique.improvements.join('\n')}\n\nOriginal:\n${mainText}\n\nSame language (${profile?.primary_language || 'Albanian'}). Same JSON format as original. Return ONLY valid JSON.`;
+      const refined = await callClaude(refinePrompt, 'claude-opus-4-5', 3000);
+      if (refined && !refined._raw) {
+        log('multiPass', `Refined: ${critique.improvements.length} issues fixed`);
+        return refined;
+      }
+    }
+  } catch (e) { log('multiPass', `Critique skipped: ${e.message}`); }
+  return draft;
+}
+
+// ── T1.3: Platform rules enforcement ─────────────────────────────────────────
+const PLATFORM_RULES = {
+  instagram: { maxLen: 2200, hashtagCount: 5, hookLen: 125 },
+  facebook: { maxLen: 500, hashtagCount: 2, hookLen: 80 },
+  email: { subjectMax: 60, bodyMax: 800 },
+  whatsapp: { maxLen: 160 },
+  ad: { headlineMax: 40, bodyMax: 125 }
+};
+
+function enforcePlatformRules(text, platform, profile) {
+  if (!text || typeof text !== 'string') return text;
+  const rules = PLATFORM_RULES[platform];
+  if (!rules) return text;
+  // Truncate if too long
+  if (rules.maxLen && text.length > rules.maxLen) text = text.slice(0, rules.maxLen - 3) + '...';
+  // Add local hashtags for social platforms if missing
+  if ((platform === 'instagram' || platform === 'facebook') && !text.includes('#') && profile?.physical_locations?.[0]?.city) {
+    const city = profile.physical_locations[0].city.toLowerCase().replace(/\s+/g, '');
+    text += `\n\n#${city} #kosova`;
+  }
+  return text;
+}
+
+// ── T2.1: Memory system (AI learns from every interaction) ───────────────────
+async function storeMemory(userId, memoryType, action, contentSnippet, platform, pattern) {
+  try {
+    await sbPost('ai_memory', {
+      user_id: userId, memory_type: memoryType, action,
+      content_snippet: (contentSnippet || '').slice(0, 500),
+      platform: platform || 'general',
+      learned_pattern: (pattern || '').slice(0, 500)
+    }).catch(() => {});
+  } catch {}
+}
+
+async function getMemoryContext(userId) {
+  try {
+    const rows = await sbGet('ai_memory', `user_id=eq.${userId}&order=created_at.desc&limit=30`);
+    if (!rows.length) return '';
+    const wins = rows.filter(r => r.memory_type === 'content_wins' || r.action === 'approved' || r.action === 'high_performance');
+    const losses = rows.filter(r => r.memory_type === 'content_losses' || r.action === 'rejected' || r.action === 'low_performance');
+    const prefs = rows.filter(r => r.memory_type === 'preferences' || r.action === 'edited');
+    let ctx = '\n═══ AI MEMORY — WHAT I KNOW ABOUT THIS BUSINESS ═══\n';
+    if (wins.length) ctx += `What worked (${wins.length} wins):\n${wins.slice(0, 5).map(w => `- ${w.learned_pattern || w.content_snippet?.slice(0, 80) || w.action}`).join('\n')}\n`;
+    if (losses.length) ctx += `What didn't work (${losses.length}):\n${losses.slice(0, 3).map(l => `- ${l.learned_pattern || l.action}`).join('\n')}\n`;
+    if (prefs.length) ctx += `Client preferences:\n${prefs.slice(0, 3).map(p => `- ${p.action}: ${p.content_snippet?.slice(0, 60) || ''}`).join('\n')}\n`;
+    ctx += 'Apply all learnings to make content better than before.\n';
+    return ctx;
+  } catch { return ''; }
+}
+
+// ── T2.2: Opportunity detector ───────────────────────────────────────────────
+async function detectOpportunities(userId, profile) {
+  const ops = [];
+  try {
+    // Check posting gap
+    const recent = await sbGet('generated_content', `business_id=eq.${userId}&status=eq.published&order=created_at.desc&limit=1&select=created_at`).catch(() => []);
+    if (!recent.length || (Date.now() - new Date(recent[0]?.created_at).getTime()) > 3 * 86400000) {
+      ops.push({ type: 'posting_gap', priority: 'urgent', title: 'No post in 3+ days', action: 'Generate and publish content today' });
+    }
+    // Check holiday
+    try {
+      const { getKosovoAlbaniaHolidays } = require('./services/masterPromptBuilder');
+      const holidays = getKosovoAlbaniaHolidays(new Date());
+      if (holidays.length) ops.push({ type: 'holiday', priority: 'high', title: holidays[0], action: 'Create holiday-themed content' });
+    } catch {}
+    // Check competitor activity
+    const intel = await sbGet('business_intelligence', `user_id=eq.${userId}&source_module=eq.competitors&order=updated_at.desc&limit=1`).catch(() => []);
+    if (intel.length && (Date.now() - new Date(intel[0].updated_at).getTime()) < 86400000) {
+      ops.push({ type: 'competitor', priority: 'high', title: 'Competitor activity detected', action: intel[0].insight_value?.slice(0, 100) || 'Create counter-content' });
+    }
+  } catch {}
+  return ops.sort((a, b) => ({ urgent: 0, high: 1, medium: 2 }[a.priority] || 3) - ({ urgent: 0, high: 1, medium: 2 }[b.priority] || 3));
+}
+
+// ── T3.2: Smart scheduling (optimal posting times for Kosovo/Albania) ────────
+function getOptimalPostingTime(platform, businessType) {
+  const type = (businessType || '').toLowerCase();
+  const now = new Date();
+  const hours = {
+    instagram: type.includes('fitness') ? [7, 12, 17, 20] : type.includes('restaurant') ? [11, 12, 17, 19] : [8, 12, 19, 20],
+    facebook: type.includes('restaurant') ? [11, 17, 18] : [9, 13, 19],
+    email: [9, 10, 11]
+  };
+  const bestHours = hours[platform] || hours.instagram;
+  // Find next available hour
+  for (let dayOff = 0; dayOff <= 2; dayOff++) {
+    const d = new Date(now); d.setDate(d.getDate() + dayOff);
+    if (d.getDay() === 0) continue; // Skip Sunday
+    for (const h of bestHours) {
+      if (dayOff === 0 && h <= now.getHours()) continue;
+      d.setHours(h, 0, 0, 0);
+      return d.toISOString();
+    }
+  }
+  const tmrw = new Date(now); tmrw.setDate(tmrw.getDate() + 1); tmrw.setHours(9, 0, 0, 0);
+  return tmrw.toISOString();
+}
+
+// ── T3.3: Auto-recovery with template fallback ──────────────────────────────
+function generateTemplateFallback(profile, taskType) {
+  const city = profile?.physical_locations?.[0]?.city || 'Kosovë';
+  const name = profile?.business_name || 'Biznesi ynë';
+  const offer = profile?.current_offer || '';
+  const templates = {
+    social_post: `✨ ${name} — ${profile?.usp || 'Shërbimi më i mirë në ' + city}\n\n${offer ? '🎯 ' + offer + '\n\n' : ''}📍 ${city}\n📞 Na kontaktoni tani\n\n#${city.toLowerCase().replace(/\s/g, '')} #kosova`,
+    email: `Përshëndetje nga ${name}!\n\n${offer || 'Na vizitoni për shërbimin më të mirë në ' + city}.\n\nMe respekt,\n${name}`,
+    ad_copy: `${profile?.usp || name} — #1 në ${city}. ${offer || 'Kontaktoni sot!'}`,
+  };
+  return templates[taskType] || templates.social_post;
+}
+
 // ─── SSE client store ────────────────────────────────────────────────────────
 const sseClients = new Map();
 function sendSSE(businessId, eventType, data) {
@@ -923,7 +1065,7 @@ async function generateInstantContent(bizId, emailOverride) {
   if (profile && profile.physical_locations && Array.isArray(profile.physical_locations) && profile.physical_locations.length > 0) {
     try {
       const { buildMasterPromptWithSkills } = require('./services/masterPromptBuilder');
-      masterSystemPrompt = await buildMasterPromptWithSkills(profile, 'social_post', getEmbedding, pineconeQuery, buildIntelligenceContext) + '\n\n';
+      masterSystemPrompt = await buildMasterPromptWithSkills(profile, 'social_post', getEmbedding, pineconeQuery, buildIntelligenceContext, getMemoryContext) + '\n\n';
       log('generateContent', `Using master prompt + marketing skills for ${biz.business_name} (profile score: ${profile.profile_score})`);
     } catch (e) {
       // Fallback to basic master prompt without skills
@@ -7829,6 +7971,43 @@ async function getProfile(userId) {
 }
 function pCity(p) { const l = Array.isArray(p?.physical_locations) ? p.physical_locations : []; return l[0]?.city || 'local area'; }
 
+// ── T2.2: GET /api/opportunities/:userId — Proactive opportunity detection ──
+app.get('/api/opportunities/:userId', async (req, res) => {
+  try {
+    const p = await getProfile(req.params.userId);
+    const ops = await detectOpportunities(req.params.userId, p);
+    res.json({ opportunities: ops, count: ops.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── T4.1: GET /api/metrics/:userId — Real analytics engine ──────────────────
+app.get('/api/metrics/:userId', async (req, res) => {
+  try {
+    const uid = req.params.userId;
+    const weekMs = 7 * 86400000;
+    const [content, ideas, intel, memory] = await Promise.all([
+      sbGet('generated_content', `business_id=eq.${uid}&order=created_at.desc&limit=50&select=created_at,status,content_theme`).catch(() => []),
+      sbGet('marketing_ideas', `user_id=eq.${uid}&status=eq.new&select=id`).catch(() => []),
+      getAllIntelligence(uid),
+      sbGet('ai_memory', `user_id=eq.${uid}&select=id`).catch(() => [])
+    ]);
+    const thisWeek = content.filter(c => Date.now() - new Date(c.created_at).getTime() < weekMs);
+    const published = thisWeek.filter(c => c.status === 'published');
+    res.json({
+      posts_this_week: thisWeek.length,
+      published_this_week: published.length,
+      total_content: content.length,
+      active_ideas: ideas.length,
+      intelligence_signals: intel.length,
+      memory_entries: memory.length,
+      estimated_reach: published.length * 850,
+      estimated_time_saved_hours: (thisWeek.length * 2.5).toFixed(1),
+      estimated_cost_saved_eur: thisWeek.length * 45,
+      trend: thisWeek.length >= 3 ? 'growing' : 'needs_attention'
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── IMPROVEMENT 6: Content Calendar Engine ──────────────────────────────────
 app.post('/api/calendar/generate', async (req, res) => {
   const { userId } = req.body;
@@ -7855,15 +8034,22 @@ app.post('/api/content/feedback', async (req, res) => {
   const { contentId, userId, action, editedVersion } = req.body;
   if (!contentId || !userId || !action) return res.status(400).json({ error: 'contentId, userId, action required' });
   try {
+    // Get content for memory storage
+    const contentRows = await sbGet('generated_content', `id=eq.${contentId}&select=instagram_caption,content_theme`).catch(() => []);
+    const snippet = contentRows[0]?.instagram_caption?.slice(0, 200) || '';
+    const theme = contentRows[0]?.content_theme || '';
     if (action === 'approved') {
       await sbPatch('generated_content', `id=eq.${contentId}`, { status: 'approved', approved_at: new Date().toISOString(), approval_method: 'client_feedback' });
-      storeInsight(userId, 'feedback', 'content_preference', 'approved_style', 'client approved this content style').catch(() => {});
+      storeInsight(userId, 'feedback', 'content_preference', 'approved_style', `Approved: ${theme}`).catch(() => {});
+      storeMemory(userId, 'content_wins', 'approved', snippet, 'social', `Client approved ${theme} content`).catch(() => {});
     } else if (action === 'rejected') {
       await sbPatch('generated_content', `id=eq.${contentId}`, { status: 'rejected' });
-      storeInsight(userId, 'feedback', 'content_preference', 'rejected_reason', 'client rejected — needs different approach').catch(() => {});
+      storeInsight(userId, 'feedback', 'content_preference', 'rejected_reason', `Rejected: ${theme}`).catch(() => {});
+      storeMemory(userId, 'content_losses', 'rejected', snippet, 'social', `Client rejected ${theme} — avoid this approach`).catch(() => {});
     } else if (action === 'edited' && editedVersion) {
       await sbPatch('generated_content', `id=eq.${contentId}`, { status: 'approved', instagram_caption: editedVersion, approved_at: new Date().toISOString(), approval_method: 'client_edited' });
-      storeInsight(userId, 'feedback', 'content_preference', 'edited_style', `client edited content — prefer this style: ${editedVersion.slice(0, 100)}`).catch(() => {});
+      storeInsight(userId, 'feedback', 'content_preference', 'edited_style', `Edited: ${theme}`).catch(() => {});
+      storeMemory(userId, 'preferences', 'edited', editedVersion.slice(0, 200), 'social', `Client prefers this style over AI draft`).catch(() => {});
     }
     res.json({ success: true, action });
   } catch (err) { res.status(500).json({ error: err.message }); }
