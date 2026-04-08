@@ -8321,8 +8321,10 @@ app.post('/api/ideas/generate', async (req, res) => {
       storeInsight(userId, 'ideas', 'strategy', 'top_priority_ideas', topIdeas || ideas[0]?.idea || '');
       log('/api/ideas/generate', `✅ ${ideas.length} marketing ideas generated`);
     } catch (err) {
-      console.error('[ideas] ERROR:', err.message);
-      await logError(userId, 'ideas-generate', err.message).catch(() => {});
+      const msg = err?.message || String(err);
+      console.error('[ideas] ERROR:', msg);
+      log('/api/ideas/generate', `CAUGHT ERROR: ${msg.slice(0, 200)}`);
+      try { await sbPost('errors', { business_id: userId, workflow_name: 'ideas-generate', error_message: msg.slice(0, 500) }); } catch {}
     }
   });
 });
