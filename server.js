@@ -8297,10 +8297,14 @@ app.post('/api/ideas/generate', async (req, res) => {
     try {
       const p = await getProfile(userId);
       if (!p) return;
-      const result = await callClaude(`You are a marketing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nBudget: ${p.monthly_budget}\nGoal: ${p.primary_goal}\nLanguage: ${p.primary_language}\n\nGenerate 10 SPECIFIC, ACTIONABLE marketing ideas ranked by impact.\nEach must be executable with available budget, specific to this business.\n\nReturn ONLY valid JSON array:\n[{"idea":"string","category":"string","priority":"high|medium|low","estimated_impact":"string","how_to_execute":"string (3 steps)","budget_required":"string","time_to_results":"string"}]`, 'claude-sonnet-4-5', 2000);
-      const ideas = Array.isArray(result) ? result : (result.ideas || [result]);
+      let result = await callClaude(`You are a marketing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nBudget: ${p.monthly_budget}\nGoal: ${p.primary_goal}\nLanguage: ${p.primary_language}\n\nGenerate 10 SPECIFIC, ACTIONABLE marketing ideas ranked by impact.\nEach must be executable with available budget, specific to this business.\n\nReturn ONLY valid JSON array:\n[{"idea":"string","category":"string","priority":"high|medium|low","estimated_impact":"string","how_to_execute":"string (3 steps)","budget_required":"string","time_to_results":"string"}]`, 'claude-sonnet-4-5', 2000);
+      // Handle _raw fallback — re-extract JSON from raw text
+      if (result?._raw) { const parsed = extractJSON(result._raw); if (parsed) result = parsed; }
+      const ideas = Array.isArray(result) ? result : Array.isArray(result?.ideas) ? result.ideas : [];
+      if (!ideas.length) { log('/api/ideas/generate', `No ideas parsed from Claude response`); return; }
       for (const idea of ideas.slice(0, 10)) {
-        await sbPost('marketing_ideas', { user_id: userId, idea: idea.idea || idea, category: idea.category, priority: idea.priority || 'medium', estimated_impact: idea.estimated_impact, how_to_execute: idea.how_to_execute, budget_required: idea.budget_required, time_to_results: idea.time_to_results }).catch(() => {});
+        if (!idea?.idea || typeof idea.idea !== 'string') continue; // skip unparsed entries
+        await sbPost('marketing_ideas', { user_id: userId, idea: idea.idea, category: idea.category || 'general', priority: idea.priority || 'medium', estimated_impact: idea.estimated_impact || '', how_to_execute: idea.how_to_execute || '', budget_required: idea.budget_required || '', time_to_results: idea.time_to_results || '' }).catch(() => {});
       }
       const topIdeas = ideas.filter(i => i.priority === 'high').slice(0, 3).map(i => i.idea).join('; ');
       storeInsight(userId, 'ideas', 'strategy', 'top_priority_ideas', topIdeas || ideas[0]?.idea || '');
