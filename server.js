@@ -8177,6 +8177,8 @@ app.post('/api/signup-cro/analyze', async (req, res) => {
 });
 
 // ── MODULE 19: Autonomous Daily Orchestrator ────────────────────────────────
+const ORCHESTRATOR_SECRET = clean(process.env.ORCHESTRATOR_SECRET) || '';
+
 app.post('/api/orchestrator/run/:userId', async (req, res) => {
   const userId = req.params.userId;
   if (!userId) return res.status(400).json({ error: 'userId required' });
@@ -8185,9 +8187,9 @@ app.post('/api/orchestrator/run/:userId', async (req, res) => {
     try {
       const p = await getProfile(userId);
       if (!p) return;
-      const dayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+      const dayName = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
       const intel = await buildIntelligenceContext(userId);
-      const plan = await callClaude(`You are the AI brain for ${p.business_name}.\nToday: ${dayName}\nGoal: ${p.primary_goal}\nBudget: ${p.monthly_budget}\nSeason: ${p.seasonal || 'year_round'}\n\n${intel}\n\nPRIORITY RULES based on intelligence:\n- If competitive_intelligence shows competitor moved → prioritize counter-content\n- If customer_voice has complaints → address them in content\n- If ad_strategy has winning angles → replicate across channels\n- If content_performance shows what works → create more of it\n- If lead_intelligence shows pattern → optimize targeting\n\nDecide what 2-3 tasks to execute TODAY.\nChoose from: social_post, email, ai_seo, marketing_ideas, customer_research, schema_markup, lead_magnet, community_post\n\nReturn ONLY valid JSON:\n{"tasks":[{"type":"string","priority":1,"reason":"string"}]}`, 'claude-sonnet-4-5', 600);
+      const plan = await callClaude(`You are the AI brain for ${p.business_name}.\nToday: ${dayName}\nGoal: ${p.primary_goal}\nBudget: ${p.monthly_budget}\nSeason: ${p.seasonal || 'year_round'}\n\n${intel}\n\nPRIORITY RULES:\n- competitive_intelligence → counter-content\n- customer_voice complaints → address in content\n- ad_strategy wins → replicate across channels\n- content_performance → more of what works\n- lead_intelligence → optimize targeting\n\nDecide 2-3 tasks for TODAY.\nChoose from: social_post, email, ai_seo, marketing_ideas, customer_research, schema_markup, lead_magnet, community_post\n\nReturn ONLY valid JSON:\n{"tasks":[{"type":"string","priority":1,"reason":"string"}],"tomorrow_plan":"string","top_insight":"string"}`, 'claude-sonnet-4-5', 700);
       const tasks = plan.tasks || [];
       const executed = [];
       const SELF = 'https://maroa-api-production.up.railway.app';
@@ -8201,22 +8203,74 @@ app.post('/api/orchestrator/run/:userId', async (req, res) => {
           }
         } catch {}
       }
-      await sbPost('orchestration_logs', { user_id: userId, tasks_planned: JSON.stringify(tasks), tasks_executed: JSON.stringify(executed), report: `Executed ${executed.length}/${tasks.length} tasks: ${executed.join(', ')}` }).catch(() => {});
-      log('/api/orchestrator/run', `✅ ${p.business_name}: ${executed.length} tasks executed`);
+      const report = `Executed ${executed.length}/${tasks.length} tasks: ${executed.join(', ')}`;
+      await sbPost('orchestration_logs', { user_id: userId, tasks_planned: JSON.stringify(tasks), tasks_executed: JSON.stringify(executed), report }).catch(() => {});
+
+      // Send daily report email
+      try {
+        const biz = (await sbGet('businesses', `id=eq.${userId}&select=email,business_name,first_name`))[0];
+        if (biz?.email) {
+          const taskList = executed.map(t => {
+            const labels = { social_post: '📝 Social post created', email: '📧 Email sequence processed', ai_seo: '🔍 AI SEO content optimized', marketing_ideas: '💡 New marketing ideas generated', customer_research: '🧠 Customer research updated', schema_markup: '🏷️ Schema markup generated', lead_magnet: '🧲 Lead magnet created', community_post: '👥 Community post drafted' };
+            return labels[t] || `✅ ${t}`;
+          }).join('<br/>');
+          const html = `<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1e293b">
+<h2 style="color:#667eea">Your AI worked overnight — ${biz.business_name}</h2>
+<p>Hi ${biz.first_name || 'there'},</p>
+<p>Here's what your AI marketing engine did today:</p>
+<div style="background:#f8fafc;border-radius:12px;padding:16px;margin:12px 0">${taskList || 'No tasks needed today — everything is on track.'}</div>
+${plan.top_insight ? `<p><strong>💡 Top insight:</strong> ${plan.top_insight}</p>` : ''}
+${plan.tomorrow_plan ? `<p><strong>📅 Tomorrow's plan:</strong> ${plan.tomorrow_plan}</p>` : ''}
+<p style="margin-top:20px"><a href="https://maroa-ai-marketing-automator.vercel.app/dashboard" style="background:#667eea;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600">View Dashboard →</a></p>
+<p style="color:#94a3b8;font-size:12px;margin-top:24px">This is your automated daily AI marketing report from maroa.ai</p></div>`;
+          await sendEmail(biz.email, `Your AI did this overnight — ${biz.business_name}`, html);
+        }
+      } catch (emailErr) { log('/api/orchestrator/run', `Email report failed: ${emailErr.message}`); }
+
+      log('/api/orchestrator/run', `✅ ${p.business_name}: ${executed.length} tasks + email report`);
     } catch (err) { console.error('[orchestrator]', err.message); }
   });
 });
+
 app.post('/api/orchestrator/run-all', async (req, res) => {
+  // Security: require orchestrator secret
+  const secret = req.headers['x-orchestrator-secret'];
+  if (ORCHESTRATOR_SECRET && secret !== ORCHESTRATOR_SECRET) {
+    return res.status(401).json({ error: 'unauthorized — invalid x-orchestrator-secret header' });
+  }
+
   res.json({ received: true, message: 'Running orchestration for all active users' });
   setImmediate(async () => {
+    let processed = 0;
+    const errors = [];
     try {
-      const users = await sbGet('businesses', 'is_active=eq.true&select=id');
-      log('/api/orchestrator/run-all', `Running for ${users.length} businesses`);
-      for (const u of users) {
-        apiRequest('POST', `https://maroa-api-production.up.railway.app/api/orchestrator/run/${u.id}`, { 'Content-Type': 'application/json' }, {}).catch(() => {});
-        await new Promise(r => setTimeout(r, 5000));
+      // Fetch users with business profiles (onboarded users only)
+      let users = [];
+      try {
+        users = await sbGet('business_profiles', 'business_name=not.is.null&select=user_id,business_name,primary_language');
+      } catch {
+        // Fallback to businesses table if business_profiles doesn't exist
+        users = await sbGet('businesses', 'is_active=eq.true&select=id,business_name');
+        users = users.map(u => ({ user_id: u.id, business_name: u.business_name }));
       }
-    } catch (err) { console.error('[orchestrator/run-all]', err.message); }
+      log('/api/orchestrator/run-all', `Running for ${users.length} users with profiles`);
+
+      for (const u of users) {
+        const uid = u.user_id || u.id;
+        try {
+          await apiRequest('POST', `https://maroa-api-production.up.railway.app/api/orchestrator/run/${uid}`, { 'Content-Type': 'application/json' }, {});
+          processed++;
+          log('/api/orchestrator/run-all', `${processed}/${users.length}: ${u.business_name || uid}`);
+        } catch (err) {
+          errors.push({ user: uid, error: err.message });
+        }
+        await new Promise(r => setTimeout(r, 8000)); // 8s between users to avoid rate limits
+      }
+      log('/api/orchestrator/run-all', `✅ Complete: ${processed}/${users.length} processed, ${errors.length} errors`);
+    } catch (err) {
+      console.error('[orchestrator/run-all]', err.message);
+      errors.push({ error: err.message });
+    }
   });
 });
 app.get('/api/orchestrator/log/:userId', async (req, res) => {
