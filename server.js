@@ -8083,6 +8083,116 @@ app.get('/api/performance/summary/:userId', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── POWER: Business Health Score ─────────────────────────────────────────────
+app.get('/api/health/:userId', async (req, res) => {
+  try {
+    const uid = req.params.userId;
+    const [p, content, intel, memory] = await Promise.all([
+      getProfile(uid),
+      sbGet('generated_content', `business_id=eq.${uid}&order=created_at.desc&limit=30&select=created_at,status,content_theme`).catch(() => []),
+      getAllIntelligence(uid),
+      sbGet('ai_memory', `user_id=eq.${uid}&select=id`).catch(() => [])
+    ]);
+    const weekMs = 7 * 86400000;
+    const thisWeek = content.filter(c => Date.now() - new Date(c.created_at).getTime() < weekMs);
+    const published = thisWeek.filter(c => c.status === 'published');
+    const themes = [...new Set(thisWeek.map(c => c.content_theme).filter(Boolean))];
+
+    let profileScore = 0;
+    try { const { calculateProfileScore } = require('./services/masterPromptBuilder'); profileScore = p ? calculateProfileScore(p) : 0; } catch {}
+    const postingScore = Math.min(20, published.length * 5);
+    const varietyScore = Math.min(20, themes.length * 7);
+    const engagementScore = Math.min(20, intel.length * 2);
+    const competitiveScore = Math.min(20, (intel.filter(i => i.source_module === 'competitors' || i.source_module === 'moat').length) * 5);
+    const total = Math.min(100, Math.round(profileScore / 5) + postingScore + varietyScore + engagementScore + competitiveScore);
+
+    const recs = [];
+    if (profileScore < 70) recs.push('Complete your business profile to unlock better AI content');
+    if (published.length < 3) recs.push('Publish at least 3 posts this week for algorithm reach');
+    if (themes.length < 2) recs.push('Vary your content themes — mix educational, promotional, and social proof');
+    if (intel.length < 5) recs.push('Run competitor analysis and customer research to feed the AI');
+
+    res.json({ total, profile: Math.round(profileScore / 5), posting: postingScore, variety: varietyScore, engagement: engagementScore, competitive: competitiveScore, recommendations: recs, memory_entries: memory.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POWER: Instant Campaign Generator ───────────────────────────────────────
+app.post('/api/campaigns/instant', async (req, res) => {
+  const { userId, goal, duration = 7 } = req.body;
+  if (!userId || !goal) return res.status(400).json({ error: 'userId and goal required' });
+  res.json({ received: true, message: `Building ${duration}-day campaign: ${goal}` });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      if (!p) return;
+      const intel = await buildIntelligenceContext(userId);
+      const mem = await getMemoryContext(userId);
+      const result = await callClaude(`You are a campaign strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nGoal: ${goal}\nDuration: ${duration} days\nBudget: ${p.monthly_budget}\nLanguage: ${p.primary_language}\nProducts: ${(p.products || []).map(pr => pr.name).join(', ')}\n${intel}\n${mem}\n\nCreate a complete ${duration}-day campaign:\n- ${duration} social posts (one per day, specific topic and caption)\n- 2 emails (start and end of campaign)\n- 1 ad copy (Meta)\n- Campaign hashtag\n- Best posting schedule\n\nReturn ONLY valid JSON:\n{"campaign_name":"string","theme":"string","posts":[{"day":1,"platform":"string","topic":"string","caption":"string"}],"emails":[{"type":"start|end","subject":"string","body":"string"}],"ad":{"headline":"string","body":"string"},"hashtag":"string"}`, 'claude-opus-4-5', 4000);
+      try { storeInsight(userId, 'campaigns', 'campaign_strategy', 'active_campaign', result.campaign_name || goal); } catch {}
+      log('/api/campaigns/instant', `✅ ${duration}-day campaign: ${result.campaign_name || goal}`);
+    } catch (err) { console.error('[campaigns/instant]', err.message); }
+  });
+});
+
+// ── POWER: Content Repurposer ───────────────────────────────────────────────
+app.post('/api/content/repurpose', async (req, res) => {
+  const { userId, originalContent, targetPlatforms } = req.body;
+  if (!userId || !originalContent) return res.status(400).json({ error: 'userId and originalContent required' });
+  res.json({ received: true, message: 'Repurposing content for all platforms' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      if (!p) return;
+      const platforms = targetPlatforms || ['instagram', 'facebook', 'email', 'whatsapp'];
+      const result = await callClaude(`Repurpose this content for ${p.business_name} across platforms.\nOriginal:\n"${originalContent.slice(0, 1000)}"\n\nLanguage: ${p.primary_language}\nCity: ${pCity(p)}\n\nCreate versions for: ${platforms.join(', ')}\n\nReturn ONLY valid JSON:\n{"versions":[{"platform":"string","content":"string","hashtags":"string","format":"string"}]}`, 'claude-sonnet-4-5', 2000);
+      log('/api/content/repurpose', `✅ ${(result.versions || []).length} platform versions`);
+    } catch (err) { console.error('[content/repurpose]', err.message); }
+  });
+});
+
+// ── POWER: Smart Competitor Counter ─────────────────────────────────────────
+app.post('/api/compete/counter', async (req, res) => {
+  const { userId, competitorAction } = req.body;
+  if (!userId || !competitorAction) return res.status(400).json({ error: 'userId and competitorAction required' });
+  res.json({ received: true, message: 'Generating counter-strategy' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      if (!p) return;
+      const result = await callClaude(`A competitor of ${p.business_name} just did this: "${competitorAction}"\n\nBusiness: ${p.business_type} in ${pCity(p)}\nOur USP: ${p.usp}\nOur advantage: ${p.we_do_better}\nLanguage: ${p.primary_language}\n\nGenerate counter-strategy:\n- 3 social posts positioning us as the better choice\n- 1 email to existing customers reinforcing loyalty\n- 1 ad copy countering their move\n\nReturn ONLY valid JSON:\n{"posts":["string"],"email":{"subject":"string","body":"string"},"ad":{"headline":"string","body":"string"},"strategy":"string"}`, 'claude-opus-4-5', 2000);
+      try { storeInsight(userId, 'compete', 'competitive_intelligence', 'counter_strategy', result.strategy || competitorAction); } catch {}
+      log('/api/compete/counter', `✅ Counter-strategy for ${p.business_name}`);
+    } catch (err) { console.error('[compete/counter]', err.message); }
+  });
+});
+
+// ── POWER: Weekly Strategy Report ───────────────────────────────────────────
+app.get('/api/strategy/weekly/:userId', async (req, res) => {
+  try {
+    const uid = req.params.userId;
+    const p = await getProfile(uid);
+    if (!p) return res.status(404).json({ error: 'Profile not found' });
+    const intel = await buildIntelligenceContext(uid);
+    const mem = await getMemoryContext(uid);
+    const result = await callClaude(`Weekly strategy report for ${p.business_name} (${p.business_type} in ${pCity(p)}).\nLanguage: ${p.primary_language}\n${intel}\n${mem}\n\nGenerate:\n1. What worked this week (from intelligence)\n2. What to focus on next week\n3. 5 content ideas for next 7 days\n4. Budget recommendation\n5. One key competitor insight\n\nReturn ONLY valid JSON:\n{"what_worked":"string","next_week_focus":"string","content_ideas":["string"],"budget_recommendation":"string","competitor_insight":"string","overall_grade":"A|B|C|D"}`, 'claude-opus-4-5', 1500);
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POWER: Auto Review Responder ────────────────────────────────────────────
+app.post('/api/reviews/auto-respond', async (req, res) => {
+  const { userId, reviewText, rating, platform } = req.body;
+  if (!userId || !reviewText) return res.status(400).json({ error: 'userId and reviewText required' });
+  try {
+    const p = await getProfile(userId);
+    const stars = rating || 5;
+    const tone = stars >= 4 ? 'warm, grateful, subtly promotional' : 'empathetic, solution-focused, recovery-minded';
+    const result = await callClaude(`Write a review response for ${p?.business_name || 'the business'}.\nReview (${stars} stars): "${reviewText}"\nPlatform: ${platform || 'google'}\nTone: ${tone}\nLanguage: ${p?.primary_language || 'Albanian'}\n\nRules:\n- ${stars >= 4 ? 'Thank warmly, mention specific detail, invite back' : 'Apologize sincerely, offer solution, invite offline resolution'}\n- Max 100 words\n- Never templated — unique to this review\n\nReturn ONLY valid JSON:\n{"response":"string","tone":"string","suggested_action":"string"}`, 'claude-sonnet-4-5', 400);
+    try { if (stars <= 2) storeInsight(userId, 'reviews', 'customer_voice', 'complaint_pattern', reviewText.slice(0, 100)); } catch {}
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── MODULE 1: Referral Program ──────────────────────────────────────────────
 app.post('/api/referral/setup', async (req, res) => {
   const { userId } = req.body;
