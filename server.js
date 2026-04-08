@@ -8312,7 +8312,7 @@ app.post('/api/ideas/generate', async (req, res) => {
       log('/api/ideas/generate', `Claude returned: type=${typeof result}, isArray=${Array.isArray(result)}, hasRaw=${!!result?._raw}, keys=${Object.keys(result||{}).slice(0,5)}`);
       if (result?._raw) { const parsed = extractJSON(result._raw); if (parsed) { log('/api/ideas/generate', `Re-parsed _raw: type=${typeof parsed}, isArray=${Array.isArray(parsed)}`); result = parsed; } }
       const ideas = Array.isArray(result) ? result : Array.isArray(result?.ideas) ? result.ideas : [];
-      if (!ideas.length) { log('/api/ideas/generate', `No ideas parsed — result sample: ${JSON.stringify(result).slice(0, 200)}`); return; }
+      if (!ideas.length) { const sample = JSON.stringify(result).slice(0, 400); log('/api/ideas/generate', `No ideas parsed — result: ${sample}`); try { await sbPost('errors', { business_id: userId, workflow_name: 'ideas-generate-parse', error_message: 'No ideas parsed: ' + sample }); } catch {} return; }
       for (const idea of ideas.slice(0, 10)) {
         if (!idea?.idea || typeof idea.idea !== 'string') continue; // skip unparsed entries
         await sbPost('marketing_ideas', { user_id: userId, idea: idea.idea, category: idea.category || 'general', priority: idea.priority || 'medium', estimated_impact: idea.estimated_impact || '', how_to_execute: idea.how_to_execute || '', budget_required: idea.budget_required || '', time_to_results: idea.time_to_results || '' }).catch(() => {});
