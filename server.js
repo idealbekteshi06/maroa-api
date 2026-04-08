@@ -7980,6 +7980,15 @@ async function getProfile(userId) {
 }
 function pCity(p) { const l = Array.isArray(p?.physical_locations) ? p.physical_locations : []; return l[0]?.city || 'local area'; }
 
+// DEBUG: test getProfile directly
+app.get('/api/debug/profile/:userId', async (req, res) => {
+  const uid = req.params.userId;
+  try {
+    const p = await getProfile(uid);
+    res.json({ found: !!p, business_name: p?.business_name || null, business_type: p?.business_type || null, userId: uid });
+  } catch (err) { res.json({ found: false, error: err.message, userId: uid }); }
+});
+
 // ── T2.2: GET /api/opportunities/:userId — Proactive opportunity detection ──
 app.get('/api/opportunities/:userId', async (req, res) => {
   try {
