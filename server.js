@@ -1160,6 +1160,7 @@ app.post('/webhook/instant-content', async (req, res) => {
 <p><a href="https://maroa-ai-marketing-automator.vercel.app" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Approve Content</a></p>`;
         await sendEmail(email, `Your ${result.content_theme || 'weekly'} content is ready!`, html);
       }
+      try { storeInsight(business_id, 'content', 'content_performance', 'top_content_type', `${result.content_theme || 'general'}: ${(result.instagram_caption || '').slice(0, 80)}`); } catch {}
       log('/webhook/instant-content', `✅ done — theme: ${result.content_theme}`);
     } catch (err) {
       console.error('[instant-content ERROR]', err.message);
@@ -1378,6 +1379,7 @@ app.post('/webhook/create-campaigns', async (req, res) => {
       }
     }
 
+    try { storeInsight(business_id, 'ads', 'ad_strategy', 'campaign_count', `${savedIds.length} campaigns created`); } catch {}
     log('/webhook/create-campaigns', `✅ Created ${savedIds.length} campaigns`);
 
     if (biz.email) {
@@ -1587,6 +1589,7 @@ app.post('/webhook/competitor-check', async (req, res) => {
         content_to_steal      : insights.content_to_steal      || '',
         positioning_tip       : insights.positioning_tip       || ''
       });
+      try { storeInsight(business_id, 'competitors', 'competitive_intelligence', 'competitor_weakness', insights.gap_opportunity || ''); storeInsight(business_id, 'competitors', 'competitive_intelligence', 'our_advantage', insights.positioning_tip || ''); } catch {}
       log('/webhook/competitor-check', `✅ Insights saved for ${biz.business_name}`);
     }
 
@@ -3525,6 +3528,7 @@ Return exactly this JSON:
   </a>
 </div>`;
     await sendEmail(biz.email, `Your Meta ad campaign is ready for review — ${biz.business_name}`, html);
+    try { storeInsight(business_id, 'meta_ads', 'ad_strategy', 'ad_angle', `${campaignObj}: ${rawCreatives[0]?.headline || ''}`); storeInsight(business_id, 'meta_ads', 'ad_strategy', 'ads_created', `${adsCreated.length} ads, budget $${campBudget}/day`); } catch {}
     log('/webhook/meta-campaign-create', `✅ Meta campaign ${metaCampaignId} — ${adsCreated.length} ads created`);
 
   } catch (err) {
@@ -3682,6 +3686,7 @@ Return ONLY valid JSON:
       });
     } catch {}
 
+    try { storeInsight(business_id, 'meta_ads', 'ad_strategy', 'portfolio_health', result.portfolio_health || ''); storeInsight(business_id, 'meta_ads', 'ad_strategy', 'optimization_summary', result.summary || ''); } catch {}
     log('/webhook/meta-campaign-optimize', `✅ Portfolio optimized: ${result.summary || ''}`);
   } catch (err) {
     console.error('[meta-campaign-optimize ERROR]', err.message);
@@ -4374,6 +4379,7 @@ Return ONLY valid JSON:
     }
 
     await sbPatch('contacts', `id=eq.${contact_id}`, updates);
+    try { if (intentLevel === 'ready_to_buy' || aiScore >= 75) storeInsight(business_id, 'leads', 'lead_intelligence', 'lead_quality_pattern', `Score ${aiScore}, intent: ${intentLevel}, source: ${contact?.source || 'unknown'}`); } catch {}
     res.json({
       success: true, new_score: aiScore, old_score,
       intent_level: intentLevel, recommended_action: recommendedAction,
@@ -4931,6 +4937,7 @@ Return ONLY the raw JSON-LD object (no markdown, no \`\`\`).`;
       })();
 
       await Promise.all([kwGapPromise, metaPromise, schemaPromise]);
+      try { storeInsight(business_id, 'seo', 'seo_intelligence', 'recommendations_created', `${created} SEO recommendations`); } catch {}
       log('/webhook/seo-audit', `✅ ${business_id} — ${created} recommendations created`);
     } catch (err) {
       console.error('[seo-audit ERROR]', err.message);
@@ -5591,6 +5598,7 @@ Return ONLY valid JSON: { "response_text": "..." }`;
       await sendEmail(biz.email, `Review response draft ready — ${stars}⭐ from ${review.reviewer_name || 'customer'}`, html).catch(() => {});
     }
 
+    try { const praise = stars >= 4 ? (review.review_text || '').slice(0, 100) : ''; const complaint = stars <= 2 ? (review.review_text || '').slice(0, 100) : ''; if (praise) storeInsight(business_id, 'reviews', 'customer_voice', 'top_praise', praise); if (complaint) storeInsight(business_id, 'reviews', 'customer_voice', 'top_complaint', complaint); } catch {}
     res.json({ review_id, response_draft: response_text, rating: stars });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -6348,6 +6356,7 @@ Return ONLY valid JSON:
         performance_before: JSON.stringify({ thisWeek, lastWeek })
       }).catch(() => {});
 
+      try { storeInsight(business_id, 'strategy', 'content_strategy', 'content_themes', (result.best_performing_themes || []).join(', ')); storeInsight(business_id, 'strategy', 'content_strategy', 'weekly_focus', result.marketing_strategy ? result.marketing_strategy.slice(0, 200) : ''); } catch {}
       log('/webhook/weekly-strategy-update', `✅ Strategy evolved for ${biz.business_name}`);
     } catch (err) {
       console.error('[weekly-strategy-update ERROR]', err.message);
@@ -6785,6 +6794,7 @@ Return ONLY valid JSON:
         worst_performing_themes: JSON.stringify(result.worst_content_types || [])
       });
 
+      try { storeInsight(business_id, 'audience', 'audience_intelligence', 'best_day', result.best_day_to_post || ''); storeInsight(business_id, 'audience', 'audience_intelligence', 'growth_trajectory', result.growth_trajectory || ''); storeInsight(business_id, 'audience', 'audience_intelligence', 'key_insight', result.key_insight || ''); } catch {}
       log('/webhook/analyze-audience', `✅ Audience analysis complete for ${biz.business_name}`);
     } catch (err) {
       console.error('[analyze-audience ERROR]', err.message);
@@ -6848,6 +6858,7 @@ Return ONLY valid JSON:
         competitive_moat: JSON.stringify(result)
       });
 
+      try { storeInsight(business_id, 'moat', 'competitive_intelligence', 'moat_strategy', result.moat_strategy || ''); storeInsight(business_id, 'moat', 'competitive_intelligence', 'content_gaps', (result.content_opportunities || []).slice(0, 3).map(o => o.topic || o).join('; ')); } catch {}
       log('/webhook/build-competitive-moat', `✅ Moat built for ${biz.business_name}: ${(result.content_opportunities || []).length} opportunities`);
     } catch (err) {
       console.error('[build-competitive-moat ERROR]', err.message);
@@ -7113,6 +7124,7 @@ Return ONLY valid JSON:
         strategy_updated_at: new Date().toISOString()
       });
 
+      try { storeInsight(business_id, 'growth', 'growth_strategy', 'top_lever', result.recommended_action?.lever || ''); storeInsight(business_id, 'growth', 'growth_strategy', 'bottleneck', result.bottleneck || ''); } catch {}
       log('/webhook/growth-engine', `✅ Growth engine: ${result.recommended_action?.lever} for ${biz.business_name}`);
     } catch (err) {
       console.error('[growth-engine ERROR]', err.message);
@@ -7289,6 +7301,7 @@ app.post('/webhook/generate-image', async (req, res) => {
           business_id, photo_url: result.url, photo_type: content_type,
           description: prompt.slice(0, 200), is_active: true
         }).catch(() => {});
+        try { storeInsight(business_id, 'images', 'visual_strategy', 'image_model', result.model_used || 'unknown'); } catch {}
         log('/webhook/generate-image', `✅ ${result.model_used}: ${result.url}`);
       }
     } catch (err) {
@@ -7673,6 +7686,7 @@ Return ONLY valid JSON:
       const forecast = await callClaude(prompt, 'claude-opus-4-5', 1500);
       await sbPatch('businesses', `id=eq.${business_id}`, { revenue_forecast: JSON.stringify(forecast) });
       sendSSE(business_id, 'forecast_updated', { summary: forecast.forecast_summary });
+      try { storeInsight(business_id, 'forecast', 'revenue_intelligence', 'forecast_30d', forecast.forecast_30d?.revenue || '0'); storeInsight(business_id, 'forecast', 'revenue_intelligence', 'forecast_summary', forecast.forecast_summary || ''); } catch {}
       log('/webhook/revenue-forecast', `✅ Forecast for ${biz.business_name}`);
     } catch (err) { console.error('[revenue-forecast ERROR]', err.message); await logError(business_id, 'revenue-forecast', err.message).catch(() => {}); }
   });
@@ -7703,6 +7717,7 @@ app.post('/webhook/spy-competitor-ads', async (req, res) => {
           }
         } catch {}
       }
+      try { storeInsight(business_id, 'competitor_ads', 'competitive_intelligence', 'competitor_ad_count', `${competitors.length} competitors monitored`); } catch {}
       log('/webhook/spy-competitor-ads', `✅ Spied on ${competitors.length} competitors for ${biz.business_name}`);
     } catch (err) { console.error('[spy-competitor-ads ERROR]', err.message); }
   });
@@ -8172,7 +8187,7 @@ app.post('/api/orchestrator/run/:userId', async (req, res) => {
       if (!p) return;
       const dayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
       const intel = await buildIntelligenceContext(userId);
-      const plan = await callClaude(`You are the AI brain for ${p.business_name}.\nToday: ${dayName}\nGoal: ${p.primary_goal}\nBudget: ${p.monthly_budget}\nSeason: ${p.seasonal || 'year_round'}\n\n${intel}\n\nBased on ALL intelligence above, decide what 2-3 marketing tasks to execute TODAY.\nChoose from: social_post, email, ai_seo, marketing_ideas, customer_research, schema_markup, lead_magnet, community_post\n\nReturn ONLY valid JSON:\n{"tasks":[{"type":"string","priority":1,"reason":"string"}]}`, 'claude-sonnet-4-5', 500);
+      const plan = await callClaude(`You are the AI brain for ${p.business_name}.\nToday: ${dayName}\nGoal: ${p.primary_goal}\nBudget: ${p.monthly_budget}\nSeason: ${p.seasonal || 'year_round'}\n\n${intel}\n\nPRIORITY RULES based on intelligence:\n- If competitive_intelligence shows competitor moved → prioritize counter-content\n- If customer_voice has complaints → address them in content\n- If ad_strategy has winning angles → replicate across channels\n- If content_performance shows what works → create more of it\n- If lead_intelligence shows pattern → optimize targeting\n\nDecide what 2-3 tasks to execute TODAY.\nChoose from: social_post, email, ai_seo, marketing_ideas, customer_research, schema_markup, lead_magnet, community_post\n\nReturn ONLY valid JSON:\n{"tasks":[{"type":"string","priority":1,"reason":"string"}]}`, 'claude-sonnet-4-5', 600);
       const tasks = plan.tasks || [];
       const executed = [];
       const SELF = 'https://maroa-api-production.up.railway.app';
