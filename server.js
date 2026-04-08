@@ -137,6 +137,17 @@ function extractJSON(text) {
   // 4. Find JSON object (greedy — outermost braces)
   const objMatch = cleaned.match(/\{[\s\S]*\}/);
   if (objMatch) { try { return JSON.parse(objMatch[0]); } catch {} }
+  // 5. Repair truncated JSON array — find last complete object and close the array
+  const arrStart = cleaned.indexOf('[');
+  if (arrStart !== -1) {
+    let truncated = cleaned.slice(arrStart);
+    // Find the last complete "}" and close the array there
+    const lastBrace = truncated.lastIndexOf('}');
+    if (lastBrace > 0) {
+      const repaired = truncated.slice(0, lastBrace + 1) + ']';
+      try { return JSON.parse(repaired); } catch {}
+    }
+  }
   return null;
 }
 
@@ -8316,7 +8327,7 @@ app.post('/api/ideas/generate', async (req, res) => {
       const p = await getProfile(userId);
       if (!p) { log('/api/ideas/generate', `ABORT: no profile found for userId=${userId}`); await logError(userId, 'ideas-generate', 'No profile found for userId=' + userId).catch(() => {}); return; }
       log('/api/ideas/generate', `Profile found: ${p.business_name} (${p.business_type})`);
-      let result = await callClaude(`You are a marketing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nBudget: ${p.monthly_budget}\nGoal: ${p.primary_goal}\nLanguage: ${p.primary_language}\n\nGenerate 10 SPECIFIC, ACTIONABLE marketing ideas ranked by impact.\nEach must be executable with available budget, specific to this business.\n\nReturn ONLY valid JSON array:\n[{"idea":"string","category":"string","priority":"high|medium|low","estimated_impact":"string","how_to_execute":"string (3 steps)","budget_required":"string","time_to_results":"string"}]`, 'claude-sonnet-4-5', 2000);
+      let result = await callClaude(`You are a marketing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nBudget: ${p.monthly_budget}\nGoal: ${p.primary_goal}\nLanguage: ${p.primary_language}\n\nGenerate 5 SPECIFIC marketing ideas ranked by impact. Keep each idea brief.\n\nReturn ONLY valid JSON array (no markdown):\n[{"idea":"string","category":"string","priority":"high|medium|low","estimated_impact":"string","how_to_execute":"3 brief steps","budget_required":"string","time_to_results":"string"}]`, 'claude-sonnet-4-5', 3000);
       // Handle _raw fallback — re-extract JSON from raw text
       log('/api/ideas/generate', `Claude returned: type=${typeof result}, isArray=${Array.isArray(result)}, hasRaw=${!!result?._raw}, keys=${Object.keys(result||{}).slice(0,5)}`);
       if (result?._raw) { const parsed = extractJSON(result._raw); if (parsed) { log('/api/ideas/generate', `Re-parsed _raw: type=${typeof parsed}, isArray=${Array.isArray(parsed)}`); result = parsed; } }
