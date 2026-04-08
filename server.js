@@ -1023,7 +1023,7 @@ async function generateInstantContent(bizId, emailOverride) {
         business_id: bizId,
         variant_a: JSON.stringify({ theme: content.content_theme, caption: (content.instagram_caption || '').slice(0, 500) }),
         variant_b: JSON.stringify({ theme: runnerUp.content.content_theme, caption: (runnerUp.content.instagram_caption || '').slice(0, 500) }),
-        tested_at: new Date().toISOString()
+        started_at: new Date().toISOString()
       });
       abTestId = testRow?.id || null;
     } catch {}
@@ -8014,12 +8014,12 @@ app.post('/api/ab-tests/create', async (req, res) => {
   try {
     const p = await getProfile(userId);
     const result = await callClaude(`Create A/B test variant for ${p?.business_name || 'business'}.\nCurrent (A): "${currentVersion}"\nType: ${testType}\nLanguage: ${p?.primary_language || 'English'}\n\nChange ONE variable. Return ONLY valid JSON:\n{"variant_a":"string","variant_b":"string","hypothesis":"string","primary_metric":"string","minimum_runtime":"string"}`, 'claude-sonnet-4-5', 500);
-    const row = await sbPost('ab_tests', { business_id: userId, variant_a: JSON.stringify({ text: result.variant_a || currentVersion, type: testType }), variant_b: JSON.stringify({ text: result.variant_b, type: testType }), tested_at: new Date().toISOString() });
+    const row = await sbPost('ab_tests', { business_id: userId, variant_a: JSON.stringify({ text: result.variant_a || currentVersion, type: testType }), variant_b: JSON.stringify({ text: result.variant_b, type: testType }), started_at: new Date().toISOString() });
     res.json({ test_id: row?.id, ...result });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.get('/api/ab-tests/:userId', async (req, res) => {
-  try { const r = await sbGet('ab_tests', `business_id=eq.${req.params.userId}&order=tested_at.desc&limit=10`); res.json({ tests: r }); }
+  try { const r = await sbGet('ab_tests', `business_id=eq.${req.params.userId}&order=started_at.desc&limit=10`); res.json({ tests: r }); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
