@@ -7965,8 +7965,17 @@ app.get('/api/intelligence/:userId', async (req, res) => {
 // Helper: fetch business profile for skill modules
 async function getProfile(userId) {
   let p = null;
-  try { const r = await sbGet('business_profiles', `user_id=eq.${userId}&select=*`); p = r[0]; } catch {}
-  if (!p) { try { const r = await sbGet('businesses', `id=eq.${userId}&select=*`); const b = r[0]; if (b) p = { user_id: userId, business_name: b.business_name, business_type: b.industry, physical_locations: b.location ? [{ city: b.location }] : [], primary_language: 'Albanian', audience_description: b.target_audience, primary_goal: b.marketing_goal, monthly_budget: b.daily_budget ? '€' + b.daily_budget * 30 : '€300', tone_keywords: b.brand_tone ? [b.brand_tone] : [], usp: '', pain_point: '', we_do_better: '', current_offer: '', products: [], avg_spend: '', business_age: 'established' }; } catch {} }
+  try { const r = await sbGet('business_profiles', `user_id=eq.${userId}&select=*`); p = r[0]; } catch (e) { log('getProfile', `business_profiles failed: ${e.message.slice(0,80)}`); }
+  if (!p) {
+    try {
+      // Try by id first, then by user_id
+      let r = await sbGet('businesses', `id=eq.${userId}&select=*`);
+      if (!r.length) r = await sbGet('businesses', `user_id=eq.${userId}&select=*`);
+      const b = r[0];
+      if (b) p = { user_id: userId, business_name: b.business_name, business_type: b.industry, physical_locations: b.location ? [{ city: b.location }] : [], primary_language: 'Albanian', audience_description: b.target_audience, primary_goal: b.marketing_goal, monthly_budget: b.daily_budget ? '€' + b.daily_budget * 30 : '€300', tone_keywords: b.brand_tone ? [b.brand_tone] : [], usp: '', pain_point: '', we_do_better: '', current_offer: '', products: [], avg_spend: '', business_age: 'established', plan: b.plan };
+      else log('getProfile', `No business found for ${userId}`);
+    } catch (e) { log('getProfile', `businesses fallback failed: ${e.message.slice(0,80)}`); }
+  }
   return p;
 }
 function pCity(p) { const l = Array.isArray(p?.physical_locations) ? p.physical_locations : []; return l[0]?.city || 'local area'; }
@@ -8296,7 +8305,8 @@ app.post('/api/ideas/generate', async (req, res) => {
   setImmediate(async () => {
     try {
       const p = await getProfile(userId);
-      if (!p) return;
+      if (!p) { log('/api/ideas/generate', `ABORT: no profile found for userId=${userId}`); await logError(userId, 'ideas-generate', 'No profile found for userId=' + userId).catch(() => {}); return; }
+      log('/api/ideas/generate', `Profile found: ${p.business_name} (${p.business_type})`);
       let result = await callClaude(`You are a marketing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nBudget: ${p.monthly_budget}\nGoal: ${p.primary_goal}\nLanguage: ${p.primary_language}\n\nGenerate 10 SPECIFIC, ACTIONABLE marketing ideas ranked by impact.\nEach must be executable with available budget, specific to this business.\n\nReturn ONLY valid JSON array:\n[{"idea":"string","category":"string","priority":"high|medium|low","estimated_impact":"string","how_to_execute":"string (3 steps)","budget_required":"string","time_to_results":"string"}]`, 'claude-sonnet-4-5', 2000);
       // Handle _raw fallback — re-extract JSON from raw text
       log('/api/ideas/generate', `Claude returned: type=${typeof result}, isArray=${Array.isArray(result)}, hasRaw=${!!result?._raw}, keys=${Object.keys(result||{}).slice(0,5)}`);
