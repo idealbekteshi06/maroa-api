@@ -7970,13 +7970,16 @@ app.post('/api/community/generate-posts', async (req, res) => {
 app.post('/api/sales/generate-pitch', async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: 'userId required' });
-  try {
-    const p = await getProfile(userId);
-    if (!p) return res.status(404).json({ error: 'Profile not found' });
-    const result = await callClaude(`Create a sales one-pager for ${p.business_name}.\nBusiness: ${p.business_type} in ${pCity(p)}\nUSP: ${p.usp}\nWe are better at: ${p.we_do_better}\nOffer: ${p.current_offer}\nLanguage: ${p.primary_language}\n\nLead with outcomes, scannable in 3 seconds, specific numbers.\nReturn ONLY valid JSON:\n{"headline":"string","subheadline":"string","key_benefits":["string"],"social_proof":"string","cta":"string","full_pitch":"string"}`, 'claude-sonnet-4-5', 1000);
-    await sbPost('sales_assets', { user_id: userId, asset_type: 'one_pager', title: result.headline || 'Sales Pitch', content: JSON.stringify(result) });
-    res.json(result);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  res.json({ received: true, message: 'Generating sales pitch' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      if (!p) return;
+      const result = await callClaude(`Create a sales one-pager for ${p.business_name}.\nBusiness: ${p.business_type} in ${pCity(p)}\nUSP: ${p.usp}\nWe are better at: ${p.we_do_better}\nOffer: ${p.current_offer}\nLanguage: ${p.primary_language}\n\nLead with outcomes, scannable in 3 seconds, specific numbers.\nReturn ONLY valid JSON:\n{"headline":"string","subheadline":"string","key_benefits":["string"],"social_proof":"string","cta":"string","full_pitch":"string"}`, 'claude-sonnet-4-5', 1000);
+      await sbPost('sales_assets', { user_id: userId, asset_type: 'one_pager', title: result.headline || 'Sales Pitch', content: JSON.stringify(result) }).catch(() => {});
+      log('/api/sales/generate-pitch', `✅ Pitch for ${p.business_name}`);
+    } catch (err) { console.error('[sales/pitch]', err.message); }
+  });
 });
 app.post('/api/sales/objection-handler', async (req, res) => {
   const { userId, objection } = req.body;
@@ -8011,12 +8014,12 @@ app.post('/api/ab-tests/create', async (req, res) => {
   try {
     const p = await getProfile(userId);
     const result = await callClaude(`Create A/B test variant for ${p?.business_name || 'business'}.\nCurrent (A): "${currentVersion}"\nType: ${testType}\nLanguage: ${p?.primary_language || 'English'}\n\nChange ONE variable. Return ONLY valid JSON:\n{"variant_a":"string","variant_b":"string","hypothesis":"string","primary_metric":"string","minimum_runtime":"string"}`, 'claude-sonnet-4-5', 500);
-    const row = await sbPost('ab_tests', { user_id: userId, test_name: `${testType} test`, variant_a: result.variant_a || currentVersion, variant_b: result.variant_b, metric: result.primary_metric, status: 'running' });
+    const row = await sbPost('ab_tests', { business_id: userId, variant_a: JSON.stringify({ text: result.variant_a || currentVersion, type: testType }), variant_b: JSON.stringify({ text: result.variant_b, type: testType }), tested_at: new Date().toISOString() });
     res.json({ test_id: row?.id, ...result });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.get('/api/ab-tests/:userId', async (req, res) => {
-  try { const r = await sbGet('ab_tests', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=10`); res.json({ tests: r }); }
+  try { const r = await sbGet('ab_tests', `business_id=eq.${req.params.userId}&order=tested_at.desc&limit=10`); res.json({ tests: r }); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -8024,11 +8027,16 @@ app.get('/api/ab-tests/:userId', async (req, res) => {
 app.post('/api/tools/suggest', async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: 'userId required' });
-  try {
-    const p = await getProfile(userId);
-    const result = await callClaude(`Suggest 3 free marketing tools for ${p?.business_name || 'business'}, a ${p?.business_type || 'local business'}.\nAudience: ${p?.audience_description || 'local customers'}\nCity: ${pCity(p)}\n\nTool must solve a REAL problem, be adjacent to business, simple to use.\n\nReturn ONLY valid JSON:\n[{"tool_name":"string","tool_type":"calculator|generator|checklist|analyzer","description":"string","how_it_generates_leads":"string","build_complexity":"simple|medium"}]`, 'claude-sonnet-4-5', 800);
-    res.json({ suggestions: Array.isArray(result) ? result : [result] });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  res.json({ received: true, message: 'Generating tool suggestions' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      const result = await callClaude(`Suggest 3 free marketing tools for ${p?.business_name || 'business'}, a ${p?.business_type || 'local business'}.\nAudience: ${p?.audience_description || 'local customers'}\nCity: ${pCity(p)}\n\nReturn ONLY valid JSON:\n[{"tool_name":"string","tool_type":"calculator|generator|checklist","description":"string","how_it_generates_leads":"string"}]`, 'claude-sonnet-4-5', 800);
+      const tools = Array.isArray(result) ? result : [result];
+      for (const t of tools) { await sbPost('free_tools', { user_id: userId, tool_name: t.tool_name, tool_type: t.tool_type, tool_description: t.description }).catch(() => {}); }
+      log('/api/tools/suggest', `✅ ${tools.length} tools suggested`);
+    } catch (err) { console.error('[tools/suggest]', err.message); }
+  });
 });
 app.get('/api/tools/:userId', async (req, res) => {
   try { const r = await sbGet('free_tools', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=10`); res.json({ tools: r }); }
@@ -8067,22 +8075,28 @@ app.post('/api/onboarding-cro/generate', async (req, res) => {
 app.post('/api/upgrade/generate-prompts', async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: 'userId required' });
-  try {
-    const p = await getProfile(userId);
-    const result = await callClaude(`Write 3 upgrade moment prompts for ${p?.business_name || 'business'} customers.\nMain service: ${p?.current_offer || 'standard'}\nPremium benefits: ${p?.usp || 'premium features'}\nLanguage: ${p?.primary_language || 'Albanian'}\n\n1. Feature gate prompt\n2. Usage limit prompt\n3. Time-based prompt (30 days)\n\nEach: headline, body (2 sentences), CTA, dismiss text.\nReturn ONLY valid JSON:\n{"prompts":[{"trigger":"feature_gate|usage_limit|time_based","headline":"string","body":"string","cta":"string","dismiss":"string"}]}`, 'claude-sonnet-4-5', 800);
-    res.json(result);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  res.json({ received: true, message: 'Generating upgrade prompts' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      await callClaude(`Write 3 upgrade prompts for ${p?.business_name || 'business'}.\nLanguage: ${p?.primary_language || 'Albanian'}\n\nReturn ONLY valid JSON:\n{"prompts":[{"trigger":"feature_gate","headline":"string","body":"string","cta":"string","dismiss":"string"}]}`, 'claude-sonnet-4-5', 800);
+      log('/api/upgrade/generate-prompts', '✅ Upgrade prompts generated');
+    } catch (err) { console.error('[upgrade]', err.message); }
+  });
 });
 
 // ── MODULE 18: Signup Flow CRO ──────────────────────────────────────────────
 app.post('/api/signup-cro/analyze', async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: 'userId required' });
-  try {
-    const p = await getProfile(userId);
-    const result = await callClaude(`Optimize signup/booking flow for ${p?.business_name || 'business'}, a ${p?.business_type || 'local business'}.\nUSP: ${p?.usp || ''}\nLanguage: ${p?.primary_language || 'Albanian'}\n\nGenerate:\n1. Landing step copy\n2. Form optimization (fields, order)\n3. Confirmation page copy\n4. Follow-up SMS/email (immediate after signup)\n\nReturn ONLY valid JSON:\n{"landing":{"headline":"string","subheadline":"string","cta":"string"},"form":{"recommended_fields":["string"],"field_order":["string"]},"confirmation":{"headline":"string","body":"string","next_action":"string"},"followup":{"sms":"string (160 chars)","email_subject":"string","email_body":"string"}}`, 'claude-sonnet-4-5', 1200);
-    res.json(result);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  res.json({ received: true, message: 'Analyzing signup flow' });
+  setImmediate(async () => {
+    try {
+      const p = await getProfile(userId);
+      await callClaude(`Optimize signup flow for ${p?.business_name || 'business'}, a ${p?.business_type || 'local business'}.\nLanguage: ${p?.primary_language || 'Albanian'}\n\nReturn ONLY valid JSON:\n{"landing":{"headline":"string","cta":"string"},"form":{"fields":["string"]},"confirmation":{"headline":"string"},"followup":{"sms":"string"}}`, 'claude-sonnet-4-5', 1000);
+      log('/api/signup-cro/analyze', '✅ Signup flow analyzed');
+    } catch (err) { console.error('[signup-cro]', err.message); }
+  });
 });
 
 // ── MODULE 19: Autonomous Daily Orchestrator ────────────────────────────────
