@@ -46,6 +46,23 @@ app.use('/api/community', aiLimit);
 app.use('/api/pricing', aiLimit);
 app.use('/api/schema', aiLimit);
 app.use('/api/ai-seo', aiLimit);
+app.use('/api/ideas/generate', requireValidUserId);
+app.use('/api/lead-magnets/generate', requireValidUserId);
+app.use('/api/research/analyze', requireValidUserId);
+app.use('/api/pricing/analyze', requireValidUserId);
+app.use('/api/schema/generate', requireValidUserId);
+app.use('/api/ai-seo/optimize', requireValidUserId);
+app.use('/api/sales/generate-pitch', requireValidUserId);
+app.use('/api/community/generate-posts', requireValidUserId);
+app.use('/api/campaigns/instant', requireValidUserId);
+app.use('/api/content/repurpose', requireValidUserId);
+app.use('/api/compete/counter', requireValidUserId);
+app.use('/api/reviews/auto-respond', requireValidUserId);
+app.use('/api/referral/setup', requireValidUserId);
+app.use('/api/launch/create', requireValidUserId);
+app.use('/api/onboarding-cro/generate', requireValidUserId);
+app.use('/api/upgrade/generate-prompts', requireValidUserId);
+app.use('/api/signup-cro/analyze', requireValidUserId);
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const clean = (v) => (v || '').replace(/[^\x20-\x7E]/g, '').trim();
@@ -820,6 +837,36 @@ function requireAdminSecret(req, res, next) {
   if (provided !== ORCHESTRATOR_SECRET) return res.status(401).json({ error: 'Unauthorized' });
   next();
 }
+
+function safePublicError(err) {
+  const msg = String(err?.message || '').toLowerCase();
+  if (msg.includes('supabase') || msg.includes('sbget') || msg.includes('sbpost') || msg.includes('sbpatch')) return 'Data service error';
+  if (msg.includes('claude') || msg.includes('anthropic') || msg.includes('openai')) return 'AI service temporarily unavailable';
+  if (msg.includes('database') || msg.includes('sql')) return 'Service temporarily unavailable';
+  return 'Service temporarily unavailable';
+}
+
+function requireValidUserId(req, res, next) {
+  const { userId } = req.body || {};
+  if (!userId || typeof userId !== 'string' || userId.length < 10) {
+    return res.status(400).json({ error: 'Valid userId required' });
+  }
+  next();
+}
+
+app.use((req, res, next) => {
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    if (body && typeof body === 'object' && Object.prototype.hasOwnProperty.call(body, 'error')) {
+      if (res.statusCode === 200) res.status(500);
+      if (res.statusCode >= 500) {
+        body = { ...body, error: safePublicError({ message: String(body.error || '') }) };
+      }
+    }
+    return originalJson(body);
+  };
+  next();
+});
 
 async function logError(businessId, workflowName, errorMessage, retryPayload = null) {
   try {
@@ -2869,14 +2916,14 @@ async function sbUpsert(table, data, onConflict) {
 async function sendEmailWithTags(to, subject, html, tags = []) {
   const apiKey = clean(process.env.RESEND_API_KEY) || RESEND_API_KEY;
   const from   = clean(process.env.FROM_EMAIL)     || FROM_EMAIL;
-  if (!apiKey || !to) { console.log(`[EMAIL QUEUED] ${to} — no key`); return { queued: true }; }
+  if (!apiKey || !to) { console.log('[REDACTED]'); return { queued: true }; }
   try {
     const payload = { from: `maroa.ai <${from}>`, to: [to], reply_to: 'hello@maroa.ai', subject, html };
     if (tags.length) payload.tags = tags;
     const r = await apiRequest('POST', 'https://api.resend.com/emails',
       { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, payload);
     if ([200, 201].includes(r.status)) {
-      console.log(`[EMAIL SENT] ${to} | id: ${r.body?.id}`);
+      console.log('[REDACTED]');
       return { sent: true, id: r.body?.id };
     }
     return { error: r.body?.message, status: r.status };
@@ -5574,7 +5621,7 @@ app.post('/webhook/brand-memory-retrieve', async (req, res) => {
     const examples = matches.map(m => m.metadata.text);
     res.json({ examples, count: examples.length, content_type, topic });
   } catch (err) {
-    res.json({ examples: [], count: 0, error: err.message });
+    res.status(500).json({ examples: [], count: 0, error: safePublicError(err) });
   }
 });
 
@@ -7713,8 +7760,8 @@ app.post('/webhook/gmb-post', async (req, res) => {
       if (content_id) await sbPatch('generated_content', `id=eq.${content_id}`, { gmb_post_id: gmbResp.body.name }).catch(() => {});
       return res.json({ posted: true, post_id: gmbResp.body.name });
     }
-    res.json({ posted: false, error: gmbResp.body });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    res.status(502).json({ posted: false, error: 'Service temporarily unavailable' });
+  } catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
 
 // ── PIECE 7: AI Video Generation (Runway) ───────────────────────────────────
@@ -8301,7 +8348,7 @@ app.post('/api/referral/setup', async (req, res) => {
 });
 app.get('/api/referral/status/:userId', async (req, res) => {
   try { const r = await sbGet('referral_programs', `user_id=eq.${req.params.userId}&select=*`); res.json(r[0] || { active: false }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
 app.post('/api/referral/track', async (req, res) => {
   const { referral_code, referred_email } = req.body;
@@ -8311,7 +8358,7 @@ app.post('/api/referral/track', async (req, res) => {
     if (!progs[0]) return res.status(404).json({ error: 'Invalid referral code' });
     await sbPost('referrals', { referrer_id: progs[0].user_id, referred_email, status: 'pending' });
     res.json({ tracked: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
 
 // ── MODULE 2: Lead Magnets ──────────────────────────────────────────────────
@@ -8333,7 +8380,7 @@ app.post('/api/lead-magnets/generate', async (req, res) => {
 });
 app.get('/api/lead-magnets/:userId', async (req, res) => {
   try { const r = await sbGet('lead_magnets', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=10`); res.json({ magnets: r }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
 
 // ── MODULE 3: Launch Strategy ───────────────────────────────────────────────
@@ -8354,7 +8401,7 @@ app.post('/api/launch/create', async (req, res) => {
 });
 app.get('/api/launch/:userId', async (req, res) => {
   try { const r = await sbGet('launch_campaigns', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=5`); res.json({ campaigns: r }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
 
 // ── MODULE 4: Customer Research ─────────────────────────────────────────────
@@ -8410,11 +8457,11 @@ app.post('/api/ideas/generate', async (req, res) => {
 });
 app.get('/api/ideas/:userId', async (req, res) => {
   try { const r = await sbGet('marketing_ideas', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=20`); res.json({ ideas: r }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
 app.patch('/api/ideas/:ideaId', async (req, res) => {
   try { await sbPatch('marketing_ideas', `id=eq.${req.params.ideaId}`, req.body); res.json({ updated: true }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
 
 // ── MODULE 6: AI SEO ────────────────────────────────────────────────────────
@@ -8445,11 +8492,11 @@ app.post('/api/schema/generate', async (req, res) => {
     const schemaJson = JSON.stringify(result);
     await sbPost('schema_markups', { user_id: userId, schema_type: 'LocalBusiness', schema_json: schemaJson });
     res.json({ schema: result, copyable: `<script type="application/ld+json">${schemaJson}</script>` });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
 app.get('/api/schema/:userId', async (req, res) => {
   try { const r = await sbGet('schema_markups', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=5`); res.json({ schemas: r }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
 
 // ── MODULE 8: Programmatic SEO Pages ────────────────────────────────────────
@@ -8473,7 +8520,7 @@ app.post('/api/seo-pages/generate', async (req, res) => {
 });
 app.get('/api/seo-pages/:userId', async (req, res) => {
   try { const r = await sbGet('seo_pages', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=20`); res.json({ pages: r }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
 
 // ── MODULE 9: Pricing Recommendations ───────────────────────────────────────
@@ -8496,7 +8543,7 @@ app.post('/api/pricing/analyze', async (req, res) => {
 });
 app.get('/api/pricing/:userId', async (req, res) => {
   try { const r = await sbGet('pricing_recommendations', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=3`); res.json({ recommendations: r }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
 
 // ── MODULE 10: Community Marketing ──────────────────────────────────────────
@@ -8542,7 +8589,7 @@ app.post('/api/sales/objection-handler', async (req, res) => {
     const p = await getProfile(userId);
     const result = await callClaude(`Handle this sales objection for ${p?.business_name || 'the business'}:\nObjection: "${objection}"\nUSP: ${p?.usp || 'quality service'}\nLanguage: ${p?.primary_language || 'English'}\n\nReturn ONLY valid JSON:\n{"response":"string","tone":"empathetic|confident|educational","follow_up_question":"string"}`, 'claude-sonnet-4-5', 500);
     res.json(result);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
 
 // ── MODULE 12: RevOps Lead Scoring ──────────────────────────────────────────
@@ -8558,7 +8605,7 @@ app.post('/api/revops/score-lead', async (req, res) => {
 });
 app.get('/api/revops/scores/:userId', async (req, res) => {
   try { const r = await sbGet('lead_scores', `user_id=eq.${req.params.userId}&order=updated_at.desc&limit=20`); res.json({ scores: r }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
 
 // ── MODULE 13: A/B Test Manager ─────────────────────────────────────────────
@@ -8571,11 +8618,11 @@ app.post('/api/ab-tests/create', async (req, res) => {
     let row = null;
     try { row = await sbPost('ab_tests', { business_id: userId, started_at: new Date().toISOString() }); } catch (dbErr) { log('/api/ab-tests/create', `DB insert failed (non-critical): ${dbErr.message}`); }
     res.json({ test_id: row?.id || null, ...result });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
 app.get('/api/ab-tests/:userId', async (req, res) => {
   try { const r = await sbGet('ab_tests', `business_id=eq.${req.params.userId}&order=started_at.desc&limit=10`); res.json({ tests: r }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
 
 // ── MODULE 14: Free Tool Generator ──────────────────────────────────────────
@@ -8595,7 +8642,7 @@ app.post('/api/tools/suggest', async (req, res) => {
 });
 app.get('/api/tools/:userId', async (req, res) => {
   try { const r = await sbGet('free_tools', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=10`); res.json({ tools: r }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
 
 // ── MODULE 15: Popup CRO ────────────────────────────────────────────────────
@@ -8607,7 +8654,7 @@ app.post('/api/popup/generate', async (req, res) => {
     const tones = Array.isArray(p?.tone_keywords) ? p.tone_keywords.join(', ') : 'professional';
     const result = await callClaude(`Write popup copy for ${p?.business_name || 'business'}.\nType: ${popupType}\nBusiness: ${p?.business_type || 'local'} in ${pCity(p)}\nOffer: ${p?.current_offer || 'main service'}\nLanguage: ${p?.primary_language || 'Albanian'}\nTone: ${tones}\n\nReturn ONLY valid JSON:\n{"headline":"string (max 8 words)","subheadline":"string (max 15 words)","cta_button":"string (max 4 words)","dismiss_text":"string","timing":"string","trigger":"exit_intent|scroll_50|time_30s"}`, 'claude-sonnet-4-5', 400);
     res.json(result);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
 
 // ── MODULE 16: Onboarding CRO (for client's customers) ─────────────────────
