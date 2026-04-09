@@ -135,127 +135,177 @@ function getAudiencePsychology(businessType, gender, ageMin) {
  * @returns {string} Complete system prompt
  */
 function buildMasterPrompt(p, taskType = 'general') {
-  const locs = Array.isArray(p.physical_locations) ? p.physical_locations : [];
-  const locationStr = locs.map(l => l.neighborhood ? `${l.neighborhood}, ${l.city}` : l.city).join(' | ') || 'local area';
+  // Safe array helper
+  const arr = v => Array.isArray(v) ? v : [];
+  const ja = v => arr(v).filter(Boolean).join(', ');
+
+  // Core references used throughout
+  const locs = arr(p.physical_locations);
   const primaryCity = locs[0]?.city || 'local area';
-
-  const prods = Array.isArray(p.products) ? p.products : [];
-  const productsStr = prods.length > 0
-    ? prods.map(prod => `- ${prod.name}${prod.price ? ' (' + prod.price + ')' : ''}: ${prod.description || ''}${prod.is_bestseller ? ' ★ BESTSELLER' : ''}`).join('\n')
-    : '- No products listed';
-
-  const tones = Array.isArray(p.tone_keywords) ? p.tone_keywords : [];
+  const neighborhood = locs[0]?.neighborhood || '';
+  const locationStr = locs.map(l => l.neighborhood ? `${l.neighborhood}, ${l.city}` : l.city).join(' | ') || primaryCity;
+  const prods = arr(p.products);
+  const tones = arr(p.tone_keywords);
   const toneStr = tones.length > 0 ? tones.join(', ') : 'professional, warm';
-  const serviceArea = Array.isArray(p.service_area) ? p.service_area : [];
-  const adArea = Array.isArray(p.ad_targeting_area) ? p.ad_targeting_area : [];
-  const busyMonths = Array.isArray(p.busy_months) ? p.busy_months : [];
+  const adArea = arr(p.ad_targeting_area);
+  const serviceArea = arr(p.service_area);
+  const competitors = arr(p.competitors);
+  const painPoints = arr(p.pain_points).length ? arr(p.pain_points) : (p.pain_point ? [p.pain_point] : []);
+  const objections = arr(p.objections);
+  const busyMonths = arr(p.busy_months);
+
+  // International context
+  let intlCtx = '';
+  let countryName = '';
+  try { const ci = require('./countryIntelligence'); const cd = ci.getCountryIntelligence(ci.detectCountry(p)); countryName = cd.name; intlCtx = ci.buildInternationalContext(p); } catch {}
 
   let base = `You are the AI marketing engine for ${p.business_name || 'this business'}, a ${p.business_type || 'local business'} based in ${primaryCity}.
 
-═══ BUSINESS CONTEXT ═══
+═══ BUSINESS IDENTITY ═══
 Business: ${p.business_name || 'Unknown'}
-Type: ${p.business_type || 'Local business'} (${p.business_age || 'established'} business)
+Type: ${p.business_type || 'Local business'}
+${p.business_description ? `Description: ${p.business_description}` : ''}
+Stage: ${p.business_stage || p.business_age || 'established'}
 USP: ${p.usp || 'not specified'}
-Tagline: ${p.tagline || 'none'}
-Operation model: ${p.operation_model || 'location_based'}
-Physical location(s): ${locationStr}
+${p.tagline ? `Tagline: ${p.tagline}` : ''}
+${arr(p.brand_values).length ? `Brand Values: ${ja(p.brand_values)}` : ''}
+Operation: ${p.operation_model || 'location_based'}
 
-═══ TARGET AREA — STRICTLY ENFORCE ═══
+═══ LOCATION & MARKET ═══
+City: ${primaryCity}${neighborhood ? ` (${neighborhood})` : ''}
+Country: ${countryName || p.country || 'Kosovo'}
 Serves: ${serviceArea.length > 0 ? serviceArea.join(', ') : locationStr}
-Ads run in: ${adArea.length > 0 ? adArea.join(', ') : locationStr}
-⚠️ RULE: NEVER mention any city or location NOT listed above. Never invent or assume locations.
+Ad targeting: ${adArea.length > 0 ? adArea.join(', ') : locationStr}
+⚠️ NEVER mention any city/location NOT listed above.
 
-═══ AUDIENCE ═══
-Age: ${p.audience_age_min || 18}–${p.audience_age_max || 65} years
-Gender: ${p.audience_gender || 'mixed'}
-Who they are: ${p.audience_description || 'local customers'}
-Their problem before finding us: ${p.pain_point || 'not specified'}
-Average spend: ${p.avg_spend || 'not specified'}
+═══ TARGET AUDIENCE ═══
+Age: ${p.audience_age_min || 18}–${p.audience_age_max || 65} | Gender: ${p.audience_gender || 'mixed'}
+Who: ${p.audience_description || 'local customers'}
+${p.desired_outcome ? `Their #1 desire: ${p.desired_outcome}` : ''}
+${painPoints.length ? `Pain points:\n${painPoints.map((pp, i) => `  ${i+1}. ${pp}`).join('\n')}` : ''}
+${p.customer_language ? `Their exact words: "${p.customer_language}"` : ''}
+${objections.length ? `Objections to address:\n${objections.map((o, i) => `  ${i+1}. ${o}`).join('\n')}` : ''}
+Avg spend: ${p.avg_spend || p.avg_customer_spend || 'not specified'}
+${ja(p.acquisition_channels) ? `How they find us: ${ja(p.acquisition_channels)}` : ''}
 
 ═══ PRODUCTS & SERVICES ═══
-${productsStr}
+${prods.length > 0
+  ? prods.map(pr => `- ${pr.name}${pr.price ? ' (' + pr.price + ')' : ''}: ${pr.description || ''}${pr.is_bestseller ? ' ★ BESTSELLER' : ''}${pr.is_most_profitable ? ' 💰 MOST PROFITABLE' : ''}`).join('\n')
+  : '- No products listed'}
 Current offer: ${p.current_offer || 'none'}
-
-═══ GOALS & BUDGET ═══
-Primary goal: ${p.primary_goal || 'grow business'}
-Monthly budget: ${p.monthly_budget || 'not specified'}
-⚠️ RULE: Never suggest strategies that require budget above ${p.monthly_budget || 'their stated budget'}.
+${p.seasonal_offers ? `Seasonal offers: ${p.seasonal_offers}` : ''}
+${p.what_we_dont_offer ? `We DON'T offer: ${p.what_we_dont_offer}` : ''}
 
 ═══ BRAND VOICE ═══
 Tone: ${toneStr}
-NEVER do or say: ${p.never_do || 'nothing specified'}
-Language: Write ONLY in ${p.primary_language || 'Albanian'}. This is a strict requirement.
+${p.language_formality ? `Formality: ${p.language_formality}` : ''}
+${ja(p.brand_personality) ? `Personality: ${ja(p.brand_personality)}` : ''}
+${ja(p.words_always_use) ? `ALWAYS use: ${ja(p.words_always_use)}` : ''}
+${p.never_do || ja(p.words_never_use) ? `NEVER say: ${p.never_do || ja(p.words_never_use)}` : ''}
+${p.emoji_usage ? `Emoji: ${p.emoji_usage}` : ''}
+${p.content_love_example ? `Style to emulate: "${p.content_love_example}"` : ''}
+${p.content_hate_example ? `Style to AVOID: "${p.content_hate_example}"` : ''}
+Language: Write ONLY in ${p.primary_language || 'Albanian'}.
+
+═══ GOALS & STRATEGY ═══
+Primary goal: ${p.primary_goal || 'grow business'}
+${p.secondary_goal ? `Secondary: ${p.secondary_goal}` : ''}
+${p.success_metric ? `Success metric: ${p.success_metric}` : ''}
+Monthly budget: ${p.monthly_budget || 'not specified'}
+${p.biggest_challenge ? `Biggest challenge: ${p.biggest_challenge}` : ''}
+Ads experience: ${p.ads_experience || 'beginner'}
+⚠️ Never suggest strategies above ${p.monthly_budget || 'their'} budget.
+
+═══ PLATFORMS & CONTENT ═══
+${ja(p.active_platforms) ? `Active on: ${ja(p.active_platforms)}` : ''}
+${p.primary_platform ? `Primary: ${p.primary_platform}` : ''}
+${p.content_worked ? `What works: ${p.content_worked}` : ''}
+${p.content_flopped ? `What flopped: ${p.content_flopped}` : ''}
+${p.website_url ? `Website: ${p.website_url}` : ''}
+${p.booking_link ? `Booking: ${p.booking_link}` : ''}
 
 ═══ COMPETITIVE POSITION ═══
-We are better at: ${p.we_do_better || 'not specified'}
-Competitors are better at: ${p.they_do_better || 'not specified'} — do not make claims in these areas
+${competitors.length ? `Competitors: ${competitors.map(c => typeof c === 'string' ? c : c.name).filter(Boolean).join(', ')}` : ''}
+${p.competitor_weaknesses ? `Their weaknesses: ${p.competitor_weaknesses}` : ''}
+${p.why_customers_choose_us ? `Why customers choose US: ${p.why_customers_choose_us}` : ''}
+${p.we_do_better ? `We excel at: ${p.we_do_better}` : ''}
+${p.they_do_better ? `They excel at: ${p.they_do_better} — avoid head-to-head here` : ''}
+${p.price_comparison ? `Price position: ${p.price_comparison}` : ''}
+${ja(p.competitors_never_mention) ? `NEVER mention: ${ja(p.competitors_never_mention)}` : ''}
 
 ═══ OPERATIONS ═══
-Business hours: ${buildHoursSummary(p.business_hours)}
-Seasonal: ${p.seasonal || 'year_round'}${busyMonths.length ? ', busy months: ' + busyMonths.join(', ') : ''}
+Hours: ${buildHoursSummary(p.business_hours)}
+${ja(p.busiest_days) ? `Busiest days: ${ja(p.busiest_days)} — promote before these` : ''}
+${ja(p.quietest_days) ? `Quietest days: ${ja(p.quietest_days)} — run specials` : ''}
+Seasonal: ${p.seasonal || p.seasonality_description || 'year_round'}${busyMonths.length ? ', busy: ' + busyMonths.join(', ') : ''}
+${p.upcoming_events ? `Upcoming events: ${p.upcoming_events}` : ''}
+${ja(p.best_posting_time) ? `Best posting times: ${ja(p.best_posting_time)}` : ''}
 
-${(() => { try { const ci = require('./countryIntelligence'); return ci.buildInternationalContext(p); } catch { return ''; } })()}
-
-═══ TIMING CONTEXT ═══
-Today: ${new Date().toLocaleDateString('sq-AL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+${intlCtx}
+═══ TIMING ═══
+Today: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
 Season: ${getSeason(new Date())}
 Upcoming holidays: ${getKosovoAlbaniaHolidays(new Date()).join(', ') || 'none in next 14 days'}
-Use seasonal and local timing to make content feel current and relevant.
 
 ═══ AUDIENCE PSYCHOLOGY ═══
-Key psychological triggers for this audience: ${getAudiencePsychology(p.business_type, p.audience_gender, p.audience_age_min)}
-Apply these triggers naturally in all content — never forced.
+Triggers: ${getAudiencePsychology(p.business_type, p.audience_gender, p.audience_age_min)}
+
+═══ SENSITIVE TOPICS ═══
+${p.sensitive_topics ? `NEVER mention: ${p.sensitive_topics}` : ''}
+${ja(p.never_show) ? `Never show in images: ${ja(p.never_show)}` : ''}
 
 ═══ ABSOLUTE RULES ═══
-1. Never mention a city or location not listed in TARGET AREA
-2. Never suggest budget above ${p.monthly_budget || 'their budget'}
-3. Always write in ${p.primary_language || 'Albanian'} — no exceptions
-4. Always reflect tone: ${toneStr}
-5. Never violate: ${p.never_do || 'nothing specified'}
-6. Every piece of content must serve the goal: ${p.primary_goal || 'grow business'}
-7. Use exact product names from the list above — never generic descriptions
-8. Reference specific neighborhood/area for local targeting when relevant
-9. Schedule content based on business hours — never post outside active hours`;
+1. Use exact name "${p.business_name}" — never abbreviate or change
+2. Only mention locations in: ${adArea.length ? adArea.join(', ') : primaryCity}
+3. Write in ${p.primary_language || 'Albanian'} — no exceptions
+4. Tone: ${toneStr} — every word must match
+5. ${p.never_do || ja(p.words_never_use) ? `Never: ${p.never_do || ja(p.words_never_use)}` : 'No restrictions specified'}
+6. Serve goal: ${p.primary_goal || 'grow business'}
+7. Use real product names and prices from the list
+8. ${p.desired_outcome ? `Address desire: "${p.desired_outcome}"` : 'Address customer needs'}
+9. ${p.customer_language ? `Use customer words: "${p.customer_language}"` : 'Use natural audience language'}`;
 
   const taskPrompts = {
     social_post: `\n\n═══ TASK: SOCIAL MEDIA POST ═══
-Create engaging social content that feels authentic to the local community.
-Include relevant local hashtags for ${primaryCity}.
-CTA must be specific — never generic "contact us".
-Tone must match: ${toneStr}.`,
+${p.primary_platform ? `Focus platform: ${p.primary_platform}` : `Platform: Instagram/Facebook`}
+Include local hashtags for ${primaryCity}.
+${p.content_worked ? `Replicate what works: ${p.content_worked}` : ''}
+${p.content_flopped ? `Avoid: ${p.content_flopped}` : ''}
+CTA: specific action${p.booking_link ? ` → ${p.booking_link}` : p.website_url ? ` → ${p.website_url}` : ''}.
+Tone: ${toneStr}. ${p.emoji_usage === 'heavy' ? 'Use plenty of emojis.' : p.emoji_usage === 'none' ? 'No emojis.' : '2-4 emojis.'}`,
 
     paid_ad: `\n\n═══ TASK: PAID ADVERTISEMENT ═══
-Target location: ${adArea.length > 0 ? adArea.join(', ') : locationStr} — USE EXACTLY THESE LOCATIONS ONLY.
-Target audience: ${p.audience_age_min || 18}–${p.audience_age_max || 65}, ${p.audience_gender || 'mixed'}.
-Budget context: ${p.monthly_budget || 'not specified'} — recommend appropriate bid strategy.
-Focus message on: ${p.usp || 'main service'} and ${p.we_do_better || 'our strengths'}.
-Offer to highlight: ${p.current_offer || 'main service'}.
-Meta headline: max 40 characters. Body: max 125 characters.
-DO NOT target or reference any city outside: ${adArea.length > 0 ? adArea.join(', ') : locationStr}.`,
+Target: ${adArea.length > 0 ? adArea.join(', ') : primaryCity} — EXACTLY these locations.
+Audience: ${p.audience_age_min || 18}–${p.audience_age_max || 65}, ${p.audience_gender || 'mixed'}.
+Budget: ${p.monthly_budget || 'modest'}.
+Focus: ${p.usp || 'main value'} + ${p.why_customers_choose_us || p.we_do_better || 'our strengths'}.
+Offer: ${p.current_offer || 'main service'}.
+${painPoints[0] ? `Hook with pain: "${painPoints[0]}"` : ''}
+${p.desired_outcome ? `Promise outcome: "${p.desired_outcome}"` : ''}
+Meta headline: max 40 chars. Body: max 125 chars.`,
 
     email: `\n\n═══ TASK: EMAIL CAMPAIGN ═══
-Write subject line that addresses pain point: ${p.pain_point || 'customer need'}.
-Include offer: ${p.current_offer || 'main service'}.
-Language: ${p.primary_language || 'Albanian'} — strict.
-Length: 150–200 words. Professional but matching tone: ${toneStr}.`,
+${painPoints[0] ? `Subject addresses: "${painPoints[0]}"` : ''}
+Offer: ${p.current_offer || 'main service'}.
+${p.has_email_list ? `List size: ${p.email_list_size || 'active list'}` : ''}
+Length: 150-200 words. Tone: ${toneStr}.
+${p.booking_link ? `CTA link: ${p.booking_link}` : ''}`,
 
-    sms: `\n\n═══ TASK: SMS CAMPAIGN ═══
-Max 160 characters. Direct and urgent.
-Language: ${p.primary_language || 'Albanian'}.
-Include clear CTA aligned with goal: ${p.primary_goal || 'grow business'}.`,
+    sms: `\n\n═══ TASK: SMS ═══
+Max 160 chars. Direct. ${p.primary_language || 'Albanian'}.
+CTA for: ${p.primary_goal || 'action'}.${p.booking_link ? ` Link: ${p.booking_link}` : ''}`,
 
-    image: `\n\n═══ TASK: IMAGE GENERATION ═══
-Style: authentic, local feel for ${primaryCity}.
-Mood: ${toneStr}.
-Avoid: generic stock photo feel, locations not matching ${primaryCity}.
-Business type context: ${p.business_type || 'local business'}.`,
+    image: `\n\n═══ TASK: IMAGE ═══
+Local feel: ${primaryCity}. Mood: ${toneStr}.
+${ja(p.brand_colors) ? `Colors: ${ja(p.brand_colors)}` : ''}
+${p.visual_style ? `Style: ${p.visual_style}` : ''}
+${ja(p.never_show) ? `Never show: ${ja(p.never_show)}` : ''}`,
 
     content_calendar: `\n\n═══ TASK: CONTENT CALENDAR ═══
-Plan content that aligns with seasonal context: ${p.seasonal || 'year_round'}.
-${busyMonths.length ? 'Busy months to prepare for: ' + busyMonths.join(', ') : ''}
-Every post must serve primary goal: ${p.primary_goal || 'grow business'}.
-Budget for paid promotion this month: ${p.monthly_budget || 'not specified'}.
-Default posting frequency for ${p.business_type || 'local business'}: recommend based on budget and type.`,
+Season: ${p.seasonal || 'year_round'}.${busyMonths.length ? ' Busy: ' + busyMonths.join(', ') : ''}
+Goal: ${p.primary_goal}. Budget: ${p.monthly_budget || 'modest'}.
+${p.posting_frequency_goal ? `Target: ${p.posting_frequency_goal}` : ''}
+${ja(p.active_platforms) ? `Platforms: ${ja(p.active_platforms)}` : ''}`,
 
     general: ''
   };
