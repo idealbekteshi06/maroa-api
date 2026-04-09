@@ -2039,16 +2039,24 @@ app.post('/meta-oauth-exchange', async (req, res) => {
 
 // ═════════════════════════════════════════════════════════════════════════════
 // BUILD 1 — BILLING + PLAN GATES
-// Plans: free($0) · growth($49) · agency($99) — matching live DB + CLAUDE.md
+// Plans: starter(€29) · growth(€69) · agency(€149) — updated April 2026
 // ═════════════════════════════════════════════════════════════════════════════
 
 const PLANS = {
-  free:   { name: 'Free',   price: 0,  priceId: null,
-            features: ['5 posts/mo', 'FB+IG autopilot', 'Basic analytics'] },
-  growth: { name: 'Growth', price: 49, priceId: (process.env.STRIPE_GROWTH_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
-            features: ['Unlimited posts', 'All platforms', 'Competitor intel', 'AI ads'] },
-  agency: { name: 'Agency', price: 99, priceId: (process.env.STRIPE_AGENCY_PRICE_ID  || '').replace(/[^\x20-\x7E]/g,'').trim(),
-            features: ['Everything in Growth', 'Multi-workspace (20 clients)', 'White-label', 'API access'] },
+  starter: { name: 'Starter', price: 29, annual: 290,
+             priceId: (process.env.STRIPE_STARTER_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
+             annualPriceId: (process.env.STRIPE_STARTER_ANNUAL_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
+             features: ['1 social account', '30 AI posts/mo', 'Basic content calendar', 'Email support'] },
+  growth:  { name: 'Growth',  price: 69, annual: 690,
+             priceId: (process.env.STRIPE_GROWTH_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
+             annualPriceId: (process.env.STRIPE_GROWTH_ANNUAL_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
+             features: ['5 social accounts', 'Unlimited AI content', 'Paid ads management', 'Competitor tracking', 'Email + WhatsApp campaigns', 'Priority support'] },
+  agency:  { name: 'Agency',  price: 149, annual: 1490,
+             priceId: (process.env.STRIPE_AGENCY_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
+             annualPriceId: (process.env.STRIPE_AGENCY_ANNUAL_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
+             features: ['Unlimited accounts', 'White-label option', 'API access', 'Dedicated manager', 'Custom integrations'] },
+  // Legacy alias: "free" maps to "starter" for backward compatibility
+  free:    { name: 'Starter', price: 29, annual: 290, priceId: (process.env.STRIPE_STARTER_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(), annualPriceId: '', features: ['1 social account', '30 AI posts/mo', 'Basic content calendar'] },
 };
 
 // GET /api/billing/plans — public, no auth needed
@@ -8672,6 +8680,24 @@ ${plan.tomorrow_plan ? `<p><strong>📅 Tomorrow's plan:</strong> ${plan.tomorro
   });
 });
 
+// Plan-based orchestrator scheduling:
+// Starter: 1x/day (6am) | Growth: 3x/day (6am, 12pm, 6pm) | Agency: 5x/day (6am, 9am, 12pm, 3pm, 6pm)
+function shouldRunOrchestrator(business, currentHour) {
+  const plan = business.plan || 'starter';
+  const runsToday = business.orchestrator_run_count_today || 0;
+
+  if (plan === 'starter' || plan === 'free') {
+    return currentHour === 6 && runsToday === 0;
+  }
+  if (plan === 'growth') {
+    return [6, 12, 18].includes(currentHour) && runsToday < 3;
+  }
+  if (plan === 'agency') {
+    return [6, 9, 12, 15, 18].includes(currentHour) && runsToday < 5;
+  }
+  return currentHour === 6 && runsToday === 0; // default: 1x
+}
+
 app.post('/api/orchestrator/run-all', async (req, res) => {
   // Security: require orchestrator secret
   const secret = req.headers['x-orchestrator-secret'];
@@ -8679,34 +8705,70 @@ app.post('/api/orchestrator/run-all', async (req, res) => {
     return res.status(401).json({ error: 'unauthorized — invalid x-orchestrator-secret header' });
   }
 
-  res.json({ received: true, message: 'Running orchestration for all active users' });
+  const currentHour = new Date().getUTCHours(); // Use UTC for consistency
+
+  // Midnight reset: clear daily run counts
+  if (currentHour === 0) {
+    try {
+      await sbPatch('businesses', 'id=not.is.null', { orchestrator_run_count_today: 0 });
+      log('/api/orchestrator/run-all', 'Midnight reset — cleared all daily run counts');
+    } catch (err) {
+      log('/api/orchestrator/run-all', `Reset failed: ${err.message}`);
+    }
+  }
+
+  res.json({ received: true, message: 'Running plan-based orchestration', hour: currentHour });
   setImmediate(async () => {
     let processed = 0;
+    let skipped = 0;
+    const byPlan = { starter: 0, growth: 0, agency: 0 };
     const errors = [];
     try {
-      // Fetch users with business profiles (onboarded users only)
+      // Fetch all active businesses with plan and run count
       let users = [];
       try {
-        users = await sbGet('business_profiles', 'business_name=not.is.null&select=user_id,business_name,primary_language');
+        users = await sbGet('businesses', 'onboarding_complete=eq.true&select=id,user_id,business_name,plan,orchestrator_run_count_today');
       } catch {
-        // Fallback to businesses table if business_profiles doesn't exist
-        users = await sbGet('businesses', 'is_active=eq.true&select=id,business_name');
-        users = users.map(u => ({ user_id: u.id, business_name: u.business_name }));
+        try {
+          users = await sbGet('business_profiles', 'business_name=not.is.null&select=user_id,business_name');
+          users = users.map(u => ({ id: u.user_id, user_id: u.user_id, business_name: u.business_name, plan: 'starter', orchestrator_run_count_today: 0 }));
+        } catch {
+          users = await sbGet('businesses', 'is_active=eq.true&select=id,business_name,plan');
+          users = users.map(u => ({ ...u, user_id: u.id, orchestrator_run_count_today: 0 }));
+        }
       }
-      log('/api/orchestrator/run-all', `Running for ${users.length} users with profiles`);
+      log('/api/orchestrator/run-all', `Found ${users.length} active businesses, hour=${currentHour} UTC`);
 
       for (const u of users) {
         const uid = u.user_id || u.id;
+        const plan = u.plan || 'starter';
+
+        if (!shouldRunOrchestrator(u, currentHour)) {
+          skipped++;
+          continue;
+        }
+
         try {
           await apiRequest('POST', `https://maroa-api-production.up.railway.app/api/orchestrator/run/${uid}`, { 'Content-Type': 'application/json' }, {});
           processed++;
-          log('/api/orchestrator/run-all', `${processed}/${users.length}: ${u.business_name || uid}`);
+          const planKey = ['starter', 'growth', 'agency'].includes(plan) ? plan : 'starter';
+          byPlan[planKey]++;
+
+          // Update run count
+          try {
+            await sbPatch('businesses', `id=eq.${u.id}`, {
+              last_orchestrator_run: new Date().toISOString(),
+              orchestrator_run_count_today: (u.orchestrator_run_count_today || 0) + 1
+            });
+          } catch {}
+
+          log('/api/orchestrator/run-all', `${processed}: ${u.business_name || uid} [${plan}]`);
         } catch (err) {
-          errors.push({ user: uid, error: err.message });
+          errors.push({ user: uid, plan, error: err.message });
         }
-        await new Promise(r => setTimeout(r, 8000)); // 8s between users to avoid rate limits
+        await new Promise(r => setTimeout(r, 8000)); // 8s between users
       }
-      log('/api/orchestrator/run-all', `✅ Complete: ${processed}/${users.length} processed, ${errors.length} errors`);
+      log('/api/orchestrator/run-all', `✅ Done: ${processed} processed, ${skipped} skipped, ${errors.length} errors | starter:${byPlan.starter} growth:${byPlan.growth} agency:${byPlan.agency}`);
     } catch (err) {
       console.error('[orchestrator/run-all]', err.message);
       errors.push({ error: err.message });
