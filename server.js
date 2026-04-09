@@ -2043,20 +2043,20 @@ app.post('/meta-oauth-exchange', async (req, res) => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 const PLANS = {
-  starter: { name: 'Starter', price: 29, annual: 290,
+  starter: { name: 'Starter', price: 29, annual: 290, maxRuns: 1, runHours: [6],
              priceId: (process.env.STRIPE_STARTER_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
              annualPriceId: (process.env.STRIPE_STARTER_ANNUAL_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
-             features: ['1 social account', '30 AI posts/mo', 'Basic content calendar', 'Email support'] },
-  growth:  { name: 'Growth',  price: 69, annual: 690,
+             features: ['1 social account', '30 AI posts/mo', 'Basic content calendar', 'AI brain 1x/day'] },
+  growth:  { name: 'Growth',  price: 69, annual: 690, maxRuns: 3, runHours: [6, 12, 18],
              priceId: (process.env.STRIPE_GROWTH_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
              annualPriceId: (process.env.STRIPE_GROWTH_ANNUAL_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
-             features: ['5 social accounts', 'Unlimited AI content', 'Paid ads management', 'Competitor tracking', 'Email + WhatsApp campaigns', 'Priority support'] },
-  agency:  { name: 'Agency',  price: 149, annual: 1490,
+             features: ['5 social accounts', 'Unlimited AI content', 'Paid ads management', 'Competitor tracking', 'AI brain 3x/day'] },
+  agency:  { name: 'Agency',  price: 149, annual: 1490, maxRuns: 5, runHours: [6, 9, 12, 15, 18],
              priceId: (process.env.STRIPE_AGENCY_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
              annualPriceId: (process.env.STRIPE_AGENCY_ANNUAL_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
-             features: ['Unlimited accounts', 'White-label option', 'API access', 'Dedicated manager', 'Custom integrations'] },
-  // Legacy alias: "free" maps to "starter" for backward compatibility
-  free:    { name: 'Starter', price: 29, annual: 290, priceId: (process.env.STRIPE_STARTER_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(), annualPriceId: '', features: ['1 social account', '30 AI posts/mo', 'Basic content calendar'] },
+             features: ['Unlimited accounts', 'White-label option', 'API access', 'Dedicated manager', 'AI brain 5x/day'] },
+  // Legacy alias
+  free:    { name: 'Starter', price: 29, annual: 290, maxRuns: 1, runHours: [6], priceId: (process.env.STRIPE_STARTER_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(), annualPriceId: '', features: ['1 social account', '30 AI posts/mo'] },
 };
 
 // GET /api/billing/plans — public, no auth needed
