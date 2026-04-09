@@ -7975,19 +7975,41 @@ app.get('/api/intelligence/:userId', async (req, res) => {
 
 // Helper: fetch business profile for skill modules
 async function getProfile(userId) {
-  let p = null;
-  try { const r = await sbGet('business_profiles', `user_id=eq.${userId}&select=*`); p = r[0]; } catch (e) { log('getProfile', `business_profiles failed: ${e.message.slice(0,80)}`); }
-  if (!p) {
-    try {
-      // Try by id first, then by user_id
-      let r = await sbGet('businesses', `id=eq.${userId}&select=*`);
-      if (!r.length) r = await sbGet('businesses', `user_id=eq.${userId}&select=*`);
-      const b = r[0];
-      if (b) p = { user_id: userId, business_name: b.business_name, business_type: b.industry, physical_locations: b.location ? [{ city: b.location }] : [], primary_language: 'Albanian', audience_description: b.target_audience, primary_goal: b.marketing_goal, monthly_budget: b.daily_budget ? '€' + b.daily_budget * 30 : '€300', tone_keywords: b.brand_tone ? [b.brand_tone] : [], usp: '', pain_point: '', we_do_better: '', current_offer: '', products: [], avg_spend: '', business_age: 'established', plan: b.plan };
-      else log('getProfile', `No business found for ${userId}`);
-    } catch (e) { log('getProfile', `businesses fallback failed: ${e.message.slice(0,80)}`); }
+  let profile = null;
+  let biz = null;
+  // Fetch from both tables in parallel
+  try {
+    const [profileArr, bizArr1] = await Promise.all([
+      sbGet('business_profiles', `user_id=eq.${userId}&select=*`).catch(() => []),
+      sbGet('businesses', `id=eq.${userId}&select=*`).catch(() => [])
+    ]);
+    profile = profileArr[0] || null;
+    biz = bizArr1[0] || null;
+    if (!biz) { const bizArr2 = await sbGet('businesses', `user_id=eq.${userId}&select=*`).catch(() => []); biz = bizArr2[0] || null; }
+  } catch {}
+
+  // If detailed profile exists, merge businesses data into gaps
+  if (profile) {
+    if (biz) {
+      if (!profile.business_name) profile.business_name = biz.business_name;
+      if (!profile.business_type) profile.business_type = biz.industry;
+      if ((!profile.physical_locations || !profile.physical_locations.length) && biz.location) profile.physical_locations = [{ city: biz.location }];
+      if (!profile.audience_description) profile.audience_description = biz.target_audience;
+      if (!profile.primary_goal) profile.primary_goal = biz.marketing_goal;
+      if (!profile.monthly_budget && biz.daily_budget) profile.monthly_budget = '€' + (biz.daily_budget * 30);
+      if ((!profile.tone_keywords || !profile.tone_keywords.length) && biz.brand_tone) profile.tone_keywords = [biz.brand_tone];
+      profile.plan = profile.plan || biz.plan;
+    }
+    return profile;
   }
-  return p;
+
+  // Fall back to businesses table only
+  if (biz) {
+    return { user_id: userId, business_name: biz.business_name, business_type: biz.industry, physical_locations: biz.location ? [{ city: biz.location }] : [], primary_language: 'Albanian', audience_description: biz.target_audience, primary_goal: biz.marketing_goal, monthly_budget: biz.daily_budget ? '€' + biz.daily_budget * 30 : '€300', tone_keywords: biz.brand_tone ? [biz.brand_tone] : [], usp: '', pain_point: '', we_do_better: '', current_offer: '', products: [], avg_spend: '', business_age: 'established', plan: biz.plan };
+  }
+
+  log('getProfile', `No data found in either table for ${userId}`);
+  return null;
 }
 function pCity(p) { const l = Array.isArray(p?.physical_locations) ? p.physical_locations : []; return l[0]?.city || 'local area'; }
 
@@ -8785,6 +8807,26 @@ app.post('/api/onboarding/save', async (req, res) => {
       await sbPost('business_profiles', profilePayload);
     }
 
+    // Also update core fields in businesses table (keeps both tables in sync)
+    try {
+      const bizUpdate = {};
+      if (data.business_name) bizUpdate.business_name = data.business_name;
+      if (data.business_type) bizUpdate.industry = data.business_type;
+      if (locs[0]?.city) bizUpdate.location = locs[0].city;
+      if (data.audience_description) bizUpdate.target_audience = data.audience_description;
+      if (data.primary_goal) bizUpdate.marketing_goal = data.primary_goal;
+      if (data.tone_keywords?.[0]) bizUpdate.brand_tone = data.tone_keywords[0];
+      if (data.monthly_budget) {
+        const num = parseInt(String(data.monthly_budget).replace(/[^0-9]/g, ''));
+        if (num > 0) bizUpdate.daily_budget = Math.round(num / 30);
+      }
+      if (Object.keys(bizUpdate).length > 0) {
+        await sbPatch('businesses', `id=eq.${userId}`, bizUpdate).catch(() =>
+          sbPatch('businesses', `user_id=eq.${userId}`, bizUpdate).catch(() => {})
+        );
+      }
+    } catch {}
+
     // Store in Pinecone (non-blocking — don't fail the request)
     buildAndStorePineconeProfile(userId, profilePayload, getEmbedding, pineconeUpsert)
       .catch(err => console.warn('Pinecone profile store failed (non-critical):', err.message));
@@ -8797,12 +8839,46 @@ app.post('/api/onboarding/save', async (req, res) => {
   }
 });
 
-// ─── GET /api/onboarding/profile/:userId ─ Fetch profile ────────────────────
+// ─── GET /api/onboarding/profile/:userId ─ Fetch profile (checks BOTH tables)
 app.get('/api/onboarding/profile/:userId', async (req, res) => {
+  const uid = req.params.userId;
   try {
-    const rows = await sbGet('business_profiles', `user_id=eq.${req.params.userId}&select=*`);
-    if (rows.length === 0) return res.status(404).json({ error: 'Profile not found' });
-    res.json(rows[0]);
+    // Try business_profiles first (detailed onboarding data)
+    let profile = null;
+    try { const r = await sbGet('business_profiles', `user_id=eq.${uid}&select=*`); profile = r[0] || null; } catch {}
+
+    // Also fetch from businesses table (core data)
+    let biz = null;
+    try {
+      let r = await sbGet('businesses', `id=eq.${uid}&select=*`);
+      if (!r.length) r = await sbGet('businesses', `user_id=eq.${uid}&select=*`);
+      biz = r[0] || null;
+    } catch {}
+
+    if (!profile && !biz) return res.status(404).json({ error: 'Profile not found' });
+
+    // Merge: business_profiles data takes priority, businesses fills gaps
+    const merged = { ...(profile || {}) };
+    if (biz) {
+      if (!merged.business_name) merged.business_name = biz.business_name;
+      if (!merged.business_type) merged.business_type = biz.industry;
+      if (!merged.primary_language) merged.primary_language = 'Albanian';
+      if (!merged.audience_description) merged.audience_description = biz.target_audience;
+      if (!merged.primary_goal) merged.primary_goal = biz.marketing_goal;
+      if ((!merged.physical_locations || !merged.physical_locations.length) && biz.location) {
+        merged.physical_locations = [{ city: biz.location }];
+      }
+      if (!merged.monthly_budget && biz.daily_budget) merged.monthly_budget = '€' + (biz.daily_budget * 30);
+      if ((!merged.tone_keywords || !merged.tone_keywords.length) && biz.brand_tone) merged.tone_keywords = [biz.brand_tone];
+      // Include useful businesses-only fields
+      merged.email = merged.email || biz.email;
+      merged.plan = merged.plan || biz.plan;
+      merged.meta_access_token = merged.meta_access_token || biz.meta_access_token;
+      merged.facebook_page_id = merged.facebook_page_id || biz.facebook_page_id;
+      merged._source = profile ? 'business_profiles' : 'businesses';
+    }
+
+    res.json(merged);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
