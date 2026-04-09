@@ -5,6 +5,7 @@
 'use strict';
 const express  = require('express');
 const cors     = require('cors');
+const expressRateLimit = require('express-rate-limit');
 const https    = require('https');
 const http     = require('http');
 const crypto   = require('crypto');
@@ -13,7 +14,7 @@ const planGate = require('./middleware/planGate');
 const app = express();
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
-app.use(cors({
+const corsOptions = {
   origin: [
     'https://maroa-ai-marketing-automator.vercel.app',
     'https://maroa-frontend.vercel.app',
@@ -23,12 +24,28 @@ app.use(cors({
     'http://localhost:5173'
   ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'apikey'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'apikey', 'x-orchestrator-secret'],
   credentials: true
-}));
-app.options('*', cors());
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 app.use(express.json({ limit: '10mb' }));
+
+const aiLimit = expressRateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  keyGenerator: (req) => req.body?.userId || req.ip,
+  message: { error: 'Too many requests — please wait' }
+});
+app.use('/api/ideas', aiLimit);
+app.use('/api/lead-magnets', aiLimit);
+app.use('/api/research', aiLimit);
+app.use('/api/sales', aiLimit);
+app.use('/api/community', aiLimit);
+app.use('/api/pricing', aiLimit);
+app.use('/api/schema', aiLimit);
+app.use('/api/ai-seo', aiLimit);
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const clean = (v) => (v || '').replace(/[^\x20-\x7E]/g, '').trim();
@@ -59,9 +76,10 @@ const STRIPE_SECRET_KEY    = clean(process.env.STRIPE_SECRET_KEY)    || '';
 const STRIPE_WEBHOOK_SECRET= clean(process.env.STRIPE_WEBHOOK_SECRET)|| '';
 const STRIPE_GROWTH_PRICE  = clean(process.env.STRIPE_GROWTH_PRICE_ID)|| '';
 const STRIPE_AGENCY_PRICE  = clean(process.env.STRIPE_AGENCY_PRICE_ID)|| '';
+const ORCHESTRATOR_SECRET  = clean(process.env.ORCHESTRATOR_SECRET)   || '';
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
-function apiRequest(method, url, headers = {}, body = null) {
+function apiRequest(method, url, headers = {}, body = null, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
     const u        = new URL(url);
     const bodyStr  = body ? JSON.stringify(body) : null;
@@ -81,6 +99,9 @@ function apiRequest(method, url, headers = {}, body = null) {
         try   { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
         catch { resolve({ status: res.statusCode, body: data }); }
       });
+    });
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`Request timeout after ${timeoutMs}ms`));
     });
     req.on('error', reject);
     if (bodyStr) req.write(bodyStr);
@@ -451,7 +472,7 @@ async function sendEmail(to, subject, html) {
   const from   = clean(process.env.FROM_EMAIL)     || FROM_EMAIL;
 
   if (!apiKey || !to) {
-    console.log(`[EMAIL QUEUED] To: ${to} | Subject: ${subject} — RESEND_API_KEY not set`);
+    console.log('[REDACTED]');
     return { queued: true };
   }
 
@@ -461,7 +482,7 @@ async function sendEmail(to, subject, html) {
       { from: `maroa.ai <${from}>`, to: [to], reply_to: 'hello@maroa.ai', subject, html }
     );
     if (r.status === 200 || r.status === 201) {
-      console.log(`[EMAIL SENT] To: ${to} | id: ${r.body?.id}`);
+      console.log('[EMAIL SENT] id:', r.body?.id);
       return { sent: true, id: r.body?.id };
     }
     const msg = r.body?.message || r.body?.name || JSON.stringify(r.body).slice(0, 200);
@@ -476,7 +497,7 @@ async function sendEmail(to, subject, html) {
 // ─── WhatsApp helper (Twilio) ────────────────────────────────────────────────
 async function sendWhatsApp(to, message) {
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !to) {
-    console.log(`[WHATSAPP QUEUED] To: ${to} — Twilio not configured`);
+    console.log('[WHATSAPP QUEUED] Twilio not configured');
     return { queued: true };
   }
   try {
@@ -490,7 +511,7 @@ async function sendWhatsApp(to, message) {
       }, res => { let d = ''; res.on('data', c => d += c); res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve({ raw: d }); } }); });
       req.on('error', reject); req.write(body); req.end();
     });
-    if (resp.sid) { console.log(`[WHATSAPP SENT] To: ${to} SID: ${resp.sid}`); return { sent: true, sid: resp.sid }; }
+    if (resp.sid) { console.log('[REDACTED]'); return { sent: true, sid: resp.sid }; }
     return { error: resp.message || 'unknown' };
   } catch (e) { console.error('[WHATSAPP ERROR]', e.message); return { error: e.message }; }
 }
@@ -790,6 +811,15 @@ async function updateLearning(businessId) {
 
 // ─── Log helper ───────────────────────────────────────────────────────────────
 function log(route, msg) { console.log(`[${new Date().toISOString()}] ${route} — ${msg}`); }
+function requireAdminSecret(req, res, next) {
+  if (!ORCHESTRATOR_SECRET) return res.status(503).json({ error: 'Admin secret not configured' });
+  const provided = clean(
+    req.headers['x-orchestrator-secret'] ||
+    (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
+  );
+  if (provided !== ORCHESTRATOR_SECRET) return res.status(401).json({ error: 'Unauthorized' });
+  next();
+}
 
 async function logError(businessId, workflowName, errorMessage, retryPayload = null) {
   try {
@@ -829,15 +859,15 @@ app.get('/health', (req, res) => {
   const missing = Object.entries(vars).filter(([,v]) => !v).map(([k]) => k);
   // Diagnostic: show raw env var presence for the missing ones
   const raw_check = {
-    OPENAI_API_KEY:     process.env.OPENAI_API_KEY    ? `set (${process.env.OPENAI_API_KEY.slice(0,8)}...)` : 'NOT SET',
-    PINECONE_API_KEY:   process.env.PINECONE_API_KEY  ? `set (${process.env.PINECONE_API_KEY.slice(0,8)}...)` : 'NOT SET',
-    PINECONE_HOST:      process.env.PINECONE_HOST     ? `set (${process.env.PINECONE_HOST.slice(0,20)}...)` : 'NOT SET',
-    STRIPE_SECRET_KEY:  process.env.STRIPE_SECRET_KEY ? `set (${process.env.STRIPE_SECRET_KEY.slice(0,8)}...)` : 'NOT SET',
-    RUNWAY_API_KEY:     process.env.RUNWAY_API_KEY    ? `set (${process.env.RUNWAY_API_KEY.slice(0,8)}...)` : 'NOT SET',
+    OPENAI_API_KEY:     process.env.OPENAI_API_KEY    ? 'SET' : 'NOT SET',
+    PINECONE_API_KEY:   process.env.PINECONE_API_KEY  ? 'SET' : 'NOT SET',
+    PINECONE_HOST:      process.env.PINECONE_HOST     ? 'SET' : 'NOT SET',
+    STRIPE_SECRET_KEY:  process.env.STRIPE_SECRET_KEY ? 'SET' : 'NOT SET',
+    RUNWAY_API_KEY:     process.env.RUNWAY_API_KEY    ? 'SET' : 'NOT SET',
     TIKTOK_CLIENT_KEY:  process.env.TIKTOK_CLIENT_KEY ? 'set' : 'NOT SET',
     TIKTOK_CLIENT_SECRET: process.env.TIKTOK_CLIENT_SECRET ? 'set' : 'NOT SET',
     TWITTER_CLIENT_ID:  process.env.TWITTER_CLIENT_ID ? 'set' : 'NOT SET',
-    GOOGLE_AI_API_KEY:  process.env.GOOGLE_AI_API_KEY ? `set (${process.env.GOOGLE_AI_API_KEY.slice(0,8)}...)` : 'NOT SET'
+    GOOGLE_AI_API_KEY:  process.env.GOOGLE_AI_API_KEY ? 'SET' : 'NOT SET'
   };
   res.json({ status: missing.length <= 3 ? 'ok' : 'degraded', timestamp: new Date().toISOString(), env_vars: vars, missing_vars: missing, missing_count: missing.length, raw_check });
 });
@@ -846,8 +876,8 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => res.json({
   status: 'ok', service: 'maroa-api', version: '2.2.0',
   env: {
-    SUPABASE_KEY  : SUPABASE_KEY  ? `set (${SUPABASE_KEY.slice(0,8)}...)`  : 'MISSING',
-    ANTHROPIC_KEY : ANTHROPIC_KEY ? `set (${ANTHROPIC_KEY.slice(0,15)}...)`: 'MISSING',
+    SUPABASE_KEY  : SUPABASE_KEY  ? 'SET'  : 'MISSING',
+    ANTHROPIC_KEY : ANTHROPIC_KEY ? 'SET'  : 'MISSING',
     SERPAPI_KEY   : SERPAPI_KEY   ? 'set' : 'MISSING',
     REPLICATE     : REPLICATE_API_KEY ? 'set' : 'MISSING',
     RESEND        : (clean(process.env.RESEND_API_KEY)||RESEND_API_KEY) ? 'set' : 'MISSING — emails queued'
@@ -899,7 +929,7 @@ app.get('/', (req, res) => res.json({
 }));
 
 // Debug
-app.get('/debug', async (req, res) => {
+app.get('/debug', requireAdminSecret, async (req, res) => {
   const out = {};
   try { const r = await sbGet('businesses', 'select=id&limit=1'); out.supabase = `ok (${r.length} row)`; }
   catch (e) { out.supabase = `ERROR: ${e.message}`; }
@@ -916,9 +946,9 @@ app.get('/debug', async (req, res) => {
 
   // Meta / OAuth env vars
   const metaSecret = clean(process.env.META_APP_SECRET) || '';
-  const metaAppId  = clean(process.env.META_APP_ID)     || '26551713411132003 (hardcoded default)';
-  out.META_APP_SECRET = metaSecret ? `set (${metaSecret.length} chars)` : 'MISSING ❌ — set this in Railway env vars';
-  out.META_APP_ID     = metaAppId  ? `set: ${metaAppId}` : 'MISSING';
+  const metaAppId  = clean(process.env.META_APP_ID)     || '';
+  out.META_APP_SECRET = metaSecret ? 'SET' : 'MISSING ❌ — set this in Railway env vars';
+  out.META_APP_ID     = metaAppId  ? 'SET' : 'MISSING';
   out.RESEND_API_KEY  = (clean(process.env.RESEND_API_KEY) || '') ? 'set' : 'missing';
   out.REPLICATE_API_KEY = (clean(process.env.REPLICATE_API_KEY) || '') ? 'set' : 'missing';
 
@@ -7503,17 +7533,17 @@ app.post('/webhook/score-image', async (req, res) => {
         { type: 'text', text: `Score this marketing image for a ${content_type} post. Rate 1-10 on: professional quality, visual appeal, marketing effectiveness. Return ONLY valid JSON: {"overall_score":1-10,"recommendation":"use"|"regenerate"|"reject","feedback":"one sentence"}` }
       ] }]
     });
-    if (r.status !== 200) return res.json({ overall_score: 5, recommendation: 'use', feedback: 'Could not score — using as-is' });
+    if (r.status !== 200) return res.status(502).json({ overall_score: 5, recommendation: 'use', feedback: 'Could not score image — using fallback' });
     const raw = r.body?.content?.[0]?.text || '';
     const parsed = extractJSON(raw) || { overall_score: 5, recommendation: 'use', feedback: 'Could not parse score' };
     res.json(parsed);
-  } catch (err) { res.json({ overall_score: 5, recommendation: 'use', feedback: err.message }); }
+  } catch (err) { res.status(500).json({ overall_score: 5, recommendation: 'use', feedback: 'Image scoring failed' }); }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/inject-marketing-skills — Inject 15 expert frameworks into Pinecone
 // ─────────────────────────────────────────────────────────────────────────────
-app.post('/api/inject-marketing-skills', async (req, res) => {
+app.post('/api/inject-marketing-skills', requireAdminSecret, async (req, res) => {
   if (!OPENAI_API_KEY || !PINECONE_API_KEY || !PINECONE_HOST)
     return res.status(400).json({ error: 'OPENAI_API_KEY, PINECONE_API_KEY, PINECONE_HOST required' });
   res.json({ received: true, message: 'Injecting 15 marketing skill frameworks into Pinecone — takes ~2 minutes' });
@@ -7536,7 +7566,7 @@ app.post('/webhook/score-content', (req, res) => {
 
 // ═════════════════════════════════════════════════════════════════════════════
 // GET /webhook/errors-get?business_id=X — view recent errors for debugging
-app.get('/webhook/errors-get', async (req, res) => {
+app.get('/webhook/errors-get', requireAdminSecret, async (req, res) => {
   const { business_id, workflow_name, limit: lim = 10 } = req.query;
   try {
     let filter = `order=created_at.desc&limit=${lim}&select=id,business_id,workflow_name,error_message,created_at,resolved`;
@@ -7544,7 +7574,7 @@ app.get('/webhook/errors-get', async (req, res) => {
     if (workflow_name) filter += `&workflow_name=eq.${workflow_name}`;
     const errors = await sbGet('errors', filter);
     res.json({ errors, count: errors.length });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: 'Failed to fetch errors' }); }
 });
 
 // FINAL COMPLETE PLATFORM — Missing Pieces 2-15
@@ -7706,7 +7736,7 @@ app.post('/webhook/video-generate', async (req, res) => {
       const promptText = hookScene?.text || video.hook_preview || video.caption || 'professional marketing video';
       const thumbUrl = video.thumbnail_url || '';
 
-      log('/webhook/video-generate', `promptText: "${promptText.slice(0,80)}" | thumb: ${thumbUrl ? 'yes' : 'no'} | RUNWAY_KEY: ${RUNWAY_API_KEY.slice(0,8)}...`);
+      log('/webhook/video-generate', `promptText: "${promptText.slice(0,80)}" | thumb: ${thumbUrl ? 'yes' : 'no'} | RUNWAY_KEY: ${RUNWAY_API_KEY ? 'set' : 'missing'}`);
 
       // Build Runway request — image_to_video requires promptImage
       const runwayBody = { model: 'gen3a_turbo', duration: 5, ratio: '768:1280', watermark: false };
@@ -8022,12 +8052,12 @@ async function getProfile(userId) {
 function pCity(p) { const l = Array.isArray(p?.physical_locations) ? p.physical_locations : []; return l[0]?.city || 'local area'; }
 
 // DEBUG: test getProfile directly
-app.get('/api/debug/profile/:userId', async (req, res) => {
+app.get('/api/debug/profile/:userId', requireAdminSecret, async (req, res) => {
   const uid = req.params.userId;
   try {
     const p = await getProfile(uid);
     res.json({ found: !!p, business_name: p?.business_name || null, business_type: p?.business_type || null, userId: uid });
-  } catch (err) { res.json({ found: false, error: err.message, userId: uid }); }
+  } catch (err) { res.status(500).json({ found: false, error: 'Failed to fetch profile', userId: uid }); }
 });
 
 // ── T2.2: GET /api/opportunities/:userId — Proactive opportunity detection ──
@@ -8625,7 +8655,6 @@ app.post('/api/signup-cro/analyze', async (req, res) => {
 });
 
 // ── MODULE 19: Autonomous Daily Orchestrator ────────────────────────────────
-const ORCHESTRATOR_SECRET = clean(process.env.ORCHESTRATOR_SECRET) || '';
 
 app.post('/api/orchestrator/run/:userId', async (req, res) => {
   const userId = req.params.userId;
@@ -9018,10 +9047,32 @@ app.get('/api/onboarding/score/:userId', async (req, res) => {
 // ─── 404 ──────────────────────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).json({ error: `Route ${req.method} ${req.path} not found` }));
 
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err.message);
+  res.status(err.status || 500).json({
+    error: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message
+  });
+});
+
 // ─── Start ────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   console.log(`  Maroa.ai API v2.0 — port :${PORT}`);
   console.log(`  Layer 1: Execution ✓  Layer 2: Intelligence ✓  Layer 3: Learning ✓`);
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 });
+
+function gracefulShutdown(signal) {
+  log('shutdown', `Received ${signal}, closing server`);
+  server.close(() => {
+    log('shutdown', 'HTTP server closed');
+    process.exit(0);
+  });
+  setTimeout(() => {
+    log('shutdown', 'Forced exit after timeout');
+    process.exit(1);
+  }, 10000).unref();
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

@@ -1,4 +1,4 @@
--- Migration 012: Onboarding Profile System — Full business profile for AI prompts
+-- Migration 013: Onboarding Profile System — Full business profile for AI prompts
 -- Run in Supabase SQL Editor
 
 -- Create business_profiles table if not exists

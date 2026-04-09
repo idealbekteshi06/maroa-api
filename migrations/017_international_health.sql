@@ -1,4 +1,4 @@
--- Migration 018: International + Health Score + Memory improvements
+-- Migration 017: International + Health Score + Memory improvements
 ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS country TEXT DEFAULT 'XK';
 ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT 'Europe/Belgrade';
 

@@ -1,4 +1,4 @@
--- Migration 015: 19 Skill Module Tables
+-- Migration 014: 19 Skill Module Tables
 -- Run in Supabase SQL Editor
 
 CREATE TABLE IF NOT EXISTS referral_programs (

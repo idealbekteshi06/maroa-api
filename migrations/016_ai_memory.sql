@@ -1,4 +1,4 @@
--- Migration 017: AI Memory System — learns from every interaction
+-- Migration 016: AI Memory System — learns from every interaction
 CREATE TABLE IF NOT EXISTS ai_memory (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL,

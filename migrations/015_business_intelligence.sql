@@ -1,4 +1,4 @@
--- Migration 016: Shared Business Intelligence Layer
+-- Migration 015: Shared Business Intelligence Layer
 -- Run in Supabase SQL Editor
 
 CREATE TABLE IF NOT EXISTS business_intelligence (
