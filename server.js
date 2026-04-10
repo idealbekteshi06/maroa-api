@@ -8938,7 +8938,7 @@ app.post('/api/social/twitter/thread', (req, res) => {
 // ONBOARDING v2 — Structured Business Profiles
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const { buildMasterPrompt, calculateProfileScore, getMissingFields, validateBeforeGeneration } = require('./services/masterPromptBuilder');
+const { buildMasterPrompt, buildMasterPromptWithSkills, calculateProfileScore, getMissingFields, validateBeforeGeneration } = require('./services/masterPromptBuilder');
 const { buildAndStorePineconeProfile } = require('./services/pineconeProfileBuilder');
 
 // ─── POST /api/onboarding/save ─ Full profile upsert ────────────────────────
@@ -9080,6 +9080,256 @@ app.get('/api/onboarding/profile/:userId', async (req, res) => {
     res.json(merged);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /api/context/:userId — Full onboarding + intelligence for n8n / Claude ─
+function contextAsArray(v) {
+  if (Array.isArray(v)) return v;
+  if (v == null || v === '') return [];
+  if (typeof v === 'string') {
+    try {
+      const j = JSON.parse(v);
+      return Array.isArray(j) ? j : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function contextParseThemeList(v) {
+  if (Array.isArray(v)) return v;
+  if (!v) return [];
+  try {
+    const j = JSON.parse(v);
+    return Array.isArray(j) ? j : [];
+  } catch {
+    return [];
+  }
+}
+
+function contextSelectedPlatforms(biz) {
+  if (!biz?.selected_platforms) return [];
+  try {
+    const j = JSON.parse(biz.selected_platforms);
+    return Array.isArray(j) ? j : [];
+  } catch {
+    return [];
+  }
+}
+
+async function resolveContextEntities(paramId) {
+  let biz = null;
+  try {
+    let r = await sbGet('businesses', `id=eq.${paramId}&select=*`);
+    if (!r.length) r = await sbGet('businesses', `user_id=eq.${paramId}&select=*`);
+    biz = r[0] || null;
+  } catch {}
+  let profile = null;
+  try {
+    const pr = await sbGet('business_profiles', `user_id=eq.${paramId}&select=*`);
+    profile = pr[0] || null;
+  } catch {}
+  if (!profile && biz?.user_id) {
+    try {
+      const pr = await sbGet('business_profiles', `user_id=eq.${biz.user_id}&select=*`);
+      profile = pr[0] || null;
+    } catch {}
+  }
+  if (!profile && biz?.id) {
+    try {
+      const pr = await sbGet('business_profiles', `user_id=eq.${biz.id}&select=*`);
+      profile = pr[0] || null;
+    } catch {}
+  }
+  const businessId = biz?.id || null;
+  const contextUserId = profile?.user_id || biz?.user_id || biz?.id || paramId;
+  return { profile, biz, businessId, contextUserId };
+}
+
+function mergeProfileForMasterPrompt(profile, biz, contextUserId) {
+  const m = {};
+  if (biz) Object.assign(m, biz);
+  if (profile) Object.assign(m, profile);
+  m.user_id = profile?.user_id || contextUserId;
+  if (!m.business_type && biz?.industry) m.business_type = biz.industry;
+  if (!m.business_name && biz?.business_name) m.business_name = biz.business_name;
+  if (!m.primary_goal && biz?.marketing_goal) m.primary_goal = biz.marketing_goal;
+  if (!m.audience_description && biz?.target_audience) m.audience_description = biz.target_audience;
+  if (!m.monthly_budget && biz?.daily_budget) m.monthly_budget = '€' + (biz.daily_budget * 30);
+  if ((!m.physical_locations || !m.physical_locations.length) && biz?.location) m.physical_locations = [{ city: biz.location }];
+  if ((!m.tone_keywords || !m.tone_keywords.length) && biz?.brand_tone) m.tone_keywords = [biz.brand_tone];
+  if (!m.usp && biz?.unique_differentiator) m.usp = biz.unique_differentiator;
+  return m;
+}
+
+app.get('/api/context/:userId', async (req, res) => {
+  const paramId = req.params.userId;
+  const rawTask = (req.query.task_type || req.query.taskType || 'general').toString().toLowerCase();
+  const allowedTasks = new Set(['social_post', 'paid_ad', 'email', 'sms', 'image', 'content_calendar', 'general']);
+  const taskType = allowedTasks.has(rawTask) ? rawTask : 'general';
+
+  try {
+    const { profile, biz, businessId, contextUserId } = await resolveContextEntities(paramId);
+    if (!profile && !biz) return res.status(404).json({ error: 'Profile or business not found' });
+
+    const mergedForPrompt = mergeProfileForMasterPrompt(profile, biz, contextUserId);
+    const p = profile || {};
+    const b = biz || {};
+    const arr = contextAsArray;
+
+    const [intelRows, ideas, perfSnaps, topContent] = await Promise.all([
+      getAllIntelligence(contextUserId).catch(() => []),
+      sbGet('marketing_ideas', `user_id=eq.${contextUserId}&order=created_at.desc&limit=30`).catch(() => []),
+      businessId
+        ? sbGet('content_performance', `business_id=eq.${businessId}&order=recorded_at.desc&limit=100`).catch(() => [])
+        : Promise.resolve([]),
+      businessId
+        ? sbGet(
+            'generated_content',
+            `business_id=eq.${businessId}&order=performance_score.desc&limit=15&select=id,content_theme,performance_score,status,created_at,published_at`
+          ).catch(() => [])
+        : Promise.resolve([]),
+    ]);
+
+    const memoryContextStr = (await getMemoryContext(contextUserId).catch(() => '')) || '';
+
+    let full_master_prompt = '';
+    try {
+      full_master_prompt = await buildMasterPromptWithSkills(
+        mergedForPrompt,
+        taskType,
+        getEmbedding,
+        pineconeQuery,
+        buildIntelligenceContext,
+        getMemoryContext
+      );
+    } catch (e) {
+      try {
+        full_master_prompt = buildMasterPrompt(mergedForPrompt, taskType);
+      } catch {
+        full_master_prompt = '';
+      }
+    }
+
+    const locs = arr(p.physical_locations);
+    const socialPlats = arr(p.social_platforms);
+    const activePlats = arr(p.active_platforms);
+    const socialFromBiz = contextSelectedPlatforms(biz);
+    const painFromBiz = b.customer_pain_points
+      ? String(b.customer_pain_points)
+          .split(/[,;\n]/)
+          .map(s => s.trim())
+          .filter(Boolean)
+      : [];
+
+    const body = {
+      business_name: p.business_name || b.business_name || null,
+      business_type: p.business_type || b.industry || null,
+      business_description: p.business_description ?? b.business_description ?? null,
+      business_stage: p.business_stage ?? p.business_age ?? null,
+      tagline: p.tagline ?? null,
+      usp: p.usp ?? b.unique_differentiator ?? null,
+      brand_values: arr(p.brand_values),
+
+      physical_locations: locs.length ? locs : (b.location ? [{ city: b.location }] : []),
+      country: p.country ?? null,
+      city: locs[0]?.city || b.location || b.city || null,
+      operation_model: p.operation_model ?? null,
+      service_area: arr(p.service_area),
+      ad_targeting_area: arr(p.ad_targeting_area),
+
+      audience_age_min: p.audience_age_min ?? null,
+      audience_age_max: p.audience_age_max ?? null,
+      audience_gender: p.audience_gender ?? null,
+      audience_description: p.audience_description ?? b.target_audience ?? null,
+      pain_points: arr(p.pain_points).length ? arr(p.pain_points) : (p.pain_point ? [p.pain_point] : painFromBiz),
+      desired_outcome: p.desired_outcome ?? null,
+      customer_language: p.customer_language ?? null,
+      objections: arr(p.objections),
+
+      products: arr(p.products),
+      current_offer: p.current_offer ?? null,
+      seasonal_offers: p.seasonal_offers ?? p.seasonal ?? null,
+
+      primary_goal: p.primary_goal ?? b.marketing_goal ?? null,
+      secondary_goal: p.secondary_goal ?? null,
+      monthly_budget: p.monthly_budget ?? (b.daily_budget ? '€' + b.daily_budget * 30 : null),
+      marketing_experience: p.marketing_experience ?? p.ads_experience ?? null,
+
+      tone_keywords: arr(p.tone_keywords).length ? arr(p.tone_keywords) : (b.brand_tone ? [b.brand_tone] : []),
+      brand_personality: arr(p.brand_personality),
+      formality_level: p.formality_level ?? p.language_formality ?? null,
+      emoji_usage: p.emoji_usage ?? null,
+      words_always_use: arr(p.words_always_use),
+      words_never_use: arr(p.words_never_use).length ? arr(p.words_never_use) : (p.never_do ? [p.never_do] : []),
+      content_language: p.content_language ?? p.primary_language ?? null,
+
+      social_platforms: socialPlats.length ? socialPlats : (activePlats.length ? activePlats : socialFromBiz),
+      primary_platform: p.primary_platform ?? null,
+      posting_frequency: p.posting_frequency ?? p.posting_frequency_goal ?? p.best_posting_times ?? null,
+      content_mix: p.content_mix && typeof p.content_mix === 'object' && !Array.isArray(p.content_mix) ? p.content_mix : {},
+
+      competitors: arr(p.competitors),
+      competitive_advantage: p.competitive_advantage ?? p.we_do_better ?? p.why_customers_choose_us ?? null,
+
+      business_hours: p.business_hours && typeof p.business_hours === 'object' && !Array.isArray(p.business_hours) ? p.business_hours : {},
+      busiest_days: arr(p.busiest_days),
+      quietest_days: arr(p.quietest_days),
+      staff_count: p.staff_count ?? null,
+
+      brand_colors: arr(p.brand_colors),
+      visual_style: p.visual_style ?? null,
+      photo_style: p.photo_style ?? null,
+
+      has_email_list: p.has_email_list ?? null,
+      email_list_size: p.email_list_size ?? null,
+      has_whatsapp: p.has_whatsapp ?? null,
+      collects_reviews: p.collects_reviews ?? null,
+      review_platforms: arr(p.review_platforms),
+
+      approval_mode: p.approval_mode ?? null,
+      auto_publish_platforms: arr(p.auto_publish_platforms),
+      content_frequency: p.content_frequency ?? null,
+      preferred_post_times: arr(p.preferred_post_times).length
+        ? arr(p.preferred_post_times)
+        : (p.best_posting_time ? [p.best_posting_time] : []),
+
+      intelligence_signals: intelRows,
+      best_performing_themes: contextParseThemeList(b.best_performing_themes || p.best_performing_themes),
+      worst_performing_themes: contextParseThemeList(b.worst_performing_themes || p.worst_performing_themes),
+      memory_context: memoryContextStr,
+
+      plan: b.plan ?? p.plan ?? null,
+      email: b.email ?? p.email ?? null,
+      created_at: b.created_at ?? null,
+
+      marketing_ideas: ideas,
+      performance_metrics: {
+        content_performance_snapshots: perfSnaps,
+        top_generated_content: topContent,
+      },
+
+      full_master_prompt: full_master_prompt,
+    };
+
+    if (profile) body.profile_raw = profile;
+    if (biz) {
+      body.business_core = {
+        id: biz.id,
+        user_id: biz.user_id,
+        plan: biz.plan,
+        email: biz.email,
+        created_at: biz.created_at,
+      };
+    }
+    body.context_user_id = contextUserId;
+    body.task_type_used = taskType;
+
+    res.json(body);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to load context' });
   }
 });
 
