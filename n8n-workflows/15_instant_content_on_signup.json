@@ -1,0 +1,294 @@
+{
+  "name": "WF15 - Instant Content On Signup",
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "dc483d8f-1a9b-4ae8-99c6-fd7f5d1bf871",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        280
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "74f39e6b-d6f1-42ad-a96c-607755334775",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        480
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "trigger-content",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "dd407e4d-9f4b-45b8-8360-d44166d5837f",
+      "name": "Extract Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        380
+      ],
+      "parameters": {
+        "jsCode": "try {\nconst body = $input.first().json.body || $input.first().json;\nreturn [{ json: {\n  business_id:   body.business_id || '',\n  email:         body.email || '',\n  business_name: body.business_name || '',\n  first_name:    body.first_name || '',\n  industry:      body.industry || 'general'\n}}];\n} catch(e) {\n  console.error(\"[Extract Body] Error:\", e.message);\n  return [{ json: { error: e.message, skipped: true } }];\n}"
+      }
+    },
+    {
+      "id": "78315bed-2eca-4163-889a-aa82aef5dbc3",
+      "name": "Get Business",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        760,
+        380
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/businesses?select=*&id=eq={{$json.business_id}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.SUPABASE_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "74526548-4fc3-4815-ab27-b6a5b00a033b",
+      "name": "Call Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1020,
+        380
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\": \"claude-sonnet-4-5\", \"max_tokens\": 2000, \"system\": $(\\'Fetch Business Context\\').first().json.full_master_prompt, \"messages\": [{\"role\": \"user\", \"content\": \"Business context \u2014 use this to personalise everything: Business name: {{ $json.business_name || $('Loop Each Business').first().json.business_name || '' }}. Industry: {{ $json.industry || $('Loop Each Business').first().json.industry || 'general' }}. Location: {{ $json.location || $('Loop Each Business').first().json.location || '' }}. Target audience: {{ $json.target_audience || $('Loop Each Business').first().json.target_audience || '' }}. Brand tone: {{ $json.brand_tone || $('Loop Each Business').first().json.brand_tone || 'professional and friendly' }}. Marketing goal: {{ $json.marketing_goal || $('Loop Each Business').first().json.marketing_goal || '' }}. Marketing strategy: {{ $json.marketing_strategy || $('Loop Each Business').first().json.marketing_strategy || '' }}. Current date context: make all content timely and relevant for the current month and season. Match the brand tone exactly. Write as if you personally know this business and its customers. Also consider what has worked before for this business based on their performance history. INTELLIGENCE LAYER \u2014 use this data to produce higher-performing output:\n- Brand Voice: {{ $('Loop Each Business').first().json.brand_voice_locked || 'professional and friendly' }}\n- Dream Customer: {{ $('Loop Each Business').first().json.dream_customer || $('Loop Each Business').first().json.target_audience || '' }}\n- Unique Differentiator: {{ $('Loop Each Business').first().json.unique_differentiator || 'exceptional quality and service' }}\n- Best Performing Themes (use more of these): {{ JSON.stringify($('Loop Each Business').first().json.best_performing_themes) || '[]' }}\n- Avoid These Themes (poor results): {{ JSON.stringify($('Loop Each Business').first().json.worst_performing_themes) || '[]' }}\n- Latest AI Strategy Decision: {{ $('Loop Each Business').first().json.ai_brain_decisions ? JSON.stringify($('Loop Each Business').first().json.ai_brain_decisions).substring(0,400) : 'First run \u2014 establish baseline' }}\n\n\\n\\nGenerate a week of marketing content for ={{ $('Extract Body').first().json.business_name }} (={{ $('Extract Body').first().json.industry }}). Return ONLY valid JSON with keys: instagram_caption, instagram_caption_2, facebook_post, instagram_story_text, email_subject, email_body, blog_title, google_ad_headline, google_ad_description, content_theme.\"}]}",
+        "options": {}
+      }
+    },
+    {
+      "id": "3125f2e8-39a9-4908-83f4-f3804bea1294",
+      "name": "Parse Claude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        380
+      ],
+      "parameters": {
+        "jsCode": "try {\nconst raw = $input.first().json.content?.[0]?.text || '';\nlet c = {};\ntry { c = JSON.parse(raw); }\ncatch(e) { const m = raw.match(/{[\\s\\S]*}/); if(m) try { c = JSON.parse(m[0]); } catch(e2){} }\nconst b = $('Extract Body').first().json;\nreturn [{ json: {\n  business_id:           b.business_id,\n  email:                 b.email,\n  business_name:         b.business_name,\n  first_name:            b.first_name,\n  instagram_caption:     c.instagram_caption || '',\n  instagram_caption_2:   c.instagram_caption_2 || '',\n  facebook_post:         c.facebook_post || '',\n  instagram_story_text:  c.instagram_story_text || '',\n  email_subject:         c.email_subject || '',\n  email_body:            c.email_body || '',\n  blog_title:            c.blog_title || '',\n  google_ad_headline:    c.google_ad_headline || '',\n  google_ad_description: c.google_ad_description || '',\n  content_theme:         c.content_theme || ''\n}}];\n} catch(e) {\n  console.error(\"[Parse Claude] Error:\", e.message);\n  return [{ json: { error: e.message, skipped: true } }];\n}"
+      }
+    },
+    {
+      "id": "824e8091-ca88-4b17-9715-03d03e083552",
+      "name": "Save to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1540,
+        380
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/generated_content",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"business_id\": \"={{ $json.business_id }}\", \"instagram_caption\": \"={{ $json.instagram_caption }}\", \"instagram_caption_2\": \"={{ $json.instagram_caption_2 }}\", \"facebook_post\": \"={{ $json.facebook_post }}\", \"instagram_story_text\": \"={{ $json.instagram_story_text }}\", \"email_subject\": \"={{ $json.email_subject }}\", \"email_body\": \"={{ $json.email_body }}\", \"blog_title\": \"={{ $json.blog_title }}\", \"google_ad_headline\": \"={{ $json.google_ad_headline }}\", \"google_ad_description\": \"={{ $json.google_ad_description }}\", \"content_theme\": \"={{ $json.content_theme }}\", \"status\": \"pending_approval\"}",
+        "options": {}
+      }
+    },
+    {
+      "id": "d3e807c1-5c00-4bbe-845d-96e024a6d4ac",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1800,
+        380
+      ],
+      "parameters": {
+        "sendTo": "={{ $('Parse Claude').first().json.email }}",
+        "subject": "={{ 'Your Maroa.ai Content Is Ready!' }}",
+        "emailType": "html",
+        "message": "=<p>Hi {{ $('Parse Claude').first().json.first_name }},</p><p>Your first week of AI-generated content for <strong>{{ $('Parse Claude').first().json.business_name }}</strong> is ready!</p><p><strong>Theme:</strong> {{ $('Parse Claude').first().json.content_theme }}</p><p><strong>Instagram:</strong> {{ $('Parse Claude').first().json.instagram_caption }}</p><p><strong>Facebook:</strong> {{ $('Parse Claude').first().json.facebook_post }}</p><p>Log in to Maroa.ai to review and approve your content.</p><p>\u2014 The Maroa.ai Team</p>\n<div style=\"margin:24px 0;padding:16px;background:#f0f4ff;border-radius:8px;border-left:4px solid #4F46E5;\">\n  <p style=\"margin:0;color:#4F46E5;font-weight:bold;font-size:15px;\">Your Maroa.ai AI is working 24/7 for your business.</p>\n  <p style=\"margin:8px 0 0;color:#374151;font-size:14px;\">Everything is automated \u2014 content, ads, emails, and tracking. You just need to approve and grow.</p>\n</div>\n<p style=\"text-align:center;margin:20px 0;\">\n  <a href=\"https://maroa-ai-marketing-automator.lovable.app\" style=\"background:#4F46E5;color:white;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;font-size:15px;\">Open Your Dashboard \u2192</a>\n</p>\n",
+        "options": {}
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "BajY2aODIl8cGn0X",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "id": "da689c5f-b689-4753-aa13-11782c77fc97",
+      "name": "Fetch Business Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -200,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ \"https://maroa-api-production.up.railway.app/api/context/\" + String($json.userId || $json.business_id || $json.user_id || $json.id || ($json.biz && $json.biz.id) || $('Loop Each Business').first().json.id || $('Loop Each Business').first().json.user_id || $('Split In Batches').first().json.id || $('Split In Batches').first().json.user_id || $vars.userId || \"\") }}",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Body": {
+      "main": [
+        [
+          {
+            "node": "Get Business",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Business": {
+      "main": [
+        [
+          {
+            "node": "Fetch Business Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Claude": {
+      "main": [
+        [
+          {
+            "node": "Parse Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Claude": {
+      "main": [
+        [
+          {
+            "node": "Save to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Supabase": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Business Context": {
+      "main": [
+        [
+          {
+            "node": "Call Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false
+}

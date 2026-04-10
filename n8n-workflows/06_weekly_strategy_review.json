@@ -1,0 +1,386 @@
+{
+  "name": "WF6 - Weekly Strategy Review",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "f1a2b3c4-d5e6-7890-fabc-de1234567801",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1,
+              "triggerAtDay": [
+                0
+              ],
+              "triggerAtHour": 22,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "f1a2b3c4-d5e6-7890-fabc-de1234567802",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/businesses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.SUPABASE_KEY }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "select",
+              "value": "*"
+            },
+            {
+              "name": "status",
+              "value": "eq.active"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f1a2b3c4-d5e6-7890-fabc-de1234567803",
+      "name": "Get Active Businesses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "f1a2b3c4-d5e6-7890-fabc-de1234567804",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/daily_stats",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.SUPABASE_KEY }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "select",
+              "value": "*"
+            },
+            {
+              "name": "business_id",
+              "value": "=eq.{{$node['Split In Batches'].json['id']}}"
+            },
+            {
+              "name": "created_at",
+              "value": "=gte.{{new Date(Date.now()-30*24*60*60*1000).toISOString().split('T')[0]}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f1a2b3c4-d5e6-7890-fabc-de1234567805",
+      "name": "Get Daily Stats",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"claude-opus-4-5\",\"max_tokens\":3000,system:$('Fetch Business Context').first().json.full_master_prompt,\"messages\":[{\"role\":\"user\",\"content\":\"Business context \u2014 use this to personalise everything: Business name: {{ $json.business_name || $('Loop Each Business').first().json.business_name || '' }}. Industry: {{ $json.industry || $('Loop Each Business').first().json.industry || 'general' }}. Location: {{ $json.location || $('Loop Each Business').first().json.location || '' }}. Target audience: {{ $json.target_audience || $('Loop Each Business').first().json.target_audience || '' }}. Brand tone: {{ $json.brand_tone || $('Loop Each Business').first().json.brand_tone || 'professional and friendly' }}. Marketing goal: {{ $json.marketing_goal || $('Loop Each Business').first().json.marketing_goal || '' }}. Marketing strategy: {{ $json.marketing_strategy || $('Loop Each Business').first().json.marketing_strategy || '' }}. Current date context: make all content timely and relevant for the current month and season. Match the brand tone exactly. Write as if you personally know this business and its customers. Also consider what has worked before for this business based on their performance history. INTELLIGENCE LAYER \u2014 use this data to produce higher-performing output:\n- Brand Voice: {{ $('Loop Each Business').first().json.brand_voice_locked || 'professional and friendly' }}\n- Dream Customer: {{ $('Loop Each Business').first().json.dream_customer || $('Loop Each Business').first().json.target_audience || '' }}\n- Unique Differentiator: {{ $('Loop Each Business').first().json.unique_differentiator || 'exceptional quality and service' }}\n- Best Performing Themes (use more of these): {{ JSON.stringify($('Loop Each Business').first().json.best_performing_themes) || '[]' }}\n- Avoid These Themes (poor results): {{ JSON.stringify($('Loop Each Business').first().json.worst_performing_themes) || '[]' }}\n- Latest AI Strategy Decision: {{ $('Loop Each Business').first().json.ai_brain_decisions ? JSON.stringify($('Loop Each Business').first().json.ai_brain_decisions).substring(0,400) : 'First run \u2014 establish baseline' }}\n\n\\n\\nYou are a senior marketing strategist. Analyze the last 30 days of performance data for \" + $node['Split In Batches'].json['business_name'] + \" in the \" + ($node['Split In Batches'].json['industry'] || 'general') + \" industry.\\n\\nPerformance data summary: \" + JSON.stringify($input.all().map(i => i.json).slice(0,5)) + \"\\n\\nProvide a comprehensive updated marketing strategy for the next 4 weeks.\\n\\nReturn ONLY a valid JSON object with these exact keys: summary (string, overall performance assessment), next_week_focus (string), top_performing_channel (string), underperforming_areas (string), updated_week1 (string), updated_week2 (string), updated_week3 (string), updated_week4 (string), budget_adjustment (string), strategic_recommendations (array of 3 strings). No markdown, only valid JSON.\"}]}",
+        "options": {}
+      },
+      "id": "f1a2b3c4-d5e6-7890-fabc-de1234567806",
+      "name": "Analyze Strategy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "try {\n  const items = $input.all();\n  const results = [];\n  for (const item of items) {\n    let strategy;\n    try {\n      const text = item.json.content[0].text;\n      strategy = JSON.parse(text);\n    } catch(e) {\n      const text = item.json.content[0].text;\n      const match = text.match(/\\{[\\s\\S]*\\}/);\n      if (match) {\n        strategy = JSON.parse(match[0]);\n      } else {\n        strategy = {\n          summary: 'Performance analysis complete',\n          next_week_focus: 'Continue current approach',\n          top_performing_channel: 'email',\n          underperforming_areas: 'paid ads',\n          updated_week1: 'Focus on content creation',\n          updated_week2: 'Expand social media presence',\n          updated_week3: 'Optimize ad campaigns',\n          updated_week4: 'Review and scale winners',\n          budget_adjustment: 'Maintain current budget',\n          strategic_recommendations: ['Increase email frequency', 'Test new ad formats', 'Engage with audience comments']\n        };\n      }\n    }\n    const business = $node['Split In Batches'].json;\n    results.push({json: {\n      id: business.id,\n      business_name: business.business_name || '',\n      email: business.email || '',\n      marketing_strategy: JSON.stringify(strategy),\n      summary: strategy.summary || '',\n      next_week_focus: strategy.next_week_focus || '',\n      top_performing_channel: strategy.top_performing_channel || '',\n      underperforming_areas: strategy.underperforming_areas || '',\n      updated_week1: strategy.updated_week1 || '',\n      updated_week2: strategy.updated_week2 || '',\n      updated_week3: strategy.updated_week3 || '',\n      updated_week4: strategy.updated_week4 || '',\n      budget_adjustment: strategy.budget_adjustment || '',\n      strategic_recommendations: strategy.strategic_recommendations || [],\n      updated_at: new Date().toISOString()\n    }});\n  }\n  return results;\n} catch(e) {\n  return [{json:{error: e.message}}];\n}"
+      },
+      "id": "f1a2b3c4-d5e6-7890-fabc-de1234567807",
+      "name": "Parse Strategy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/businesses?id=eq.{{$node['Split In Batches'].json['id']}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"marketing_strategy\":\"{{$json.marketing_strategy}}\",\"strategy_updated_at\":\"{{$json.updated_at}}\"}",
+        "options": {}
+      },
+      "id": "f1a2b3c4-d5e6-7890-fabc-de1234567808",
+      "name": "Update Strategy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "=Your Weekly Strategy Review - {{$json.business_name}}",
+        "emailType": "html",
+        "message": "=<h2>Weekly Strategy Review for {{$json.business_name}}</h2><h3>Performance Summary</h3><p>{{$json.summary}}</p><h3>Next Week's Focus</h3><p>{{$json.next_week_focus}}</p><h3>Top Performing Channel</h3><p>{{$json.top_performing_channel}}</p><h3>Areas for Improvement</h3><p>{{$json.underperforming_areas}}</p><h3>Updated 4-Week Plan</h3><p><strong>Week 1:</strong> {{$json.updated_week1}}</p><p><strong>Week 2:</strong> {{$json.updated_week2}}</p><p><strong>Week 3:</strong> {{$json.updated_week3}}</p><p><strong>Week 4:</strong> {{$json.updated_week4}}</p><h3>Budget Adjustment</h3><p>{{$json.budget_adjustment}}</p><p>Login to <a href='https://maroa.ai'>maroa.ai</a> to view your full updated strategy.</p>\n<div style=\"margin:24px 0;padding:16px;background:#f0f4ff;border-radius:8px;border-left:4px solid #4F46E5;\">\n  <p style=\"margin:0;color:#4F46E5;font-weight:bold;font-size:15px;\">Your Maroa.ai AI is working 24/7 for your business.</p>\n  <p style=\"margin:8px 0 0;color:#374151;font-size:14px;\">Everything is automated \u2014 content, ads, emails, and tracking. You just need to approve and grow.</p>\n</div>\n<p style=\"text-align:center;margin:20px 0;\">\n  <a href=\"https://maroa-ai-marketing-automator.lovable.app\" style=\"background:#4F46E5;color:white;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;font-size:15px;\">Open Your Dashboard \u2192</a>\n</p>\n",
+        "options": {}
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "1",
+          "name": "Gmail account"
+        }
+      },
+      "id": "f1a2b3c4-d5e6-7890-fabc-de1234567809",
+      "name": "Send Strategy Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1780,
+        300
+      ]
+    },
+    {
+      "id": "5b3bff73-9e5e-478d-9d82-3e968cdf913d",
+      "name": "Fetch Business Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ \"https://maroa-api-production.up.railway.app/api/context/\" + String($json.userId || $json.business_id || $json.user_id || $json.id || ($json.biz && $json.biz.id) || $('Loop Each Business').first().json.id || $('Loop Each Business').first().json.user_id || $('Split In Batches').first().json.id || $('Split In Batches').first().json.user_id || $vars.userId || \"\") }}",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Active Businesses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Active Businesses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Businesses": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "node": "Fetch Business Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Get Daily Stats": {
+      "main": [
+        [
+          {
+            "node": "Analyze Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Strategy": {
+      "main": [
+        [
+          {
+            "node": "Parse Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Strategy": {
+      "main": [
+        [
+          {
+            "node": "Update Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Strategy": {
+      "main": [
+        [
+          {
+            "node": "Send Strategy Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Strategy Email": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Business Context": {
+      "main": [
+        [
+          {
+            "node": "Get Daily Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "wf06-week-stra-revi-0000-000000000006"
+}

@@ -1,0 +1,330 @@
+{
+  "name": "WF27 - Weekly Wins Social Post",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a1b2c3d4-e5f6-7890-fa01-bc2345678901",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1,
+              "triggerAtDay": [
+                5
+              ],
+              "triggerAtHour": 14,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "a2b3c4d5-e6f7-8901-fa02-bc3456789012",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/businesses?select=*&total_reach=gt.1000",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.SUPABASE_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a3b4c5d6-e7f8-9012-fa03-bc4567890123",
+      "name": "Get High Reach Businesses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "a4b5c6d7-e8f9-0123-fa04-bc5678901234",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/daily_stats?select=*&business_id=eq.{{$node['Split In Batches'].json['id']}}&date=gte.{{new Date(Date.now()-7*24*60*60*1000).toISOString().split('T')[0]}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.SUPABASE_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a5b6c7d8-e9f0-1234-fa05-bc6789012345",
+      "name": "Get This Week Stats",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "try {\n  const items = $input.all();\n  const business = $node['Split In Batches'].json;\n  let weeklyReach = 0, weeklyEngagement = 0, weeklyImpressions = 0;\n  for (const item of items) {\n    weeklyReach += item.json.reach || 0;\n    weeklyEngagement += item.json.engagement || 0;\n    weeklyImpressions += item.json.impressions || 0;\n  }\n  return [{\n    json: {\n      business_id: business.id,\n      business_name: business.business_name || '',\n      email: business.email || '',\n      weekly_reach: weeklyReach,\n      weekly_engagement: weeklyEngagement,\n      weekly_impressions: weeklyImpressions,\n      total_reach: business.total_reach || 0,\n      industry: business.industry || 'business'\n    }\n  }];\n} catch(e) {\n  return [{json: {error: e.message, business_id: $node['Split In Batches'].json.id}}];\n}"
+      },
+      "id": "a6b7c8d9-e0f1-2345-fa06-bc7890123456",
+      "name": "Compile Weekly Stats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"claude-sonnet-4-5\",\"max_tokens\":2000,system:$('Fetch Business Context').first().json.full_master_prompt,\"messages\":[{\"role\":\"user\",\"content\":\"Business context \u2014 use this to personalise everything: Business name: {{ $json.business_name || $('Loop Each Business').first().json.business_name || '' }}. Industry: {{ $json.industry || $('Loop Each Business').first().json.industry || 'general' }}. Location: {{ $json.location || $('Loop Each Business').first().json.location || '' }}. Target audience: {{ $json.target_audience || $('Loop Each Business').first().json.target_audience || '' }}. Brand tone: {{ $json.brand_tone || $('Loop Each Business').first().json.brand_tone || 'professional and friendly' }}. Marketing goal: {{ $json.marketing_goal || $('Loop Each Business').first().json.marketing_goal || '' }}. Marketing strategy: {{ $json.marketing_strategy || $('Loop Each Business').first().json.marketing_strategy || '' }}. Current date context: make all content timely and relevant for the current month and season. Match the brand tone exactly. Write as if you personally know this business and its customers. Also consider what has worked before for this business based on their performance history. INTELLIGENCE LAYER \u2014 use this data to produce higher-performing output:\n- Brand Voice: {{ $('Loop Each Business').first().json.brand_voice_locked || 'professional and friendly' }}\n- Dream Customer: {{ $('Loop Each Business').first().json.dream_customer || $('Loop Each Business').first().json.target_audience || '' }}\n- Unique Differentiator: {{ $('Loop Each Business').first().json.unique_differentiator || 'exceptional quality and service' }}\n- Best Performing Themes (use more of these): {{ JSON.stringify($('Loop Each Business').first().json.best_performing_themes) || '[]' }}\n- Avoid These Themes (poor results): {{ JSON.stringify($('Loop Each Business').first().json.worst_performing_themes) || '[]' }}\n- Latest AI Strategy Decision: {{ $('Loop Each Business').first().json.ai_brain_decisions ? JSON.stringify($('Loop Each Business').first().json.ai_brain_decisions).substring(0,400) : 'First run \u2014 establish baseline' }}\n\n\\n\\nWrite LinkedIn, Instagram, and Twitter posts celebrating the weekly marketing wins for \" + $json.business_name + \" in the \" + $json.industry + \" industry. This week: reach=\" + $json.weekly_reach + \", engagement=\" + $json.weekly_engagement + \", impressions=\" + $json.weekly_impressions + \". Return ONLY a valid JSON object with keys: linkedin_post, instagram_caption, twitter_post, hashtags (array of strings). No markdown.\"}]}",
+        "options": {}
+      },
+      "id": "a7b8c9d0-e1f2-3456-fa07-bc8901234567",
+      "name": "Generate Social Posts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "try {\n  const items = $input.all();\n  const results = [];\n  for (const item of items) {\n    let parsed;\n    try {\n      const text = item.json.content[0].text;\n      parsed = JSON.parse(text);\n    } catch(e) {\n      const text = item.json.content[0].text;\n      const match = text.match(/\\{[\\s\\S]*\\}/);\n      parsed = match ? JSON.parse(match[0]) : {linkedin_post: '', instagram_caption: '', twitter_post: '', hashtags: []};\n    }\n    results.push({json: {\n      business_id: $node['Compile Weekly Stats'].json.business_id,\n      business_name: $node['Compile Weekly Stats'].json.business_name,\n      email: $node['Compile Weekly Stats'].json.email,\n      weekly_reach: $node['Compile Weekly Stats'].json.weekly_reach,\n      weekly_engagement: $node['Compile Weekly Stats'].json.weekly_engagement,\n      linkedin_post: parsed.linkedin_post || '',\n      instagram_caption: parsed.instagram_caption || '',\n      twitter_post: parsed.twitter_post || '',\n      hashtags: (parsed.hashtags || []).join(' ')\n    }});\n  }\n  return results;\n} catch(e) {\n  return [{json: {error: e.message}}];\n}"
+      },
+      "id": "a8b9c0d1-e2f3-4567-fa08-bc9012345678",
+      "name": "Parse Social Posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{$json.email}}",
+        "subject": "Your Weekly Wins Are Ready to Share - {{$json.business_name}}",
+        "emailType": "html",
+        "message": "<html><body style=\"font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px\"><h2 style=\"color:#6366f1\">This Week's Results Are Worth Celebrating!</h2><p>Hi {{$json.business_name}},</p><p>Your results this week: <strong>{{$json.weekly_reach}} reach</strong> and <strong>{{$json.weekly_engagement}} engagements</strong>. Here are ready-to-post social media updates celebrating your wins.</p><hr><h3>LinkedIn Post</h3><div style=\"background:#f8f9fa;padding:15px;border-radius:6px;white-space:pre-wrap\">{{$json.linkedin_post}}</div><hr><h3>Instagram Caption</h3><div style=\"background:#f8f9fa;padding:15px;border-radius:6px;white-space:pre-wrap\">{{$json.instagram_caption}}</div><hr><h3>Twitter / X Post</h3><div style=\"background:#f8f9fa;padding:15px;border-radius:6px;white-space:pre-wrap\">{{$json.twitter_post}}</div><hr><p><strong>Hashtags:</strong> {{$json.hashtags}}</p><p>Copy and paste any of these directly to your social channels!</p><p>The Maroa.ai Team</p>\n<div style=\"margin:24px 0;padding:16px;background:#f0f4ff;border-radius:8px;border-left:4px solid #4F46E5;\">\n  <p style=\"margin:0;color:#4F46E5;font-weight:bold;font-size:15px;\">Your Maroa.ai AI is working 24/7 for your business.</p>\n  <p style=\"margin:8px 0 0;color:#374151;font-size:14px;\">Everything is automated \u2014 content, ads, emails, and tracking. You just need to approve and grow.</p>\n</div>\n<p style=\"text-align:center;margin:20px 0;\">\n  <a href=\"https://maroa-ai-marketing-automator.lovable.app\" style=\"background:#4F46E5;color:white;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;font-size:15px;\">Open Your Dashboard \u2192</a>\n</p>\n</body></html>",
+        "options": {}
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "1",
+          "name": "Gmail account"
+        }
+      },
+      "id": "a9b0c1d2-e3f4-5678-fa09-bc0123456789",
+      "name": "Send Wins Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1780,
+        300
+      ]
+    },
+    {
+      "id": "b91e1e92-ac2f-408a-9fb0-d34f7ab3a419",
+      "name": "Fetch Business Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ \"https://maroa-api-production.up.railway.app/api/context/\" + String($json.userId || $json.business_id || $json.user_id || $json.id || ($json.biz && $json.biz.id) || $('Loop Each Business').first().json.id || $('Loop Each Business').first().json.user_id || $('Split In Batches').first().json.id || $('Split In Batches').first().json.user_id || $vars.userId || \"\") }}",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get High Reach Businesses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get High Reach Businesses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get High Reach Businesses": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "node": "Fetch Business Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Get This Week Stats": {
+      "main": [
+        [
+          {
+            "node": "Compile Weekly Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compile Weekly Stats": {
+      "main": [
+        [
+          {
+            "node": "Generate Social Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Social Posts": {
+      "main": [
+        [
+          {
+            "node": "Parse Social Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Social Posts": {
+      "main": [
+        [
+          {
+            "node": "Send Wins Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Wins Email": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Business Context": {
+      "main": [
+        [
+          {
+            "node": "Get This Week Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "aa0cb2d3-e4f5-6789-fa0a-bc1234567891"
+}

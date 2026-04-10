@@ -1,0 +1,330 @@
+{
+  "name": "WF5 - AB Testing Engine",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "e1f2a3b4-c5d6-7890-efab-cd1234567801",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1,
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 10,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "e1f2a3b4-c5d6-7890-efab-cd1234567802",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/ad_campaigns",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.SUPABASE_KEY }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "select",
+              "value": "*"
+            },
+            {
+              "name": "status",
+              "value": "eq.active"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e1f2a3b4-c5d6-7890-efab-cd1234567803",
+      "name": "Get Active Campaigns",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "e1f2a3b4-c5d6-7890-efab-cd1234567804",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"claude-sonnet-4-5\",\"max_tokens\":2000,system:$('Fetch Business Context').first().json.full_master_prompt,\"messages\":[{\"role\":\"user\",\"content\":\"Business context \u2014 use this to personalise everything: Business name: {{ $json.business_name || $('Loop Each Business').first().json.business_name || '' }}. Industry: {{ $json.industry || $('Loop Each Business').first().json.industry || 'general' }}. Location: {{ $json.location || $('Loop Each Business').first().json.location || '' }}. Target audience: {{ $json.target_audience || $('Loop Each Business').first().json.target_audience || '' }}. Brand tone: {{ $json.brand_tone || $('Loop Each Business').first().json.brand_tone || 'professional and friendly' }}. Marketing goal: {{ $json.marketing_goal || $('Loop Each Business').first().json.marketing_goal || '' }}. Marketing strategy: {{ $json.marketing_strategy || $('Loop Each Business').first().json.marketing_strategy || '' }}. Current date context: make all content timely and relevant for the current month and season. Match the brand tone exactly. Write as if you personally know this business and its customers. Also consider what has worked before for this business based on their performance history. INTELLIGENCE LAYER \u2014 use this data to produce higher-performing output:\n- Brand Voice: {{ $('Loop Each Business').first().json.brand_voice_locked || 'professional and friendly' }}\n- Dream Customer: {{ $('Loop Each Business').first().json.dream_customer || $('Loop Each Business').first().json.target_audience || '' }}\n- Unique Differentiator: {{ $('Loop Each Business').first().json.unique_differentiator || 'exceptional quality and service' }}\n- Best Performing Themes (use more of these): {{ JSON.stringify($('Loop Each Business').first().json.best_performing_themes) || '[]' }}\n- Avoid These Themes (poor results): {{ JSON.stringify($('Loop Each Business').first().json.worst_performing_themes) || '[]' }}\n- Latest AI Strategy Decision: {{ $('Loop Each Business').first().json.ai_brain_decisions ? JSON.stringify($('Loop Each Business').first().json.ai_brain_decisions).substring(0,400) : 'First run \u2014 establish baseline' }}\n\n\\n\\nCreate 3 distinct ad variants for the campaign named \\\"\" + $node['Split In Batches'].json['campaign_name'] + \"\\\" targeting \" + ($node['Split In Batches'].json['target_audience'] || 'general consumers') + \".\\n\\nReturn ONLY a valid JSON object with a single key 'variants' containing an array of 3 objects. Each object must have these exact keys: variant_name (string), headline (string, max 30 chars), description (string, max 90 chars), cta (string, max 15 chars), key_difference (string). No markdown, only valid JSON.\"}]}",
+        "options": {}
+      },
+      "id": "e1f2a3b4-c5d6-7890-efab-cd1234567805",
+      "name": "Generate AB Variants",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "try {\n  const items = $input.all();\n  const results = [];\n  for (const item of items) {\n    let parsed;\n    try {\n      const text = item.json.content[0].text;\n      parsed = JSON.parse(text);\n    } catch(e) {\n      const text = item.json.content[0].text;\n      const match = text.match(/\\{[\\s\\S]*\\}/);\n      if (match) {\n        parsed = JSON.parse(match[0]);\n      } else {\n        parsed = {\n          variants: [\n            {variant_name:'Variant A', headline:'Headline A', description:'Description A', cta:'Learn More', key_difference:'Focuses on value'},\n            {variant_name:'Variant B', headline:'Headline B', description:'Description B', cta:'Get Started', key_difference:'Focuses on urgency'},\n            {variant_name:'Variant C', headline:'Headline C', description:'Description C', cta:'Try Free', key_difference:'Focuses on risk-free'}\n          ]\n        };\n      }\n    }\n    const campaign = $node['Split In Batches'].json;\n    results.push({json: {\n      campaign_id: campaign.id,\n      campaign_name: campaign.campaign_name,\n      business_id: campaign.business_id,\n      business_email: campaign.business_email || '',\n      variants: parsed.variants || [],\n      created_at: new Date().toISOString()\n    }});\n  }\n  return results;\n} catch(e) {\n  return [{json:{error: e.message}}];\n}"
+      },
+      "id": "e1f2a3b4-c5d6-7890-efab-cd1234567806",
+      "name": "Parse Variants",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/ab_tests",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"campaign_id\":\"{{$json.campaign_id}}\",\"business_id\":\"{{$json.business_id}}\",\"variants\":\"{{JSON.stringify($json.variants)}}\",\"status\":\"active\",\"created_at\":\"{{$json.created_at}}\"}",
+        "options": {}
+      },
+      "id": "e1f2a3b4-c5d6-7890-efab-cd1234567807",
+      "name": "Save Variants",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.business_email }}",
+        "subject": "=3 New A/B Test Variants Ready for {{$json.campaign_name}}",
+        "emailType": "html",
+        "message": "=<h2>Your A/B Test Variants Are Ready!</h2><p>We've created 3 new ad variants for your campaign: <strong>{{$json.campaign_name}}</strong></p><h3>Variants Overview:</h3><ul>{{$json.variants.map(v => '<li><strong>' + v.variant_name + ':</strong> ' + v.headline + ' - ' + v.key_difference + '</li>').join('')}}</ul><p>Login to <a href='https://maroa.ai/campaigns'>maroa.ai</a> to review and activate your A/B tests.</p>\n<div style=\"margin:24px 0;padding:16px;background:#f0f4ff;border-radius:8px;border-left:4px solid #4F46E5;\">\n  <p style=\"margin:0;color:#4F46E5;font-weight:bold;font-size:15px;\">Your Maroa.ai AI is working 24/7 for your business.</p>\n  <p style=\"margin:8px 0 0;color:#374151;font-size:14px;\">Everything is automated \u2014 content, ads, emails, and tracking. You just need to approve and grow.</p>\n</div>\n<p style=\"text-align:center;margin:20px 0;\">\n  <a href=\"https://maroa-ai-marketing-automator.lovable.app\" style=\"background:#4F46E5;color:white;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;font-size:15px;\">Open Your Dashboard \u2192</a>\n</p>\n",
+        "options": {}
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "1",
+          "name": "Gmail account"
+        }
+      },
+      "id": "e1f2a3b4-c5d6-7890-efab-cd1234567808",
+      "name": "Send Summary Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "id": "a7a5c3cc-bda5-4b12-ac3b-aa14d28b4ec0",
+      "name": "Fetch Business Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ \"https://maroa-api-production.up.railway.app/api/context/\" + String($json.userId || $json.business_id || $json.user_id || $json.id || ($json.biz && $json.biz.id) || $('Loop Each Business').first().json.id || $('Loop Each Business').first().json.user_id || $('Split In Batches').first().json.id || $('Split In Batches').first().json.user_id || $vars.userId || \"\") }}",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Active Campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Active Campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Campaigns": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "node": "Fetch Business Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Generate AB Variants": {
+      "main": [
+        [
+          {
+            "node": "Parse Variants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Variants": {
+      "main": [
+        [
+          {
+            "node": "Save Variants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Variants": {
+      "main": [
+        [
+          {
+            "node": "Send Summary Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Summary Email": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Business Context": {
+      "main": [
+        [
+          {
+            "node": "Generate AB Variants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "wf05-ab-test-engin-0000-000000000005"
+}

@@ -1,0 +1,385 @@
+{
+  "name": "WF21 - Seasonal Campaign Creator",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "d1a2c3e4-f5a6-7890-cd01-ef2345678901",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1,
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 8,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "d2a3c4e5-f6a7-8901-cd02-ef3456789012",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "try {\n  const now = new Date();\n  const in21Days = new Date(now.getTime() + 21 * 24 * 60 * 60 * 1000);\n\n  const holidays = [\n    {name: \"New Year's Day\", month: 1, day: 1},\n    {name: \"Valentine's Day\", month: 2, day: 14},\n    {name: \"St. Patrick's Day\", month: 3, day: 17},\n    {name: \"Easter Sunday\", month: 4, day: 20},\n    {name: \"Mother's Day\", month: 5, day: 11},\n    {name: \"Memorial Day\", month: 5, day: 26},\n    {name: \"Father's Day\", month: 6, day: 15},\n    {name: \"Independence Day\", month: 7, day: 4},\n    {name: \"Labor Day\", month: 9, day: 1},\n    {name: \"Halloween\", month: 10, day: 31},\n    {name: \"Thanksgiving\", month: 11, day: 27},\n    {name: \"Black Friday\", month: 11, day: 28},\n    {name: \"Cyber Monday\", month: 12, day: 1},\n    {name: \"Christmas\", month: 12, day: 25},\n    {name: \"New Year's Eve\", month: 12, day: 31}\n  ];\n\n  let upcomingHoliday = null;\n  for (const holiday of holidays) {\n    const holidayDate = new Date(now.getFullYear(), holiday.month - 1, holiday.day);\n    if (holidayDate >= now && holidayDate <= in21Days) {\n      upcomingHoliday = holiday;\n      break;\n    }\n  }\n\n  return [{\n    json: {\n      has_holiday: upcomingHoliday !== null,\n      holiday_name: upcomingHoliday ? upcomingHoliday.name : null,\n      holiday_date: upcomingHoliday ? new Date(now.getFullYear(), upcomingHoliday.month - 1, upcomingHoliday.day).toISOString().split('T')[0] : null,\n      days_until: upcomingHoliday ? Math.floor((new Date(now.getFullYear(), upcomingHoliday.month - 1, upcomingHoliday.day) - now) / (1000 * 60 * 60 * 24)) : null\n    }\n  }];\n} catch(e) {\n  return [{json: {error: e.message, has_holiday: false}}];\n}"
+      },
+      "id": "d3a4c5e6-f7a8-9012-cd03-ef4567890123",
+      "name": "Check Upcoming Holidays",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-holiday",
+              "leftValue": "={{$json.has_holiday}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d4a5c6e7-f8a9-0123-cd04-ef5678901234",
+      "name": "Has Upcoming Holiday",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/businesses?select=*&plan=not.eq.free",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.SUPABASE_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d5a6c7e8-f9a0-1234-cd05-ef6789012345",
+      "name": "Get Paid Businesses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        900,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "d6a7c8e9-f0a1-2345-cd06-ef7890123456",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1120,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"claude-sonnet-4-5\",\"max_tokens\":2000,system:$('Fetch Business Context').first().json.full_master_prompt,\"messages\":[{\"role\":\"user\",\"content\":\"Business context \u2014 use this to personalise everything: Business name: {{ $json.business_name || $('Loop Each Business').first().json.business_name || '' }}. Industry: {{ $json.industry || $('Loop Each Business').first().json.industry || 'general' }}. Location: {{ $json.location || $('Loop Each Business').first().json.location || '' }}. Target audience: {{ $json.target_audience || $('Loop Each Business').first().json.target_audience || '' }}. Brand tone: {{ $json.brand_tone || $('Loop Each Business').first().json.brand_tone || 'professional and friendly' }}. Marketing goal: {{ $json.marketing_goal || $('Loop Each Business').first().json.marketing_goal || '' }}. Marketing strategy: {{ $json.marketing_strategy || $('Loop Each Business').first().json.marketing_strategy || '' }}. Current date context: make all content timely and relevant for the current month and season. Match the brand tone exactly. Write as if you personally know this business and its customers. Also consider what has worked before for this business based on their performance history. INTELLIGENCE LAYER \u2014 use this data to produce higher-performing output:\n- Brand Voice: {{ $('Loop Each Business').first().json.brand_voice_locked || 'professional and friendly' }}\n- Dream Customer: {{ $('Loop Each Business').first().json.dream_customer || $('Loop Each Business').first().json.target_audience || '' }}\n- Unique Differentiator: {{ $('Loop Each Business').first().json.unique_differentiator || 'exceptional quality and service' }}\n- Best Performing Themes (use more of these): {{ JSON.stringify($('Loop Each Business').first().json.best_performing_themes) || '[]' }}\n- Avoid These Themes (poor results): {{ JSON.stringify($('Loop Each Business').first().json.worst_performing_themes) || '[]' }}\n- Latest AI Strategy Decision: {{ $('Loop Each Business').first().json.ai_brain_decisions ? JSON.stringify($('Loop Each Business').first().json.ai_brain_decisions).substring(0,400) : 'First run \u2014 establish baseline' }}\n\n\\n\\nCreate seasonal marketing content for the upcoming \" + $node['Check Upcoming Holidays'].json['holiday_name'] + \" holiday for \" + $node['Split In Batches'].json['business_name'] + \" in the \" + $node['Split In Batches'].json['industry'] + \" industry. The holiday is in \" + $node['Check Upcoming Holidays'].json['days_until'] + \" days. Return ONLY a valid JSON object with these keys: instagram_caption, instagram_caption_2, facebook_post, email_subject, email_body, google_ad_headline, google_ad_description, content_theme, campaign_name. No markdown.\"}]}",
+        "options": {}
+      },
+      "id": "d7a8c9e0-f1a2-3456-cd07-ef8901234567",
+      "name": "Generate Seasonal Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1340,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "try {\n  const items = $input.all();\n  const results = [];\n  for (const item of items) {\n    const business = $node['Split In Batches'].json;\n    const holiday = $node['Check Upcoming Holidays'].json;\n    let content;\n    try {\n      const text = item.json.content[0].text;\n      content = JSON.parse(text);\n    } catch(e) {\n      const text = item.json.content[0].text;\n      const match = text.match(/\\{[\\s\\S]*\\}/);\n      content = match ? JSON.parse(match[0]) : {\n        instagram_caption: '',\n        instagram_caption_2: '',\n        facebook_post: '',\n        email_subject: '',\n        email_body: '',\n        google_ad_headline: '',\n        google_ad_description: '',\n        content_theme: holiday.holiday_name,\n        campaign_name: holiday.holiday_name + ' Campaign'\n      };\n    }\n    results.push({json: {\n      business_id: business.id,\n      business_name: business.business_name || '',\n      email: business.email || '',\n      holiday_name: holiday.holiday_name,\n      instagram_caption: content.instagram_caption || '',\n      instagram_caption_2: content.instagram_caption_2 || '',\n      facebook_post: content.facebook_post || '',\n      email_subject: content.email_subject || '',\n      email_body: content.email_body || '',\n      google_ad_headline: content.google_ad_headline || '',\n      google_ad_description: content.google_ad_description || '',\n      content_theme: content.content_theme || holiday.holiday_name,\n      campaign_name: content.campaign_name || holiday.holiday_name + ' Campaign',\n      status: 'pending_approval',\n      created_at: new Date().toISOString()\n    }});\n  }\n  return results;\n} catch(e) {\n  return [{json: {error: e.message}}];\n}"
+      },
+      "id": "d8a9c0e1-f2a3-4567-cd08-ef9012345678",
+      "name": "Parse Seasonal Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/generated_content",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"business_id\":\"{{$json.business_id}}\",\"instagram_caption\":\"{{$json.instagram_caption}}\",\"instagram_caption_2\":\"{{$json.instagram_caption_2}}\",\"facebook_post\":\"{{$json.facebook_post}}\",\"email_subject\":\"{{$json.email_subject}}\",\"email_body\":\"{{$json.email_body}}\",\"google_ad_headline\":\"{{$json.google_ad_headline}}\",\"google_ad_description\":\"{{$json.google_ad_description}}\",\"content_theme\":\"{{$json.content_theme}}\",\"status\":\"pending_approval\",\"created_at\":\"{{$json.created_at}}\"}",
+        "options": {}
+      },
+      "id": "d9a0c1e2-f3a4-5678-cd09-ef0123456789",
+      "name": "Save Seasonal Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1780,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{$json.email}}",
+        "subject": "={{$json.holiday_name}} Campaign Ready for {{$json.business_name}} - {{$node['Check Upcoming Holidays'].json['days_until']}} Days Away!",
+        "emailType": "html",
+        "message": "<html><body style=\"font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px\"><h2 style=\"color:#6366f1\">Your Seasonal Campaign is Ready!</h2><p>Hi {{$json.business_name}},</p><p>Your <strong>{{$json.holiday_name}}</strong> campaign content is ready with {{$node['Check Upcoming Holidays'].json['days_until']}} days to go.</p><h3>Campaign: {{$json.campaign_name}}</h3><p><strong>Instagram Caption:</strong><br>{{$json.instagram_caption}}</p><p><strong>Facebook Post:</strong><br>{{$json.facebook_post}}</p><p><strong>Email Subject:</strong> {{$json.email_subject}}</p><p><strong>Google Ad:</strong> {{$json.google_ad_headline}}</p><p>Login to maroa.ai to review and approve your seasonal campaign.</p><p>The Maroa.ai Team</p>\n<div style=\"margin:24px 0;padding:16px;background:#f0f4ff;border-radius:8px;border-left:4px solid #4F46E5;\">\n  <p style=\"margin:0;color:#4F46E5;font-weight:bold;font-size:15px;\">Your Maroa.ai AI is working 24/7 for your business.</p>\n  <p style=\"margin:8px 0 0;color:#374151;font-size:14px;\">Everything is automated \u2014 content, ads, emails, and tracking. You just need to approve and grow.</p>\n</div>\n<p style=\"text-align:center;margin:20px 0;\">\n  <a href=\"https://maroa-ai-marketing-automator.lovable.app\" style=\"background:#4F46E5;color:white;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;font-size:15px;\">Open Your Dashboard \u2192</a>\n</p>\n</body></html>",
+        "options": {}
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "1",
+          "name": "Gmail account"
+        }
+      },
+      "id": "da0bd2e3-f4a5-6789-cd0a-ef1234567890",
+      "name": "Send Seasonal Notification",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2000,
+        200
+      ]
+    },
+    {
+      "id": "fe6a269d-9f92-498a-9f27-018f60840744",
+      "name": "Fetch Business Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        200
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ \"https://maroa-api-production.up.railway.app/api/context/\" + String($json.userId || $json.business_id || $json.user_id || $json.id || ($json.biz && $json.biz.id) || $('Loop Each Business').first().json.id || $('Loop Each Business').first().json.user_id || $('Split In Batches').first().json.id || $('Split In Batches').first().json.user_id || $vars.userId || \"\") }}",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Check Upcoming Holidays",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Check Upcoming Holidays",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Upcoming Holidays": {
+      "main": [
+        [
+          {
+            "node": "Has Upcoming Holiday",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Upcoming Holiday": {
+      "main": [
+        [
+          {
+            "node": "Get Paid Businesses",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Get Paid Businesses": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "node": "Fetch Business Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Generate Seasonal Content": {
+      "main": [
+        [
+          {
+            "node": "Parse Seasonal Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Seasonal Content": {
+      "main": [
+        [
+          {
+            "node": "Save Seasonal Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Seasonal Content": {
+      "main": [
+        [
+          {
+            "node": "Send Seasonal Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Seasonal Notification": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Business Context": {
+      "main": [
+        [
+          {
+            "node": "Generate Seasonal Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "db0ce3f4-a5b6-7890-cd0b-fa2345678901"
+}

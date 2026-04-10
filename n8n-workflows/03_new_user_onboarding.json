@@ -1,0 +1,256 @@
+{
+  "name": "WF3 - New User Onboarding",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "c1d2e3f4-a5b6-7890-cdef-ab1234567801",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "new-user-signup",
+        "options": {},
+        "responseMode": "onReceived"
+      },
+      "id": "c1d2e3f4-a5b6-7890-cdef-ab1234567802",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "try {\n  const items = $input.all();\n  const results = [];\n  for (const item of items) {\n    const body = item.json.body || item.json;\n    results.push({json: {\n      id: body.id || body.business_id || '',\n      business_name: body.business_name || body.name || 'Your Business',\n      email: body.email || '',\n      industry: body.industry || 'general',\n      location: body.location || '',\n      target_audience: body.target_audience || ''\n    }});\n  }\n  return results;\n} catch(e) {\n  return [{json:{error: e.message}}];\n}"
+      },
+      "id": "c1d2e3f4-a5b6-7890-cdef-ab1234567803",
+      "name": "Extract Business Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"claude-opus-4-5\",\"max_tokens\":3000,system:$('Fetch Business Context').first().json.full_master_prompt,\"messages\":[{\"role\":\"user\",\"content\":\"Business context \u2014 use this to personalise everything: Business name: {{ $json.business_name || $('Loop Each Business').first().json.business_name || '' }}. Industry: {{ $json.industry || $('Loop Each Business').first().json.industry || 'general' }}. Location: {{ $json.location || $('Loop Each Business').first().json.location || '' }}. Target audience: {{ $json.target_audience || $('Loop Each Business').first().json.target_audience || '' }}. Brand tone: {{ $json.brand_tone || $('Loop Each Business').first().json.brand_tone || 'professional and friendly' }}. Marketing goal: {{ $json.marketing_goal || $('Loop Each Business').first().json.marketing_goal || '' }}. Marketing strategy: {{ $json.marketing_strategy || $('Loop Each Business').first().json.marketing_strategy || '' }}. Current date context: make all content timely and relevant for the current month and season. Match the brand tone exactly. Write as if you personally know this business and its customers. Also consider what has worked before for this business based on their performance history. INTELLIGENCE LAYER \u2014 use this data to produce higher-performing output:\n- Brand Voice: {{ $('Loop Each Business').first().json.brand_voice_locked || 'professional and friendly' }}\n- Dream Customer: {{ $('Loop Each Business').first().json.dream_customer || $('Loop Each Business').first().json.target_audience || '' }}\n- Unique Differentiator: {{ $('Loop Each Business').first().json.unique_differentiator || 'exceptional quality and service' }}\n- Best Performing Themes (use more of these): {{ JSON.stringify($('Loop Each Business').first().json.best_performing_themes) || '[]' }}\n- Avoid These Themes (poor results): {{ JSON.stringify($('Loop Each Business').first().json.worst_performing_themes) || '[]' }}\n- Latest AI Strategy Decision: {{ $('Loop Each Business').first().json.ai_brain_decisions ? JSON.stringify($('Loop Each Business').first().json.ai_brain_decisions).substring(0,400) : 'First run \u2014 establish baseline' }}\n\n\\n\\nGenerate a detailed 30-day marketing strategy for \" + $json['business_name'] + \" in the \" + $json['industry'] + \" industry. Target audience: \" + ($json['target_audience'] || 'general consumers') + \". Location: \" + ($json['location'] || 'global') + \".\\n\\nReturn ONLY a valid JSON object with these exact keys: week1 (string, week 1 action plan), week2 (string, week 2 action plan), week3 (string, week 3 action plan), week4 (string, week 4 action plan), key_channels (array of strings), target_audience (string), budget_recommendation (string), kpis (array of strings). No markdown, only valid JSON.\"}]}",
+        "options": {}
+      },
+      "id": "c1d2e3f4-a5b6-7890-cdef-ab1234567804",
+      "name": "Generate Strategy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "try {\n  const items = $input.all();\n  const results = [];\n  for (const item of items) {\n    let strategy;\n    try {\n      const text = item.json.content[0].text;\n      strategy = JSON.parse(text);\n    } catch(e) {\n      const text = item.json.content[0].text;\n      const match = text.match(/\\{[\\s\\S]*\\}/);\n      if (match) {\n        strategy = JSON.parse(match[0]);\n      } else {\n        strategy = {\n          week1: 'Establish brand presence and audit current marketing',\n          week2: 'Launch initial campaigns on key channels',\n          week3: 'Optimize based on early data',\n          week4: 'Scale winning strategies and report results',\n          key_channels: ['instagram', 'facebook', 'email'],\n          target_audience: 'general consumers',\n          budget_recommendation: 'Start with $500/month and scale based on ROI',\n          kpis: ['reach', 'engagement_rate', 'conversion_rate', 'roas']\n        };\n      }\n    }\n    // Preserve upstream fields\n    const upstream = $('Extract Business Data').first().json;\n    results.push({json: {\n      id: upstream.id || '',\n      business_name: upstream.business_name || '',\n      email: upstream.email || '',\n      industry: upstream.industry || '',\n      strategy: JSON.stringify(strategy),\n      week1: strategy.week1 || '',\n      week2: strategy.week2 || '',\n      week3: strategy.week3 || '',\n      week4: strategy.week4 || '',\n      key_channels: strategy.key_channels || [],\n      budget_recommendation: strategy.budget_recommendation || '',\n      kpis: strategy.kpis || []\n    }});\n  }\n  return results;\n} catch(e) {\n  return [{json:{error: e.message}}];\n}"
+      },
+      "id": "c1d2e3f4-a5b6-7890-cdef-ab1234567805",
+      "name": "Parse Strategy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/businesses?id=eq.{{$json.id}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"marketing_strategy\":\"{{$json.strategy}}\"}",
+        "options": {}
+      },
+      "id": "c1d2e3f4-a5b6-7890-cdef-ab1234567806",
+      "name": "Save Strategy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "=Welcome to Maroa.ai - Your 30-Day Marketing Strategy Is Ready!",
+        "emailType": "html",
+        "message": "=<h1>Welcome to Maroa.ai, {{$json.business_name}}!</h1><p>Your personalized 30-day marketing strategy has been created. Here are your highlights:</p><h3>Week 1</h3><p>{{$json.week1}}</p><h3>Week 2</h3><p>{{$json.week2}}</p><h3>Week 3</h3><p>{{$json.week3}}</p><h3>Week 4</h3><p>{{$json.week4}}</p><h3>Budget Recommendation</h3><p>{{$json.budget_recommendation}}</p><p>Login to <a href='https://maroa.ai'>maroa.ai</a> to view your full strategy and start your marketing journey!</p>\n<div style=\"margin:24px 0;padding:16px;background:#f0f4ff;border-radius:8px;border-left:4px solid #4F46E5;\">\n  <p style=\"margin:0;color:#4F46E5;font-weight:bold;font-size:15px;\">Your Maroa.ai AI is working 24/7 for your business.</p>\n  <p style=\"margin:8px 0 0;color:#374151;font-size:14px;\">Everything is automated \u2014 content, ads, emails, and tracking. You just need to approve and grow.</p>\n</div>\n<p style=\"text-align:center;margin:20px 0;\">\n  <a href=\"https://maroa-ai-marketing-automator.lovable.app\" style=\"background:#4F46E5;color:white;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;font-size:15px;\">Open Your Dashboard \u2192</a>\n</p>\n",
+        "options": {}
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "1",
+          "name": "Gmail account"
+        }
+      },
+      "id": "c1d2e3f4-a5b6-7890-cdef-ab1234567807",
+      "name": "Send Welcome Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "id": "b0816ff3-dbb1-4e53-94fa-9a069ce0966e",
+      "name": "Fetch Business Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -200,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ \"https://maroa-api-production.up.railway.app/api/context/\" + String($json.userId || $json.business_id || $json.user_id || $json.id || ($json.biz && $json.biz.id) || $('Loop Each Business').first().json.id || $('Loop Each Business').first().json.user_id || $('Split In Batches').first().json.id || $('Split In Batches').first().json.user_id || $vars.userId || \"\") }}",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Business Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Business Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Business Data": {
+      "main": [
+        [
+          {
+            "node": "Fetch Business Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Strategy": {
+      "main": [
+        [
+          {
+            "node": "Parse Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Strategy": {
+      "main": [
+        [
+          {
+            "node": "Save Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Strategy": {
+      "main": [
+        [
+          {
+            "node": "Send Welcome Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Business Context": {
+      "main": [
+        [
+          {
+            "node": "Generate Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "wf03-new-user-onbo-0000-000000000003"
+}

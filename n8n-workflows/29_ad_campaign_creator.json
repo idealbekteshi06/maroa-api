@@ -1,0 +1,333 @@
+{
+  "name": "29 - Ad Campaign Creator",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        380
+      ],
+      "parameters": {
+        "path": "create-campaigns",
+        "httpMethod": "POST"
+      }
+    },
+    {
+      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        240
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+      "name": "Get Business",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        460,
+        380
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/businesses?select=*&id=eq.{{ $json.body?.business_id || $json.business_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.SUPABASE_KEY }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "d4e5f6a7-b8c9-0123-defa-234567890123",
+      "name": "Build Campaign Strategy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        680,
+        380
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-5\",\n  \"max_tokens\": 1500, \"system\": $(\\'Fetch Business Context\\').first().json.full_master_prompt, \"messages\": [{\n    \"role\": \"user\",\n    \"content\": \"You are a Meta ads expert. Create an ad campaign strategy for this business:\\n\\nBusiness: {{ $json[0].business_name }}\\nIndustry: {{ $json[0].industry }}\\nLocation: {{ $json[0].location }}\\nTarget Audience: {{ $json[0].target_audience }}\\nMarketing Goal: {{ $json[0].marketing_goal }}\\nDaily Budget: {{ $json[0].daily_budget || 10 }}\\nBrand Voice: {{ $json[0].brand_voice_locked || 'professional and friendly' }}\\nDream Customer: {{ $json[0].dream_customer || $json[0].target_audience || '' }}\\nUnique Differentiator: {{ $json[0].unique_differentiator || 'exceptional quality' }}\\nBest Performing Themes: {{ JSON.stringify($json[0].best_performing_themes) || '[]' }}\\nAvoid These Themes: {{ JSON.stringify($json[0].worst_performing_themes) || '[]' }}\\nLatest AI Decision: {{ $json[0].ai_brain_decisions ? JSON.stringify($json[0].ai_brain_decisions).substring(0,300) : 'First run' }}\\nBrand Tone: {{ $json[0].brand_tone }}\\n\\nReturn ONLY valid JSON with these keys:\\n{\\n  \\\"campaign_name\\\": \\\"descriptive campaign name\\\",\\n  \\\"objective\\\": \\\"REACH or TRAFFIC or CONVERSIONS\\\",\\n  \\\"primary_text\\\": \\\"compelling ad primary text (125 chars max)\\\",\\n  \\\"headline\\\": \\\"attention-grabbing headline (40 chars max)\\\",\\n  \\\"description\\\": \\\"supporting description (30 chars max)\\\",\\n  \\\"call_to_action\\\": \\\"LEARN_MORE or SHOP_NOW or SIGN_UP\\\",\\n  \\\"audience_interests\\\": [\\\"interest1\\\", \\\"interest2\\\", \\\"interest3\\\"],\\n  \\\"age_min\\\": 25,\\n  \\\"age_max\\\": 55,\\n  \\\"budget_recommendation\\\": \\\"daily budget in USD as number\\\"\\n}\"\n  }]\n}"
+      }
+    },
+    {
+      "id": "e5f6a7b8-c9d0-1234-efab-345678901234",
+      "name": "Parse Campaign Strategy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        380
+      ],
+      "parameters": {
+        "jsCode": "try {\n  const raw = $input.first().json.content?.[0]?.text || '';\n  let c = {};\n  try { c = JSON.parse(raw); }\n  catch(e) { const m = raw.match(/\\{[\\s\\S]*\\}/); if(m) try { c = JSON.parse(m[0]); } catch(e2) {} }\n  \n  const biz = $('Get Business').first().json;\n  \n  return [{ json: {\n    ...c,\n    business_id: biz.id,\n    business_name: biz.business_name,\n    meta_access_token: biz.meta_access_token,\n    ad_account_id: biz.ad_account_id,\n    daily_budget: biz.daily_budget || 10\n  }}];\n} catch(e) {\n  return [{ json: { error: e.message } }];\n}"
+      }
+    },
+    {
+      "id": "f6a7b8c9-d0e1-2345-fabc-456789012345",
+      "name": "Has Meta Account?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        380
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "a1b2c3d4-0000-0000-0000-000000000001",
+              "leftValue": "={{ $json.ad_account_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "a7b8c9d0-e1f2-3456-abcd-567890123456",
+      "name": "Save Campaign to DB",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1340,
+        260
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/ad_campaigns",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"business_id\": \"{{ $json.business_id }}\",\n  \"business_name\": \"{{ $json.business_name }}\",\n  \"status\": \"pending\",\n  \"daily_budget\": {{ $json.daily_budget }},\n  \"last_decision\": \"Campaign created by AI\",\n  \"last_decision_reason\": \"{{ $json.campaign_name || 'New campaign' }}\"\n}"
+      }
+    },
+    {
+      "id": "b8c9d0e1-f2a3-4567-bcde-678901234567",
+      "name": "Send Setup Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        500
+      ],
+      "parameters": {
+        "sendTo": "={{ $('Get Business').first().json.email }}",
+        "subject": "={{ \"Your Meta ad campaign is ready, \" + $('Get Business').first().json.first_name + \"!\" }}",
+        "emailType": "html",
+        "message": "=<h2>Your Ad Campaign is Ready!</h2><p>Hi {{ $('Get Business').first().json.first_name }},</p><p>We've created your Meta ad campaign strategy:</p><ul><li><strong>Campaign:</strong> {{ $json.campaign_name }}</li><li><strong>Objective:</strong> {{ $json.objective }}</li><li><strong>Daily Budget:</strong> ${{ $json.daily_budget }}</li></ul><p>Connect your Meta account in the dashboard to launch it.</p><br><p>Best,<br>The maroa.ai team</p>",
+        "options": {
+          "fromName": "maroa.ai",
+          "replyTo": "hello@maroa.ai"
+        }
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "1",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "id": "c9d0e1f2-a3b4-5678-cdef-789012345678",
+      "name": "No Meta Account Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        380
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'needs_meta_connection', message: 'Business needs to connect Meta account first', business_id: $json.business_id } }];"
+      }
+    },
+    {
+      "id": "3eac92d3-757c-44ab-bf8a-f9b7503ffb03",
+      "name": "Fetch Business Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -200,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ \"https://maroa-api-production.up.railway.app/api/context/\" + String($json.userId || $json.business_id || $json.user_id || $json.id || ($json.biz && $json.biz.id) || $('Loop Each Business').first().json.id || $('Loop Each Business').first().json.user_id || $('Split In Batches').first().json.id || $('Split In Batches').first().json.user_id || $vars.userId || \"\") }}",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Business",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Business",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Business": {
+      "main": [
+        [
+          {
+            "node": "Fetch Business Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Campaign Strategy": {
+      "main": [
+        [
+          {
+            "node": "Parse Campaign Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Campaign Strategy": {
+      "main": [
+        [
+          {
+            "node": "Has Meta Account?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Meta Account?": {
+      "main": [
+        [
+          {
+            "node": "Save Campaign to DB",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Meta Account Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Campaign to DB": {
+      "main": [
+        [
+          {
+            "node": "Send Setup Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Business Context": {
+      "main": [
+        [
+          {
+            "node": "Build Campaign Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

@@ -1,0 +1,388 @@
+{
+  "name": "WF14 - Competitor Tracker",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a7b8c9d0-e1f2-3456-abcd-567890000001",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1,
+              "triggerAtDay": [
+                5
+              ],
+              "triggerAtHour": 14,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "a7b8c9d0-e1f2-3456-abcd-567890000002",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/businesses?select=*&competitors=not.is.null",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.SUPABASE_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a7b8c9d0-e1f2-3456-abcd-567890000003",
+      "name": "Get Businesses with Competitors",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "a7b8c9d0-e1f2-3456-abcd-567890000004",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "try {\n  const items = $input.all();\n  const results = [];\n  for (const item of items) {\n    const business = $node['Split In Batches'].json;\n    let competitors = [];\n    try {\n      competitors = JSON.parse(business.competitors);\n    } catch(e) {\n      competitors = business.competitors.split(',').map(c => c.trim());\n    }\n    const firstCompetitor = competitors[0] || '';\n    results.push({json: {\n      business_id: business.id,\n      business_name: business.business_name || '',\n      email: business.email || '',\n      competitor_name: firstCompetitor,\n      all_competitors: competitors\n    }});\n  }\n  return results;\n} catch(e) {\n  return [{json:{error: e.message}}];\n}"
+      },
+      "id": "a7b8c9d0-e1f2-3456-abcd-567890000005",
+      "name": "Parse Competitors",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://serpapi.com/search.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": []
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{$json.competitor_name}} marketing"
+            },
+            {
+              "name": "api_key",
+              "value": "={{d0b209790819ea350b9166c7ec214ea7bc510db1c155c154f79959079b813f7f}}"
+            },
+            {
+              "name": "num",
+              "value": "10"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a7b8c9d0-e1f2-3456-abcd-567890000006",
+      "name": "Search Competitor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"claude-sonnet-4-5\",\"max_tokens\":2000,system:$('Fetch Business Context').first().json.full_master_prompt,\"messages\":[{\"role\":\"user\",\"content\":\"Business context \u2014 use this to personalise everything: Business name: {{ $json.business_name || $('Loop Each Business').first().json.business_name || '' }}. Industry: {{ $json.industry || $('Loop Each Business').first().json.industry || 'general' }}. Location: {{ $json.location || $('Loop Each Business').first().json.location || '' }}. Target audience: {{ $json.target_audience || $('Loop Each Business').first().json.target_audience || '' }}. Brand tone: {{ $json.brand_tone || $('Loop Each Business').first().json.brand_tone || 'professional and friendly' }}. Marketing goal: {{ $json.marketing_goal || $('Loop Each Business').first().json.marketing_goal || '' }}. Marketing strategy: {{ $json.marketing_strategy || $('Loop Each Business').first().json.marketing_strategy || '' }}. Current date context: make all content timely and relevant for the current month and season. Match the brand tone exactly. Write as if you personally know this business and its customers. Also consider what has worked before for this business based on their performance history. INTELLIGENCE LAYER \u2014 use this data to produce higher-performing output:\n- Brand Voice: {{ $('Loop Each Business').first().json.brand_voice_locked || 'professional and friendly' }}\n- Dream Customer: {{ $('Loop Each Business').first().json.dream_customer || $('Loop Each Business').first().json.target_audience || '' }}\n- Unique Differentiator: {{ $('Loop Each Business').first().json.unique_differentiator || 'exceptional quality and service' }}\n- Best Performing Themes (use more of these): {{ JSON.stringify($('Loop Each Business').first().json.best_performing_themes) || '[]' }}\n- Avoid These Themes (poor results): {{ JSON.stringify($('Loop Each Business').first().json.worst_performing_themes) || '[]' }}\n- Latest AI Strategy Decision: {{ $('Loop Each Business').first().json.ai_brain_decisions ? JSON.stringify($('Loop Each Business').first().json.ai_brain_decisions).substring(0,400) : 'First run \u2014 establish baseline' }}\n\n\\n\\nBased on the following search results for competitor \\\"{{$node['Parse Competitors'].json['competitor_name']}}\\\" of business \\\"{{$node['Parse Competitors'].json['business_name']}}\\\", analyze their recent marketing moves and provide recommendations. Search results: {{JSON.stringify($json.organic_results || []).substring(0, 3000)}}. Return JSON with: competitor_name, key_findings (array of strings), threats (array of strings), opportunities (array of strings), recommended_actions (array of strings), urgency_level (high/medium/low). Return only valid JSON, no markdown.\"}]}",
+        "options": {}
+      },
+      "id": "a7b8c9d0-e1f2-3456-abcd-567890000007",
+      "name": "Analyze with Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "try {\n  const items = $input.all();\n  const results = [];\n  for (const item of items) {\n    const content = item.json.content && item.json.content[0] ? item.json.content[0].text : '';\n    let parsed;\n    try {\n      parsed = JSON.parse(content);\n    } catch(e) {\n      const match = content.match(/\\{[\\s\\S]*\\}/);\n      if (match) {\n        parsed = JSON.parse(match[0]);\n      } else {\n        parsed = {\n          competitor_name: $node['Parse Competitors'].json.competitor_name,\n          key_findings: ['Competitor is active on social media'],\n          threats: ['Price competition'],\n          opportunities: ['Differentiation through service quality'],\n          recommended_actions: ['Monitor competitor pricing', 'Improve content quality'],\n          urgency_level: 'medium'\n        };\n      }\n    }\n    results.push({json: {\n      business_id: $node['Parse Competitors'].json.business_id,\n      business_name: $node['Parse Competitors'].json.business_name,\n      email: $node['Parse Competitors'].json.email,\n      competitor_name: parsed.competitor_name || $node['Parse Competitors'].json.competitor_name,\n      key_findings: parsed.key_findings || [],\n      threats: parsed.threats || [],\n      opportunities: parsed.opportunities || [],\n      recommended_actions: parsed.recommended_actions || [],\n      urgency_level: parsed.urgency_level || 'medium',\n      created_at: new Date().toISOString()\n    }});\n  }\n  return results;\n} catch(e) {\n  return [{json:{error: e.message, business_id: $node['Parse Competitors'].json.business_id}}];\n}"
+      },
+      "id": "a7b8c9d0-e1f2-3456-abcd-567890000008",
+      "name": "Parse Insights",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/competitor_insights",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"business_id\": \"{{$json.business_id}}\", \"competitor_name\": \"{{$json.competitor_name}}\", \"key_findings\": {{JSON.stringify($json.key_findings)}}, \"opportunities\": {{JSON.stringify($json.opportunities)}}, \"threats\": {{JSON.stringify($json.threats)}}, \"recommended_actions\": {{JSON.stringify($json.recommended_actions)}}, \"urgency_level\": \"{{$json.urgency_level}}\", \"created_at\": \"{{$json.created_at}}\"}",
+        "options": {}
+      },
+      "id": "a7b8c9d0-e1f2-3456-abcd-567890000009",
+      "name": "Save Insights",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{$node['Parse Insights'].json.email}}",
+        "subject": "=Competitor Intelligence Report: {{$node['Parse Insights'].json.competitor_name}} - {{$node['Parse Insights'].json.business_name}}",
+        "emailType": "html",
+        "message": "=<h2>Competitor Intelligence Report</h2><p>Here is this week's competitive analysis for <strong>{{$node['Parse Insights'].json.business_name}}</strong> regarding competitor <strong>{{$node['Parse Insights'].json.competitor_name}}</strong>.</p><p><strong>Urgency Level:</strong> <span style='color: {{$node['Parse Insights'].json.urgency_level === 'high' ? 'red' : ($node['Parse Insights'].json.urgency_level === 'medium' ? 'orange' : 'green')}}'>{{$node['Parse Insights'].json.urgency_level.toUpperCase()}}</span></p><h3>Key Findings</h3><ul>{{$node['Parse Insights'].json.key_findings.map(f => '<li>' + f + '</li>').join('')}}</ul><h3>Threats to Watch</h3><ul>{{$node['Parse Insights'].json.threats.map(t => '<li>' + t + '</li>').join('')}}</ul><h3>Opportunities</h3><ul>{{$node['Parse Insights'].json.opportunities.map(o => '<li>' + o + '</li>').join('')}}</ul><h3>Recommended Actions</h3><ol>{{$node['Parse Insights'].json.recommended_actions.map(a => '<li>' + a + '</li>').join('')}}</ol><p>This report is generated automatically every Friday by your Maroa.ai system.</p>\n<div style=\"margin:24px 0;padding:16px;background:#f0f4ff;border-radius:8px;border-left:4px solid #4F46E5;\">\n  <p style=\"margin:0;color:#4F46E5;font-weight:bold;font-size:15px;\">Your Maroa.ai AI is working 24/7 for your business.</p>\n  <p style=\"margin:8px 0 0;color:#374151;font-size:14px;\">Everything is automated \u2014 content, ads, emails, and tracking. You just need to approve and grow.</p>\n</div>\n<p style=\"text-align:center;margin:20px 0;\">\n  <a href=\"https://maroa-ai-marketing-automator.lovable.app\" style=\"background:#4F46E5;color:white;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;font-size:15px;\">Open Your Dashboard \u2192</a>\n</p>\n",
+        "options": {}
+      },
+      "id": "a7b8c9d0-e1f2-3456-abcd-567890000010",
+      "name": "Send Intelligence Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2000,
+        300
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "1",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "id": "950f2b94-7901-4c98-8e1f-5bc0ab38909e",
+      "name": "Fetch Business Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ \"https://maroa-api-production.up.railway.app/api/context/\" + String($json.userId || $json.business_id || $json.user_id || $json.id || ($json.biz && $json.biz.id) || $('Loop Each Business').first().json.id || $('Loop Each Business').first().json.user_id || $('Split In Batches').first().json.id || $('Split In Batches').first().json.user_id || $vars.userId || \"\") }}",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Businesses with Competitors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Businesses with Competitors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Businesses with Competitors": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "node": "Fetch Business Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Parse Competitors": {
+      "main": [
+        [
+          {
+            "node": "Search Competitor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Competitor": {
+      "main": [
+        [
+          {
+            "node": "Analyze with Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze with Claude": {
+      "main": [
+        [
+          {
+            "node": "Parse Insights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Insights": {
+      "main": [
+        [
+          {
+            "node": "Save Insights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Insights": {
+      "main": [
+        [
+          {
+            "node": "Send Intelligence Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Intelligence Email": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Business Context": {
+      "main": [
+        [
+          {
+            "node": "Parse Competitors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "a7b8c9d0-e1f2-3456-abcd-567890000014"
+}
