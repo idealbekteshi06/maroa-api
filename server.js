@@ -9,7 +9,56 @@ const expressRateLimit = require('express-rate-limit');
 const https    = require('https');
 const http     = require('http');
 const crypto   = require('crypto');
+const { v4: uuidv4 } = require('uuid');
+const { validate } = require('./lib/validators');
+const { checkRateLimit } = require('./lib/rateLimit');
 const planGate = require('./middleware/planGate');
+
+const logger = {
+  info: (route, businessId, message, data = {}) => {
+    console.log(JSON.stringify({
+      level: 'info',
+      timestamp: new Date().toISOString(),
+      route,
+      business_id: businessId,
+      message,
+      ...data
+    }));
+  },
+  error: (route, businessId, message, error, data = {}) => {
+    console.error(JSON.stringify({
+      level: 'error',
+      timestamp: new Date().toISOString(),
+      route,
+      business_id: businessId,
+      message,
+      error: error?.message || error,
+      stack: error?.stack,
+      ...data
+    }));
+  },
+  warn: (route, businessId, message, data = {}) => {
+    console.warn(JSON.stringify({
+      level: 'warn',
+      timestamp: new Date().toISOString(),
+      route,
+      business_id: businessId,
+      message,
+      ...data
+    }));
+  }
+};
+
+function apiError(res, status, code, message, details = null) {
+  return res.status(status).json({
+    error: {
+      code,
+      message,
+      details,
+      timestamp: new Date().toISOString()
+    }
+  });
+}
 
 const app = express();
 
@@ -32,20 +81,60 @@ app.options('*', cors(corsOptions));
 
 app.use(express.json({ limit: '10mb' }));
 
-const aiLimit = expressRateLimit({
+app.use((req, res, next) => {
+  req.requestId = uuidv4();
+  req.startTime = Date.now();
+  res.setHeader('X-Request-ID', req.requestId);
+  next();
+});
+
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    const duration = Date.now() - req.startTime;
+    if (duration > 5000) {
+      logger.warn(req.path, null, 'Slow request', {
+        duration_ms: duration,
+        status: res.statusCode,
+        request_id: req.requestId
+      });
+    }
+  });
+  next();
+});
+
+const aiLimitExpress = expressRateLimit({
   windowMs: 60 * 1000,
   max: 20,
-  keyGenerator: (req) => req.body?.userId || req.ip,
+  keyGenerator: (req) => req.body?.userId || req.body?.business_id || req.ip,
   message: { error: 'Too many requests — please wait' }
 });
-app.use('/api/ideas', aiLimit);
-app.use('/api/lead-magnets', aiLimit);
-app.use('/api/research', aiLimit);
-app.use('/api/sales', aiLimit);
-app.use('/api/community', aiLimit);
-app.use('/api/pricing', aiLimit);
-app.use('/api/schema', aiLimit);
-app.use('/api/ai-seo', aiLimit);
+
+function aiRateLimit(req, res, next) {
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    const id = String(req.body?.userId || req.body?.business_id || req.ip || 'anon');
+    return checkRateLimit(id)
+      .then((out) => {
+        if (!out.success) {
+          return apiError(res, 429, 'RATE_LIMITED', 'Too many requests — please wait 1 minute');
+        }
+        next();
+      })
+      .catch((e) => {
+        logger.warn(req.path, null, 'Redis rate limit check failed', { request_id: req.requestId, error: e.message });
+        next();
+      });
+  }
+  return aiLimitExpress(req, res, next);
+}
+
+app.use('/api/ideas', aiRateLimit);
+app.use('/api/lead-magnets', aiRateLimit);
+app.use('/api/research', aiRateLimit);
+app.use('/api/sales', aiRateLimit);
+app.use('/api/community', aiRateLimit);
+app.use('/api/pricing', aiRateLimit);
+app.use('/api/schema', aiRateLimit);
+app.use('/api/ai-seo', aiRateLimit);
 app.use('/api/ideas/generate', requireValidUserId);
 app.use('/api/lead-magnets/generate', requireValidUserId);
 app.use('/api/research/analyze', requireValidUserId);
@@ -149,6 +238,75 @@ async function sbPatch(table, filter, data) {
   return true;
 }
 
+const PLAN_TOKEN_BUDGETS = {
+  starter: { daily_tokens: 50000, max_tokens_per_call: 1000, calls_per_day: 30 },
+  growth: { daily_tokens: 200000, max_tokens_per_call: 2000, calls_per_day: 90 },
+  agency: { daily_tokens: 500000, max_tokens_per_call: 4000, calls_per_day: 150 }
+};
+
+function normalizePlanTier(plan) {
+  const p = (plan || 'free').toLowerCase();
+  if (p === 'agency') return 'agency';
+  if (p === 'growth') return 'growth';
+  return 'starter';
+}
+
+async function sbCountExact(table, queryWithoutSelect) {
+  return new Promise((resolve, reject) => {
+    if (!SUPABASE_KEY) return resolve(0);
+    const path = `/rest/v1/${table}?${queryWithoutSelect}&select=id`;
+    const url = new URL(SUPABASE_URL + path);
+    const req = https.request(
+      {
+        hostname: url.hostname,
+        path: url.pathname + url.search,
+        method: 'GET',
+        headers: { ...sbH(), Prefer: 'count=exact' }
+      },
+      res => {
+        res.resume();
+        const cr = res.headers['content-range'];
+        const m = typeof cr === 'string' && cr.match(/\/(\d+)\s*$/);
+        resolve(m ? parseInt(m[1], 10) : 0);
+      }
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+async function checkTokenBudgetForBusiness(businessId) {
+  if (!businessId || !SUPABASE_KEY) return { allowed: true, maxTokensPerCall: 4000 };
+  try {
+    let rows = await sbGet('businesses', `id=eq.${businessId}&select=plan,user_id`).catch(() => []);
+    if (!rows.length) rows = await sbGet('businesses', `user_id=eq.${businessId}&select=plan,user_id`).catch(() => []);
+    if (!rows.length) return { allowed: true, maxTokensPerCall: 2000 };
+    const tier = normalizePlanTier(rows[0]?.plan);
+    const budget = PLAN_TOKEN_BUDGETS[tier] || PLAN_TOKEN_BUDGETS.starter;
+    const logUid = rows[0]?.user_id || businessId;
+    const since = new Date(Date.now() - 86400000).toISOString();
+    const count = await sbCountExact(
+      'orchestration_logs',
+      `user_id=eq.${logUid}&created_at=gte.${encodeURIComponent(since)}&task=eq.ai_call`
+    );
+    if (count >= budget.calls_per_day) {
+      return {
+        allowed: false,
+        reason: `Daily limit of ${budget.calls_per_day} AI calls reached for ${tier} plan`,
+        maxTokensPerCall: budget.max_tokens_per_call
+      };
+    }
+    return { allowed: true, maxTokensPerCall: budget.max_tokens_per_call };
+  } catch {
+    return { allowed: true, maxTokensPerCall: 2000 };
+  }
+}
+
+/** Pass-through for plan token budgets + ai_call logging (businessId resolves via businesses id or user_id). */
+function claudeBiz(userId) {
+  return userId ? { businessId: String(userId) } : {};
+}
+
 // ─── Claude model selection & API ───────────────────────────────────────────
 function selectModel(taskType) {
   if (['strategy', 'monthly_review', 'positioning', 'research', 'orchestrator'].includes(taskType)) {
@@ -184,17 +342,76 @@ async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOver
     model = extra.model || sel.model;
     maxTokens = maxTokensOverride !== undefined ? maxTokensOverride : sel.max_tokens;
   }
+
+  if (extra.businessId && !extra.skipBudget) {
+    const b = await checkTokenBudgetForBusiness(extra.businessId);
+    if (!b.allowed) {
+      const e = new Error(b.reason || 'AI budget exceeded');
+      e.status = 402;
+      e.code = 'AI_BUDGET_EXCEEDED';
+      throw e;
+    }
+    maxTokens = Math.min(maxTokens, b.maxTokensPerCall || maxTokens);
+  }
+
   const body = { model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] };
   if (extra.system) body.system = extra.system;
-  const r = await apiRequest('POST', 'https://api.anthropic.com/v1/messages', {
-    'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json'
-  }, body);
 
-  if (r.status !== 200) throw new Error(`Claude ${model}: ${r.status} ${JSON.stringify(r.body).slice(0,200)}`);
+  const retries = extra.retries !== undefined ? extra.retries : 3;
+  let attempt = 0;
+  let lastErr;
 
-  const raw = r.body?.content?.[0]?.text || '';
-  if (extra.returnRaw) return raw;
-  return extractJSON(raw) || { _raw: raw };
+  while (attempt < retries) {
+    attempt++;
+    try {
+      const r = await apiRequest('POST', 'https://api.anthropic.com/v1/messages', {
+        'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json'
+      }, body);
+
+      if (r.status === 200) {
+        if (extra.businessId && !extra.skipUsageLog) {
+          setImmediate(() => {
+            sbGet('businesses', `id=eq.${extra.businessId}&select=user_id`)
+              .then(rows => {
+                const uid = rows[0]?.user_id || extra.businessId;
+                return recordOrchestrationTaskRun(uid, 'ai_call');
+              })
+              .catch(() => {});
+          });
+        }
+        const raw = r.body?.content?.[0]?.text || '';
+        if (extra.returnRaw) return raw;
+        return extractJSON(raw) || { _raw: raw };
+      }
+
+      const retryable = r.status === 429 || r.status >= 500;
+      if (retryable && attempt < retries) {
+        const delay = Math.pow(2, attempt) * 1000;
+        logger.warn('/claude', extra.businessId || null, `Claude retry ${attempt}/${retries}`, {
+          status: r.status,
+          delay_ms: delay
+        });
+        await new Promise(res => setTimeout(res, delay));
+        continue;
+      }
+
+      const err = new Error(`Claude ${model}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+      err.status = r.status;
+      throw err;
+    } catch (e) {
+      lastErr = e;
+      const msg = e?.message || '';
+      const netRetry = attempt < retries && (msg.includes('timeout') || msg.includes('ECONNRESET') || msg.includes('socket'));
+      if (netRetry) {
+        const delay = Math.pow(2, attempt) * 1000;
+        logger.warn('/claude', extra.businessId || null, `Claude network retry ${attempt}/${retries}`, { error: msg, delay_ms: delay });
+        await new Promise(res => setTimeout(res, delay));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr || new Error('Claude request failed');
 }
 
 async function fetchPerformanceThemesContextBlock(businessId) {
@@ -825,6 +1042,37 @@ async function getMemoryContext(userId) {
   } catch { return ''; }
 }
 
+const promptCache = new Map();
+const PROMPT_CACHE_TTL = 5 * 60 * 1000;
+
+async function getCachedMasterPrompt(cacheSubjectId, profile, taskType, extraCtx) {
+  const { buildMasterPromptWithSkills } = require('./services/masterPromptBuilder');
+  const keyExtra = crypto.createHash('sha256').update(String(extraCtx || '')).digest('hex').slice(0, 24);
+  const cacheKey = `${cacheSubjectId}:${taskType}:${keyExtra}`;
+  const cached = promptCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < PROMPT_CACHE_TTL) {
+    return cached.prompt;
+  }
+  const prompt =
+    (await buildMasterPromptWithSkills(
+      profile,
+      taskType,
+      getEmbedding,
+      pineconeQuery,
+      buildIntelligenceContext,
+      getMemoryContext,
+      extraCtx || ''
+    )) + '\n\n';
+  promptCache.set(cacheKey, { prompt, timestamp: Date.now() });
+  if (promptCache.size > 100) {
+    const now = Date.now();
+    for (const [key, value] of promptCache.entries()) {
+      if (now - value.timestamp > PROMPT_CACHE_TTL) promptCache.delete(key);
+    }
+  }
+  return prompt;
+}
+
 // ── T2.2: Opportunity detector ───────────────────────────────────────────────
 async function detectOpportunities(userId, profile) {
   const ops = [];
@@ -989,21 +1237,21 @@ async function updateLearning(businessId) {
       applied_at      : new Date().toISOString()
     });
 
-    console.log(`[LEARNING] ${businessId}: best=${best.join(',')} worst=${worst.join(',')}`);
+    logger.info('updateLearning', businessId, 'themes updated', { best, worst });
   } catch (e) {
-    console.error('[LEARNING ERROR]', e.message);
+    logger.error('updateLearning', businessId, 'learning error', e);
   }
 }
 
 // ─── Log helper ───────────────────────────────────────────────────────────────
 function log(route, msg) { console.log(`[${new Date().toISOString()}] ${route} — ${msg}`); }
 function requireAdminSecret(req, res, next) {
-  if (!ORCHESTRATOR_SECRET) return res.status(503).json({ error: 'Admin secret not configured' });
+  if (!ORCHESTRATOR_SECRET) return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'Admin secret not configured');
   const provided = clean(
     req.headers['x-orchestrator-secret'] ||
     (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
   );
-  if (provided !== ORCHESTRATOR_SECRET) return res.status(401).json({ error: 'Unauthorized' });
+  if (provided !== ORCHESTRATOR_SECRET) return apiError(res, 401, 'UNAUTHORIZED', 'Invalid secret');
   next();
 }
 
@@ -1018,7 +1266,10 @@ function safePublicError(err) {
 function requireValidUserId(req, res, next) {
   const { userId } = req.body || {};
   if (!userId || typeof userId !== 'string' || userId.length < 10) {
-    return res.status(400).json({ error: 'Valid userId required' });
+    return apiError(res, 400, 'VALIDATION_ERROR', 'Valid userId required');
+  }
+  if (!isUUID(userId)) {
+    return apiError(res, 400, 'VALIDATION_ERROR', 'userId must be a valid UUID');
   }
   next();
 }
@@ -1027,8 +1278,10 @@ app.use((req, res, next) => {
   const originalJson = res.json.bind(res);
   res.json = (body) => {
     if (body && typeof body === 'object' && Object.prototype.hasOwnProperty.call(body, 'error')) {
-      if (res.statusCode === 200) res.status(500);
-      if (res.statusCode >= 500) {
+      const errVal = body.error;
+      const structured = errVal && typeof errVal === 'object' && typeof errVal.code === 'string';
+      if (!structured && res.statusCode === 200) res.status(500);
+      if (!structured && res.statusCode >= 500) {
         body = { ...body, error: safePublicError({ message: String(body.error || '') }) };
       }
     }
@@ -1055,6 +1308,7 @@ function isUUID(v) { return typeof v === 'string' && UUID_RE.test(v); }
 
 // ─── GET /health — detailed environment check ───────────────────────────────
 app.get('/health', (req, res) => {
+  logger.info('/health', null, 'health check', { request_id: req.requestId });
   const vars = {
     anthropic:  !!ANTHROPIC_KEY || !!process.env.ANTHROPIC_API_KEY,
     supabase:   !!SUPABASE_KEY,
@@ -1296,7 +1550,7 @@ app.post('/webhook/new-user-signup', async (req, res) => {
     log('/webhook/new-user-signup', `✅ Complete for ${business_name} (${bizId})`);
 
   } catch (err) {
-    console.error('[new-user-signup ERROR]', err.message);
+       logger.error('/webhook/new-user-signup', null, 'handler error', err, { request_id: req.requestId });
     try { await logError(null, 'new-user-signup', err.message, req.body); } catch (_) {}
   }
 });
@@ -1324,9 +1578,9 @@ async function generateInstantContent(bizId, emailOverride) {
   let masterSystemPrompt = '';
   if (profile && profile.physical_locations && Array.isArray(profile.physical_locations) && profile.physical_locations.length > 0) {
     try {
-      const { buildMasterPromptWithSkills } = require('./services/masterPromptBuilder');
       const extraCtx = perfThemesBlock ? `${perfThemesBlock}` : '';
-      masterSystemPrompt = await buildMasterPromptWithSkills(profile, 'social_post', getEmbedding, pineconeQuery, buildIntelligenceContext, getMemoryContext, extraCtx) + '\n\n';
+      const cacheSubject = profile.user_id || bizId;
+      masterSystemPrompt = await getCachedMasterPrompt(cacheSubject, profile, 'social_post', extraCtx);
       log('generateContent', `Using master prompt + marketing skills for ${biz.business_name} (profile score: ${profile.profile_score})`);
     } catch (e) {
       // Fallback to basic master prompt without skills
@@ -1404,7 +1658,8 @@ async function generateInstantContent(bizId, emailOverride) {
     `"linkedin_post":"...","tiktok_script":"...","email_subject":"...","email_body":"...",` +
     `"blog_title":"...","google_ad_headline":"...","google_ad_description":"...","content_theme":"...","image_prompt":"..."}`;
 
-  let content = await callClaude(prompt, 'social_post', 3000);
+  const bizClaude = { businessId: bizId };
+  let content = await callClaude(prompt, 'social_post', 3000, bizClaude);
   let score   = scoreContent(content);
 
   // ── UPGRADE 3: Generate 3 variations, pick the highest scoring one ────
@@ -1412,8 +1667,8 @@ async function generateInstantContent(bizId, emailOverride) {
   if (score < 90 && !content._raw) {
     // Generate 2 more variations in parallel
     const [v2, v3] = await Promise.all([
-      callClaude(prompt + `\n\nVARIATION 2: Use a completely different angle, hook, and content theme. Be creative and bold.`, 'social_post', 3000).catch(() => null),
-      callClaude(prompt + `\n\nVARIATION 3: Focus on storytelling and emotion. Make the audience FEEL something.`, 'social_post', 3000).catch(() => null)
+      callClaude(prompt + `\n\nVARIATION 2: Use a completely different angle, hook, and content theme. Be creative and bold.`, 'social_post', 3000, bizClaude).catch(() => null),
+      callClaude(prompt + `\n\nVARIATION 3: Focus on storytelling and emotion. Make the audience FEEL something.`, 'social_post', 3000, bizClaude).catch(() => null)
     ]);
     if (v2 && !v2._raw) variations.push({ content: v2, score: scoreContent(v2) });
     if (v3 && !v3._raw) variations.push({ content: v3, score: scoreContent(v3) });
@@ -1447,7 +1702,7 @@ async function generateInstantContent(bizId, emailOverride) {
     if (!validation.valid && validation.issues.length > 0) {
       log('contentValidator', `Issues found: ${validation.issues.join(', ')} — repair pass...`);
       const fixPrompt = prompt + `\n\nPREVIOUS ATTEMPT HAD THESE ISSUES — FIX THEM:\n${validation.issues.join('\n')}\nGenerate corrected JSON only.`;
-      const fixed = await callClaude(fixPrompt, 'social_post', 3000);
+      const fixed = await callClaude(fixPrompt, 'social_post', 3000, bizClaude);
       if (fixed && !fixed._raw) {
         content = fixed;
         score = scoreContent(content);
@@ -1472,7 +1727,8 @@ async function generateInstantContent(bizId, emailOverride) {
         200,
         {
           returnRaw: true,
-          system: 'You are a marketing strategist. Be specific and brief. Output one sentence only, plain text, no JSON.'
+          system: 'You are a marketing strategist. Be specific and brief. Output one sentence only, plain text, no JSON.',
+          businessId: bizId
         }
       );
       strategy_reason = typeof reasonRaw === 'string' ? reasonRaw.replace(/\s+/g, ' ').trim().slice(0, 280) : '';
@@ -1598,9 +1854,12 @@ async function generateInstantContent(bizId, emailOverride) {
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/webhook/instant-content', async (req, res) => {
   const { business_id, email } = req.body;
-  log('/webhook/instant-content', `business_id=${business_id}`);
+  logger.info('/webhook/instant-content', business_id || null, 'request received', { request_id: req.requestId });
 
-  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  if (!business_id) return apiError(res, 400, 'VALIDATION_ERROR', 'business_id required');
+
+  const rl = await checkRateLimit(String(business_id || req.ip));
+  if (!rl.success) return apiError(res, 429, 'RATE_LIMITED', 'Too many requests — please wait 1 minute');
 
   // Return immediately — content generation + email happen in background
   res.json({ received: true, message: 'Content generation started — check email in ~2 minutes' });
@@ -1618,9 +1877,9 @@ app.post('/webhook/instant-content', async (req, res) => {
         await sendEmail(email, `Your ${result.content_theme || 'weekly'} content is ready!`, html);
       }
       try { storeInsight(business_id, 'content', 'content_performance', 'top_content_type', `${result.content_theme || 'general'}: ${(result.instagram_caption || '').slice(0, 80)}`); } catch {}
-      log('/webhook/instant-content', `✅ done — theme: ${result.content_theme}`);
+      logger.info('/webhook/instant-content', business_id, 'generation complete', { theme: result.content_theme, request_id: req.requestId });
     } catch (err) {
-      console.error('[instant-content ERROR]', err.message);
+      logger.error('/webhook/instant-content', business_id, 'generation failed', err, { request_id: req.requestId });
       await logError(business_id, 'instant-content', err.message, req.body).catch(() => {});
     }
   });
@@ -1631,9 +1890,9 @@ app.post('/webhook/instant-content', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/webhook/account-connected', async (req, res) => {
   const { business_id, meta_access_token, linkedin_access_token, tiktok_access_token, google_access_token } = req.body;
-  log('/webhook/account-connected', `business_id=${business_id}`);
+  logger.info('/webhook/account-connected', business_id || null, 'request received', { request_id: req.requestId });
 
-  if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  if (!business_id) return apiError(res, 400, 'VALIDATION_ERROR', 'business_id required');
   res.json({ received: true, message: 'Account connections being processed' });
 
   try {
@@ -1859,9 +2118,9 @@ app.post('/webhook/create-campaigns', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/webhook/content-approved', async (req, res) => {
   const { content_id, business_id, approval_method } = req.body;
-  log('/webhook/content-approved', `content_id=${content_id}`);
+  logger.info('/webhook/content-approved', business_id || null, 'webhook received', { content_id, request_id: req.requestId });
 
-  if (!content_id) return res.status(400).json({ error: 'content_id required' });
+  if (!content_id) return apiError(res, 400, 'VALIDATION_ERROR', 'content_id required');
 
   // Return immediately — DB update + publishing happen in background
   res.json({ received: true, message: 'Approved — autopublish in progress' });
@@ -8372,7 +8631,7 @@ app.post('/api/calendar/generate', async (req, res) => {
       const holidays = typeof getKosovoAlbaniaHolidays === 'function' ? getKosovoAlbaniaHolidays(new Date()).join(', ') : '';
       const season = typeof getSeason === 'function' ? getSeason(new Date()) : 'current';
       const prods = Array.isArray(p.products) ? p.products.map(pr => pr.name).join(', ') : 'main service';
-      const result = await callClaude(`You are a content calendar strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nLanguage: ${p.primary_language || 'English'}\nGoal: ${p.primary_goal}\nBudget: ${p.monthly_budget}\nProducts: ${prods}\nSeason: ${season}\nUpcoming holidays: ${holidays || 'none soon'}\n${intel}\n\nCreate a 30-day content calendar following content pillar framework:\n- 30% educational\n- 20% social proof\n- 20% behind the scenes\n- 20% engagement\n- 10% promotional\n\nReturn ONLY valid JSON:\n{"calendar":[{"day":1,"type":"educational|social_proof|behind_scenes|engagement|promotional","platform":"instagram|facebook|both","topic":"specific topic","caption_idea":"brief idea","hashtags":"3-5 relevant hashtags"}],"posting_frequency":"X posts per week","best_days":["string"]}`, 'strategy', 3000);
+      const result = await callClaude(`You are a content calendar strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nLanguage: ${p.primary_language || 'English'}\nGoal: ${p.primary_goal}\nBudget: ${p.monthly_budget}\nProducts: ${prods}\nSeason: ${season}\nUpcoming holidays: ${holidays || 'none soon'}\n${intel}\n\nCreate a 30-day content calendar following content pillar framework:\n- 30% educational\n- 20% social proof\n- 20% behind the scenes\n- 20% engagement\n- 10% promotional\n\nReturn ONLY valid JSON:\n{"calendar":[{"day":1,"type":"educational|social_proof|behind_scenes|engagement|promotional","platform":"instagram|facebook|both","topic":"specific topic","caption_idea":"brief idea","hashtags":"3-5 relevant hashtags"}],"posting_frequency":"X posts per week","best_days":["string"]}`, 'strategy', 3000, claudeBiz(userId));
       try { storeInsight(userId, 'calendar', 'content_strategy', 'posting_plan', `${(result.calendar || []).length} days planned, ${result.posting_frequency || ''}`); } catch {}
       log('/api/calendar/generate', `✅ 30-day calendar for ${p.business_name}`);
     } catch (err) { console.error('[calendar]', err.message); }
@@ -8380,9 +8639,8 @@ app.post('/api/calendar/generate', async (req, res) => {
 });
 
 // ── IMPROVEMENT 7: Content Feedback Loop ────────────────────────────────────
-app.post('/api/content/feedback', async (req, res) => {
-  const { contentId, userId, action, editedVersion } = req.body;
-  if (!contentId || !userId || !action) return res.status(400).json({ error: 'contentId, userId, action required' });
+app.post('/api/content/feedback', validate('contentScore'), async (req, res) => {
+  const { contentId, userId, action, editedVersion } = req.validatedBody;
   try {
     // Get content for memory storage
     const contentRows = await sbGet('generated_content', `id=eq.${contentId}&select=instagram_caption,content_theme`).catch(() => []);
@@ -8402,7 +8660,7 @@ app.post('/api/content/feedback', async (req, res) => {
       storeMemory(userId, 'preferences', 'edited', editedVersion.slice(0, 200), 'social', `Client prefers this style over AI draft`).catch(() => {});
     }
     res.json({ success: true, action });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { apiError(res, 500, 'INTERNAL_ERROR', safePublicError(err)); }
 });
 
 // ── IMPROVEMENT 9: Performance Tracking ─────────────────────────────────────
@@ -8467,9 +8725,8 @@ app.get('/api/health/:userId', async (req, res) => {
 });
 
 // ── POWER: Instant Campaign Generator ───────────────────────────────────────
-app.post('/api/campaigns/instant', async (req, res) => {
-  const { userId, goal, duration = 7 } = req.body;
-  if (!userId || !goal) return res.status(400).json({ error: 'userId and goal required' });
+app.post('/api/campaigns/instant', validate('campaign'), async (req, res) => {
+  const { userId, goal, duration = 7 } = req.validatedBody;
   res.json({ received: true, message: `Building ${duration}-day campaign: ${goal}` });
   setImmediate(async () => {
     try {
@@ -8477,7 +8734,7 @@ app.post('/api/campaigns/instant', async (req, res) => {
       if (!p) return;
       const intel = await buildIntelligenceContext(userId);
       const mem = await getMemoryContext(userId);
-      const result = await callClaude(`You are a campaign strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nGoal: ${goal}\nDuration: ${duration} days\nBudget: ${p.monthly_budget}\nLanguage: ${p.primary_language}\nProducts: ${(p.products || []).map(pr => pr.name).join(', ')}\n${intel}\n${mem}\n\nCreate a complete ${duration}-day campaign:\n- ${duration} social posts (one per day, specific topic and caption)\n- 2 emails (start and end of campaign)\n- 1 ad copy (Meta)\n- Campaign hashtag\n- Best posting schedule\n\nReturn ONLY valid JSON:\n{"campaign_name":"string","theme":"string","posts":[{"day":1,"platform":"string","topic":"string","caption":"string"}],"emails":[{"type":"start|end","subject":"string","body":"string"}],"ad":{"headline":"string","body":"string"},"hashtag":"string"}`, 'strategy', 4000);
+      const result = await callClaude(`You are a campaign strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nGoal: ${goal}\nDuration: ${duration} days\nBudget: ${p.monthly_budget}\nLanguage: ${p.primary_language}\nProducts: ${(p.products || []).map(pr => pr.name).join(', ')}\n${intel}\n${mem}\n\nCreate a complete ${duration}-day campaign:\n- ${duration} social posts (one per day, specific topic and caption)\n- 2 emails (start and end of campaign)\n- 1 ad copy (Meta)\n- Campaign hashtag\n- Best posting schedule\n\nReturn ONLY valid JSON:\n{"campaign_name":"string","theme":"string","posts":[{"day":1,"platform":"string","topic":"string","caption":"string"}],"emails":[{"type":"start|end","subject":"string","body":"string"}],"ad":{"headline":"string","body":"string"},"hashtag":"string"}`, 'strategy', 4000, claudeBiz(userId));
       try { storeInsight(userId, 'campaigns', 'campaign_strategy', 'active_campaign', result.campaign_name || goal); } catch {}
       log('/api/campaigns/instant', `✅ ${duration}-day campaign: ${result.campaign_name || goal}`);
     } catch (err) { console.error('[campaigns/instant]', err.message); }
@@ -8494,7 +8751,7 @@ app.post('/api/content/repurpose', async (req, res) => {
       const p = await getProfile(userId);
       if (!p) return;
       const platforms = targetPlatforms || ['instagram', 'facebook', 'email', 'whatsapp'];
-      const result = await callClaude(`Repurpose this content for ${p.business_name} across platforms.\nOriginal:\n"${originalContent.slice(0, 1000)}"\n\nLanguage: ${p.primary_language}\nCity: ${pCity(p)}\n\nCreate versions for: ${platforms.join(', ')}\n\nReturn ONLY valid JSON:\n{"versions":[{"platform":"string","content":"string","hashtags":"string","format":"string"}]}`, 'social_post', 2000);
+      const result = await callClaude(`Repurpose this content for ${p.business_name} across platforms.\nOriginal:\n"${originalContent.slice(0, 1000)}"\n\nLanguage: ${p.primary_language}\nCity: ${pCity(p)}\n\nCreate versions for: ${platforms.join(', ')}\n\nReturn ONLY valid JSON:\n{"versions":[{"platform":"string","content":"string","hashtags":"string","format":"string"}]}`, 'social_post', 2000, claudeBiz(userId));
       log('/api/content/repurpose', `✅ ${(result.versions || []).length} platform versions`);
     } catch (err) { console.error('[content/repurpose]', err.message); }
   });
@@ -8509,7 +8766,7 @@ app.post('/api/compete/counter', async (req, res) => {
     try {
       const p = await getProfile(userId);
       if (!p) return;
-      const result = await callClaude(`A competitor of ${p.business_name} just did this: "${competitorAction}"\n\nBusiness: ${p.business_type} in ${pCity(p)}\nOur USP: ${p.usp}\nOur advantage: ${p.we_do_better}\nLanguage: ${p.primary_language}\n\nGenerate counter-strategy:\n- 3 social posts positioning us as the better choice\n- 1 email to existing customers reinforcing loyalty\n- 1 ad copy countering their move\n\nReturn ONLY valid JSON:\n{"posts":["string"],"email":{"subject":"string","body":"string"},"ad":{"headline":"string","body":"string"},"strategy":"string"}`, 'strategy', 2000);
+      const result = await callClaude(`A competitor of ${p.business_name} just did this: "${competitorAction}"\n\nBusiness: ${p.business_type} in ${pCity(p)}\nOur USP: ${p.usp}\nOur advantage: ${p.we_do_better}\nLanguage: ${p.primary_language}\n\nGenerate counter-strategy:\n- 3 social posts positioning us as the better choice\n- 1 email to existing customers reinforcing loyalty\n- 1 ad copy countering their move\n\nReturn ONLY valid JSON:\n{"posts":["string"],"email":{"subject":"string","body":"string"},"ad":{"headline":"string","body":"string"},"strategy":"string"}`, 'strategy', 2000, claudeBiz(userId));
       try { storeInsight(userId, 'compete', 'competitive_intelligence', 'counter_strategy', result.strategy || competitorAction); } catch {}
       log('/api/compete/counter', `✅ Counter-strategy for ${p.business_name}`);
     } catch (err) { console.error('[compete/counter]', err.message); }
@@ -8524,13 +8781,18 @@ app.get('/api/strategy/weekly/:userId', async (req, res) => {
       return res.json({ skipped: true, reason: 'already_ran_recently' });
     }
     const p = await getProfile(uid);
-    if (!p) return res.status(404).json({ error: 'Profile not found' });
+    if (!p) return apiError(res, 404, 'NOT_FOUND', 'Profile not found');
     const intel = await buildIntelligenceContext(uid);
     const mem = await getMemoryContext(uid);
-    const result = await callClaude(`Weekly strategy report for ${p.business_name} (${p.business_type} in ${pCity(p)}).\nLanguage: ${p.primary_language}\n${intel}\n${mem}\n\nGenerate:\n1. What worked this week (from intelligence)\n2. What to focus on next week\n3. 5 content ideas for next 7 days\n4. Budget recommendation\n5. One key competitor insight\n\nReturn ONLY valid JSON:\n{"what_worked":"string","next_week_focus":"string","content_ideas":["string"],"budget_recommendation":"string","competitor_insight":"string","overall_grade":"A|B|C|D"}`, 'strategy', 1500);
+    const result = await callClaude(`Weekly strategy report for ${p.business_name} (${p.business_type} in ${pCity(p)}).\nLanguage: ${p.primary_language}\n${intel}\n${mem}\n\nGenerate:\n1. What worked this week (from intelligence)\n2. What to focus on next week\n3. 5 content ideas for next 7 days\n4. Budget recommendation\n5. One key competitor insight\n\nReturn ONLY valid JSON:\n{"what_worked":"string","next_week_focus":"string","content_ideas":["string"],"budget_recommendation":"string","competitor_insight":"string","overall_grade":"A|B|C|D"}`, 'strategy', 1500, claudeBiz(uid));
     await recordOrchestrationTaskRun(uid, 'weekly_strategy_report');
     res.json(result);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    if (err?.code === 'AI_BUDGET_EXCEEDED' || err?.status === 402) {
+      return apiError(res, 402, 'AI_BUDGET_EXCEEDED', err.message || 'Daily AI call limit reached');
+    }
+    return apiError(res, 500, 'INTERNAL_ERROR', safePublicError(err));
+  }
 });
 
 // ── POWER: Auto Review Responder ────────────────────────────────────────────
@@ -8541,10 +8803,15 @@ app.post('/api/reviews/auto-respond', async (req, res) => {
     const p = await getProfile(userId);
     const stars = rating || 5;
     const tone = stars >= 4 ? 'warm, grateful, subtly promotional' : 'empathetic, solution-focused, recovery-minded';
-    const result = await callClaude(`Write a review response for ${p?.business_name || 'the business'}.\nReview (${stars} stars): "${reviewText}"\nPlatform: ${platform || 'google'}\nTone: ${tone}\nLanguage: ${p?.primary_language || 'English'}\n\nRules:\n- ${stars >= 4 ? 'Thank warmly, mention specific detail, invite back' : 'Apologize sincerely, offer solution, invite offline resolution'}\n- Max 100 words\n- Never templated — unique to this review\n\nReturn ONLY valid JSON:\n{"response":"string","tone":"string","suggested_action":"string"}`, 'short_copy', 400);
+    const result = await callClaude(`Write a review response for ${p?.business_name || 'the business'}.\nReview (${stars} stars): "${reviewText}"\nPlatform: ${platform || 'google'}\nTone: ${tone}\nLanguage: ${p?.primary_language || 'English'}\n\nRules:\n- ${stars >= 4 ? 'Thank warmly, mention specific detail, invite back' : 'Apologize sincerely, offer solution, invite offline resolution'}\n- Max 100 words\n- Never templated — unique to this review\n\nReturn ONLY valid JSON:\n{"response":"string","tone":"string","suggested_action":"string"}`, 'short_copy', 400, claudeBiz(userId));
     try { if (stars <= 2) storeInsight(userId, 'reviews', 'customer_voice', 'complaint_pattern', reviewText.slice(0, 100)); } catch {}
     res.json(result);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    if (err?.code === 'AI_BUDGET_EXCEEDED' || err?.status === 402) {
+      return apiError(res, 402, 'AI_BUDGET_EXCEEDED', err.message || 'Daily AI call limit reached');
+    }
+    return apiError(res, 500, 'INTERNAL_ERROR', safePublicError(err));
+  }
 });
 
 // ── MODULE 1: Referral Program ──────────────────────────────────────────────
@@ -8557,7 +8824,7 @@ app.post('/api/referral/setup', async (req, res) => {
       const p = await getProfile(userId);
       if (!p) return;
       const code = crypto.randomBytes(4).toString('hex');
-      const result = await callClaude(`You are a referral program expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAvg spend: ${p.avg_spend || 'moderate'}\nLanguage: ${p.primary_language || 'English'}\n\nDesign a double-sided referral reward program.\nReturn ONLY valid JSON:\n{"reward_for_referrer":"string","reward_for_referee":"string","trigger_moments":["string"],"share_message":"string (${p.primary_language}, max 160 chars)","email_subject":"string","email_body":"string"}`, 'email', 1000);
+      const result = await callClaude(`You are a referral program expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAvg spend: ${p.avg_spend || 'moderate'}\nLanguage: ${p.primary_language || 'English'}\n\nDesign a double-sided referral reward program.\nReturn ONLY valid JSON:\n{"reward_for_referrer":"string","reward_for_referee":"string","trigger_moments":["string"],"share_message":"string (${p.primary_language}, max 160 chars)","email_subject":"string","email_body":"string"}`, 'email', 1000, claudeBiz(userId));
       await sbPost('referral_programs', { user_id: userId, referral_code: code, reward_type: 'discount', reward_value: result.reward_for_referee || '20%', is_active: true });
       storeInsight(userId, 'referral', 'program', 'reward_structure', `${result.reward_for_referrer || ''} / ${result.reward_for_referee || ''}`);
       log('/api/referral/setup', `✅ Referral program created for ${p.business_name}`);
@@ -8592,7 +8859,7 @@ app.post('/api/lead-magnets/generate', async (req, res) => {
       }
       const p = await getProfile(userId);
       if (!p) return;
-      const result = await callClaude(`You are a lead magnet strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAudience: ${p.audience_description || 'local customers'}, age ${p.audience_age_min || 18}-${p.audience_age_max || 65}\nPain point: ${p.pain_point || 'not specified'}\nLanguage: ${p.primary_language || 'English'}\n\nGenerate the BEST lead magnet. Solve ONE specific problem. High value, consumable in 10 min.\nReturn ONLY valid JSON:\n{"title":"string","type":"checklist|guide|template","headline":"string","subheadline":"string","content":"string (full content)","cta_button":"string"}`, 'campaign', 2000);
+      const result = await callClaude(`You are a lead magnet strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAudience: ${p.audience_description || 'local customers'}, age ${p.audience_age_min || 18}-${p.audience_age_max || 65}\nPain point: ${p.pain_point || 'not specified'}\nLanguage: ${p.primary_language || 'English'}\n\nGenerate the BEST lead magnet. Solve ONE specific problem. High value, consumable in 10 min.\nReturn ONLY valid JSON:\n{"title":"string","type":"checklist|guide|template","headline":"string","subheadline":"string","content":"string (full content)","cta_button":"string"}`, 'campaign', 2000, claudeBiz(userId));
       await sbPost('lead_magnets', { user_id: userId, title: result.title || 'Lead Magnet', type: result.type || 'guide', content: JSON.stringify(result), is_active: true });
       storeInsight(userId, 'lead_magnets', 'content', 'lead_magnet_topic', result.title || 'lead magnet');
            storeInsight(userId, 'lead_magnets', 'content', 'lead_magnet_type', result.type || 'guide');
@@ -8615,7 +8882,7 @@ app.post('/api/launch/create', async (req, res) => {
     try {
       const p = await getProfile(userId);
       if (!p) return;
-      const result = await callClaude(`You are a launch strategist for ${p.business_name} launching: ${productName}\nDescription: ${productDescription || 'new product'}\nLaunch date: ${launchDate || 'in 2 weeks'}\nBusiness: ${p.business_type} in ${pCity(p)}\nLanguage: ${p.primary_language}\nBudget: ${p.monthly_budget}\nAudience: ${p.audience_description}\n\nUsing ORB launch framework, create complete launch plan:\n- PRE-LAUNCH: 3 teaser posts + 1 email\n- LAUNCH DAY: announcement post + launch email + ad copy\n- POST-LAUNCH: 2 social proof posts + follow-up email\n\nReturn ONLY valid JSON:\n{"pre_launch":{"posts":["string"],"email":{"subject":"string","body":"string"}},"launch_day":{"post":"string","email":{"subject":"string","body":"string"},"ad_copy":"string"},"post_launch":{"posts":["string"],"email":{"subject":"string","body":"string"}}}`, 'strategy', 3000);
+      const result = await callClaude(`You are a launch strategist for ${p.business_name} launching: ${productName}\nDescription: ${productDescription || 'new product'}\nLaunch date: ${launchDate || 'in 2 weeks'}\nBusiness: ${p.business_type} in ${pCity(p)}\nLanguage: ${p.primary_language}\nBudget: ${p.monthly_budget}\nAudience: ${p.audience_description}\n\nUsing ORB launch framework, create complete launch plan:\n- PRE-LAUNCH: 3 teaser posts + 1 email\n- LAUNCH DAY: announcement post + launch email + ad copy\n- POST-LAUNCH: 2 social proof posts + follow-up email\n\nReturn ONLY valid JSON:\n{"pre_launch":{"posts":["string"],"email":{"subject":"string","body":"string"}},"launch_day":{"post":"string","email":{"subject":"string","body":"string"},"ad_copy":"string"},"post_launch":{"posts":["string"],"email":{"subject":"string","body":"string"}}}`, 'strategy', 3000, claudeBiz(userId));
       await sbPost('launch_campaigns', { user_id: userId, product_name: productName, launch_date: launchDate || new Date(Date.now() + 14 * 86400000).toISOString(), phase: 'pre_launch', content_plan: JSON.stringify(result) });
       storeInsight(userId, 'launch', 'campaign', 'product_launching', productName);
       log('/api/launch/create', `✅ Launch plan for ${productName}`);
@@ -8637,7 +8904,7 @@ app.post('/api/research/analyze', async (req, res) => {
       const p = await getProfile(userId);
       if (!p) return;
       const reviewText = Array.isArray(reviews) ? reviews.join('\n') : (feedback || 'No reviews provided — analyze based on typical customers for this business type');
-      const result = await callClaude(`You are a customer research expert analyzing ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nCurrent audience: ${p.audience_description}\nReviews/feedback:\n${reviewText}\n\nExtract:\n1. JOBS TO BE DONE (functional, emotional, social)\n2. Top 3 PAIN POINTS with emotional language\n3. TRIGGER EVENTS\n4. DESIRED OUTCOMES in customer words\n5. KEY PHRASES to use in marketing\n\nReturn ONLY valid JSON:\n{"jobs_to_be_done":["string"],"pain_points":["string"],"trigger_events":["string"],"desired_outcomes":["string"],"key_phrases":["string"],"improved_audience_description":"string","content_recommendations":["string"]}`, 'research', 1500);
+      const result = await callClaude(`You are a customer research expert analyzing ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nCurrent audience: ${p.audience_description}\nReviews/feedback:\n${reviewText}\n\nExtract:\n1. JOBS TO BE DONE (functional, emotional, social)\n2. Top 3 PAIN POINTS with emotional language\n3. TRIGGER EVENTS\n4. DESIRED OUTCOMES in customer words\n5. KEY PHRASES to use in marketing\n\nReturn ONLY valid JSON:\n{"jobs_to_be_done":["string"],"pain_points":["string"],"trigger_events":["string"],"desired_outcomes":["string"],"key_phrases":["string"],"improved_audience_description":"string","content_recommendations":["string"]}`, 'research', 1500, claudeBiz(userId));
       await sbPost('customer_insights', { user_id: userId, source: reviews ? 'reviews' : 'ai_analysis', insight_type: 'full_analysis', content: JSON.stringify(result), actionable_suggestion: (result.content_recommendations || []).join('; ') });
       storeInsight(userId, 'research', 'customer', 'top_pain_points', (result.pain_points || []).slice(0, 3).join('; '));
       storeInsight(userId, 'research', 'customer', 'customer_language', (result.key_phrases || []).slice(0, 5).join('; '));
@@ -8661,7 +8928,7 @@ app.post('/api/ideas/generate', async (req, res) => {
       const p = await getProfile(userId);
       if (!p) { log('/api/ideas/generate', `ABORT: no profile found for userId=${userId}`); await logError(userId, 'ideas-generate', 'No profile found for userId=' + userId).catch(() => {}); return; }
       log('/api/ideas/generate', `Profile found: ${p.business_name} (${p.business_type})`);
-      let result = await callClaude(`You are a marketing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nBudget: ${p.monthly_budget}\nGoal: ${p.primary_goal}\nLanguage: ${p.primary_language}\n\nGenerate 5 SPECIFIC marketing ideas ranked by impact. Keep each idea brief (1-2 sentences each).\n\nReturn ONLY valid JSON array (no markdown, no code fences):\n[{"idea":"string","category":"string","priority":"high|medium|low","estimated_impact":"string","how_to_execute":"3 brief steps","budget_required":"string","time_to_results":"string"}]`, 'idea', 4000);
+      let result = await callClaude(`You are a marketing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nBudget: ${p.monthly_budget}\nGoal: ${p.primary_goal}\nLanguage: ${p.primary_language}\n\nGenerate 5 SPECIFIC marketing ideas ranked by impact. Keep each idea brief (1-2 sentences each).\n\nReturn ONLY valid JSON array (no markdown, no code fences):\n[{"idea":"string","category":"string","priority":"high|medium|low","estimated_impact":"string","how_to_execute":"3 brief steps","budget_required":"string","time_to_results":"string"}]`, 'idea', 4000, claudeBiz(userId));
       // Handle _raw fallback — re-extract JSON from raw text
       log('/api/ideas/generate', `Claude returned: type=${typeof result}, isArray=${Array.isArray(result)}, hasRaw=${!!result?._raw}, keys=${Object.keys(result||{}).slice(0,5)}`);
       if (result?._raw) { const parsed = extractJSON(result._raw); if (parsed) { log('/api/ideas/generate', `Re-parsed _raw: type=${typeof parsed}, isArray=${Array.isArray(parsed)}`); result = parsed; } }
@@ -8701,7 +8968,7 @@ app.post('/api/ai-seo/optimize', async (req, res) => {
     try {
       const p = await getProfile(userId);
       if (!p) return;
-      const result = await callClaude(`You are an AI SEO expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nUSP: ${p.usp}\nLanguage: ${p.primary_language}\n\nOptimize for ChatGPT, Perplexity, Google AI Overviews:\n1. Create 10 FAQ entries (question as users ask AI + direct citable answer)\n2. Write 3 authority paragraphs (specific numbers, structured for extraction)\n3. Generate local search queries\n\nReturn ONLY valid JSON:\n{"faqs":[{"question":"string","answer":"string"}],"authority_paragraphs":["string"],"target_queries":["string"]}`, 'research', 2000);
+      const result = await callClaude(`You are an AI SEO expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nUSP: ${p.usp}\nLanguage: ${p.primary_language}\n\nOptimize for ChatGPT, Perplexity, Google AI Overviews:\n1. Create 10 FAQ entries (question as users ask AI + direct citable answer)\n2. Write 3 authority paragraphs (specific numbers, structured for extraction)\n3. Generate local search queries\n\nReturn ONLY valid JSON:\n{"faqs":[{"question":"string","answer":"string"}],"authority_paragraphs":["string"],"target_queries":["string"]}`, 'research', 2000, claudeBiz(userId));
       await sbPost('ai_seo_content', { user_id: userId, content_type: 'full_optimization', optimized_content: JSON.stringify(result) });
       storeInsight(userId, 'ai_seo', 'seo', 'target_queries', (result.target_queries || []).slice(0, 5).join('; '));
       log('/api/ai-seo/optimize', `✅ AI SEO content for ${p.business_name}`);
@@ -8715,12 +8982,17 @@ app.post('/api/schema/generate', async (req, res) => {
   if (!userId) return res.status(400).json({ error: 'userId required' });
   try {
     const p = await getProfile(userId);
-    if (!p) return res.status(404).json({ error: 'Profile not found' });
-    const result = await callClaude(`Generate LocalBusiness + FAQPage JSON-LD schema for:\nBusiness: ${p.business_name}\nType: ${p.business_type}\nCity: ${pCity(p)}\nUSP: ${p.usp || ''}\n\nReturn ONLY valid JSON-LD (no markdown):\n{"@context":"https://schema.org","@type":"LocalBusiness","name":"...","description":"...","address":{"@type":"PostalAddress","addressLocality":"${pCity(p)}"}}`, 'social_post', 800);
+    if (!p) return apiError(res, 404, 'NOT_FOUND', 'Profile not found');
+    const result = await callClaude(`Generate LocalBusiness + FAQPage JSON-LD schema for:\nBusiness: ${p.business_name}\nType: ${p.business_type}\nCity: ${pCity(p)}\nUSP: ${p.usp || ''}\n\nReturn ONLY valid JSON-LD (no markdown):\n{"@context":"https://schema.org","@type":"LocalBusiness","name":"...","description":"...","address":{"@type":"PostalAddress","addressLocality":"${pCity(p)}"}}`, 'social_post', 800, claudeBiz(userId));
     const schemaJson = JSON.stringify(result);
     await sbPost('schema_markups', { user_id: userId, schema_type: 'LocalBusiness', schema_json: schemaJson });
     res.json({ schema: result, copyable: `<script type="application/ld+json">${schemaJson}</script>` });
-  } catch (err) { res.status(500).json({ error: safePublicError(err) }); }
+  } catch (err) {
+    if (err?.code === 'AI_BUDGET_EXCEEDED' || err?.status === 402) {
+      return apiError(res, 402, 'AI_BUDGET_EXCEEDED', err.message || 'Daily AI call limit reached');
+    }
+    return apiError(res, 500, 'INTERNAL_ERROR', safePublicError(err));
+  }
 });
 app.get('/api/schema/:userId', async (req, res) => {
   try { const r = await sbGet('schema_markups', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=5`); res.json({ schemas: r }); }
@@ -8738,7 +9010,7 @@ app.post('/api/seo-pages/generate', async (req, res) => {
       if (!p) return;
       const cities = Array.isArray(p.service_area) ? p.service_area : [pCity(p)];
       for (const city of cities.slice(0, 5)) {
-        const result = await callClaude(`Generate SEO page for "${p.business_type} in ${city}".\nBusiness: ${p.business_name}\nUSP: ${p.usp}\nLanguage: ${p.primary_language}\n\nReturn ONLY valid JSON:\n{"meta_title":"string (60 chars)","meta_description":"string (155 chars)","h1":"string","intro":"string (150 words)","services_section":"string","why_us":"string","faq":[{"q":"string","a":"string"}],"cta":"string"}`, 'social_post', 1500);
+        const result = await callClaude(`Generate SEO page for "${p.business_type} in ${city}".\nBusiness: ${p.business_name}\nUSP: ${p.usp}\nLanguage: ${p.primary_language}\n\nReturn ONLY valid JSON:\n{"meta_title":"string (60 chars)","meta_description":"string (155 chars)","h1":"string","intro":"string (150 words)","services_section":"string","why_us":"string","faq":[{"q":"string","a":"string"}],"cta":"string"}`, 'social_post', 1500, claudeBiz(userId));
         await sbPost('seo_pages', { user_id: userId, page_type: 'service_location', keyword: `${p.business_type} in ${city}`, location: city, content: JSON.stringify(result), meta_title: result.meta_title, meta_description: result.meta_description }).catch(() => {});
       }
       storeInsight(userId, 'seo_pages', 'seo', 'pages_created', cities.join(', '));
@@ -8761,7 +9033,7 @@ app.post('/api/pricing/analyze', async (req, res) => {
       const p = await getProfile(userId);
       if (!p) return;
       const prods = Array.isArray(p.products) ? p.products : [];
-      const result = await callClaude(`You are a pricing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAvg spend: ${p.avg_spend || 'unknown'}\nProducts: ${prods.map(pr => `${pr.name}: ${pr.price || 'N/A'}`).join(', ')}\nGoal: ${p.primary_goal}\n\nUsing value-based pricing:\n1. Analyze current pricing\n2. Recommend 3-tier structure\n3. Psychological tactics\n4. ROI framing\n\nReturn ONLY valid JSON:\n{"pricing_analysis":"string","recommended_tiers":[{"name":"string","price":"string","includes":["string"],"target_customer":"string"}],"psychological_tactics":["string"],"roi_framing":"string","marketing_message":"string"}`, 'strategy', 1500);
+      const result = await callClaude(`You are a pricing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAvg spend: ${p.avg_spend || 'unknown'}\nProducts: ${prods.map(pr => `${pr.name}: ${pr.price || 'N/A'}`).join(', ')}\nGoal: ${p.primary_goal}\n\nUsing value-based pricing:\n1. Analyze current pricing\n2. Recommend 3-tier structure\n3. Psychological tactics\n4. ROI framing\n\nReturn ONLY valid JSON:\n{"pricing_analysis":"string","recommended_tiers":[{"name":"string","price":"string","includes":["string"],"target_customer":"string"}],"psychological_tactics":["string"],"roi_framing":"string","marketing_message":"string"}`, 'strategy', 1500, claudeBiz(userId));
       await sbPost('pricing_recommendations', { user_id: userId, tier_structure: JSON.stringify(result.recommended_tiers), reasoning: result.pricing_analysis });
       storeInsight(userId, 'pricing', 'strategy', 'recommended_pricing', JSON.stringify(result.recommended_tiers || []).slice(0, 500));
       storeInsight(userId, 'pricing', 'strategy', 'roi_framing', result.roi_framing || '');
@@ -8787,7 +9059,7 @@ app.post('/api/community/generate-posts', async (req, res) => {
       }
       const p = await getProfile(userId);
       if (!p) return;
-      const result = await callClaude(`You are a community marketing expert for ${p.business_name} in ${pCity(p)}.\nPlatform: ${platform}\nAudience: ${p.audience_description}\nLanguage: ${p.primary_language}\n\nGenerate 5 community posts focused on SHARED IDENTITY (not promotion).\nValue to members first.\n\nReturn ONLY valid JSON:\n{"strategy":"string","posts":[{"content":"string","post_type":"value|question|story|tip|engagement","best_day":"string"}]}`, 'community_post', 1500);
+      const result = await callClaude(`You are a community marketing expert for ${p.business_name} in ${pCity(p)}.\nPlatform: ${platform}\nAudience: ${p.audience_description}\nLanguage: ${p.primary_language}\n\nGenerate 5 community posts focused on SHARED IDENTITY (not promotion).\nValue to members first.\n\nReturn ONLY valid JSON:\n{"strategy":"string","posts":[{"content":"string","post_type":"value|question|story|tip|engagement","best_day":"string"}]}`, 'community_post', 1500, claudeBiz(userId));
       const posts = result.posts || [];
       for (const post of posts) {
         await sbPost('community_posts', { user_id: userId, platform, content: post.content, post_type: post.post_type, status: 'draft' }).catch(() => {});
@@ -8808,7 +9080,7 @@ app.post('/api/sales/generate-pitch', async (req, res) => {
     try {
       const p = await getProfile(userId);
       if (!p) return;
-      const result = await callClaude(`Create a sales one-pager for ${p.business_name}.\nBusiness: ${p.business_type} in ${pCity(p)}\nUSP: ${p.usp}\nWe are better at: ${p.we_do_better}\nOffer: ${p.current_offer}\nLanguage: ${p.primary_language}\n\nLead with outcomes, scannable in 3 seconds, specific numbers.\nReturn ONLY valid JSON:\n{"headline":"string","subheadline":"string","key_benefits":["string"],"social_proof":"string","cta":"string","full_pitch":"string"}`, 'sales_pitch', 1000);
+      const result = await callClaude(`Create a sales one-pager for ${p.business_name}.\nBusiness: ${p.business_type} in ${pCity(p)}\nUSP: ${p.usp}\nWe are better at: ${p.we_do_better}\nOffer: ${p.current_offer}\nLanguage: ${p.primary_language}\n\nLead with outcomes, scannable in 3 seconds, specific numbers.\nReturn ONLY valid JSON:\n{"headline":"string","subheadline":"string","key_benefits":["string"],"social_proof":"string","cta":"string","full_pitch":"string"}`, 'sales_pitch', 1000, claudeBiz(userId));
       await sbPost('sales_assets', { user_id: userId, asset_type: 'one_pager', title: result.headline || 'Sales Pitch', content: JSON.stringify(result) }).catch(() => {});
       storeInsight(userId, 'sales', 'messaging', 'key_pitch', result.headline || '');
       log('/api/sales/generate-pitch', `✅ Pitch for ${p.business_name}`);
@@ -8820,7 +9092,7 @@ app.post('/api/sales/objection-handler', async (req, res) => {
   if (!userId || !objection) return res.status(400).json({ error: 'userId and objection required' });
   try {
     const p = await getProfile(userId);
-    const result = await callClaude(`Handle this sales objection for ${p?.business_name || 'the business'}:\nObjection: "${objection}"\nUSP: ${p?.usp || 'quality service'}\nLanguage: ${p?.primary_language || 'English'}\n\nReturn ONLY valid JSON:\n{"response":"string","tone":"empathetic|confident|educational","follow_up_question":"string"}`, 'short_copy', 500);
+    const result = await callClaude(`Handle this sales objection for ${p?.business_name || 'the business'}:\nObjection: "${objection}"\nUSP: ${p?.usp || 'quality service'}\nLanguage: ${p?.primary_language || 'English'}\n\nReturn ONLY valid JSON:\n{"response":"string","tone":"empathetic|confident|educational","follow_up_question":"string"}`, 'short_copy', 500, claudeBiz(userId));
     res.json(result);
   } catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
@@ -8831,7 +9103,7 @@ app.post('/api/revops/score-lead', async (req, res) => {
   if (!userId || !leadData) return res.status(400).json({ error: 'userId and leadData required' });
   try {
     const p = await getProfile(userId);
-    const result = await callClaude(`Score this lead for ${p?.business_name || 'the business'}:\nLead: ${JSON.stringify(leadData)}\nIdeal customer: ${p?.audience_description || 'local customer'}\nCity: ${pCity(p)}\n\nFIT (0-50): matches audience? +20, in area? +15, right spend? +15\nENGAGEMENT (0-50): form filled? +25, multiple visits? +15, time>2min? +10\n\nReturn ONLY valid JSON:\n{"fit_score":0,"engagement_score":0,"total_score":0,"stage":"lead|MQL|SQL","recommended_action":"string","follow_up_message":"string"}`, 'social_post', 500);
+    const result = await callClaude(`Score this lead for ${p?.business_name || 'the business'}:\nLead: ${JSON.stringify(leadData)}\nIdeal customer: ${p?.audience_description || 'local customer'}\nCity: ${pCity(p)}\n\nFIT (0-50): matches audience? +20, in area? +15, right spend? +15\nENGAGEMENT (0-50): form filled? +25, multiple visits? +15, time>2min? +10\n\nReturn ONLY valid JSON:\n{"fit_score":0,"engagement_score":0,"total_score":0,"stage":"lead|MQL|SQL","recommended_action":"string","follow_up_message":"string"}`, 'social_post', 500, claudeBiz(userId));
     await sbPost('lead_scores', { user_id: userId, lead_email: leadData.email || null, fit_score: result.fit_score || 0, engagement_score: result.engagement_score || 0, total_score: result.total_score || 0, stage: result.stage || 'lead', recommended_action: result.recommended_action });
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -8847,7 +9119,7 @@ app.post('/api/ab-tests/create', async (req, res) => {
   if (!userId || !testType || !currentVersion) return res.status(400).json({ error: 'userId, testType, currentVersion required' });
   try {
     const p = await getProfile(userId);
-    const result = await callClaude(`Create A/B test variant for ${p?.business_name || 'business'}.\nCurrent (A): "${currentVersion}"\nType: ${testType}\nLanguage: ${p?.primary_language || 'English'}\n\nChange ONE variable. Return ONLY valid JSON:\n{"variant_a":"string","variant_b":"string","hypothesis":"string","primary_metric":"string","minimum_runtime":"string"}`, 'social_post', 500);
+    const result = await callClaude(`Create A/B test variant for ${p?.business_name || 'business'}.\nCurrent (A): "${currentVersion}"\nType: ${testType}\nLanguage: ${p?.primary_language || 'English'}\n\nChange ONE variable. Return ONLY valid JSON:\n{"variant_a":"string","variant_b":"string","hypothesis":"string","primary_metric":"string","minimum_runtime":"string"}`, 'social_post', 500, claudeBiz(userId));
     let row = null;
     try { row = await sbPost('ab_tests', { business_id: userId, started_at: new Date().toISOString() }); } catch (dbErr) { log('/api/ab-tests/create', `DB insert failed (non-critical): ${dbErr.message}`); }
     res.json({ test_id: row?.id || null, ...result });
@@ -8866,7 +9138,7 @@ app.post('/api/tools/suggest', async (req, res) => {
   setImmediate(async () => {
     try {
       const p = await getProfile(userId);
-      const result = await callClaude(`Suggest 3 free marketing tools for ${p?.business_name || 'business'}, a ${p?.business_type || 'local business'}.\nAudience: ${p?.audience_description || 'local customers'}\nCity: ${pCity(p)}\n\nReturn ONLY valid JSON:\n[{"tool_name":"string","tool_type":"calculator|generator|checklist","description":"string","how_it_generates_leads":"string"}]`, 'social_post', 800);
+      const result = await callClaude(`Suggest 3 free marketing tools for ${p?.business_name || 'business'}, a ${p?.business_type || 'local business'}.\nAudience: ${p?.audience_description || 'local customers'}\nCity: ${pCity(p)}\n\nReturn ONLY valid JSON:\n[{"tool_name":"string","tool_type":"calculator|generator|checklist","description":"string","how_it_generates_leads":"string"}]`, 'social_post', 800, claudeBiz(userId));
       const tools = Array.isArray(result) ? result : [result];
       for (const t of tools) { await sbPost('free_tools', { user_id: userId, tool_name: t.tool_name, tool_type: t.tool_type, tool_description: t.description }).catch(() => {}); }
       log('/api/tools/suggest', `✅ ${tools.length} tools suggested`);
@@ -9370,13 +9642,10 @@ app.get('/api/context/:userId', async (req, res) => {
 
     let full_master_prompt = '';
     try {
-      full_master_prompt = await buildMasterPromptWithSkills(
+      full_master_prompt = await getCachedMasterPrompt(
+        String(contextUserId),
         mergedForPrompt,
         taskType,
-        getEmbedding,
-        pineconeQuery,
-        buildIntelligenceContext,
-        getMemoryContext,
         perfThemesExtra || ''
       );
     } catch (e) {
@@ -9657,15 +9926,14 @@ app.post('/webhook/ai-chat', async (req, res) => {
 });
 
 // ─── Waitlist Registration ────────────────────────────────────────────────────
-app.post('/api/waitlist/register', async (req, res) => {
-  const { name, email, plan, business_type, country } = req.body;
-  if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
+app.post('/api/waitlist/register', validate('waitlist'), async (req, res) => {
+  const { name, email, plan, business_type, country } = req.validatedBody;
 
   try {
     await sbPost('waitlist', { name, email, plan: plan || null, business_type: business_type || null, country: country || null });
   } catch (err) {
-    if (err.message && err.message.includes('23505')) return res.status(409).json({ error: 'Email already registered' });
-    return res.status(500).json({ error: err.message });
+    if (err.message && err.message.includes('23505')) return apiError(res, 409, 'CONFLICT', 'Email already registered');
+    return apiError(res, 500, 'INTERNAL_ERROR', safePublicError(err));
   }
 
   // Confirmation email to user
@@ -9701,13 +9969,15 @@ app.get('/api/waitlist/count', async (req, res) => {
 });
 
 // ─── 404 ──────────────────────────────────────────────────────────────────────
-app.use((req, res) => res.status(404).json({ error: `Route ${req.method} ${req.path} not found` }));
+app.use((req, res) => apiError(res, 404, 'NOT_FOUND', `Route ${req.method} ${req.path} not found`));
 
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err.message);
-  res.status(err.status || 500).json({
-    error: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message
-  });
+  logger.error(req.path || 'unknown', null, 'Unhandled error', err, { request_id: req.requestId });
+  if (res.headersSent) return next(err);
+  const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
+  const code = typeof err.code === 'string' && err.code ? err.code : 'INTERNAL_ERROR';
+  const msg = process.env.NODE_ENV === 'production' && status >= 500 ? 'Internal server error' : (err.message || 'Internal server error');
+  return apiError(res, status, code, msg);
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
