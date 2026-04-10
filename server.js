@@ -9091,7 +9091,7 @@ app.get('/api/onboarding/score/:userId', async (req, res) => {
   }
 });
 
-// ─── AI Chat Assistant ───────────────────────────────────────────────────────
+// ─── AI Chat Assistant (streaming) ───────────────────────────────────────────
 app.post('/webhook/ai-chat', async (req, res) => {
   try {
     const { message, business_id } = req.body;
@@ -9103,13 +9103,70 @@ app.post('/webhook/ai-chat', async (req, res) => {
       if (p) bizCtx = `Business: ${p.business_name}, Type: ${p.business_type}, City: ${pCity(p)}, Language: ${p.primary_language || 'Albanian'}, Goal: ${p.primary_goal || 'grow'}, USP: ${p.usp || ''}`;
     } catch {}
 
-    const systemPrompt = `You are an expert AI marketing assistant for maroa.ai. You help small business owners with marketing strategy, content ideas, and growth tactics.\n${bizCtx}\nBe concise, practical, and specific to their business. Respond in the same language the user writes in.`;
-    const result = await callClaude(`${systemPrompt}\n\nUser: ${message}`, 'claude-sonnet-4-5', 1000);
-    const reply = result._raw || (typeof result === 'object' ? JSON.stringify(result) : String(result));
-    res.json({ reply, success: true });
+    const systemPrompt = `You are an expert AI marketing assistant for maroa.ai. Help small business owners with marketing strategy, content ideas, and growth. ${bizCtx}. Be concise, practical, and specific. Respond in the same language the user writes in.`;
+
+    // Stream via raw HTTPS to Anthropic
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.flushHeaders();
+
+    const bodyStr = JSON.stringify({
+      model: 'claude-sonnet-4-5', max_tokens: 1024, stream: true,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: message }]
+    });
+
+    const streamReq = https.request({
+      hostname: 'api.anthropic.com', port: 443, path: '/v1/messages', method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Length': Buffer.byteLength(bodyStr)
+      }
+    }, (streamRes) => {
+      let buffer = '';
+      streamRes.on('data', (chunk) => {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // keep incomplete line in buffer
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim();
+            if (data === '[DONE]') continue;
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                res.write(`data: ${JSON.stringify({ text: parsed.delta.text })}\n\n`);
+              }
+            } catch {}
+          }
+        }
+      });
+      streamRes.on('end', () => {
+        res.write('data: [DONE]\n\n');
+        res.end();
+      });
+      streamRes.on('error', () => {
+        res.write(`data: ${JSON.stringify({ error: 'Stream interrupted' })}\n\n`);
+        res.end();
+      });
+    });
+
+    streamReq.on('error', (err) => {
+      console.error('AI chat stream error:', err.message);
+      res.write(`data: ${JSON.stringify({ error: 'Chat failed' })}\n\n`);
+      res.end();
+    });
+
+    streamReq.write(bodyStr);
+    streamReq.end();
   } catch (err) {
     console.error('AI chat error:', err.message);
-    res.status(500).json({ error: 'Chat failed', reply: 'Sorry, something went wrong. Please try again.' });
+    if (!res.headersSent) res.status(500).json({ error: 'Chat failed' });
+    else { res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`); res.end(); }
   }
 });
 
