@@ -14,6 +14,7 @@ const { validate } = require('./lib/validators');
 const { checkRateLimit } = require('./lib/rateLimit');
 const planGate = require('./middleware/planGate');
 const { checkPlanLimit } = require('./middleware/planLimits');
+const Stripe = require('stripe');
 
 const logger = {
   info: (route, businessId, message, data = {}) => {
@@ -74,13 +75,11 @@ const corsOptions = {
     'http://localhost:5173'
   ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'apikey', 'x-orchestrator-secret'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'apikey', 'x-orchestrator-secret', 'x-webhook-secret', 'stripe-signature'],
   credentials: true
 };
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
-
-app.use(express.json({ limit: '10mb' }));
 
 app.use((req, res, next) => {
   req.requestId = uuidv4();
@@ -102,6 +101,27 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+const stripeWebhookRawBody = express.raw({ type: 'application/json' });
+app.post('/webhook/stripe-webhook', stripeWebhookRawBody, stripeWebhookHandler);
+
+app.use(express.json({ limit: '10mb' }));
+
+function requireN8nWebhookSecret(req, res, next) {
+  const pathOnly = req.originalUrl.split('?')[0];
+  if (pathOnly === '/webhook/stripe-webhook') return next();
+  if (req.method === 'OPTIONS') return next();
+  if (!N8N_WEBHOOK_SECRET) {
+    return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'N8N_WEBHOOK_SECRET not configured');
+  }
+  const provided = clean(String(req.headers['x-webhook-secret'] || ''));
+  if (provided !== N8N_WEBHOOK_SECRET) {
+    return apiError(res, 401, 'UNAUTHORIZED', 'Invalid or missing x-webhook-secret');
+  }
+  next();
+}
+
+app.use('/webhook', requireN8nWebhookSecret);
 
 const aiLimitExpress = expressRateLimit({
   windowMs: 60 * 1000,
@@ -183,6 +203,22 @@ const STRIPE_WEBHOOK_SECRET= clean(process.env.STRIPE_WEBHOOK_SECRET)|| '';
 const STRIPE_GROWTH_PRICE  = clean(process.env.STRIPE_GROWTH_PRICE_ID)|| '';
 const STRIPE_AGENCY_PRICE  = clean(process.env.STRIPE_AGENCY_PRICE_ID)|| '';
 const ORCHESTRATOR_SECRET  = clean(process.env.ORCHESTRATOR_SECRET)   || '';
+const N8N_WEBHOOK_SECRET   = clean(process.env.N8N_WEBHOOK_SECRET)    || '';
+
+const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
+
+function isInternalMaroaWebhookUrl(urlString) {
+  try {
+    const u = new URL(urlString);
+    const p = u.pathname;
+    if (p === '/webhook/stripe-webhook') return false;
+    if (!p.startsWith('/webhook/')) return false;
+    const h = u.hostname.toLowerCase();
+    return h === 'localhost' || h === '127.0.0.1' || h === 'maroa-api-production.up.railway.app';
+  } catch {
+    return false;
+  }
+}
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
 function apiRequest(method, url, headers = {}, body = null, timeoutMs = 30000) {
@@ -190,12 +226,15 @@ function apiRequest(method, url, headers = {}, body = null, timeoutMs = 30000) {
     const u        = new URL(url);
     const bodyStr  = body ? JSON.stringify(body) : null;
     const proto    = u.protocol === 'https:' ? https : http;
+    const extra    = (N8N_WEBHOOK_SECRET && isInternalMaroaWebhookUrl(url))
+      ? { 'x-webhook-secret': N8N_WEBHOOK_SECRET }
+      : {};
     const opts = {
       hostname : u.hostname,
       port     : u.port || (u.protocol === 'https:' ? 443 : 80),
       path     : u.pathname + u.search,
       method,
-      headers  : { 'Content-Type': 'application/json', ...headers }
+      headers  : { 'Content-Type': 'application/json', ...extra, ...headers }
     };
     if (bodyStr) opts.headers['Content-Length'] = Buffer.byteLength(bodyStr);
     const req = proto.request(opts, res => {
@@ -8205,11 +8244,28 @@ app.get('/webhook/dashboard-events', (req, res) => {
   req.on('close', () => { clearInterval(heartbeat); sseClients.delete(business_id); });
 });
 
-// ── PIECE 5: Stripe Webhook Handler (create-checkout already exists above) ──
-app.post('/webhook/stripe-webhook', async (req, res) => {
+// ── PIECE 5: Stripe Webhook Handler — route registered at top (raw body); handler hoisted below ──
+async function stripeWebhookHandler(req, res) {
+  if (!STRIPE_WEBHOOK_SECRET) {
+    return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'STRIPE_WEBHOOK_SECRET not configured');
+  }
+  if (!stripe) {
+    return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'STRIPE_SECRET_KEY not configured');
+  }
+  const sig = req.headers['stripe-signature'];
+  const rawBody = req.body;
+  if (!sig || !Buffer.isBuffer(rawBody)) {
+    return apiError(res, 400, 'INVALID_REQUEST', 'Missing Stripe signature or raw body');
+  }
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    logger.warn('/webhook/stripe-webhook', null, 'Stripe signature verification failed', { message: err.message, request_id: req.requestId });
+    return apiError(res, 400, 'INVALID_SIGNATURE', 'Webhook signature verification failed');
+  }
   res.json({ received: true });
   try {
-    const event = req.body;
     if (!event?.type) return;
     if (event.type === 'checkout.session.completed') {
       const session = event.data?.object;
@@ -8228,7 +8284,7 @@ app.post('/webhook/stripe-webhook', async (req, res) => {
       if (bizArr[0]) { await sbPatch('businesses', `id=eq.${bizArr[0].id}`, { plan: 'free' }); }
     }
   } catch (err) { console.error('[stripe-webhook ERROR]', err.message); }
-});
+}
 
 // ── PIECE 6: Google My Business Auto-Post ───────────────────────────────────
 app.post('/webhook/gmb-post', async (req, res) => {
@@ -9989,6 +10045,7 @@ app.get('/api/waitlist/count', async (req, res) => {
 // ─── POST /api/generate — Plan-gated generation with usage tracking ─────────
 const GENERATE_MODELS = {
   generate_image:       { model_used: 'nano-banana-pro', credits_used: 1  },
+  generate_video:       { model_used: 'kling-3.0',       credits_used: 6  },
   generate_video_kling: { model_used: 'kling-3.0',       credits_used: 6  },
   generate_video_sora:  { model_used: 'sora-2',          credits_used: 50 }
 };

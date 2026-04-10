@@ -55,7 +55,7 @@ async function checkPlanLimit(req, res, next) {
     const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.starter;
 
     // Block video on starter
-    if (action === 'generate_video' && !limits.video) {
+    if ((action === 'generate_video' || action === 'generate_video_kling' || action === 'generate_video_sora') && !limits.video) {
       return res.status(403).json({
         error: 'upgrade_required',
         message: 'Video generation requires Growth or Agency plan.',

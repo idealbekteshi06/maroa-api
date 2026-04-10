@@ -25,6 +25,11 @@ function api(method, path, body) {
       method, headers: { 'Content-Type': 'application/json' },
       timeout: 30000
     };
+    const p = url.pathname;
+    const wh = process.env.N8N_WEBHOOK_SECRET;
+    if (wh && p.startsWith('/webhook/') && p !== '/webhook/stripe-webhook') {
+      opts.headers['x-webhook-secret'] = wh;
+    }
     if (bodyStr) opts.headers['Content-Length'] = Buffer.byteLength(bodyStr);
     const req = https.request(opts, res => {
       let data = '';
