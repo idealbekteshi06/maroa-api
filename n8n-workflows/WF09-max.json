@@ -1,0 +1,175 @@
+{
+  "name": "WF09 - Smart Image System (MAX)",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "6e96d794-1686-43b1-8c83-9010066828f0",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "path": "smart-image",
+        "httpMethod": "POST",
+        "responseMode": "responseNode"
+      },
+      "webhookId": "69db7e08-f4b6-48ae-b00a-568473a3012c"
+    },
+    {
+      "id": "eba174e0-fe8c-4d25-a203-77c1cb134604",
+      "name": "Extract Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const b = $input.first().json.body || $input.first().json;\nreturn [{ json: { business_id: b.business_id, content_id: b.content_id, caption: b.caption || \"\" } }];"
+      }
+    },
+    {
+      "id": "0c4458cb-b821-4745-80f9-93d5a5b7ef72",
+      "name": "Score Caption",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://maroa-api-production.up.railway.app/webhook/score-content",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ business_id: $json.business_id, caption: $json.caption, image_url: \"\" }) }}"
+      }
+    },
+    {
+      "id": "d20c5012-3635-4052-98d3-cad90eddbd43",
+      "name": "Generate Content (includes image)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://maroa-api-production.up.railway.app/webhook/instant-content",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ business_id: $json.business_id }) }}"
+      }
+    },
+    {
+      "id": "bed33122-2de6-4132-aae0-6879e8657fd2",
+      "name": "Log Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        520
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://maroa-api-production.up.railway.app/webhook/log-error",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow_name: $workflow.name, error_message: $json.error || \"unknown\", business_id: null }) }}"
+      }
+    },
+    {
+      "id": "manual-trigger-19873602",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Data": {
+      "main": [
+        [
+          {
+            "node": "Score Caption",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score Caption": {
+      "main": [
+        [
+          {
+            "node": "Generate Content (includes image)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "tags": [],
+  "pinData": {}
+}

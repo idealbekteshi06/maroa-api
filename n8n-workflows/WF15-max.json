@@ -1,0 +1,237 @@
+{
+  "name": "WF15 - Instant Content On Signup (MAX)",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "7949b3a2-b265-4e5a-aa07-20507fcc83ee",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "path": "instant-content-signup",
+        "httpMethod": "POST",
+        "responseMode": "responseNode"
+      },
+      "webhookId": "10071fb3-6048-4721-9a60-0c3943f5afcb"
+    },
+    {
+      "id": "c43c08fd-1601-4634-9290-2557c7d9e3e4",
+      "name": "Extract",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const b = $input.first().json.body || $input.first().json;\nreturn [{ json: { business_id: b.business_id } }];"
+      }
+    },
+    {
+      "id": "f07f15e6-d13c-4303-ae39-ad2e516a69ea",
+      "name": "Build Moat",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://maroa-api-production.up.railway.app/webhook/build-competitive-moat",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ business_id: $json.business_id }) }}"
+      }
+    },
+    {
+      "id": "f0a8c4b0-fbcb-453e-93a6-a903af363341",
+      "name": "Wait 15s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "38ce6a9c-312e-484d-a810-b4ccb1b2a7d4",
+      "name": "Generate Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://maroa-api-production.up.railway.app/webhook/instant-content",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ business_id: $json.business_id }) }}"
+      }
+    },
+    {
+      "id": "d2a96484-8930-4412-a37e-70ddb0def168",
+      "name": "SEO Audit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://maroa-api-production.up.railway.app/webhook/seo-audit",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ business_id: $json.business_id }) }}"
+      }
+    },
+    {
+      "id": "d4674661-08a2-4263-ab87-619bc74e55d9",
+      "name": "Log Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        520
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://maroa-api-production.up.railway.app/webhook/log-error",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow_name: $workflow.name, error_message: $json.error || \"unknown\", business_id: null }) }}"
+      }
+    },
+    {
+      "id": "manual-trigger-df59e5d0",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract": {
+      "main": [
+        [
+          {
+            "node": "Build Moat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Moat": {
+      "main": [
+        [
+          {
+            "node": "Wait 15s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 15s": {
+      "main": [
+        [
+          {
+            "node": "Generate Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Content": {
+      "main": [
+        [
+          {
+            "node": "SEO Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "tags": [],
+  "pinData": {}
+}
