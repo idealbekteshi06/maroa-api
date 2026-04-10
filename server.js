@@ -9264,7 +9264,8 @@ app.get('/api/context/:userId', async (req, res) => {
       emoji_usage: p.emoji_usage ?? null,
       words_always_use: arr(p.words_always_use),
       words_never_use: arr(p.words_never_use).length ? arr(p.words_never_use) : (p.never_do ? [p.never_do] : []),
-      content_language: p.content_language ?? p.primary_language ?? null,
+      primary_language: p.primary_language ?? b.primary_language ?? 'English',
+      content_language: p.content_language ?? p.primary_language ?? 'English',
 
       social_platforms: socialPlats.length ? socialPlats : (activePlats.length ? activePlats : socialFromBiz),
       primary_platform: p.primary_platform ?? null,
