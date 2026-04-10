@@ -205,7 +205,7 @@ ${p.never_do || ja(p.words_never_use) ? `NEVER say: ${p.never_do || ja(p.words_n
 ${p.emoji_usage ? `Emoji: ${p.emoji_usage}` : ''}
 ${p.content_love_example ? `Style to emulate: "${p.content_love_example}"` : ''}
 ${p.content_hate_example ? `Style to AVOID: "${p.content_hate_example}"` : ''}
-Language: Write ONLY in ${p.primary_language || 'Albanian'}.
+Language: Write ONLY in ${p.primary_language || 'English'}.
 
 ═══ GOALS & STRATEGY ═══
 Primary goal: ${p.primary_goal || 'grow business'}
@@ -257,7 +257,7 @@ ${ja(p.never_show) ? `Never show in images: ${ja(p.never_show)}` : ''}
 ═══ ABSOLUTE RULES ═══
 1. Use exact name "${p.business_name}" — never abbreviate or change
 2. Only mention locations in: ${adArea.length ? adArea.join(', ') : primaryCity}
-3. Write in ${p.primary_language || 'Albanian'} — no exceptions
+3. Write in ${p.primary_language || 'English'} — no exceptions
 4. Tone: ${toneStr} — every word must match
 5. ${p.never_do || ja(p.words_never_use) ? `Never: ${p.never_do || ja(p.words_never_use)}` : 'No restrictions specified'}
 6. Serve goal: ${p.primary_goal || 'grow business'}
@@ -292,7 +292,7 @@ Length: 150-200 words. Tone: ${toneStr}.
 ${p.booking_link ? `CTA link: ${p.booking_link}` : ''}`,
 
     sms: `\n\n═══ TASK: SMS ═══
-Max 160 chars. Direct. ${p.primary_language || 'Albanian'}.
+Max 160 chars. Direct. ${p.primary_language || 'English'}.
 CTA for: ${p.primary_goal || 'action'}.${p.booking_link ? ` Link: ${p.booking_link}` : ''}`,
 
     image: `\n\n═══ TASK: IMAGE ═══
@@ -350,12 +350,23 @@ async function buildMasterPromptWithSkills(profile, taskType, getEmbedding, pine
 
   let skillsSection = '';
   try {
-    const { getRelevantSkills } = require('./marketingKnowledgeBase');
-    const skills = await getRelevantSkills(getEmbedding, pineconeQuery, taskType, profile.business_type, profile.primary_goal, 2);
+    // Try Pinecone first
+    const { getRelevantSkills, getAllSkillKnowledge } = require('./marketingKnowledgeBase');
+    let skills = [];
+    try { skills = await getRelevantSkills(getEmbedding, pineconeQuery, taskType, profile.business_type, profile.primary_goal, 2); } catch {}
+
+    // Fallback: pick skills directly from code if Pinecone returned nothing
+    if (!skills.length) {
+      const allSkills = getAllSkillKnowledge();
+      const taskTypeMap = { social_post: ['social_content_strategy','copywriting_principles'], paid_ad: ['ad_creative_frameworks','paid_ads_strategy'], email: ['email_sequence_strategy','copywriting_principles'], content_calendar: ['content_strategy','social_content_strategy'], sales_pitch: ['copywriting_principles','marketing_psychology'], lead_magnet: ['content_strategy','marketing_psychology'], launch: ['launch_strategy','content_strategy'], general: ['marketing_psychology','copywriting_principles'] };
+      const relevantIds = taskTypeMap[taskType] || taskTypeMap.general;
+      skills = allSkills.filter(s => relevantIds.includes(s.id)).map(s => ({ name: s.name, content: s.content.slice(0, 1500), score: 0.9 }));
+    }
+
     if (skills.length) {
-      skillsSection = `\n\n═══ EXPERT MARKETING FRAMEWORKS TO APPLY ═══\n${skills.map(s =>
-        `[${s.name.toUpperCase()} — relevance: ${(s.score * 100).toFixed(0)}%]\n${s.content}`
-      ).join('\n\n')}\n\n═══ APPLY THESE FRAMEWORKS TO ALL CONTENT ABOVE ═══`;
+      skillsSection = `\n\n═══ EXPERT MARKETING FRAMEWORKS TO APPLY ═══\n${skills.slice(0, 2).map(s =>
+        `[${s.name.toUpperCase()}]\n${s.content}`
+      ).join('\n\n')}\n═══ APPLY THESE FRAMEWORKS ═══`;
     }
   } catch {}
 
