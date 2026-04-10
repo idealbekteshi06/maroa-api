@@ -13,6 +13,7 @@ const { randomUUID: uuidv4 } = require('crypto');
 const { validate } = require('./lib/validators');
 const { checkRateLimit } = require('./lib/rateLimit');
 const planGate = require('./middleware/planGate');
+const { checkPlanLimit } = require('./middleware/planLimits');
 
 const logger = {
   info: (route, businessId, message, data = {}) => {
@@ -105,7 +106,6 @@ app.use((req, res, next) => {
 const aiLimitExpress = expressRateLimit({
   windowMs: 60 * 1000,
   max: 20,
-  keyGenerator: (req) => req.body?.userId || req.body?.business_id || req.ip,
   message: { error: 'Too many requests — please wait' }
 });
 
@@ -2588,24 +2588,42 @@ app.post('/meta-oauth-exchange', async (req, res) => {
 
 // ═════════════════════════════════════════════════════════════════════════════
 // BUILD 1 — BILLING + PLAN GATES
-// Plans: starter(€29) · growth(€69) · agency(€149) — updated April 2026
+// Plans: starter(€29) · growth(€59) · agency(€99)
 // ═════════════════════════════════════════════════════════════════════════════
 
 const PLANS = {
-  starter: { name: 'Starter', price: 29, annual: 290, maxRuns: 1, runHours: [6],
-             priceId: (process.env.STRIPE_STARTER_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
-             annualPriceId: (process.env.STRIPE_STARTER_ANNUAL_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
-             features: ['1 social account', '30 AI posts/mo', 'Basic content calendar', 'AI brain 1x/day'] },
-  growth:  { name: 'Growth',  price: 69, annual: 690, maxRuns: 3, runHours: [6, 12, 18],
-             priceId: (process.env.STRIPE_GROWTH_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
-             annualPriceId: (process.env.STRIPE_GROWTH_ANNUAL_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
-             features: ['5 social accounts', 'Unlimited AI content', 'Paid ads management', 'Competitor tracking', 'AI brain 3x/day'] },
-  agency:  { name: 'Agency',  price: 149, annual: 1490, maxRuns: 5, runHours: [6, 9, 12, 15, 18],
-             priceId: (process.env.STRIPE_AGENCY_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
-             annualPriceId: (process.env.STRIPE_AGENCY_ANNUAL_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
-             features: ['Unlimited accounts', 'White-label option', 'API access', 'Dedicated manager', 'AI brain 5x/day'] },
+  starter: {
+    name: 'Starter', price: 29, annual: 290, maxRuns: 1, runHours: [6],
+    priceId: (process.env.STRIPE_STARTER_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
+    annualPriceId: (process.env.STRIPE_STARTER_ANNUAL_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
+    images: 20, kling: 0, sora: 0, platforms: 1, brands: 1,
+    video: false, analytics: false, white_label: false, api: false,
+    features: ['1 platform', '20 AI images/mo', 'AI brain 1×/day', 'Content calendar', 'Email support'],
+  },
+  growth: {
+    name: 'Growth', price: 59, annual: 590, maxRuns: 3, runHours: [6, 12, 18],
+    priceId: (process.env.STRIPE_GROWTH_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
+    annualPriceId: (process.env.STRIPE_GROWTH_ANNUAL_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
+    images: 60, kling: 25, sora: 5, platforms: 3, brands: 1,
+    video: true, analytics: true, white_label: false, api: false,
+    features: ['3 platforms', '60 AI images/mo', '25 Kling videos', '5 Sora videos', 'AI brain 3×/day', 'Paid ads', 'Competitor tracking', 'Analytics'],
+  },
+  agency: {
+    name: 'Agency', price: 99, annual: 990, maxRuns: 5, runHours: [6, 9, 12, 15, 18],
+    priceId: (process.env.STRIPE_AGENCY_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
+    annualPriceId: (process.env.STRIPE_AGENCY_ANNUAL_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
+    images: 120, kling: 50, sora: 15, platforms: 99, brands: 3,
+    video: true, analytics: true, white_label: true, api: true,
+    features: ['Unlimited platforms', '120 AI images/mo', '50 Kling videos', '15 Sora videos', 'AI brain 5×/day', '3 brands', 'White-label', 'API access'],
+  },
   // Legacy alias
-  free:    { name: 'Starter', price: 29, annual: 290, maxRuns: 1, runHours: [6], priceId: (process.env.STRIPE_STARTER_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(), annualPriceId: '', features: ['1 social account', '30 AI posts/mo'] },
+  free: {
+    name: 'Starter', price: 29, annual: 290, maxRuns: 1, runHours: [6],
+    priceId: (process.env.STRIPE_STARTER_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
+    annualPriceId: '', images: 20, kling: 0, sora: 0, platforms: 1, brands: 1,
+    video: false, analytics: false, white_label: false, api: false,
+    features: ['1 platform', '20 AI images/mo'],
+  },
 };
 
 // GET /api/billing/plans — public, no auth needed
@@ -9966,6 +9984,35 @@ app.get('/api/waitlist/count', async (req, res) => {
     const rows = await sbGet('waitlist', 'select=id');
     res.json({ count: rows.length });
   } catch (err) { res.json({ count: 0 }); }
+});
+
+// ─── POST /api/generate — Plan-gated generation with usage tracking ─────────
+const GENERATE_MODELS = {
+  generate_image:       { model_used: 'nano-banana-pro', credits_used: 1  },
+  generate_video_kling: { model_used: 'kling-3.0',       credits_used: 6  },
+  generate_video_sora:  { model_used: 'sora-2',          credits_used: 50 }
+};
+
+app.post('/api/generate', checkPlanLimit, async (req, res) => {
+  try {
+    const { user_id, action } = req.body;
+    const model = GENERATE_MODELS[action];
+    if (!model) return apiError(res, 400, 'INVALID_ACTION', `Unknown action: ${action}`);
+
+    await sbPost('usage_logs', {
+      user_id,
+      action,
+      plan_name: req.userPlan,
+      model_used: model.model_used,
+      credits_used: model.credits_used,
+      status: 'success'
+    });
+
+    res.json({ success: true, action, plan: req.userPlan, ...model });
+  } catch (err) {
+    logger.error('/api/generate', req.body?.user_id, 'Generate failed', err);
+    apiError(res, 500, 'GENERATE_ERROR', err.message);
+  }
 });
 
 // ─── 404 ──────────────────────────────────────────────────────────────────────
