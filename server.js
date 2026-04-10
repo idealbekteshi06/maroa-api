@@ -2681,7 +2681,12 @@ app.post('/api/checkout', async (req, res) => {
   if (!planObj)         return res.status(400).json({ error: `Unknown plan: ${plan}. Valid: starter, growth, agency` });
   if (!planObj.priceId) return res.status(400).json({ error: `No Paddle price ID for "${plan}". Set PADDLE_${plan.toUpperCase()}_PRICE_ID in Railway.` });
 
-  const biz = (await sbGet('businesses', `id=eq.${user_id}&select=email,first_name,business_name`))[0];
+  let biz;
+  try {
+    biz = (await sbGet('businesses', `id=eq.${user_id}&select=email,first_name,business_name`))[0];
+  } catch (err) {
+    return res.status(500).json({ error: 'Database error', detail: err.message });
+  }
   if (!biz) return res.status(404).json({ error: 'Business not found' });
 
   try {
@@ -2696,7 +2701,7 @@ app.post('/api/checkout', async (req, res) => {
     res.json({ success: true, checkout_url: result.checkout_url, transaction_id: result.transaction_id });
   } catch (err) {
     console.error('[checkout ERROR]', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Paddle checkout failed', detail: err.message });
   }
 });
 
