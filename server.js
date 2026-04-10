@@ -110,6 +110,8 @@ app.use(express.json({ limit: '10mb' }));
 function requireN8nWebhookSecret(req, res, next) {
   const pathOnly = req.originalUrl.split('?')[0];
   if (pathOnly === '/webhook/stripe-webhook') return next();
+  if (pathOnly === '/webhook/email-approve') return next();
+  if (pathOnly === '/webhook/dashboard-events') return next();
   if (req.method === 'OPTIONS') return next();
   if (!N8N_WEBHOOK_SECRET) {
     return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'N8N_WEBHOOK_SECRET not configured');
