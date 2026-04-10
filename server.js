@@ -14,7 +14,7 @@ const { validate } = require('./lib/validators');
 const { checkRateLimit } = require('./lib/rateLimit');
 const planGate = require('./middleware/planGate');
 const { checkPlanLimit } = require('./middleware/planLimits');
-const Stripe = require('stripe');
+const paddle = require('./services/paddle');
 
 const logger = {
   info: (route, businessId, message, data = {}) => {
@@ -75,7 +75,7 @@ const corsOptions = {
     'http://localhost:5173'
   ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'apikey', 'x-orchestrator-secret', 'x-webhook-secret', 'stripe-signature'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'apikey', 'x-orchestrator-secret', 'x-webhook-secret', 'paddle-signature'],
   credentials: true
 };
 app.use(cors(corsOptions));
@@ -102,14 +102,14 @@ app.use((req, res, next) => {
   next();
 });
 
-const stripeWebhookRawBody = express.raw({ type: 'application/json' });
-app.post('/webhook/stripe-webhook', stripeWebhookRawBody, stripeWebhookHandler);
+const paddleWebhookRawBody = express.raw({ type: 'application/json' });
+app.post('/webhook/paddle-webhook', paddleWebhookRawBody, paddleWebhookHandler);
 
 app.use(express.json({ limit: '10mb' }));
 
 function requireN8nWebhookSecret(req, res, next) {
   const pathOnly = req.originalUrl.split('?')[0];
-  if (pathOnly === '/webhook/stripe-webhook') return next();
+  if (pathOnly === '/webhook/paddle-webhook') return next();
   if (pathOnly === '/webhook/email-approve') return next();
   if (pathOnly === '/webhook/dashboard-events') return next();
   if (req.method === 'OPTIONS') return next();
@@ -199,21 +199,21 @@ const GOOGLE_AI_API_KEY   = clean(process.env.GOOGLE_AI_API_KEY)   || '';
 const TWILIO_ACCOUNT_SID  = clean(process.env.TWILIO_ACCOUNT_SID)  || '';
 const TWILIO_AUTH_TOKEN   = clean(process.env.TWILIO_AUTH_TOKEN)   || '';
 const TWILIO_WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM     || 'whatsapp:+14155238886';
-// Stripe Billing
-const STRIPE_SECRET_KEY    = clean(process.env.STRIPE_SECRET_KEY)    || '';
-const STRIPE_WEBHOOK_SECRET= clean(process.env.STRIPE_WEBHOOK_SECRET)|| '';
-const STRIPE_GROWTH_PRICE  = clean(process.env.STRIPE_GROWTH_PRICE_ID)|| '';
-const STRIPE_AGENCY_PRICE  = clean(process.env.STRIPE_AGENCY_PRICE_ID)|| '';
+// Paddle Billing
+const PADDLE_WEBHOOK_SECRET = clean(process.env.PADDLE_WEBHOOK_SECRET) || '';
+const PADDLE_STARTER_PRICE = clean(process.env.PADDLE_STARTER_PRICE_ID) || '';
+const PADDLE_GROWTH_PRICE  = clean(process.env.PADDLE_GROWTH_PRICE_ID) || '';
+const PADDLE_AGENCY_PRICE  = clean(process.env.PADDLE_AGENCY_PRICE_ID) || '';
 const ORCHESTRATOR_SECRET  = clean(process.env.ORCHESTRATOR_SECRET)   || '';
 const N8N_WEBHOOK_SECRET   = clean(process.env.N8N_WEBHOOK_SECRET)    || '';
 
-const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
+// Paddle client initialized in services/paddle.js
 
 function isInternalMaroaWebhookUrl(urlString) {
   try {
     const u = new URL(urlString);
     const p = u.pathname;
-    if (p === '/webhook/stripe-webhook') return false;
+    if (p === '/webhook/paddle-webhook') return false;
     if (!p.startsWith('/webhook/')) return false;
     const h = u.hostname.toLowerCase();
     return h === 'localhost' || h === '127.0.0.1' || h === 'maroa-api-production.up.railway.app';
@@ -1362,11 +1362,11 @@ app.get('/health', (req, res) => {
     linkedin:   !!process.env.LINKEDIN_CLIENT_ID,
     tiktok:     !!process.env.TIKTOK_CLIENT_KEY || !!process.env.TIKTOK_CLIENT_SECRET,
     twitter:    !!process.env.TWITTER_CLIENT_ID || !!process.env.TWITTER_CLIENT_SECRET,
-    stripe:     !!process.env.STRIPE_SECRET_KEY || !!process.env.STRIPE_KEY,
+    paddle:     !!process.env.PADDLE_API_KEY,
     runway:     !!RUNWAY_API_KEY || !!process.env.RUNWAY_API_KEY,
     google_ai:  !!GOOGLE_AI_API_KEY,
     twilio:     !!TWILIO_ACCOUNT_SID,
-    stripe_billing: !!STRIPE_SECRET_KEY
+    paddle_billing: !!paddle.PADDLE_API_KEY
   };
   const missing = Object.entries(vars).filter(([,v]) => !v).map(([k]) => k);
   // Diagnostic: show raw env var presence for the missing ones
@@ -1374,7 +1374,7 @@ app.get('/health', (req, res) => {
     OPENAI_API_KEY:     process.env.OPENAI_API_KEY    ? 'SET' : 'NOT SET',
     PINECONE_API_KEY:   process.env.PINECONE_API_KEY  ? 'SET' : 'NOT SET',
     PINECONE_HOST:      process.env.PINECONE_HOST     ? 'SET' : 'NOT SET',
-    STRIPE_SECRET_KEY:  process.env.STRIPE_SECRET_KEY ? 'SET' : 'NOT SET',
+    PADDLE_API_KEY:     process.env.PADDLE_API_KEY ? 'SET' : 'NOT SET',
     RUNWAY_API_KEY:     process.env.RUNWAY_API_KEY    ? 'SET' : 'NOT SET',
     TIKTOK_CLIENT_KEY:  process.env.TIKTOK_CLIENT_KEY ? 'set' : 'NOT SET',
     TIKTOK_CLIENT_SECRET: process.env.TIKTOK_CLIENT_SECRET ? 'set' : 'NOT SET',
@@ -2635,24 +2635,21 @@ app.post('/meta-oauth-exchange', async (req, res) => {
 const PLANS = {
   starter: {
     name: 'Starter', price: 29, annual: 290, maxRuns: 1, runHours: [6],
-    priceId: (process.env.STRIPE_STARTER_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
-    annualPriceId: (process.env.STRIPE_STARTER_ANNUAL_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
+    priceId: PADDLE_STARTER_PRICE,
     images: 20, kling: 0, sora: 0, platforms: 1, brands: 1,
     video: false, analytics: false, white_label: false, api: false,
     features: ['1 platform', '20 AI images/mo', 'AI brain 1×/day', 'Content calendar', 'Email support'],
   },
   growth: {
     name: 'Growth', price: 59, annual: 590, maxRuns: 3, runHours: [6, 12, 18],
-    priceId: (process.env.STRIPE_GROWTH_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
-    annualPriceId: (process.env.STRIPE_GROWTH_ANNUAL_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
+    priceId: PADDLE_GROWTH_PRICE,
     images: 60, kling: 25, sora: 5, platforms: 3, brands: 1,
     video: true, analytics: true, white_label: false, api: false,
     features: ['3 platforms', '60 AI images/mo', '25 Kling videos', '5 Sora videos', 'AI brain 3×/day', 'Paid ads', 'Competitor tracking', 'Analytics'],
   },
   agency: {
     name: 'Agency', price: 99, annual: 990, maxRuns: 5, runHours: [6, 9, 12, 15, 18],
-    priceId: (process.env.STRIPE_AGENCY_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
-    annualPriceId: (process.env.STRIPE_AGENCY_ANNUAL_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
+    priceId: PADDLE_AGENCY_PRICE,
     images: 120, kling: 50, sora: 15, platforms: 99, brands: 3,
     video: true, analytics: true, white_label: true, api: true,
     features: ['Unlimited platforms', '120 AI images/mo', '50 Kling videos', '15 Sora videos', 'AI brain 5×/day', '3 brands', 'White-label', 'API access'],
@@ -2660,8 +2657,8 @@ const PLANS = {
   // Legacy alias
   free: {
     name: 'Starter', price: 29, annual: 290, maxRuns: 1, runHours: [6],
-    priceId: (process.env.STRIPE_STARTER_PRICE_ID || '').replace(/[^\x20-\x7E]/g,'').trim(),
-    annualPriceId: '', images: 20, kling: 0, sora: 0, platforms: 1, brands: 1,
+    priceId: PADDLE_STARTER_PRICE,
+    images: 20, kling: 0, sora: 0, platforms: 1, brands: 1,
     video: false, analytics: false, white_label: false, api: false,
     features: ['1 platform', '20 AI images/mo'],
   },
@@ -2672,47 +2669,41 @@ app.get('/api/billing/plans', (req, res) => {
   res.json({ plans: PLANS });
 });
 
-// POST /webhook/create-checkout — create Stripe Checkout Session
-// Body: { business_id, plan }
-app.post('/webhook/create-checkout', async (req, res) => {
-  const { business_id, plan, success_url, cancel_url } = req.body;
-  if (!business_id || !plan) return res.status(400).json({ error: 'business_id and plan required' });
+// POST /api/checkout — create Paddle checkout session
+// Body: { user_id, plan }
+app.post('/api/checkout', async (req, res) => {
+  const { user_id, plan, success_url } = req.body;
+  if (!user_id || !plan) return res.status(400).json({ error: 'user_id and plan required' });
 
-  const STRIPE_KEY = (process.env.STRIPE_SECRET_KEY || '').replace(/[^\x20-\x7E]/g,'').trim();
-  if (!STRIPE_KEY) return res.status(500).json({ error: 'STRIPE_SECRET_KEY not set in Railway env vars' });
+  if (!paddle.PADDLE_API_KEY) return res.status(500).json({ error: 'PADDLE_API_KEY not set in Railway env vars' });
 
   const planObj = PLANS[plan];
-  if (!planObj)          return res.status(400).json({ error: `Unknown plan: ${plan}. Valid: free, growth, agency` });
-  if (!planObj.priceId)  return res.status(400).json({ error: `No Stripe price ID for "${plan}". Set STRIPE_${plan.toUpperCase()}_PRICE_ID in Railway.` });
+  if (!planObj)         return res.status(400).json({ error: `Unknown plan: ${plan}. Valid: starter, growth, agency` });
+  if (!planObj.priceId) return res.status(400).json({ error: `No Paddle price ID for "${plan}". Set PADDLE_${plan.toUpperCase()}_PRICE_ID in Railway.` });
 
-  const biz = (await sbGet('businesses', `id=eq.${business_id}&select=email,first_name,business_name`))[0];
+  const biz = (await sbGet('businesses', `id=eq.${user_id}&select=email,first_name,business_name`))[0];
   if (!biz) return res.status(404).json({ error: 'Business not found' });
 
   try {
-    const params = new URLSearchParams({
-      'mode':                           'subscription',
-      'line_items[0][price]':          planObj.priceId,
-      'line_items[0][quantity]':       '1',
-      'customer_email':                biz.email,
-      'metadata[business_id]':         business_id,
-      'metadata[plan]':                plan,
-      'success_url':                   success_url || 'https://maroa-ai-marketing-automator.vercel.app/dashboard?upgraded=true',
-      'cancel_url':                    cancel_url  || 'https://maroa-ai-marketing-automator.vercel.app/billing',
-      'allow_promotion_codes':         'true',
+    const result = await paddle.createCheckoutSession({
+      priceId: planObj.priceId,
+      businessId: user_id,
+      plan,
+      customerEmail: biz.email,
+      successUrl: success_url || 'https://maroa-ai-marketing-automator.vercel.app/dashboard?upgraded=true',
     });
-    const r = await fetch('https://api.stripe.com/v1/checkout/sessions', {
-      method:  'POST',
-      headers: { Authorization: `Bearer ${STRIPE_KEY}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body:    params.toString()
-    });
-    const d = await r.json();
-    if (!d.url) return res.status(400).json({ error: 'Stripe session creation failed', detail: d });
-    log('/webhook/create-checkout', `Checkout for ${biz.email} → ${plan}`);
-    res.json({ received: true, checkout_url: d.url, session_id: d.id });
+    log('/api/checkout', `Paddle checkout for ${biz.email} → ${plan}`);
+    res.json({ success: true, checkout_url: result.checkout_url, transaction_id: result.transaction_id });
   } catch (err) {
-    console.error('[create-checkout ERROR]', err.message);
+    console.error('[checkout ERROR]', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// Keep legacy route as alias
+app.post('/webhook/create-checkout', async (req, res) => {
+  req.body.user_id = req.body.user_id || req.body.business_id;
+  return app._router.handle(Object.assign(req, { url: '/api/checkout', originalUrl: '/api/checkout' }), res, () => {});
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -8246,46 +8237,73 @@ app.get('/webhook/dashboard-events', (req, res) => {
   req.on('close', () => { clearInterval(heartbeat); sseClients.delete(business_id); });
 });
 
-// ── PIECE 5: Stripe Webhook Handler — route registered at top (raw body); handler hoisted below ──
-async function stripeWebhookHandler(req, res) {
-  if (!STRIPE_WEBHOOK_SECRET) {
-    return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'STRIPE_WEBHOOK_SECRET not configured');
+// ── PIECE 5: Paddle Webhook Handler — route registered at top (raw body); handler hoisted below ──
+// Maps Paddle price IDs to plan names
+const PADDLE_PRICE_TO_PLAN = {};
+if (PADDLE_STARTER_PRICE) PADDLE_PRICE_TO_PLAN[PADDLE_STARTER_PRICE] = 'starter';
+if (PADDLE_GROWTH_PRICE)  PADDLE_PRICE_TO_PLAN[PADDLE_GROWTH_PRICE]  = 'growth';
+if (PADDLE_AGENCY_PRICE)  PADDLE_PRICE_TO_PLAN[PADDLE_AGENCY_PRICE]  = 'agency';
+
+async function paddleWebhookHandler(req, res) {
+  if (!PADDLE_WEBHOOK_SECRET) {
+    return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'PADDLE_WEBHOOK_SECRET not configured');
   }
-  if (!stripe) {
-    return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'STRIPE_SECRET_KEY not configured');
-  }
-  const sig = req.headers['stripe-signature'];
+  const sig = req.headers['paddle-signature'];
   const rawBody = req.body;
   if (!sig || !Buffer.isBuffer(rawBody)) {
-    return apiError(res, 400, 'INVALID_REQUEST', 'Missing Stripe signature or raw body');
+    return apiError(res, 400, 'INVALID_REQUEST', 'Missing Paddle signature or raw body');
   }
-  let event;
-  try {
-    event = stripe.webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET);
-  } catch (err) {
-    logger.warn('/webhook/stripe-webhook', null, 'Stripe signature verification failed', { message: err.message, request_id: req.requestId });
+  const valid = paddle.verifyWebhookSignature(rawBody.toString(), sig, PADDLE_WEBHOOK_SECRET);
+  if (!valid) {
+    logger.warn('/webhook/paddle-webhook', null, 'Paddle signature verification failed', { request_id: req.requestId });
     return apiError(res, 400, 'INVALID_SIGNATURE', 'Webhook signature verification failed');
   }
+  let event;
+  try { event = JSON.parse(rawBody.toString()); } catch { return apiError(res, 400, 'INVALID_JSON', 'Could not parse webhook body'); }
   res.json({ received: true });
   try {
-    if (!event?.type) return;
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data?.object;
-      const businessId = session?.metadata?.business_id;
-      const plan = session?.metadata?.plan;
-      if (businessId && plan) {
-        await sbPatch('businesses', `id=eq.${businessId}`, { plan, stripe_customer_id: session.customer, stripe_subscription_id: session.subscription });
+    const eventType = event?.event_type;
+    const data = event?.data;
+    if (!eventType || !data) return;
+
+    if (eventType === 'subscription.activated' || eventType === 'subscription.updated') {
+      const customData = data.custom_data || {};
+      const businessId = customData.business_id;
+      const priceId = data.items?.[0]?.price?.id;
+      const plan = customData.plan || PADDLE_PRICE_TO_PLAN[priceId] || 'starter';
+      if (businessId) {
+        await sbPatch('businesses', `id=eq.${businessId}`, {
+          plan,
+          paddle_customer_id: data.customer_id,
+          paddle_subscription_id: data.id
+        });
         const biz = (await sbGet('businesses', `id=eq.${businessId}&select=email,business_name,whatsapp_number,whatsapp_enabled`))[0];
-        if (biz?.email) await sendEmail(biz.email, `Welcome to ${plan} plan! — ${biz.business_name}`, `<h2>🎉 You're now on the ${plan} plan!</h2><p>Your AI just unlocked: ${plan === 'agency' ? 'white-label, multi-workspace, priority support' : 'ad campaigns, competitor intel, advanced analytics'}.</p>`).catch(() => {});
-        if (biz?.whatsapp_number && biz.whatsapp_enabled) sendWhatsApp(biz.whatsapp_number, `🎉 *Upgraded to ${plan}!* Your AI just unlocked new features.`).catch(() => {});
+        if (biz?.email) await sendEmail(biz.email, `Welcome to ${plan} plan! — ${biz.business_name}`, `<h2>You're now on the ${plan} plan!</h2><p>Your AI just unlocked: ${plan === 'agency' ? 'white-label, multi-workspace, priority support' : 'ad campaigns, competitor intel, advanced analytics'}.</p>`).catch(() => {});
+        if (biz?.whatsapp_number && biz.whatsapp_enabled) sendWhatsApp(biz.whatsapp_number, `*Upgraded to ${plan}!* Your AI just unlocked new features.`).catch(() => {});
         sendSSE(businessId, 'plan_upgraded', { plan });
       }
-    } else if (event.type === 'customer.subscription.deleted') {
-      const sub = event.data?.object;
-      const bizArr = await sbGet('businesses', `stripe_subscription_id=eq.${sub?.id}&select=id,email`);
-      if (bizArr[0]) { await sbPatch('businesses', `id=eq.${bizArr[0].id}`, { plan: 'free' }); }
+    } else if (eventType === 'subscription.canceled') {
+      const businessId = data.custom_data?.business_id;
+      if (businessId) {
+        await sbPatch('businesses', `id=eq.${businessId}`, { plan: 'free' });
+      } else {
+        const bizArr = await sbGet('businesses', `paddle_subscription_id=eq.${data.id}&select=id`);
+        if (bizArr[0]) await sbPatch('businesses', `id=eq.${bizArr[0].id}`, { plan: 'free' });
+      }
+    } else if (eventType === 'transaction.completed') {
+      const customData = data.custom_data || {};
+      if (customData.business_id) {
+        await sbPost('usage_logs', {
+          user_id: customData.business_id,
+          action: 'paddle_transaction',
+          plan_name: customData.plan || 'unknown',
+          model_used: 'paddle',
+          credits_used: 0,
+          status: 'success'
+        }).catch(() => {});
+      }
     }
-  } catch (err) { console.error('[stripe-webhook ERROR]', err.message); }
+  } catch (err) { console.error('[paddle-webhook ERROR]', err.message); }
 }
 
 // ── PIECE 6: Google My Business Auto-Post ───────────────────────────────────
