@@ -9091,6 +9091,28 @@ app.get('/api/onboarding/score/:userId', async (req, res) => {
   }
 });
 
+// ─── AI Chat Assistant ───────────────────────────────────────────────────────
+app.post('/webhook/ai-chat', async (req, res) => {
+  try {
+    const { message, business_id } = req.body;
+    if (!message) return res.status(400).json({ error: 'Message required' });
+
+    let bizCtx = 'Business context not available';
+    try {
+      const p = await getProfile(business_id);
+      if (p) bizCtx = `Business: ${p.business_name}, Type: ${p.business_type}, City: ${pCity(p)}, Language: ${p.primary_language || 'Albanian'}, Goal: ${p.primary_goal || 'grow'}, USP: ${p.usp || ''}`;
+    } catch {}
+
+    const systemPrompt = `You are an expert AI marketing assistant for maroa.ai. You help small business owners with marketing strategy, content ideas, and growth tactics.\n${bizCtx}\nBe concise, practical, and specific to their business. Respond in the same language the user writes in.`;
+    const result = await callClaude(`${systemPrompt}\n\nUser: ${message}`, 'claude-sonnet-4-5', 1000);
+    const reply = result._raw || (typeof result === 'object' ? JSON.stringify(result) : String(result));
+    res.json({ reply, success: true });
+  } catch (err) {
+    console.error('AI chat error:', err.message);
+    res.status(500).json({ error: 'Chat failed', reply: 'Sorry, something went wrong. Please try again.' });
+  }
+});
+
 // ─── Waitlist Registration ────────────────────────────────────────────────────
 app.post('/api/waitlist/register', async (req, res) => {
   const { name, email, plan, business_type, country } = req.body;
