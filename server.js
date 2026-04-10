@@ -315,12 +315,26 @@ async function saveImageToSupabase(imageUrl, businessId) {
 // SMART IMAGE GENERATION SYSTEM — Multi-model with plan-based routing
 // ═════════════════════════════════════════════════════════════════════════════
 
+// ── Model: Ideogram V2 Turbo ─────────────────────────────────────────────────
+const IDEOGRAM_API_KEY = clean(process.env.IDEOGRAM_API_KEY) || '';
+async function generateWithIdeogram(prompt, aspectRatio = '1:1') {
+  if (!IDEOGRAM_API_KEY) throw new Error('IDEOGRAM_API_KEY not set');
+  const aspectMap = { '1:1': 'ASPECT_1_1', '9:16': 'ASPECT_9_16', '16:9': 'ASPECT_16_9' };
+  const r = await apiRequest('POST', 'https://api.ideogram.ai/generate',
+    { 'Api-Key': IDEOGRAM_API_KEY, 'Content-Type': 'application/json' },
+    { image_request: { prompt: (prompt + '. No text, no words, no watermarks.').slice(0, 1200), negative_prompt: IMAGE_NEGATIVE_PROMPT, model: 'V_2_TURBO', magic_prompt_option: 'AUTO', style_type: 'REALISTIC', aspect_ratio: aspectMap[aspectRatio] || 'ASPECT_1_1' } });
+  if (r.status !== 200) throw new Error(`Ideogram: ${r.status}`);
+  const url = r.body?.data?.[0]?.url;
+  if (!url) throw new Error('No image from Ideogram');
+  return url;
+}
+
 // ── Model: Flux 1.1 Pro via Replicate ────────────────────────────────────────
 async function generateWithFlux(prompt) {
   if (!REPLICATE_API_KEY) throw new Error('REPLICATE_API_KEY not set');
   const pred = await apiRequest('POST', 'https://api.replicate.com/v1/models/black-forest-labs/flux-1.1-pro/predictions',
     { 'Authorization': `Bearer ${REPLICATE_API_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'wait' },
-    { input: { prompt: prompt.slice(0, 500), aspect_ratio: '1:1', output_format: 'webp', safety_tolerance: 2 } });
+    { input: { prompt: prompt.slice(0, 500), negative_prompt: IMAGE_NEGATIVE_PROMPT, aspect_ratio: '1:1', output_format: 'webp', safety_tolerance: 2 } });
   if (pred.status === 200 || pred.status === 201) {
     let output = pred.body?.output;
     if (!output && pred.body?.id) {
@@ -403,49 +417,96 @@ async function generateWithPexels(query) {
 
 // ── Model order by plan + content type ───────────────────────────────────────
 function getModelOrder(plan, contentType) {
+  // All plans get AI-generated images — Pexels is last resort only
   if (plan === 'agency') {
     if (['ad_creative','hero_image','product_photo'].includes(contentType))
-      return ['gemini','flux','dalle3','pexels'];
-    if (['blog_featured','landing_page'].includes(contentType))
-      return ['dalle3','gemini','flux','pexels'];
-    return ['gemini','flux','pexels'];
+      return ['ideogram','gemini','flux','dalle3','pexels'];
+    return ['ideogram','gemini','flux','pexels'];
   }
   if (plan === 'growth') {
-    if (['ad_creative','blog_featured'].includes(contentType))
-      return ['flux','dalle3','pexels'];
-    return ['flux','pexels'];
+    return ['ideogram','flux','gemini','pexels'];
   }
-  // free plan — stock photos only
-  return ['pexels'];
+  // starter — still gets AI images, just fewer model options
+  return ['flux','gemini','pexels'];
 }
 
-// ── Smart prompt builder ─────────────────────────────────────────────────────
-async function buildImagePrompt(basePrompt, contentType, plan) {
+// ── Business-type image style rules ─────────────────────────────────────────
+const IMAGE_STYLE_RULES = {
+  fitness:    { lighting: 'dramatic side lighting with rim light', mood: 'intense and aspirational', aesthetic: 'Nike campaign sports photography', colors: 'high contrast warm tones with deep shadows', extra: 'motion blur or frozen action, strong shadows, athletic energy' },
+  restaurant: { lighting: 'warm studio lighting with soft golden glow', mood: 'appetizing and luxurious', aesthetic: 'Michelin restaurant food photography', colors: 'rich warm golden tones', extra: 'shallow depth of field, steam rising, close-up textures' },
+  cafe:       { lighting: 'soft warm morning light', mood: 'cozy and inviting', aesthetic: 'lifestyle coffee photography', colors: 'warm browns, cream, natural tones', extra: 'latte art, steam, rustic textures' },
+  beauty:     { lighting: 'soft diffused lighting, clean whites', mood: 'elegant and luxurious', aesthetic: 'luxury beauty brand campaign', colors: 'soft pastels, blush pink, clean white', extra: 'macro detail shots, dewy textures' },
+  retail:     { lighting: 'bright clean studio lighting', mood: 'fresh and inviting', aesthetic: 'lifestyle product photography', colors: 'bright and airy, natural tones', extra: 'clean background, styled flat lay' },
+  medical:    { lighting: 'clean even lighting, clinical whites', mood: 'trustworthy and calm', aesthetic: 'healthcare brand photography', colors: 'calm blues, clean whites, soft greens', extra: 'trust-building composition' },
+  realestate: { lighting: 'golden hour natural lighting', mood: 'aspirational and inviting', aesthetic: 'architectural photography', colors: 'warm golden hour tones, blue sky', extra: 'wide angle, HDR look' },
+  education:  { lighting: 'bright warm natural lighting', mood: 'optimistic and engaging', aesthetic: 'education brand photography', colors: 'warm friendly tones, bright accents', extra: 'candid feel, genuine expression' },
+  events:     { lighting: 'dramatic colored lighting, stage lights', mood: 'energetic and exciting', aesthetic: 'event photography', colors: 'vibrant saturated colors, light trails', extra: 'motion, energy, bokeh lights' },
+  tech:       { lighting: 'clean modern lighting, cool tones', mood: 'innovative and sleek', aesthetic: 'tech brand photography', colors: 'cool blues, dark backgrounds, neon accents', extra: 'minimalist, futuristic feel' },
+  automotive: { lighting: 'dramatic automotive lighting, reflections', mood: 'powerful and sleek', aesthetic: 'car advertisement photography', colors: 'deep blacks, metallic highlights', extra: 'motion blur, reflection shots' },
+  default:    { lighting: 'professional studio lighting', mood: 'modern and polished', aesthetic: 'commercial brand photography', colors: 'clean natural tones', extra: 'clean composition, professional quality' }
+};
+
+const IMAGE_NEGATIVE_PROMPT = 'blurry, low quality, stock photo, watermark, text, logo, oversaturated, dark, muddy, amateur, pixelated, distorted, cartoon, illustration, painting, generic';
+
+function detectImageStyle(businessType) {
+  const t = (businessType || '').toLowerCase();
+  if (t.includes('fitness') || t.includes('gym') || t.includes('sport')) return IMAGE_STYLE_RULES.fitness;
+  if (t.includes('restaurant') || t.includes('food') || t.includes('bar')) return IMAGE_STYLE_RULES.restaurant;
+  if (t.includes('cafe') || t.includes('coffee')) return IMAGE_STYLE_RULES.cafe;
+  if (t.includes('beauty') || t.includes('salon') || t.includes('spa')) return IMAGE_STYLE_RULES.beauty;
+  if (t.includes('retail') || t.includes('shop') || t.includes('store')) return IMAGE_STYLE_RULES.retail;
+  if (t.includes('medical') || t.includes('health') || t.includes('dental')) return IMAGE_STYLE_RULES.medical;
+  if (t.includes('real estate') || t.includes('property')) return IMAGE_STYLE_RULES.realestate;
+  if (t.includes('education') || t.includes('tutor')) return IMAGE_STYLE_RULES.education;
+  if (t.includes('event') || t.includes('entertainment')) return IMAGE_STYLE_RULES.events;
+  if (t.includes('tech') || t.includes('software')) return IMAGE_STYLE_RULES.tech;
+  if (t.includes('auto') || t.includes('car')) return IMAGE_STYLE_RULES.automotive;
+  return IMAGE_STYLE_RULES.default;
+}
+
+// ── Smart prompt builder (business-type aware) ──────────────────────────────
+async function buildImagePrompt(basePrompt, contentType, plan, profile) {
+  const style = detectImageStyle(profile?.business_type);
+  const aspect = ['video_thumbnail','reel_cover','instagram_story'].includes(contentType) ? '9:16' : ['blog_featured','facebook_post','ad_creative'].includes(contentType) ? '16:9' : '1:1';
+  const audienceCtx = profile?.audience_description ? `, relatable to ${profile.audience_description}` : '';
+  const cityCtx = profile?.physical_locations?.[0]?.city ? `, local feel of ${profile.physical_locations[0].city}` : '';
+
+  const structured = `${basePrompt}, ${style.lighting}, composition with clear space for text overlay, ${style.mood} mood, ${style.aesthetic}, ${style.colors}, ${aspect} format, professional marketing photography, commercial quality, ${style.extra}${audienceCtx}${cityCtx}, no text on image, no watermarks`;
+
   if (plan === 'agency') {
     try {
       const result = await callClaude(
-        `You are an expert AI image prompt engineer. Transform this into a detailed prompt for a stunning marketing image.\nOriginal: "${basePrompt}"\nContent type: ${contentType}\nRequirements: professional quality, no text overlays, clean modern aesthetic, photorealistic, specific lighting/composition/mood. Return ONLY the enhanced prompt, max 200 words.`,
+        `You are an expert AI image prompt engineer for a ${profile?.business_type || 'business'}.\nENHANCE this prompt to be vivid and specific. Keep ALL technical details.\nOriginal: "${structured}"\nReturn ONLY the enhanced prompt, max 200 words.`,
         'claude-sonnet-4-5', 300);
-      return result._raw || (typeof result === 'string' ? result : basePrompt);
-    } catch { return basePrompt; }
+      const enhanced = result._raw || (typeof result === 'string' ? result : structured);
+      log('buildImagePrompt', `[AGENCY] ${enhanced.slice(0, 120)}...`);
+      return enhanced;
+    } catch {}
   }
-  if (plan === 'growth') {
-    return `${basePrompt}, professional photography, clean background, marketing quality, high resolution, 4k`;
-  }
-  return basePrompt;
+
+  log('buildImagePrompt', `[${(plan || 'default').toUpperCase()}] ${structured.slice(0, 120)}...`);
+  return structured;
 }
 
 // ── MAIN: generateSmartImage ─────────────────────────────────────────────────
 async function generateSmartImage(businessId, prompt, contentType = 'social_post', plan = 'free') {
   const startTime = Date.now();
-  const enhanced  = await buildImagePrompt(prompt, contentType, plan);
+  // Fetch profile for business-type-aware image prompts
+  let profile = null;
+  try { const r = await sbGet('business_profiles', `user_id=eq.${businessId}&select=business_type,physical_locations,audience_description`).catch(() => []); profile = r[0]; } catch {}
+  if (!profile) { try { const r = await sbGet('businesses', `id=eq.${businessId}&select=industry,location,target_audience`); if (r[0]) profile = { business_type: r[0].industry, physical_locations: r[0].location ? [{ city: r[0].location }] : [], audience_description: r[0].target_audience }; } catch {} }
+
+  const enhanced  = await buildImagePrompt(prompt, contentType, plan, profile);
   const models    = getModelOrder(plan, contentType);
   const fallbackQ = prompt.split(',')[0] || 'professional business marketing';
+  const aspect    = ['video_thumbnail','reel_cover','instagram_story'].includes(contentType) ? '9:16' : ['blog_featured','facebook_post','ad_creative'].includes(contentType) ? '16:9' : '1:1';
 
   for (const model of models) {
     try {
       let url = null;
-      if (model === 'gemini') {
+      if (model === 'ideogram') {
+        url = await generateWithIdeogram(enhanced, aspect);
+      } else if (model === 'gemini') {
         url = await generateWithGemini(enhanced, businessId);
         // Gemini already uploaded to Supabase, URL is permanent
         return { url, source: 'gemini', model_used: 'gemini', generation_time_ms: Date.now() - startTime };
@@ -590,11 +651,11 @@ async function generateWithRefinement(basePrompt, taskType, profile, bizId) {
 
   // Pass 2: Critique
   try {
-    const critiquePrompt = `You are a senior marketing director reviewing content for ${profile?.business_name || 'a local business'} in ${profile?.physical_locations?.[0]?.city || 'Kosovo'}.\n\nCONTENT:\n"${mainText.slice(0, 600)}"\n\nScore 1-10:\n1. Specificity (is it for THIS business or generic?)\n2. Hook strength (would someone stop scrolling?)\n3. Local relevance (does it feel local?)\n4. CTA clarity\n5. Language match (${profile?.primary_language || 'Albanian'})\n\nIf ANY score < 7, list exact fixes.\nReturn ONLY valid JSON: {"scores":{"specificity":0,"hook":0,"local":0,"cta":0,"language":0},"needs_refinement":false,"improvements":[]}`;
+    const critiquePrompt = `You are a senior marketing director reviewing content for ${profile?.business_name || 'a local business'} in ${profile?.physical_locations?.[0]?.city || 'Kosovo'}.\n\nCONTENT:\n"${mainText.slice(0, 600)}"\n\nScore 1-10:\n1. Specificity (is it for THIS business or generic?)\n2. Hook strength (would someone stop scrolling?)\n3. Local relevance (does it feel local?)\n4. CTA clarity\n5. Language match (${profile?.primary_language || 'English'})\n\nIf ANY score < 7, list exact fixes.\nReturn ONLY valid JSON: {"scores":{"specificity":0,"hook":0,"local":0,"cta":0,"language":0},"needs_refinement":false,"improvements":[]}`;
     const critique = await callClaude(critiquePrompt, 'claude-sonnet-4-5', 400);
     if (critique?.needs_refinement && Array.isArray(critique.improvements) && critique.improvements.length > 0) {
       // Pass 3: Refine
-      const refinePrompt = `Rewrite this content for ${profile?.business_name || 'the business'} fixing these issues:\n${critique.improvements.join('\n')}\n\nOriginal:\n${mainText}\n\nSame language (${profile?.primary_language || 'Albanian'}). Same JSON format as original. Return ONLY valid JSON.`;
+      const refinePrompt = `Rewrite this content for ${profile?.business_name || 'the business'} fixing these issues:\n${critique.improvements.join('\n')}\n\nOriginal:\n${mainText}\n\nSame language (${profile?.primary_language || 'English'}). Same JSON format as original. Return ONLY valid JSON.`;
       const refined = await callClaude(refinePrompt, 'claude-opus-4-5', 3000);
       if (refined && !refined._raw) {
         log('multiPass', `Refined: ${critique.improvements.length} issues fixed`);
@@ -1257,7 +1318,7 @@ async function generateInstantContent(bizId, emailOverride) {
   try {
     const { validateGeneratedContent } = require('./services/contentValidator');
     const mainText = content.instagram_caption || content.facebook_post || '';
-    const validation = validateGeneratedContent(mainText, { ...biz, physical_locations: profile?.physical_locations, ad_targeting_area: profile?.ad_targeting_area, primary_language: profile?.primary_language || 'Albanian', business_name: biz.business_name }, 'social_post');
+    const validation = validateGeneratedContent(mainText, { ...biz, physical_locations: profile?.physical_locations, ad_targeting_area: profile?.ad_targeting_area, primary_language: profile?.primary_language || 'English', business_name: biz.business_name }, 'social_post');
     if (!validation.valid && validation.issues.length > 0) {
       log('contentValidator', `Issues found: ${validation.issues.join(', ')} — regenerating...`);
       const fixPrompt = prompt + `\n\nPREVIOUS ATTEMPT HAD THESE ISSUES — FIX THEM:\n${validation.issues.join('\n')}\nGenerate corrected content.`;
@@ -8090,7 +8151,7 @@ async function getProfile(userId) {
 
   // Fall back to businesses table only
   if (biz) {
-    return { user_id: userId, business_name: biz.business_name, business_type: biz.industry, physical_locations: biz.location ? [{ city: biz.location }] : [], primary_language: 'Albanian', audience_description: biz.target_audience, primary_goal: biz.marketing_goal, monthly_budget: biz.daily_budget ? '€' + biz.daily_budget * 30 : '€300', tone_keywords: biz.brand_tone ? [biz.brand_tone] : [], usp: '', pain_point: '', we_do_better: '', current_offer: '', products: [], avg_spend: '', business_age: 'established', plan: biz.plan };
+    return { user_id: userId, business_name: biz.business_name, business_type: biz.industry, physical_locations: biz.location ? [{ city: biz.location }] : [], primary_language: 'English', audience_description: biz.target_audience, primary_goal: biz.marketing_goal, monthly_budget: biz.daily_budget ? '€' + biz.daily_budget * 30 : '€300', tone_keywords: biz.brand_tone ? [biz.brand_tone] : [], usp: '', pain_point: '', we_do_better: '', current_offer: '', products: [], avg_spend: '', business_age: 'established', plan: biz.plan };
   }
 
   log('getProfile', `No data found in either table for ${userId}`);
@@ -8158,7 +8219,7 @@ app.post('/api/calendar/generate', async (req, res) => {
       const holidays = typeof getKosovoAlbaniaHolidays === 'function' ? getKosovoAlbaniaHolidays(new Date()).join(', ') : '';
       const season = typeof getSeason === 'function' ? getSeason(new Date()) : 'current';
       const prods = Array.isArray(p.products) ? p.products.map(pr => pr.name).join(', ') : 'main service';
-      const result = await callClaude(`You are a content calendar strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nLanguage: ${p.primary_language || 'Albanian'}\nGoal: ${p.primary_goal}\nBudget: ${p.monthly_budget}\nProducts: ${prods}\nSeason: ${season}\nUpcoming holidays: ${holidays || 'none soon'}\n${intel}\n\nCreate a 30-day content calendar following content pillar framework:\n- 30% educational\n- 20% social proof\n- 20% behind the scenes\n- 20% engagement\n- 10% promotional\n\nReturn ONLY valid JSON:\n{"calendar":[{"day":1,"type":"educational|social_proof|behind_scenes|engagement|promotional","platform":"instagram|facebook|both","topic":"specific topic","caption_idea":"brief idea","hashtags":"3-5 relevant hashtags"}],"posting_frequency":"X posts per week","best_days":["string"]}`, 'claude-opus-4-5', 3000);
+      const result = await callClaude(`You are a content calendar strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nLanguage: ${p.primary_language || 'English'}\nGoal: ${p.primary_goal}\nBudget: ${p.monthly_budget}\nProducts: ${prods}\nSeason: ${season}\nUpcoming holidays: ${holidays || 'none soon'}\n${intel}\n\nCreate a 30-day content calendar following content pillar framework:\n- 30% educational\n- 20% social proof\n- 20% behind the scenes\n- 20% engagement\n- 10% promotional\n\nReturn ONLY valid JSON:\n{"calendar":[{"day":1,"type":"educational|social_proof|behind_scenes|engagement|promotional","platform":"instagram|facebook|both","topic":"specific topic","caption_idea":"brief idea","hashtags":"3-5 relevant hashtags"}],"posting_frequency":"X posts per week","best_days":["string"]}`, 'claude-opus-4-5', 3000);
       try { storeInsight(userId, 'calendar', 'content_strategy', 'posting_plan', `${(result.calendar || []).length} days planned, ${result.posting_frequency || ''}`); } catch {}
       log('/api/calendar/generate', `✅ 30-day calendar for ${p.business_name}`);
     } catch (err) { console.error('[calendar]', err.message); }
@@ -8323,7 +8384,7 @@ app.post('/api/reviews/auto-respond', async (req, res) => {
     const p = await getProfile(userId);
     const stars = rating || 5;
     const tone = stars >= 4 ? 'warm, grateful, subtly promotional' : 'empathetic, solution-focused, recovery-minded';
-    const result = await callClaude(`Write a review response for ${p?.business_name || 'the business'}.\nReview (${stars} stars): "${reviewText}"\nPlatform: ${platform || 'google'}\nTone: ${tone}\nLanguage: ${p?.primary_language || 'Albanian'}\n\nRules:\n- ${stars >= 4 ? 'Thank warmly, mention specific detail, invite back' : 'Apologize sincerely, offer solution, invite offline resolution'}\n- Max 100 words\n- Never templated — unique to this review\n\nReturn ONLY valid JSON:\n{"response":"string","tone":"string","suggested_action":"string"}`, 'claude-sonnet-4-5', 400);
+    const result = await callClaude(`Write a review response for ${p?.business_name || 'the business'}.\nReview (${stars} stars): "${reviewText}"\nPlatform: ${platform || 'google'}\nTone: ${tone}\nLanguage: ${p?.primary_language || 'English'}\n\nRules:\n- ${stars >= 4 ? 'Thank warmly, mention specific detail, invite back' : 'Apologize sincerely, offer solution, invite offline resolution'}\n- Max 100 words\n- Never templated — unique to this review\n\nReturn ONLY valid JSON:\n{"response":"string","tone":"string","suggested_action":"string"}`, 'claude-sonnet-4-5', 400);
     try { if (stars <= 2) storeInsight(userId, 'reviews', 'customer_voice', 'complaint_pattern', reviewText.slice(0, 100)); } catch {}
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -8339,7 +8400,7 @@ app.post('/api/referral/setup', async (req, res) => {
       const p = await getProfile(userId);
       if (!p) return;
       const code = crypto.randomBytes(4).toString('hex');
-      const result = await callClaude(`You are a referral program expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAvg spend: ${p.avg_spend || 'moderate'}\nLanguage: ${p.primary_language || 'Albanian'}\n\nDesign a double-sided referral reward program.\nReturn ONLY valid JSON:\n{"reward_for_referrer":"string","reward_for_referee":"string","trigger_moments":["string"],"share_message":"string (${p.primary_language}, max 160 chars)","email_subject":"string","email_body":"string"}`, 'claude-sonnet-4-5', 1000);
+      const result = await callClaude(`You are a referral program expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAvg spend: ${p.avg_spend || 'moderate'}\nLanguage: ${p.primary_language || 'English'}\n\nDesign a double-sided referral reward program.\nReturn ONLY valid JSON:\n{"reward_for_referrer":"string","reward_for_referee":"string","trigger_moments":["string"],"share_message":"string (${p.primary_language}, max 160 chars)","email_subject":"string","email_body":"string"}`, 'claude-sonnet-4-5', 1000);
       await sbPost('referral_programs', { user_id: userId, referral_code: code, reward_type: 'discount', reward_value: result.reward_for_referee || '20%', is_active: true });
       storeInsight(userId, 'referral', 'program', 'reward_structure', `${result.reward_for_referrer || ''} / ${result.reward_for_referee || ''}`);
       log('/api/referral/setup', `✅ Referral program created for ${p.business_name}`);
@@ -8370,7 +8431,7 @@ app.post('/api/lead-magnets/generate', async (req, res) => {
     try {
       const p = await getProfile(userId);
       if (!p) return;
-      const result = await callClaude(`You are a lead magnet strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAudience: ${p.audience_description || 'local customers'}, age ${p.audience_age_min || 18}-${p.audience_age_max || 65}\nPain point: ${p.pain_point || 'not specified'}\nLanguage: ${p.primary_language || 'Albanian'}\n\nGenerate the BEST lead magnet. Solve ONE specific problem. High value, consumable in 10 min.\nReturn ONLY valid JSON:\n{"title":"string","type":"checklist|guide|template","headline":"string","subheadline":"string","content":"string (full content)","cta_button":"string"}`, 'claude-sonnet-4-5', 2000);
+      const result = await callClaude(`You are a lead magnet strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAudience: ${p.audience_description || 'local customers'}, age ${p.audience_age_min || 18}-${p.audience_age_max || 65}\nPain point: ${p.pain_point || 'not specified'}\nLanguage: ${p.primary_language || 'English'}\n\nGenerate the BEST lead magnet. Solve ONE specific problem. High value, consumable in 10 min.\nReturn ONLY valid JSON:\n{"title":"string","type":"checklist|guide|template","headline":"string","subheadline":"string","content":"string (full content)","cta_button":"string"}`, 'claude-sonnet-4-5', 2000);
       await sbPost('lead_magnets', { user_id: userId, title: result.title || 'Lead Magnet', type: result.type || 'guide', content: JSON.stringify(result), is_active: true });
       storeInsight(userId, 'lead_magnets', 'content', 'lead_magnet_topic', result.title || 'lead magnet');
       storeInsight(userId, 'lead_magnets', 'content', 'lead_magnet_type', result.type || 'guide');
@@ -8652,7 +8713,7 @@ app.post('/api/popup/generate', async (req, res) => {
   try {
     const p = await getProfile(userId);
     const tones = Array.isArray(p?.tone_keywords) ? p.tone_keywords.join(', ') : 'professional';
-    const result = await callClaude(`Write popup copy for ${p?.business_name || 'business'}.\nType: ${popupType}\nBusiness: ${p?.business_type || 'local'} in ${pCity(p)}\nOffer: ${p?.current_offer || 'main service'}\nLanguage: ${p?.primary_language || 'Albanian'}\nTone: ${tones}\n\nReturn ONLY valid JSON:\n{"headline":"string (max 8 words)","subheadline":"string (max 15 words)","cta_button":"string (max 4 words)","dismiss_text":"string","timing":"string","trigger":"exit_intent|scroll_50|time_30s"}`, 'claude-sonnet-4-5', 400);
+    const result = await callClaude(`Write popup copy for ${p?.business_name || 'business'}.\nType: ${popupType}\nBusiness: ${p?.business_type || 'local'} in ${pCity(p)}\nOffer: ${p?.current_offer || 'main service'}\nLanguage: ${p?.primary_language || 'English'}\nTone: ${tones}\n\nReturn ONLY valid JSON:\n{"headline":"string (max 8 words)","subheadline":"string (max 15 words)","cta_button":"string (max 4 words)","dismiss_text":"string","timing":"string","trigger":"exit_intent|scroll_50|time_30s"}`, 'claude-sonnet-4-5', 400);
     res.json(result);
   } catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
@@ -8681,7 +8742,7 @@ app.post('/api/upgrade/generate-prompts', async (req, res) => {
   setImmediate(async () => {
     try {
       const p = await getProfile(userId);
-      await callClaude(`Write 3 upgrade prompts for ${p?.business_name || 'business'}.\nLanguage: ${p?.primary_language || 'Albanian'}\n\nReturn ONLY valid JSON:\n{"prompts":[{"trigger":"feature_gate","headline":"string","body":"string","cta":"string","dismiss":"string"}]}`, 'claude-sonnet-4-5', 800);
+      await callClaude(`Write 3 upgrade prompts for ${p?.business_name || 'business'}.\nLanguage: ${p?.primary_language || 'English'}\n\nReturn ONLY valid JSON:\n{"prompts":[{"trigger":"feature_gate","headline":"string","body":"string","cta":"string","dismiss":"string"}]}`, 'claude-sonnet-4-5', 800);
       log('/api/upgrade/generate-prompts', '✅ Upgrade prompts generated');
     } catch (err) { console.error('[upgrade]', err.message); }
   });
@@ -8695,7 +8756,7 @@ app.post('/api/signup-cro/analyze', async (req, res) => {
   setImmediate(async () => {
     try {
       const p = await getProfile(userId);
-      await callClaude(`Optimize signup flow for ${p?.business_name || 'business'}, a ${p?.business_type || 'local business'}.\nLanguage: ${p?.primary_language || 'Albanian'}\n\nReturn ONLY valid JSON:\n{"landing":{"headline":"string","cta":"string"},"form":{"fields":["string"]},"confirmation":{"headline":"string"},"followup":{"sms":"string"}}`, 'claude-sonnet-4-5', 1000);
+      await callClaude(`Optimize signup flow for ${p?.business_name || 'business'}, a ${p?.business_type || 'local business'}.\nLanguage: ${p?.primary_language || 'English'}\n\nReturn ONLY valid JSON:\n{"landing":{"headline":"string","cta":"string"},"form":{"fields":["string"]},"confirmation":{"headline":"string"},"followup":{"sms":"string"}}`, 'claude-sonnet-4-5', 1000);
       log('/api/signup-cro/analyze', '✅ Signup flow analyzed');
     } catch (err) { console.error('[signup-cro]', err.message); }
   });
@@ -8911,7 +8972,7 @@ app.post('/api/onboarding/save', async (req, res) => {
       operation_model: data.operation_model || null,
       service_area: data.service_area || [],
       ad_targeting_area: data.ad_targeting_area || [],
-      primary_language: data.primary_language || 'Albanian',
+      primary_language: data.primary_language || 'English',
       secondary_languages: data.secondary_languages || [],
       audience_age_min: data.audience_age_min || 18,
       audience_age_max: data.audience_age_max || 65,
@@ -9100,7 +9161,7 @@ app.post('/webhook/ai-chat', async (req, res) => {
     let bizCtx = 'Business context not available';
     try {
       const p = await getProfile(business_id);
-      if (p) bizCtx = `Business: ${p.business_name}, Type: ${p.business_type}, City: ${pCity(p)}, Language: ${p.primary_language || 'Albanian'}, Goal: ${p.primary_goal || 'grow'}, USP: ${p.usp || ''}`;
+      if (p) bizCtx = `Business: ${p.business_name}, Type: ${p.business_type}, City: ${pCity(p)}, Language: ${p.primary_language || 'English'}, Goal: ${p.primary_goal || 'grow'}, USP: ${p.usp || ''}`;
     } catch {}
 
     const systemPrompt = `You are an expert AI marketing assistant for maroa.ai. Help small business owners with marketing strategy, content ideas, and growth. ${bizCtx}. Be concise, practical, and specific. Respond in the same language the user writes in.`;
