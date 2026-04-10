@@ -345,8 +345,8 @@ function validateBeforeGeneration(profile, taskType) {
  * @param {Function} getEmbedding - embedding function
  * @param {Function} pineconeQuery - Pinecone query function
  */
-async function buildMasterPromptWithSkills(profile, taskType, getEmbedding, pineconeQuery, buildIntelligenceCtx, getMemoryCtx) {
-  const basePrompt = buildMasterPrompt(profile, taskType);
+async function buildMasterPromptWithSkills(profile, taskType, getEmbedding, pineconeQuery, buildIntelligenceCtx, getMemoryCtx, extraContext = '') {
+  const basePrompt = buildMasterPrompt(profile, taskType) + (extraContext ? '\n\n' + extraContext : '');
 
   let skillsSection = '';
   try {

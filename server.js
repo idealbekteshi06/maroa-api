@@ -149,16 +149,124 @@ async function sbPatch(table, filter, data) {
   return true;
 }
 
-// ─── Claude helper ────────────────────────────────────────────────────────────
-async function callClaude(prompt, model = 'claude-sonnet-4-5', maxTokens = 2000) {
+// ─── Claude model selection & API ───────────────────────────────────────────
+function selectModel(taskType) {
+  if (['strategy', 'monthly_review', 'positioning', 'research', 'orchestrator'].includes(taskType)) {
+    return { model: 'claude-opus-4-5', max_tokens: 4000 };
+  }
+  if (['social_post', 'email', 'campaign', 'paid_ad', 'sales_pitch'].includes(taskType)) {
+    return { model: 'claude-sonnet-4-5', max_tokens: 2000 };
+  }
+  if (['caption', 'idea', 'hashtags', 'short_copy', 'community_post'].includes(taskType)) {
+    return { model: 'claude-haiku-4-5', max_tokens: 1000 };
+  }
+  return { model: 'claude-sonnet-4-5', max_tokens: 2000 };
+}
+
+/**
+ * Call Claude. Backward compatible:
+ * - callClaude(prompt, 'claude-opus-4-5', 3000) — explicit model
+ * - callClaude(prompt, 'strategy', 1500) — taskType + optional max override
+ * - callClaude(prompt, 'social_post', undefined, { returnRaw: true, system: '...' })
+ */
+async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOverride, extra = {}) {
+  if (maxTokensOverride !== undefined && typeof maxTokensOverride === 'object' && maxTokensOverride !== null && !Array.isArray(maxTokensOverride)) {
+    extra = maxTokensOverride;
+    maxTokensOverride = undefined;
+  }
+  let model;
+  let maxTokens;
+  if (typeof taskTypeOrModel === 'string' && taskTypeOrModel.startsWith('claude-')) {
+    model = taskTypeOrModel;
+    maxTokens = maxTokensOverride !== undefined ? maxTokensOverride : 2000;
+  } else {
+    const sel = selectModel(taskTypeOrModel || 'social_post');
+    model = extra.model || sel.model;
+    maxTokens = maxTokensOverride !== undefined ? maxTokensOverride : sel.max_tokens;
+  }
+  const body = { model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] };
+  if (extra.system) body.system = extra.system;
   const r = await apiRequest('POST', 'https://api.anthropic.com/v1/messages', {
     'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json'
-  }, { model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] });
+  }, body);
 
   if (r.status !== 200) throw new Error(`Claude ${model}: ${r.status} ${JSON.stringify(r.body).slice(0,200)}`);
 
   const raw = r.body?.content?.[0]?.text || '';
+  if (extra.returnRaw) return raw;
   return extractJSON(raw) || { _raw: raw };
+}
+
+async function fetchPerformanceThemesContextBlock(businessId) {
+  if (!businessId) return '';
+  try {
+    const top = await sbGet(
+      'generated_content',
+      `business_id=eq.${businessId}&performance_score=not.is.null&order=performance_score.desc&limit=5&select=content_theme,performance_score`
+    ).catch(() => []);
+    const worst = await sbGet(
+      'generated_content',
+      `business_id=eq.${businessId}&performance_score=not.is.null&order=performance_score.asc&limit=5&select=content_theme,performance_score`
+    ).catch(() => []);
+    const bestThemes = (top || []).map(c => c.content_theme).filter(Boolean);
+    const worstThemes = (worst || []).map(c => c.content_theme).filter(Boolean);
+    let s = '';
+    if (bestThemes.length) s += `BEST PERFORMING THEMES (from recent scored content): ${[...new Set(bestThemes)].join(', ')} — lean into these.\n`;
+    if (worstThemes.length) s += `WORST PERFORMING THEMES: ${[...new Set(worstThemes)].join(', ')} — avoid repeating these angles.\n`;
+    return s.trim() ? s : '';
+  } catch {
+    return '';
+  }
+}
+
+async function checkOrchestrationIdempotency(userId, taskName, windowMs = 3600000) {
+  try {
+    const since = new Date(Date.now() - windowMs).toISOString();
+    const encSince = encodeURIComponent(since);
+    const rows = await sbGet(
+      'orchestration_logs',
+      `user_id=eq.${userId}&task=eq.${encodeURIComponent(taskName)}&created_at=gte.${encSince}&limit=1&select=id`
+    );
+    return Array.isArray(rows) && rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function recordOrchestrationTaskRun(userId, taskName, report = '') {
+  try {
+    await sbPost('orchestration_logs', {
+      user_id: userId,
+      task: taskName,
+      report: report || taskName,
+      tasks_planned: [],
+      tasks_executed: []
+    });
+  } catch {}
+}
+
+async function alertOnRepeatedFailure(userId, endpoint) {
+  if (!RESEND_API_KEY || !userId) return;
+  try {
+    const since = new Date(Date.now() - 86400000).toISOString();
+    const rows = await sbGet(
+      'errors',
+      `business_id=eq.${userId}&workflow_name=eq.${encodeURIComponent(endpoint)}&created_at=gte.${since}&select=id&limit=5`
+    );
+    if (!rows || rows.length < 3) return;
+    const fromHdr = FROM_EMAIL.includes('<') ? FROM_EMAIL : `maroa.ai <${FROM_EMAIL}>`;
+    await apiRequest(
+      'POST',
+      'https://api.resend.com/emails',
+      { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      {
+        from: fromHdr,
+        to: ['idealbekteshi06@gmail.com'],
+        subject: `Alert: ${endpoint} failing for ${userId}`,
+        html: `<p>Endpoint <strong>${endpoint}</strong> has recorded 3+ errors in 24h for client <code>${userId}</code>. Check Railway logs.</p>`
+      }
+    ).catch(() => {});
+  } catch {}
 }
 
 // ─── Universal JSON extractor — handles markdown fences, mixed text, arrays ─
@@ -477,8 +585,8 @@ async function buildImagePrompt(basePrompt, contentType, plan, profile) {
     try {
       const result = await callClaude(
         `You are an expert AI image prompt engineer for a ${profile?.business_type || 'business'}.\nENHANCE this prompt to be vivid and specific. Keep ALL technical details.\nOriginal: "${structured}"\nReturn ONLY the enhanced prompt, max 200 words.`,
-        'claude-sonnet-4-5', 300);
-      const enhanced = result._raw || (typeof result === 'string' ? result : structured);
+        'short_copy', 300, { returnRaw: true });
+      const enhanced = typeof result === 'string' ? result : (result?._raw || structured);
       log('buildImagePrompt', `[AGENCY] ${enhanced.slice(0, 120)}...`);
       return enhanced;
     } catch {}
@@ -643,7 +751,7 @@ function setCache(key, data) { responseCache.set(key, { data, ts: Date.now() });
 // ── T1.1: Multi-pass content generation (generate → critique → refine) ──────
 async function generateWithRefinement(basePrompt, taskType, profile, bizId) {
   // Pass 1: Generate with Opus
-  const draft = await callClaude(basePrompt, 'claude-opus-4-5', 3000);
+  const draft = await callClaude(basePrompt, taskType || 'social_post', 3000);
   if (draft._raw || !draft) return draft; // unparseable — return as-is
 
   const mainText = draft.instagram_caption || draft.facebook_post || draft.email_body || JSON.stringify(draft).slice(0, 500);
@@ -652,11 +760,11 @@ async function generateWithRefinement(basePrompt, taskType, profile, bizId) {
   // Pass 2: Critique
   try {
     const critiquePrompt = `You are a senior marketing director reviewing content for ${profile?.business_name || 'a local business'} in ${profile?.physical_locations?.[0]?.city || 'Kosovo'}.\n\nCONTENT:\n"${mainText.slice(0, 600)}"\n\nScore 1-10:\n1. Specificity (is it for THIS business or generic?)\n2. Hook strength (would someone stop scrolling?)\n3. Local relevance (does it feel local?)\n4. CTA clarity\n5. Language match (${profile?.primary_language || 'English'})\n\nIf ANY score < 7, list exact fixes.\nReturn ONLY valid JSON: {"scores":{"specificity":0,"hook":0,"local":0,"cta":0,"language":0},"needs_refinement":false,"improvements":[]}`;
-    const critique = await callClaude(critiquePrompt, 'claude-sonnet-4-5', 400);
+    const critique = await callClaude(critiquePrompt, 'short_copy', 400);
     if (critique?.needs_refinement && Array.isArray(critique.improvements) && critique.improvements.length > 0) {
       // Pass 3: Refine
       const refinePrompt = `Rewrite this content for ${profile?.business_name || 'the business'} fixing these issues:\n${critique.improvements.join('\n')}\n\nOriginal:\n${mainText}\n\nSame language (${profile?.primary_language || 'English'}). Same JSON format as original. Return ONLY valid JSON.`;
-      const refined = await callClaude(refinePrompt, 'claude-opus-4-5', 3000);
+      const refined = await callClaude(refinePrompt, taskType || 'social_post', 3000);
       if (refined && !refined._raw) {
         log('multiPass', `Refined: ${critique.improvements.length} issues fixed`);
         return refined;
@@ -933,6 +1041,7 @@ async function logError(businessId, workflowName, errorMessage, retryPayload = n
   try {
     await sbPost('errors', { business_id: businessId, workflow_name: workflowName,
       error_message: errorMessage, retry_payload: retryPayload ? JSON.stringify(retryPayload) : null });
+    if (businessId) setImmediate(() => alertOnRepeatedFailure(businessId, workflowName).catch(() => {}));
   } catch {}
 }
 
@@ -1156,7 +1265,7 @@ app.post('/webhook/new-user-signup', async (req, res) => {
           `Analyze this business website: ${website}\n` +
           `Extract: voice_adjectives (3 words), writing_style, key_phrases, usp, target_person, emotional_tone.\n` +
           `Return only valid JSON.`,
-          'claude-sonnet-4-5', 1000
+          'research', 1000
         );
         if (brandVoice && !brandVoice._raw) {
           await sbPatch('businesses', `id=eq.${bizId}`, { brand_voice_locked: JSON.stringify(brandVoice) });
@@ -1208,22 +1317,27 @@ async function generateInstantContent(bizId, emailOverride) {
   const biz   = bizArr[0];
   if (!biz) throw new Error(`Business ${bizId} not found`);
 
+  const perfThemesBlock = await fetchPerformanceThemesContextBlock(bizId);
+
   // If rich profile exists, build master prompt for enhanced accuracy
   const profile = profileArr[0] || null;
   let masterSystemPrompt = '';
   if (profile && profile.physical_locations && Array.isArray(profile.physical_locations) && profile.physical_locations.length > 0) {
     try {
       const { buildMasterPromptWithSkills } = require('./services/masterPromptBuilder');
-      masterSystemPrompt = await buildMasterPromptWithSkills(profile, 'social_post', getEmbedding, pineconeQuery, buildIntelligenceContext, getMemoryContext) + '\n\n';
+      const extraCtx = perfThemesBlock ? `${perfThemesBlock}` : '';
+      masterSystemPrompt = await buildMasterPromptWithSkills(profile, 'social_post', getEmbedding, pineconeQuery, buildIntelligenceContext, getMemoryContext, extraCtx) + '\n\n';
       log('generateContent', `Using master prompt + marketing skills for ${biz.business_name} (profile score: ${profile.profile_score})`);
     } catch (e) {
       // Fallback to basic master prompt without skills
       try {
         const { buildMasterPrompt: bmp } = require('./services/masterPromptBuilder');
-        masterSystemPrompt = bmp(profile, 'social_post') + '\n\n';
+        masterSystemPrompt = bmp(profile, 'social_post') + (perfThemesBlock ? `\n\n${perfThemesBlock}\n\n` : '\n\n');
       } catch {}
       log('generateContent', `Master prompt fallback (skills unavailable): ${e.message}`);
     }
+  } else if (perfThemesBlock) {
+    masterSystemPrompt = `${perfThemesBlock}\n\n`;
   }
 
   const comp    = compInsights[0];
@@ -1290,7 +1404,7 @@ async function generateInstantContent(bizId, emailOverride) {
     `"linkedin_post":"...","tiktok_script":"...","email_subject":"...","email_body":"...",` +
     `"blog_title":"...","google_ad_headline":"...","google_ad_description":"...","content_theme":"...","image_prompt":"..."}`;
 
-  let content = await callClaude(prompt, 'claude-opus-4-5', 3000);
+  let content = await callClaude(prompt, 'social_post', 3000);
   let score   = scoreContent(content);
 
   // ── UPGRADE 3: Generate 3 variations, pick the highest scoring one ────
@@ -1298,8 +1412,8 @@ async function generateInstantContent(bizId, emailOverride) {
   if (score < 90 && !content._raw) {
     // Generate 2 more variations in parallel
     const [v2, v3] = await Promise.all([
-      callClaude(prompt + `\n\nVARIATION 2: Use a completely different angle, hook, and content theme. Be creative and bold.`, 'claude-sonnet-4-5', 3000).catch(() => null),
-      callClaude(prompt + `\n\nVARIATION 3: Focus on storytelling and emotion. Make the audience FEEL something.`, 'claude-sonnet-4-5', 3000).catch(() => null)
+      callClaude(prompt + `\n\nVARIATION 2: Use a completely different angle, hook, and content theme. Be creative and bold.`, 'social_post', 3000).catch(() => null),
+      callClaude(prompt + `\n\nVARIATION 3: Focus on storytelling and emotion. Make the audience FEEL something.`, 'social_post', 3000).catch(() => null)
     ]);
     if (v2 && !v2._raw) variations.push({ content: v2, score: scoreContent(v2) });
     if (v3 && !v3._raw) variations.push({ content: v3, score: scoreContent(v3) });
@@ -1314,19 +1428,56 @@ async function generateInstantContent(bizId, emailOverride) {
   const imgPrompt = content.image_prompt || `Professional marketing photo for ${biz.business_name}, ${biz.industry || 'business'}`;
   const imgResult = await generateSmartImage(bizId, imgPrompt, 'social_post', biz.plan || 'free');
 
-  // ── Content Validation ─────────────────────────────────────────────────────
+  // ── Content Validation + repair pass ───────────────────────────────────────
+  const profileForVal = {
+    ...biz,
+    ...profile,
+    physical_locations: profile?.physical_locations,
+    ad_targeting_area: profile?.ad_targeting_area,
+    primary_language: profile?.primary_language || 'English',
+    business_name: biz.business_name,
+    words_never_use: profile?.words_never_use,
+    never_do: profile?.never_do
+  };
+  let gateStatus = 'approved';
   try {
-    const { validateGeneratedContent } = require('./services/contentValidator');
+    const { validateContent } = require('./services/contentValidator');
     const mainText = content.instagram_caption || content.facebook_post || '';
-    const validation = validateGeneratedContent(mainText, { ...biz, physical_locations: profile?.physical_locations, ad_targeting_area: profile?.ad_targeting_area, primary_language: profile?.primary_language || 'English', business_name: biz.business_name }, 'social_post');
+    let validation = validateContent(mainText, profileForVal, 'social_post');
     if (!validation.valid && validation.issues.length > 0) {
-      log('contentValidator', `Issues found: ${validation.issues.join(', ')} — regenerating...`);
-      const fixPrompt = prompt + `\n\nPREVIOUS ATTEMPT HAD THESE ISSUES — FIX THEM:\n${validation.issues.join('\n')}\nGenerate corrected content.`;
-      const fixed = await callClaude(fixPrompt, 'claude-opus-4-5', 3000);
-      if (fixed && !fixed._raw) { content = fixed; score = scoreContent(content); }
+      log('contentValidator', `Issues found: ${validation.issues.join(', ')} — repair pass...`);
+      const fixPrompt = prompt + `\n\nPREVIOUS ATTEMPT HAD THESE ISSUES — FIX THEM:\n${validation.issues.join('\n')}\nGenerate corrected JSON only.`;
+      const fixed = await callClaude(fixPrompt, 'social_post', 3000);
+      if (fixed && !fixed._raw) {
+        content = fixed;
+        score = scoreContent(content);
+        const t2 = content.instagram_caption || content.facebook_post || '';
+        validation = validateContent(t2, profileForVal, 'social_post');
+      }
+      if (!validation.valid) {
+        gateStatus = 'needs_review';
+        log('contentValidator', `Still invalid after repair: ${validation.issues.join(', ')}`);
+      }
     }
     content._quality_score = validation.quality_score;
   } catch (valErr) { log('contentValidator', `Validation skipped: ${valErr.message}`); }
+
+  let strategy_reason = '';
+  try {
+    const igText = (content.instagram_caption || content.facebook_post || '').trim();
+    if (igText.length > 20) {
+      const reasonRaw = await callClaude(
+        `In one sentence (max 15 words), explain the marketing strategy behind this post: "${igText.slice(0, 200).replace(/"/g, '\\"')}"`,
+        'caption',
+        200,
+        {
+          returnRaw: true,
+          system: 'You are a marketing strategist. Be specific and brief. Output one sentence only, plain text, no JSON.'
+        }
+      );
+      strategy_reason = typeof reasonRaw === 'string' ? reasonRaw.replace(/\s+/g, ' ').trim().slice(0, 280) : '';
+    }
+  } catch (e) { log('strategy_reason', e.message); }
 
   // ── LEVEL 6: Automated A/B testing — save both winner (A) and runner-up (B) ─
   let abTestId = null;
@@ -1359,7 +1510,8 @@ async function generateInstantContent(bizId, emailOverride) {
     image_url             : imgResult.url || '',
     image_source          : imgResult.source || '',
     image_credit          : imgResult.credit || '',
-    status                : 'pending_approval',
+    strategy_reason       : strategy_reason || null,
+    status                : gateStatus === 'needs_review' ? 'needs_review' : 'approved',
     variant               : 'A',
     ab_test_id            : abTestId,
     pre_post_score        : score
@@ -1375,7 +1527,7 @@ async function generateInstantContent(bizId, emailOverride) {
         email_subject: runnerUp.content.email_subject || '',
         content_theme: runnerUp.content.content_theme || '',
         image_url: imgResult.url || '',
-        status: 'pending_approval',
+        status: gateStatus === 'needs_review' ? 'needs_review' : 'approved',
         variant: 'B',
         ab_test_id: abTestId,
         pre_post_score: runnerUp.score,
@@ -1646,7 +1798,7 @@ app.post('/webhook/create-campaigns', async (req, res) => {
       `targeting_interests (array), targeting_age_min, targeting_age_max, targeting_gender.\n` +
       `Return ONLY a valid JSON array with exactly 3 campaign objects.`;
 
-    const campaigns = await callClaude(campaignPrompt, 'claude-sonnet-4-5', 1500);
+    const campaigns = await callClaude(campaignPrompt, 'social_post', 1500);
     const campaignList = Array.isArray(campaigns) ? campaigns : (campaigns?.campaigns || [campaigns]);
 
     const objectives = ['REACH', 'POST_ENGAGEMENT', 'LINK_CLICKS'];
@@ -1883,7 +2035,7 @@ app.post('/webhook/competitor-check', async (req, res) => {
       `4. One counter-campaign idea\n` +
       `5. The single most important action to take this week to beat competitors\n` +
       `Return ONLY valid JSON with keys: competitor_doing_well, gap_opportunity, content_to_steal (string of 3 ideas), positioning_tip, weekly_action`,
-      'claude-opus-4-5', 1500
+      'research', 1500
     );
 
     if (insights && !insights._raw) {
@@ -1939,7 +2091,7 @@ app.post('/webhook/generate-landing-page', async (req, res) => {
       `6. CTA button text\n` +
       `7. Form fields to collect (array of field names)\n` +
       `Return ONLY valid JSON with keys: hero_headline, hero_subheadline, hero_cta, value_prop_1, value_prop_2, value_prop_3, testimonial, testimonial_name, testimonial_role, urgency, form_fields`,
-      'claude-sonnet-4-5', 1500
+      'campaign', 1500
     );
 
     // Build HTML
@@ -3198,8 +3350,8 @@ Return exactly this JSON structure:
   "overall_score": 7
 }`;
 
-    let report = await callClaude(makePrompt(false), 'claude-opus-4-5', 1000);
-    if (report._raw) report = await callClaude(makePrompt(true), 'claude-opus-4-5', 800);
+    let report = await callClaude(makePrompt(false), 'monthly_review', 1000);
+    if (report._raw) report = await callClaude(makePrompt(true), 'monthly_review', 800);
 
     const dbReport = await sbPost('analytics_reports', {
       business_id,
@@ -3448,7 +3600,7 @@ Body goal: ${step.body_prompt || 'Valuable content with one clear CTA'}
 Max 200 words. Conversational, personal, one clear action at the end.
 Return ONLY valid JSON: {"subject":"...","body_html":"..."}`;
 
-        const email = await callClaude(prompt, 'claude-sonnet-4-5', 600);
+        const email = await callClaude(prompt, 'social_post', 600);
         if (!email.subject || !email.body_html) {
           log('/webhook/email-sequence-process', `Claude parse fail — enrollment ${enrollment.id}`);
           continue;
@@ -3587,7 +3739,7 @@ app.post('/webhook/meta-campaign-create', async (req, res) => {
 Goal: ${biz.marketing_goal || 'grow'} | Budget: $${monthly_budget}/mo | Audience: ${biz.target_audience || 'general'}
 Location: ${biz.location || 'United States'} | Tone: ${biz.brand_tone || 'professional'}
 Return ONLY valid JSON: { "objective": "OUTCOME_TRAFFIC", "daily_budget_usd": ${dailyBudget}, "targeting": { "age_min": 25, "age_max": 55 }, "creatives": [{ "headline": "max 40 chars", "primary_text": "max 125 chars", "description": "max 30 chars", "cta": "LEARN_MORE", "image_prompt": "image description" }] }`;
-          const strategy = await callClaude(strategyPrompt, 'claude-opus-4-5', 1500);
+          const strategy = await callClaude(strategyPrompt, 'strategy', 1500);
           const creatives = Array.isArray(strategy.creatives) ? strategy.creatives.slice(0, 3) : [];
 
           // Save draft campaign
@@ -3683,7 +3835,7 @@ Return exactly this JSON:
   ]
 }`;
 
-    const strategy   = await callClaude(strategyPrompt, 'claude-opus-4-5', 1500);
+    const strategy   = await callClaude(strategyPrompt, 'strategy', 1500);
     const rawCreatives = Array.isArray(strategy.creatives) ? strategy.creatives.slice(0, 3) : [];
     const targeting    = strategy.targeting || { age_min: 25, age_max: 55, genders: [1, 2], geo_locations: { countries: ['US'] } };
     const campaignObj  = strategy.objective || objective;
@@ -3969,7 +4121,7 @@ Return ONLY valid JSON:
   "summary": "1-2 sentence summary"
 }`;
 
-    const result = await callClaude(prompt, 'claude-opus-4-5', 1200);
+    const result = await callClaude(prompt, 'strategy', 1200);
     const reallocations = result.reallocations || [];
 
     // Execute reallocations
@@ -4121,7 +4273,7 @@ Return exactly:
   ]
 }`;
 
-    const strategy = await callClaude(stratPrompt, 'claude-opus-4-5', 1500);
+    const strategy = await callClaude(stratPrompt, 'strategy', 1500);
     const adGroups  = strategy.ad_groups || [];
     const campName  = strategy.campaign_name || `${biz.business_name} — Search — ${new Date().toISOString().slice(0, 10)}`;
 
@@ -4361,7 +4513,7 @@ ROAS < 1 AND spend > $20 → refresh_creative. Otherwise → keep.
 
 Return ONLY JSON: {"action":"increase_budget"|"decrease_budget"|"pause"|"refresh_creative"|"keep","reason":"string","budget_change_pct":0}`;
 
-        const decision  = await callClaude(decisionPrompt, 'claude-opus-4-5', 400);
+        const decision  = await callClaude(decisionPrompt, 'strategy', 400);
         const action    = decision.action || 'keep';
         const reason    = decision.reason || 'Performance within normal range';
         const changePct = decision.budget_change_pct || 0;
@@ -4635,7 +4787,7 @@ Return ONLY valid JSON:
   "reasoning": "1-2 sentences why"
 }`;
 
-        const aiResult = await callClaude(prompt, 'claude-sonnet-4-5', 500);
+        const aiResult = await callClaude(prompt, 'social_post', 500);
         if (aiResult.score !== undefined) aiScore = Math.max(0, Math.min(100, aiResult.score));
         if (aiResult.intent_level) intentLevel = aiResult.intent_level;
         if (aiResult.recommended_action) recommendedAction = aiResult.recommended_action;
@@ -4849,7 +5001,7 @@ Analyze and return ONLY valid JSON:
   "recommendation": "one specific strategic action ${biz.business_name} should take this week based on this intelligence"
 }`;
 
-      const analysis = await callClaude(analyzePrompt, 'claude-opus-4-5', 1500);
+      const analysis = await callClaude(analyzePrompt, 'strategy', 1500);
 
       // Save report
       const report = await sbPost('competitor_reports', {
@@ -4931,7 +5083,7 @@ app.post('/webhook/content-generate', async (req, res) => {
       keyword = keyword || topic || `${biz.industry} guide`;
 
       let prompt = '';
-      let model  = 'claude-opus-4-5';
+      let claudeTask = 'strategy';
       let maxTok = 3000;
 
       if (type === 'blog') {
@@ -4967,7 +5119,7 @@ Return ONLY valid JSON:
 }`;
 
       } else if (type === 'video_script') {
-        model  = 'claude-sonnet-4-5';
+        claudeTask = 'social_post';
         maxTok = 1500;
         prompt =
 `Write a 60-second video script for ${biz.business_name} (${biz.industry}).
@@ -4985,7 +5137,7 @@ Return ONLY valid JSON:
 
       } else {
         // email_template
-        model  = 'claude-sonnet-4-5';
+        claudeTask = 'email';
         maxTok = 1200;
         prompt =
 `Write a marketing email template for ${biz.business_name} (${biz.industry}).
@@ -5001,7 +5153,7 @@ Return ONLY valid JSON:
 }`;
       }
 
-      const content = await callClaude(prompt, model, maxTok);
+      const content = await callClaude(prompt, claudeTask, maxTok);
 
       // Generate featured image for blog posts → save to Supabase Storage
       let featured_image_url = null;
@@ -5216,7 +5368,7 @@ app.post('/webhook/seo-audit', async (req, res) => {
 Website: ${biz.website_url} | Target keyword: "${baseKw}" | Location: ${biz.location || 'United States'}
 Make the title include the keyword. Make the description include a clear benefit + CTA.
 Return ONLY valid JSON: { "meta_title": "...", "meta_description": "..." }`;
-            const meta = await callClaude(metaPrompt, 'claude-sonnet-4-5', 300);
+            const meta = await callClaude(metaPrompt, 'short_copy', 300);
 
             if (needsTitle)
               await saveRec('meta_title', currentTitle || '(missing)', meta.meta_title || '', baseKw, 'high',
@@ -5240,7 +5392,7 @@ Business: ${biz.business_name}, Type: ${biz.industry}
 Phone: ${biz.phone || 'N/A'}, Website: ${biz.website_url}
 Address: ${biz.location || 'United States'}
 Return ONLY the raw JSON-LD object (no markdown, no \`\`\`).`;
-            const schemaResult = await callClaude(schemaPrompt, 'claude-sonnet-4-5', 600);
+            const schemaResult = await callClaude(schemaPrompt, 'short_copy', 600);
             const schemaText = JSON.stringify(schemaResult);
             await saveRec('schema', '(no LocalBusiness schema found)',
               `<script type="application/ld+json">${schemaText}</script>`,
@@ -5342,7 +5494,7 @@ Return ONLY a valid JSON array of 3 test objects:
   }
 ]`;
 
-    const tests = await callClaude(prompt, 'claude-opus-4-5', 1200);
+    const tests = await callClaude(prompt, 'strategy', 1200);
     const testArr = Array.isArray(tests) ? tests : (tests.tests || []);
 
     // Save each test to ab_tests table
@@ -5388,7 +5540,7 @@ Goal: ${goal || biz.marketing_goal || 'convert visitors'} | Audience: ${biz.targ
 Each variation should use a different psychological angle (e.g. urgency, social proof, curiosity).
 Return ONLY valid JSON: { "variations": [{ "text": "...", "rationale": "why this angle works" }] }`;
 
-    const result = await callClaude(prompt, 'claude-sonnet-4-5', 800);
+    const result = await callClaude(prompt, 'social_post', 800);
     const variations = result.variations || (Array.isArray(result) ? result : []);
 
     res.json({ variations, count: variations.length, page_type, element_type });
@@ -5451,7 +5603,7 @@ Return ONLY valid JSON:
   "thumbnail_text": "5 words max for overlay"
 }`;
 
-      const script = await callClaude(prompt, 'claude-opus-4-5', 1000);
+      const script = await callClaude(prompt, 'strategy', 1000);
 
       // Generate thumbnail via Flux → save to Supabase Storage
       let thumbnail_url = null;
@@ -5841,7 +5993,7 @@ Owner name: ${biz.first_name || biz.business_name}. Review link: ${reviewLink}.
 Be warm and genuine. Not pushy. Address them by first name.
 Return ONLY valid JSON: { "subject": "...", "body_html": "..." }`;
 
-    const email = await callClaude(prompt, 'claude-sonnet-4-5', 500);
+    const email = await callClaude(prompt, 'social_post', 500);
 
     const subject  = email.subject  || `Quick favour — leave us a review?`;
     const bodyHtml = email.body_html || `<p>Hi ${contact_name || 'there'},</p><p>Would you mind leaving us a quick review? <a href="${reviewLink}">Click here</a>. Thanks so much!</p><p>${biz.first_name || biz.business_name}</p>`;
@@ -5895,7 +6047,7 @@ ${tone === 'positive'
 Sign as ${biz.first_name || 'The Team'} at ${biz.business_name}.
 Return ONLY valid JSON: { "response_text": "..." }`;
 
-    const result = await callClaude(prompt, 'claude-sonnet-4-5', 400);
+    const result = await callClaude(prompt, 'social_post', 400);
     const response_text = result.response_text || result._raw || '';
 
     await sbPatch('reviews', `id=eq.${review_id}`,
@@ -6123,7 +6275,7 @@ Return ONLY valid JSON:
 }`;
 
     // callClaude already returns a parsed object (or { _raw } fallback)
-    const parsed = await callClaude(prompt, 'claude-sonnet-4-5', 1500);
+    const parsed = await callClaude(prompt, 'social_post', 1500);
 
     const variants = Array.isArray(parsed.creatives) ? parsed.creatives.slice(0, count) : [];
 
@@ -6242,7 +6394,7 @@ Return ONLY valid JSON:
   "confidence_score": 0-100
 }`;
 
-      const decisions = await callClaude(prompt, 'claude-opus-4-5', 1500);
+      const decisions = await callClaude(prompt, 'strategy', 1500);
 
       await sbPatch('businesses', `id=eq.${business_id}`, {
         ai_brain_decisions: JSON.stringify(decisions)
@@ -6273,6 +6425,7 @@ app.post('/webhook/log-error', async (req, res) => {
       resolved: false,
       retry_count: 0
     });
+    if (business_id) setImmediate(() => alertOnRepeatedFailure(business_id, workflow_name || 'unknown').catch(() => {}));
     console.log('[log-error] Logged:', workflow_name, error_message);
   } catch (err) {
     console.error('[log-error] Failed to log error:', err.message);
@@ -6369,7 +6522,7 @@ Based on ALL data, return ONLY valid JSON with your decisions:
   "reasoning": "why these decisions"
 }`;
 
-      const decisions = await callClaude(prompt, 'claude-opus-4-5', 2000);
+      const decisions = await callClaude(prompt, 'strategy', 2000);
 
       // ── 4. EXECUTE decisions automatically ──────────────────────────────
       const acts = decisions.actions || {};
@@ -6495,7 +6648,7 @@ Return ONLY valid JSON:
   "confidence": 0-100
 }`;
 
-      const result = await callClaude(prompt, 'claude-sonnet-4-5', 1000);
+      const result = await callClaude(prompt, 'social_post', 1000);
 
       await sbPatch('businesses', `id=eq.${business_id}`, {
         optimal_posting_times: JSON.stringify(result)
@@ -6555,7 +6708,7 @@ Return ONLY valid JSON:
   "summary": "1-2 sentence summary of changes"
 }`;
 
-      const result = await callClaude(prompt, 'claude-sonnet-4-5', 800);
+      const result = await callClaude(prompt, 'social_post', 800);
 
       if (result.has_major_change && biz.email) {
         const changesList = (result.changes || []).map(c =>
@@ -6650,7 +6803,7 @@ Return ONLY valid JSON:
   "key_changes": ["change 1 from last strategy", "change 2"]
 }`;
 
-      const result = await callClaude(prompt, 'claude-opus-4-5', 2000);
+      const result = await callClaude(prompt, 'strategy', 2000);
 
       const updates = { strategy_updated_at: new Date().toISOString() };
       if (result.marketing_strategy) updates.marketing_strategy = result.marketing_strategy;
@@ -6850,7 +7003,7 @@ Return ONLY valid JSON:
   "agent_summary": "1-2 sentence summary"
 }`;
 
-  const plan = await callClaude(prompt, 'claude-opus-4-5', 4000);
+  const plan = await callClaude(prompt, 'strategy', 4000);
 
   // EXECUTION
   const actions = await executePlan(businessId, plan.execution_plan);
@@ -7007,7 +7160,7 @@ Return ONLY valid JSON:
   "reasoning": "1-2 sentences"
 }`;
 
-    const result = await callClaude(prompt, 'claude-sonnet-4-5', 800);
+    const result = await callClaude(prompt, 'social_post', 800);
 
     // If score < 6, auto-generate improved version
     let improved_caption = null;
@@ -7017,7 +7170,7 @@ Return ONLY valid JSON:
 Original: "${caption}"
 Brand tone: ${biz.brand_tone || 'professional'} | Audience: ${biz.target_audience || 'general'}
 Return ONLY valid JSON: {"improved_caption": "the rewritten caption"}`;
-      const improved = await callClaude(improvePrompt, 'claude-sonnet-4-5', 500);
+      const improved = await callClaude(improvePrompt, 'social_post', 500);
       improved_caption = improved.improved_caption || null;
     }
 
@@ -7098,7 +7251,7 @@ Return ONLY valid JSON:
   "recommendations": ["rec 1", "rec 2", "rec 3"]
 }`;
 
-      const result = await callClaude(prompt, 'claude-opus-4-5', 1500);
+      const result = await callClaude(prompt, 'strategy', 1500);
 
       await sbPatch('businesses', `id=eq.${business_id}`, {
         audience_insights_full: JSON.stringify(result),
@@ -7164,7 +7317,7 @@ Return ONLY valid JSON:
   "gaps_found": ["gap 1", "gap 2"]
 }`;
 
-      const result = await callClaude(prompt, 'claude-opus-4-5', 1500);
+      const result = await callClaude(prompt, 'strategy', 1500);
 
       await sbPatch('businesses', `id=eq.${business_id}`, {
         content_opportunities: JSON.stringify(result.content_opportunities || []),
@@ -7225,7 +7378,7 @@ Return ONLY valid JSON:
   "budget_breakdown": { "meta_ads": 0, "google_ads": 0, "content_creation": 0 }
 }`;
 
-      const campaign = await callClaude(prompt, 'claude-opus-4-5', 3000);
+      const campaign = await callClaude(prompt, 'strategy', 3000);
 
       // Save orchestration
       const orchRow = await sbPost('campaign_orchestrations', {
@@ -7325,7 +7478,7 @@ Return ONLY valid JSON:
   "alert_message": "message for business owner"
 }`;
 
-      const response = await callClaude(prompt, 'claude-opus-4-5', 1500);
+      const response = await callClaude(prompt, 'strategy', 1500);
 
       await sbPatch('businesses', `id=eq.${business_id}`, { crisis_status: response.crisis_level || 'warning' });
 
@@ -7429,7 +7582,7 @@ Return ONLY valid JSON:
   "bottleneck": "the #1 thing holding growth back"
 }`;
 
-      const result = await callClaude(prompt, 'claude-opus-4-5', 2000);
+      const result = await callClaude(prompt, 'strategy', 2000);
 
       await sbPatch('businesses', `id=eq.${business_id}`, {
         growth_engine_recommendation: JSON.stringify(result),
@@ -7458,7 +7611,7 @@ app.post('/webhook/auto-approve-content', async (req, res) => {
   try {
     const [bizArr, pending] = await Promise.all([
       sbGet('businesses', `id=eq.${business_id}&select=business_name,email,facebook_page_id,meta_access_token,instagram_account_id,linkedin_access_token,autopilot_enabled`),
-      sbGet('generated_content', `business_id=eq.${business_id}&status=eq.pending_approval&order=created_at.desc&limit=50&select=id,instagram_caption,facebook_post,content_theme`)
+      sbGet('generated_content', `business_id=eq.${business_id}&status=eq.pending_approval&order=created_at.desc&limit=50&select=id,instagram_caption,facebook_post,content_theme,strategy_reason`)
     ]);
     const biz = bizArr[0];
     if (!biz) return res.status(404).json({ error: 'business not found' });
@@ -7473,7 +7626,7 @@ app.post('/webhook/auto-approve-content', async (req, res) => {
 
         // Score internally via callClaude (faster than HTTP round-trip)
         const scorePrompt = `Rate this social media caption 1-10 for a ${biz.business_name || 'business'}. Consider brand voice, engagement potential, uniqueness, audience relevance. Caption: "${caption.slice(0, 500)}" Return ONLY valid JSON: {"score":1-10}`;
-        const scoreResult = await callClaude(scorePrompt, 'claude-sonnet-4-5', 200);
+        const scoreResult = await callClaude(scorePrompt, 'caption', 200);
         const score = scoreResult.score || 0;
 
         if (score >= 7) {
@@ -7521,7 +7674,7 @@ app.post('/webhook/publish-approved-content', async (req, res) => {
   try {
     const [bizArr, approved] = await Promise.all([
       sbGet('businesses', `id=eq.${business_id}&select=business_name,meta_access_token,facebook_page_id,instagram_account_id,linkedin_access_token,linkedin_person_id,autopilot_enabled,posts_published`),
-      sbGet('generated_content', `business_id=eq.${business_id}&status=eq.approved&published_at=is.null&order=created_at.asc&limit=10&select=id,instagram_caption,facebook_post,image_url,content_theme`)
+      sbGet('generated_content', `business_id=eq.${business_id}&status=eq.approved&published_at=is.null&order=created_at.asc&limit=10&select=id,instagram_caption,facebook_post,image_url,content_theme,strategy_reason`)
     ]);
     const biz = bizArr[0];
     if (!biz) return res.status(404).json({ error: 'business not found' });
@@ -7996,7 +8149,7 @@ Data: Revenue last 90d: $${totalRev.toFixed(2)} | Reach: ${totalReach} | Active 
 Plan: ${biz.plan} | Goal: ${biz.marketing_goal || 'grow'}
 Return ONLY valid JSON:
 {"forecast_30d":{"revenue":0,"confidence":"low/medium/high"},"forecast_90d":{"revenue":0,"confidence":"low/medium/high"},"top_revenue_actions":[{"action":"string","expected_impact":"string","effort":"low/medium/high"}],"risk_factors":[{"risk":"string","probability":"low/medium/high"}],"forecast_summary":"2-3 sentences"}`;
-      const forecast = await callClaude(prompt, 'claude-opus-4-5', 1500);
+      const forecast = await callClaude(prompt, 'strategy', 1500);
       await sbPatch('businesses', `id=eq.${business_id}`, { revenue_forecast: JSON.stringify(forecast) });
       sendSSE(business_id, 'forecast_updated', { summary: forecast.forecast_summary });
       try { storeInsight(business_id, 'forecast', 'revenue_intelligence', 'forecast_30d', forecast.forecast_30d?.revenue || '0'); storeInsight(business_id, 'forecast', 'revenue_intelligence', 'forecast_summary', forecast.forecast_summary || ''); } catch {}
@@ -8219,7 +8372,7 @@ app.post('/api/calendar/generate', async (req, res) => {
       const holidays = typeof getKosovoAlbaniaHolidays === 'function' ? getKosovoAlbaniaHolidays(new Date()).join(', ') : '';
       const season = typeof getSeason === 'function' ? getSeason(new Date()) : 'current';
       const prods = Array.isArray(p.products) ? p.products.map(pr => pr.name).join(', ') : 'main service';
-      const result = await callClaude(`You are a content calendar strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nLanguage: ${p.primary_language || 'English'}\nGoal: ${p.primary_goal}\nBudget: ${p.monthly_budget}\nProducts: ${prods}\nSeason: ${season}\nUpcoming holidays: ${holidays || 'none soon'}\n${intel}\n\nCreate a 30-day content calendar following content pillar framework:\n- 30% educational\n- 20% social proof\n- 20% behind the scenes\n- 20% engagement\n- 10% promotional\n\nReturn ONLY valid JSON:\n{"calendar":[{"day":1,"type":"educational|social_proof|behind_scenes|engagement|promotional","platform":"instagram|facebook|both","topic":"specific topic","caption_idea":"brief idea","hashtags":"3-5 relevant hashtags"}],"posting_frequency":"X posts per week","best_days":["string"]}`, 'claude-opus-4-5', 3000);
+      const result = await callClaude(`You are a content calendar strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nLanguage: ${p.primary_language || 'English'}\nGoal: ${p.primary_goal}\nBudget: ${p.monthly_budget}\nProducts: ${prods}\nSeason: ${season}\nUpcoming holidays: ${holidays || 'none soon'}\n${intel}\n\nCreate a 30-day content calendar following content pillar framework:\n- 30% educational\n- 20% social proof\n- 20% behind the scenes\n- 20% engagement\n- 10% promotional\n\nReturn ONLY valid JSON:\n{"calendar":[{"day":1,"type":"educational|social_proof|behind_scenes|engagement|promotional","platform":"instagram|facebook|both","topic":"specific topic","caption_idea":"brief idea","hashtags":"3-5 relevant hashtags"}],"posting_frequency":"X posts per week","best_days":["string"]}`, 'strategy', 3000);
       try { storeInsight(userId, 'calendar', 'content_strategy', 'posting_plan', `${(result.calendar || []).length} days planned, ${result.posting_frequency || ''}`); } catch {}
       log('/api/calendar/generate', `✅ 30-day calendar for ${p.business_name}`);
     } catch (err) { console.error('[calendar]', err.message); }
@@ -8324,7 +8477,7 @@ app.post('/api/campaigns/instant', async (req, res) => {
       if (!p) return;
       const intel = await buildIntelligenceContext(userId);
       const mem = await getMemoryContext(userId);
-      const result = await callClaude(`You are a campaign strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nGoal: ${goal}\nDuration: ${duration} days\nBudget: ${p.monthly_budget}\nLanguage: ${p.primary_language}\nProducts: ${(p.products || []).map(pr => pr.name).join(', ')}\n${intel}\n${mem}\n\nCreate a complete ${duration}-day campaign:\n- ${duration} social posts (one per day, specific topic and caption)\n- 2 emails (start and end of campaign)\n- 1 ad copy (Meta)\n- Campaign hashtag\n- Best posting schedule\n\nReturn ONLY valid JSON:\n{"campaign_name":"string","theme":"string","posts":[{"day":1,"platform":"string","topic":"string","caption":"string"}],"emails":[{"type":"start|end","subject":"string","body":"string"}],"ad":{"headline":"string","body":"string"},"hashtag":"string"}`, 'claude-opus-4-5', 4000);
+      const result = await callClaude(`You are a campaign strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nGoal: ${goal}\nDuration: ${duration} days\nBudget: ${p.monthly_budget}\nLanguage: ${p.primary_language}\nProducts: ${(p.products || []).map(pr => pr.name).join(', ')}\n${intel}\n${mem}\n\nCreate a complete ${duration}-day campaign:\n- ${duration} social posts (one per day, specific topic and caption)\n- 2 emails (start and end of campaign)\n- 1 ad copy (Meta)\n- Campaign hashtag\n- Best posting schedule\n\nReturn ONLY valid JSON:\n{"campaign_name":"string","theme":"string","posts":[{"day":1,"platform":"string","topic":"string","caption":"string"}],"emails":[{"type":"start|end","subject":"string","body":"string"}],"ad":{"headline":"string","body":"string"},"hashtag":"string"}`, 'strategy', 4000);
       try { storeInsight(userId, 'campaigns', 'campaign_strategy', 'active_campaign', result.campaign_name || goal); } catch {}
       log('/api/campaigns/instant', `✅ ${duration}-day campaign: ${result.campaign_name || goal}`);
     } catch (err) { console.error('[campaigns/instant]', err.message); }
@@ -8341,7 +8494,7 @@ app.post('/api/content/repurpose', async (req, res) => {
       const p = await getProfile(userId);
       if (!p) return;
       const platforms = targetPlatforms || ['instagram', 'facebook', 'email', 'whatsapp'];
-      const result = await callClaude(`Repurpose this content for ${p.business_name} across platforms.\nOriginal:\n"${originalContent.slice(0, 1000)}"\n\nLanguage: ${p.primary_language}\nCity: ${pCity(p)}\n\nCreate versions for: ${platforms.join(', ')}\n\nReturn ONLY valid JSON:\n{"versions":[{"platform":"string","content":"string","hashtags":"string","format":"string"}]}`, 'claude-sonnet-4-5', 2000);
+      const result = await callClaude(`Repurpose this content for ${p.business_name} across platforms.\nOriginal:\n"${originalContent.slice(0, 1000)}"\n\nLanguage: ${p.primary_language}\nCity: ${pCity(p)}\n\nCreate versions for: ${platforms.join(', ')}\n\nReturn ONLY valid JSON:\n{"versions":[{"platform":"string","content":"string","hashtags":"string","format":"string"}]}`, 'social_post', 2000);
       log('/api/content/repurpose', `✅ ${(result.versions || []).length} platform versions`);
     } catch (err) { console.error('[content/repurpose]', err.message); }
   });
@@ -8356,7 +8509,7 @@ app.post('/api/compete/counter', async (req, res) => {
     try {
       const p = await getProfile(userId);
       if (!p) return;
-      const result = await callClaude(`A competitor of ${p.business_name} just did this: "${competitorAction}"\n\nBusiness: ${p.business_type} in ${pCity(p)}\nOur USP: ${p.usp}\nOur advantage: ${p.we_do_better}\nLanguage: ${p.primary_language}\n\nGenerate counter-strategy:\n- 3 social posts positioning us as the better choice\n- 1 email to existing customers reinforcing loyalty\n- 1 ad copy countering their move\n\nReturn ONLY valid JSON:\n{"posts":["string"],"email":{"subject":"string","body":"string"},"ad":{"headline":"string","body":"string"},"strategy":"string"}`, 'claude-opus-4-5', 2000);
+      const result = await callClaude(`A competitor of ${p.business_name} just did this: "${competitorAction}"\n\nBusiness: ${p.business_type} in ${pCity(p)}\nOur USP: ${p.usp}\nOur advantage: ${p.we_do_better}\nLanguage: ${p.primary_language}\n\nGenerate counter-strategy:\n- 3 social posts positioning us as the better choice\n- 1 email to existing customers reinforcing loyalty\n- 1 ad copy countering their move\n\nReturn ONLY valid JSON:\n{"posts":["string"],"email":{"subject":"string","body":"string"},"ad":{"headline":"string","body":"string"},"strategy":"string"}`, 'strategy', 2000);
       try { storeInsight(userId, 'compete', 'competitive_intelligence', 'counter_strategy', result.strategy || competitorAction); } catch {}
       log('/api/compete/counter', `✅ Counter-strategy for ${p.business_name}`);
     } catch (err) { console.error('[compete/counter]', err.message); }
@@ -8367,11 +8520,15 @@ app.post('/api/compete/counter', async (req, res) => {
 app.get('/api/strategy/weekly/:userId', async (req, res) => {
   try {
     const uid = req.params.userId;
+    if (await checkOrchestrationIdempotency(uid, 'weekly_strategy_report')) {
+      return res.json({ skipped: true, reason: 'already_ran_recently' });
+    }
     const p = await getProfile(uid);
     if (!p) return res.status(404).json({ error: 'Profile not found' });
     const intel = await buildIntelligenceContext(uid);
     const mem = await getMemoryContext(uid);
-    const result = await callClaude(`Weekly strategy report for ${p.business_name} (${p.business_type} in ${pCity(p)}).\nLanguage: ${p.primary_language}\n${intel}\n${mem}\n\nGenerate:\n1. What worked this week (from intelligence)\n2. What to focus on next week\n3. 5 content ideas for next 7 days\n4. Budget recommendation\n5. One key competitor insight\n\nReturn ONLY valid JSON:\n{"what_worked":"string","next_week_focus":"string","content_ideas":["string"],"budget_recommendation":"string","competitor_insight":"string","overall_grade":"A|B|C|D"}`, 'claude-opus-4-5', 1500);
+    const result = await callClaude(`Weekly strategy report for ${p.business_name} (${p.business_type} in ${pCity(p)}).\nLanguage: ${p.primary_language}\n${intel}\n${mem}\n\nGenerate:\n1. What worked this week (from intelligence)\n2. What to focus on next week\n3. 5 content ideas for next 7 days\n4. Budget recommendation\n5. One key competitor insight\n\nReturn ONLY valid JSON:\n{"what_worked":"string","next_week_focus":"string","content_ideas":["string"],"budget_recommendation":"string","competitor_insight":"string","overall_grade":"A|B|C|D"}`, 'strategy', 1500);
+    await recordOrchestrationTaskRun(uid, 'weekly_strategy_report');
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -8384,7 +8541,7 @@ app.post('/api/reviews/auto-respond', async (req, res) => {
     const p = await getProfile(userId);
     const stars = rating || 5;
     const tone = stars >= 4 ? 'warm, grateful, subtly promotional' : 'empathetic, solution-focused, recovery-minded';
-    const result = await callClaude(`Write a review response for ${p?.business_name || 'the business'}.\nReview (${stars} stars): "${reviewText}"\nPlatform: ${platform || 'google'}\nTone: ${tone}\nLanguage: ${p?.primary_language || 'English'}\n\nRules:\n- ${stars >= 4 ? 'Thank warmly, mention specific detail, invite back' : 'Apologize sincerely, offer solution, invite offline resolution'}\n- Max 100 words\n- Never templated — unique to this review\n\nReturn ONLY valid JSON:\n{"response":"string","tone":"string","suggested_action":"string"}`, 'claude-sonnet-4-5', 400);
+    const result = await callClaude(`Write a review response for ${p?.business_name || 'the business'}.\nReview (${stars} stars): "${reviewText}"\nPlatform: ${platform || 'google'}\nTone: ${tone}\nLanguage: ${p?.primary_language || 'English'}\n\nRules:\n- ${stars >= 4 ? 'Thank warmly, mention specific detail, invite back' : 'Apologize sincerely, offer solution, invite offline resolution'}\n- Max 100 words\n- Never templated — unique to this review\n\nReturn ONLY valid JSON:\n{"response":"string","tone":"string","suggested_action":"string"}`, 'short_copy', 400);
     try { if (stars <= 2) storeInsight(userId, 'reviews', 'customer_voice', 'complaint_pattern', reviewText.slice(0, 100)); } catch {}
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -8400,7 +8557,7 @@ app.post('/api/referral/setup', async (req, res) => {
       const p = await getProfile(userId);
       if (!p) return;
       const code = crypto.randomBytes(4).toString('hex');
-      const result = await callClaude(`You are a referral program expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAvg spend: ${p.avg_spend || 'moderate'}\nLanguage: ${p.primary_language || 'English'}\n\nDesign a double-sided referral reward program.\nReturn ONLY valid JSON:\n{"reward_for_referrer":"string","reward_for_referee":"string","trigger_moments":["string"],"share_message":"string (${p.primary_language}, max 160 chars)","email_subject":"string","email_body":"string"}`, 'claude-sonnet-4-5', 1000);
+      const result = await callClaude(`You are a referral program expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAvg spend: ${p.avg_spend || 'moderate'}\nLanguage: ${p.primary_language || 'English'}\n\nDesign a double-sided referral reward program.\nReturn ONLY valid JSON:\n{"reward_for_referrer":"string","reward_for_referee":"string","trigger_moments":["string"],"share_message":"string (${p.primary_language}, max 160 chars)","email_subject":"string","email_body":"string"}`, 'email', 1000);
       await sbPost('referral_programs', { user_id: userId, referral_code: code, reward_type: 'discount', reward_value: result.reward_for_referee || '20%', is_active: true });
       storeInsight(userId, 'referral', 'program', 'reward_structure', `${result.reward_for_referrer || ''} / ${result.reward_for_referee || ''}`);
       log('/api/referral/setup', `✅ Referral program created for ${p.business_name}`);
@@ -8429,12 +8586,17 @@ app.post('/api/lead-magnets/generate', async (req, res) => {
   res.json({ received: true, message: 'Generating lead magnet' });
   setImmediate(async () => {
     try {
+      if (await checkOrchestrationIdempotency(userId, 'lead_magnets_generate')) {
+        log('/api/lead-magnets/generate', `skip idempotent userId=${userId}`);
+        return;
+      }
       const p = await getProfile(userId);
       if (!p) return;
-      const result = await callClaude(`You are a lead magnet strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAudience: ${p.audience_description || 'local customers'}, age ${p.audience_age_min || 18}-${p.audience_age_max || 65}\nPain point: ${p.pain_point || 'not specified'}\nLanguage: ${p.primary_language || 'English'}\n\nGenerate the BEST lead magnet. Solve ONE specific problem. High value, consumable in 10 min.\nReturn ONLY valid JSON:\n{"title":"string","type":"checklist|guide|template","headline":"string","subheadline":"string","content":"string (full content)","cta_button":"string"}`, 'claude-sonnet-4-5', 2000);
+      const result = await callClaude(`You are a lead magnet strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAudience: ${p.audience_description || 'local customers'}, age ${p.audience_age_min || 18}-${p.audience_age_max || 65}\nPain point: ${p.pain_point || 'not specified'}\nLanguage: ${p.primary_language || 'English'}\n\nGenerate the BEST lead magnet. Solve ONE specific problem. High value, consumable in 10 min.\nReturn ONLY valid JSON:\n{"title":"string","type":"checklist|guide|template","headline":"string","subheadline":"string","content":"string (full content)","cta_button":"string"}`, 'campaign', 2000);
       await sbPost('lead_magnets', { user_id: userId, title: result.title || 'Lead Magnet', type: result.type || 'guide', content: JSON.stringify(result), is_active: true });
       storeInsight(userId, 'lead_magnets', 'content', 'lead_magnet_topic', result.title || 'lead magnet');
-      storeInsight(userId, 'lead_magnets', 'content', 'lead_magnet_type', result.type || 'guide');
+           storeInsight(userId, 'lead_magnets', 'content', 'lead_magnet_type', result.type || 'guide');
+      await recordOrchestrationTaskRun(userId, 'lead_magnets_generate');
       log('/api/lead-magnets/generate', `✅ Lead magnet: ${result.title}`);
     } catch (err) { console.error('[lead-magnets]', err.message); }
   });
@@ -8453,7 +8615,7 @@ app.post('/api/launch/create', async (req, res) => {
     try {
       const p = await getProfile(userId);
       if (!p) return;
-      const result = await callClaude(`You are a launch strategist for ${p.business_name} launching: ${productName}\nDescription: ${productDescription || 'new product'}\nLaunch date: ${launchDate || 'in 2 weeks'}\nBusiness: ${p.business_type} in ${pCity(p)}\nLanguage: ${p.primary_language}\nBudget: ${p.monthly_budget}\nAudience: ${p.audience_description}\n\nUsing ORB launch framework, create complete launch plan:\n- PRE-LAUNCH: 3 teaser posts + 1 email\n- LAUNCH DAY: announcement post + launch email + ad copy\n- POST-LAUNCH: 2 social proof posts + follow-up email\n\nReturn ONLY valid JSON:\n{"pre_launch":{"posts":["string"],"email":{"subject":"string","body":"string"}},"launch_day":{"post":"string","email":{"subject":"string","body":"string"},"ad_copy":"string"},"post_launch":{"posts":["string"],"email":{"subject":"string","body":"string"}}}`, 'claude-opus-4-5', 3000);
+      const result = await callClaude(`You are a launch strategist for ${p.business_name} launching: ${productName}\nDescription: ${productDescription || 'new product'}\nLaunch date: ${launchDate || 'in 2 weeks'}\nBusiness: ${p.business_type} in ${pCity(p)}\nLanguage: ${p.primary_language}\nBudget: ${p.monthly_budget}\nAudience: ${p.audience_description}\n\nUsing ORB launch framework, create complete launch plan:\n- PRE-LAUNCH: 3 teaser posts + 1 email\n- LAUNCH DAY: announcement post + launch email + ad copy\n- POST-LAUNCH: 2 social proof posts + follow-up email\n\nReturn ONLY valid JSON:\n{"pre_launch":{"posts":["string"],"email":{"subject":"string","body":"string"}},"launch_day":{"post":"string","email":{"subject":"string","body":"string"},"ad_copy":"string"},"post_launch":{"posts":["string"],"email":{"subject":"string","body":"string"}}}`, 'strategy', 3000);
       await sbPost('launch_campaigns', { user_id: userId, product_name: productName, launch_date: launchDate || new Date(Date.now() + 14 * 86400000).toISOString(), phase: 'pre_launch', content_plan: JSON.stringify(result) });
       storeInsight(userId, 'launch', 'campaign', 'product_launching', productName);
       log('/api/launch/create', `✅ Launch plan for ${productName}`);
@@ -8475,7 +8637,7 @@ app.post('/api/research/analyze', async (req, res) => {
       const p = await getProfile(userId);
       if (!p) return;
       const reviewText = Array.isArray(reviews) ? reviews.join('\n') : (feedback || 'No reviews provided — analyze based on typical customers for this business type');
-      const result = await callClaude(`You are a customer research expert analyzing ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nCurrent audience: ${p.audience_description}\nReviews/feedback:\n${reviewText}\n\nExtract:\n1. JOBS TO BE DONE (functional, emotional, social)\n2. Top 3 PAIN POINTS with emotional language\n3. TRIGGER EVENTS\n4. DESIRED OUTCOMES in customer words\n5. KEY PHRASES to use in marketing\n\nReturn ONLY valid JSON:\n{"jobs_to_be_done":["string"],"pain_points":["string"],"trigger_events":["string"],"desired_outcomes":["string"],"key_phrases":["string"],"improved_audience_description":"string","content_recommendations":["string"]}`, 'claude-sonnet-4-5', 1500);
+      const result = await callClaude(`You are a customer research expert analyzing ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nCurrent audience: ${p.audience_description}\nReviews/feedback:\n${reviewText}\n\nExtract:\n1. JOBS TO BE DONE (functional, emotional, social)\n2. Top 3 PAIN POINTS with emotional language\n3. TRIGGER EVENTS\n4. DESIRED OUTCOMES in customer words\n5. KEY PHRASES to use in marketing\n\nReturn ONLY valid JSON:\n{"jobs_to_be_done":["string"],"pain_points":["string"],"trigger_events":["string"],"desired_outcomes":["string"],"key_phrases":["string"],"improved_audience_description":"string","content_recommendations":["string"]}`, 'research', 1500);
       await sbPost('customer_insights', { user_id: userId, source: reviews ? 'reviews' : 'ai_analysis', insight_type: 'full_analysis', content: JSON.stringify(result), actionable_suggestion: (result.content_recommendations || []).join('; ') });
       storeInsight(userId, 'research', 'customer', 'top_pain_points', (result.pain_points || []).slice(0, 3).join('; '));
       storeInsight(userId, 'research', 'customer', 'customer_language', (result.key_phrases || []).slice(0, 5).join('; '));
@@ -8492,10 +8654,14 @@ app.post('/api/ideas/generate', async (req, res) => {
   res.json({ received: true, message: 'Generating 10 marketing ideas' });
   setImmediate(async () => {
     try {
+      if (await checkOrchestrationIdempotency(userId, 'ideas_generate')) {
+        log('/api/ideas/generate', `skip idempotent userId=${userId}`);
+        return;
+      }
       const p = await getProfile(userId);
       if (!p) { log('/api/ideas/generate', `ABORT: no profile found for userId=${userId}`); await logError(userId, 'ideas-generate', 'No profile found for userId=' + userId).catch(() => {}); return; }
       log('/api/ideas/generate', `Profile found: ${p.business_name} (${p.business_type})`);
-      let result = await callClaude(`You are a marketing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nBudget: ${p.monthly_budget}\nGoal: ${p.primary_goal}\nLanguage: ${p.primary_language}\n\nGenerate 5 SPECIFIC marketing ideas ranked by impact. Keep each idea brief (1-2 sentences each).\n\nReturn ONLY valid JSON array (no markdown, no code fences):\n[{"idea":"string","category":"string","priority":"high|medium|low","estimated_impact":"string","how_to_execute":"3 brief steps","budget_required":"string","time_to_results":"string"}]`, 'claude-sonnet-4-5', 4000);
+      let result = await callClaude(`You are a marketing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nBudget: ${p.monthly_budget}\nGoal: ${p.primary_goal}\nLanguage: ${p.primary_language}\n\nGenerate 5 SPECIFIC marketing ideas ranked by impact. Keep each idea brief (1-2 sentences each).\n\nReturn ONLY valid JSON array (no markdown, no code fences):\n[{"idea":"string","category":"string","priority":"high|medium|low","estimated_impact":"string","how_to_execute":"3 brief steps","budget_required":"string","time_to_results":"string"}]`, 'idea', 4000);
       // Handle _raw fallback — re-extract JSON from raw text
       log('/api/ideas/generate', `Claude returned: type=${typeof result}, isArray=${Array.isArray(result)}, hasRaw=${!!result?._raw}, keys=${Object.keys(result||{}).slice(0,5)}`);
       if (result?._raw) { const parsed = extractJSON(result._raw); if (parsed) { log('/api/ideas/generate', `Re-parsed _raw: type=${typeof parsed}, isArray=${Array.isArray(parsed)}`); result = parsed; } }
@@ -8507,6 +8673,7 @@ app.post('/api/ideas/generate', async (req, res) => {
       }
       const topIdeas = ideas.filter(i => i.priority === 'high').slice(0, 3).map(i => i.idea).join('; ');
       storeInsight(userId, 'ideas', 'strategy', 'top_priority_ideas', topIdeas || ideas[0]?.idea || '');
+      await recordOrchestrationTaskRun(userId, 'ideas_generate');
       log('/api/ideas/generate', `✅ ${ideas.length} marketing ideas generated`);
     } catch (err) {
       const msg = err?.message || String(err);
@@ -8534,7 +8701,7 @@ app.post('/api/ai-seo/optimize', async (req, res) => {
     try {
       const p = await getProfile(userId);
       if (!p) return;
-      const result = await callClaude(`You are an AI SEO expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nUSP: ${p.usp}\nLanguage: ${p.primary_language}\n\nOptimize for ChatGPT, Perplexity, Google AI Overviews:\n1. Create 10 FAQ entries (question as users ask AI + direct citable answer)\n2. Write 3 authority paragraphs (specific numbers, structured for extraction)\n3. Generate local search queries\n\nReturn ONLY valid JSON:\n{"faqs":[{"question":"string","answer":"string"}],"authority_paragraphs":["string"],"target_queries":["string"]}`, 'claude-sonnet-4-5', 2000);
+      const result = await callClaude(`You are an AI SEO expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nUSP: ${p.usp}\nLanguage: ${p.primary_language}\n\nOptimize for ChatGPT, Perplexity, Google AI Overviews:\n1. Create 10 FAQ entries (question as users ask AI + direct citable answer)\n2. Write 3 authority paragraphs (specific numbers, structured for extraction)\n3. Generate local search queries\n\nReturn ONLY valid JSON:\n{"faqs":[{"question":"string","answer":"string"}],"authority_paragraphs":["string"],"target_queries":["string"]}`, 'research', 2000);
       await sbPost('ai_seo_content', { user_id: userId, content_type: 'full_optimization', optimized_content: JSON.stringify(result) });
       storeInsight(userId, 'ai_seo', 'seo', 'target_queries', (result.target_queries || []).slice(0, 5).join('; '));
       log('/api/ai-seo/optimize', `✅ AI SEO content for ${p.business_name}`);
@@ -8549,7 +8716,7 @@ app.post('/api/schema/generate', async (req, res) => {
   try {
     const p = await getProfile(userId);
     if (!p) return res.status(404).json({ error: 'Profile not found' });
-    const result = await callClaude(`Generate LocalBusiness + FAQPage JSON-LD schema for:\nBusiness: ${p.business_name}\nType: ${p.business_type}\nCity: ${pCity(p)}\nUSP: ${p.usp || ''}\n\nReturn ONLY valid JSON-LD (no markdown):\n{"@context":"https://schema.org","@type":"LocalBusiness","name":"...","description":"...","address":{"@type":"PostalAddress","addressLocality":"${pCity(p)}"}}`, 'claude-sonnet-4-5', 800);
+    const result = await callClaude(`Generate LocalBusiness + FAQPage JSON-LD schema for:\nBusiness: ${p.business_name}\nType: ${p.business_type}\nCity: ${pCity(p)}\nUSP: ${p.usp || ''}\n\nReturn ONLY valid JSON-LD (no markdown):\n{"@context":"https://schema.org","@type":"LocalBusiness","name":"...","description":"...","address":{"@type":"PostalAddress","addressLocality":"${pCity(p)}"}}`, 'social_post', 800);
     const schemaJson = JSON.stringify(result);
     await sbPost('schema_markups', { user_id: userId, schema_type: 'LocalBusiness', schema_json: schemaJson });
     res.json({ schema: result, copyable: `<script type="application/ld+json">${schemaJson}</script>` });
@@ -8571,7 +8738,7 @@ app.post('/api/seo-pages/generate', async (req, res) => {
       if (!p) return;
       const cities = Array.isArray(p.service_area) ? p.service_area : [pCity(p)];
       for (const city of cities.slice(0, 5)) {
-        const result = await callClaude(`Generate SEO page for "${p.business_type} in ${city}".\nBusiness: ${p.business_name}\nUSP: ${p.usp}\nLanguage: ${p.primary_language}\n\nReturn ONLY valid JSON:\n{"meta_title":"string (60 chars)","meta_description":"string (155 chars)","h1":"string","intro":"string (150 words)","services_section":"string","why_us":"string","faq":[{"q":"string","a":"string"}],"cta":"string"}`, 'claude-sonnet-4-5', 1500);
+        const result = await callClaude(`Generate SEO page for "${p.business_type} in ${city}".\nBusiness: ${p.business_name}\nUSP: ${p.usp}\nLanguage: ${p.primary_language}\n\nReturn ONLY valid JSON:\n{"meta_title":"string (60 chars)","meta_description":"string (155 chars)","h1":"string","intro":"string (150 words)","services_section":"string","why_us":"string","faq":[{"q":"string","a":"string"}],"cta":"string"}`, 'social_post', 1500);
         await sbPost('seo_pages', { user_id: userId, page_type: 'service_location', keyword: `${p.business_type} in ${city}`, location: city, content: JSON.stringify(result), meta_title: result.meta_title, meta_description: result.meta_description }).catch(() => {});
       }
       storeInsight(userId, 'seo_pages', 'seo', 'pages_created', cities.join(', '));
@@ -8594,7 +8761,7 @@ app.post('/api/pricing/analyze', async (req, res) => {
       const p = await getProfile(userId);
       if (!p) return;
       const prods = Array.isArray(p.products) ? p.products : [];
-      const result = await callClaude(`You are a pricing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAvg spend: ${p.avg_spend || 'unknown'}\nProducts: ${prods.map(pr => `${pr.name}: ${pr.price || 'N/A'}`).join(', ')}\nGoal: ${p.primary_goal}\n\nUsing value-based pricing:\n1. Analyze current pricing\n2. Recommend 3-tier structure\n3. Psychological tactics\n4. ROI framing\n\nReturn ONLY valid JSON:\n{"pricing_analysis":"string","recommended_tiers":[{"name":"string","price":"string","includes":["string"],"target_customer":"string"}],"psychological_tactics":["string"],"roi_framing":"string","marketing_message":"string"}`, 'claude-sonnet-4-5', 1500);
+      const result = await callClaude(`You are a pricing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAvg spend: ${p.avg_spend || 'unknown'}\nProducts: ${prods.map(pr => `${pr.name}: ${pr.price || 'N/A'}`).join(', ')}\nGoal: ${p.primary_goal}\n\nUsing value-based pricing:\n1. Analyze current pricing\n2. Recommend 3-tier structure\n3. Psychological tactics\n4. ROI framing\n\nReturn ONLY valid JSON:\n{"pricing_analysis":"string","recommended_tiers":[{"name":"string","price":"string","includes":["string"],"target_customer":"string"}],"psychological_tactics":["string"],"roi_framing":"string","marketing_message":"string"}`, 'strategy', 1500);
       await sbPost('pricing_recommendations', { user_id: userId, tier_structure: JSON.stringify(result.recommended_tiers), reasoning: result.pricing_analysis });
       storeInsight(userId, 'pricing', 'strategy', 'recommended_pricing', JSON.stringify(result.recommended_tiers || []).slice(0, 500));
       storeInsight(userId, 'pricing', 'strategy', 'roi_framing', result.roi_framing || '');
@@ -8614,14 +8781,19 @@ app.post('/api/community/generate-posts', async (req, res) => {
   res.json({ received: true, message: 'Generating community posts' });
   setImmediate(async () => {
     try {
+      if (await checkOrchestrationIdempotency(userId, 'community_posts_generate')) {
+        log('/api/community/generate-posts', `skip idempotent userId=${userId}`);
+        return;
+      }
       const p = await getProfile(userId);
       if (!p) return;
-      const result = await callClaude(`You are a community marketing expert for ${p.business_name} in ${pCity(p)}.\nPlatform: ${platform}\nAudience: ${p.audience_description}\nLanguage: ${p.primary_language}\n\nGenerate 5 community posts focused on SHARED IDENTITY (not promotion).\nValue to members first.\n\nReturn ONLY valid JSON:\n{"strategy":"string","posts":[{"content":"string","post_type":"value|question|story|tip|engagement","best_day":"string"}]}`, 'claude-sonnet-4-5', 1500);
+      const result = await callClaude(`You are a community marketing expert for ${p.business_name} in ${pCity(p)}.\nPlatform: ${platform}\nAudience: ${p.audience_description}\nLanguage: ${p.primary_language}\n\nGenerate 5 community posts focused on SHARED IDENTITY (not promotion).\nValue to members first.\n\nReturn ONLY valid JSON:\n{"strategy":"string","posts":[{"content":"string","post_type":"value|question|story|tip|engagement","best_day":"string"}]}`, 'community_post', 1500);
       const posts = result.posts || [];
       for (const post of posts) {
         await sbPost('community_posts', { user_id: userId, platform, content: post.content, post_type: post.post_type, status: 'draft' }).catch(() => {});
       }
       storeInsight(userId, 'community', 'content', 'post_types', posts.map(p2 => p2.post_type).join(', '));
+      await recordOrchestrationTaskRun(userId, 'community_posts_generate');
       log('/api/community/generate-posts', `✅ ${posts.length} community posts`);
     } catch (err) { console.error('[community]', err.message); }
   });
@@ -8636,7 +8808,7 @@ app.post('/api/sales/generate-pitch', async (req, res) => {
     try {
       const p = await getProfile(userId);
       if (!p) return;
-      const result = await callClaude(`Create a sales one-pager for ${p.business_name}.\nBusiness: ${p.business_type} in ${pCity(p)}\nUSP: ${p.usp}\nWe are better at: ${p.we_do_better}\nOffer: ${p.current_offer}\nLanguage: ${p.primary_language}\n\nLead with outcomes, scannable in 3 seconds, specific numbers.\nReturn ONLY valid JSON:\n{"headline":"string","subheadline":"string","key_benefits":["string"],"social_proof":"string","cta":"string","full_pitch":"string"}`, 'claude-sonnet-4-5', 1000);
+      const result = await callClaude(`Create a sales one-pager for ${p.business_name}.\nBusiness: ${p.business_type} in ${pCity(p)}\nUSP: ${p.usp}\nWe are better at: ${p.we_do_better}\nOffer: ${p.current_offer}\nLanguage: ${p.primary_language}\n\nLead with outcomes, scannable in 3 seconds, specific numbers.\nReturn ONLY valid JSON:\n{"headline":"string","subheadline":"string","key_benefits":["string"],"social_proof":"string","cta":"string","full_pitch":"string"}`, 'sales_pitch', 1000);
       await sbPost('sales_assets', { user_id: userId, asset_type: 'one_pager', title: result.headline || 'Sales Pitch', content: JSON.stringify(result) }).catch(() => {});
       storeInsight(userId, 'sales', 'messaging', 'key_pitch', result.headline || '');
       log('/api/sales/generate-pitch', `✅ Pitch for ${p.business_name}`);
@@ -8648,7 +8820,7 @@ app.post('/api/sales/objection-handler', async (req, res) => {
   if (!userId || !objection) return res.status(400).json({ error: 'userId and objection required' });
   try {
     const p = await getProfile(userId);
-    const result = await callClaude(`Handle this sales objection for ${p?.business_name || 'the business'}:\nObjection: "${objection}"\nUSP: ${p?.usp || 'quality service'}\nLanguage: ${p?.primary_language || 'English'}\n\nReturn ONLY valid JSON:\n{"response":"string","tone":"empathetic|confident|educational","follow_up_question":"string"}`, 'claude-sonnet-4-5', 500);
+    const result = await callClaude(`Handle this sales objection for ${p?.business_name || 'the business'}:\nObjection: "${objection}"\nUSP: ${p?.usp || 'quality service'}\nLanguage: ${p?.primary_language || 'English'}\n\nReturn ONLY valid JSON:\n{"response":"string","tone":"empathetic|confident|educational","follow_up_question":"string"}`, 'short_copy', 500);
     res.json(result);
   } catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
@@ -8659,7 +8831,7 @@ app.post('/api/revops/score-lead', async (req, res) => {
   if (!userId || !leadData) return res.status(400).json({ error: 'userId and leadData required' });
   try {
     const p = await getProfile(userId);
-    const result = await callClaude(`Score this lead for ${p?.business_name || 'the business'}:\nLead: ${JSON.stringify(leadData)}\nIdeal customer: ${p?.audience_description || 'local customer'}\nCity: ${pCity(p)}\n\nFIT (0-50): matches audience? +20, in area? +15, right spend? +15\nENGAGEMENT (0-50): form filled? +25, multiple visits? +15, time>2min? +10\n\nReturn ONLY valid JSON:\n{"fit_score":0,"engagement_score":0,"total_score":0,"stage":"lead|MQL|SQL","recommended_action":"string","follow_up_message":"string"}`, 'claude-sonnet-4-5', 500);
+    const result = await callClaude(`Score this lead for ${p?.business_name || 'the business'}:\nLead: ${JSON.stringify(leadData)}\nIdeal customer: ${p?.audience_description || 'local customer'}\nCity: ${pCity(p)}\n\nFIT (0-50): matches audience? +20, in area? +15, right spend? +15\nENGAGEMENT (0-50): form filled? +25, multiple visits? +15, time>2min? +10\n\nReturn ONLY valid JSON:\n{"fit_score":0,"engagement_score":0,"total_score":0,"stage":"lead|MQL|SQL","recommended_action":"string","follow_up_message":"string"}`, 'social_post', 500);
     await sbPost('lead_scores', { user_id: userId, lead_email: leadData.email || null, fit_score: result.fit_score || 0, engagement_score: result.engagement_score || 0, total_score: result.total_score || 0, stage: result.stage || 'lead', recommended_action: result.recommended_action });
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -8675,7 +8847,7 @@ app.post('/api/ab-tests/create', async (req, res) => {
   if (!userId || !testType || !currentVersion) return res.status(400).json({ error: 'userId, testType, currentVersion required' });
   try {
     const p = await getProfile(userId);
-    const result = await callClaude(`Create A/B test variant for ${p?.business_name || 'business'}.\nCurrent (A): "${currentVersion}"\nType: ${testType}\nLanguage: ${p?.primary_language || 'English'}\n\nChange ONE variable. Return ONLY valid JSON:\n{"variant_a":"string","variant_b":"string","hypothesis":"string","primary_metric":"string","minimum_runtime":"string"}`, 'claude-sonnet-4-5', 500);
+    const result = await callClaude(`Create A/B test variant for ${p?.business_name || 'business'}.\nCurrent (A): "${currentVersion}"\nType: ${testType}\nLanguage: ${p?.primary_language || 'English'}\n\nChange ONE variable. Return ONLY valid JSON:\n{"variant_a":"string","variant_b":"string","hypothesis":"string","primary_metric":"string","minimum_runtime":"string"}`, 'social_post', 500);
     let row = null;
     try { row = await sbPost('ab_tests', { business_id: userId, started_at: new Date().toISOString() }); } catch (dbErr) { log('/api/ab-tests/create', `DB insert failed (non-critical): ${dbErr.message}`); }
     res.json({ test_id: row?.id || null, ...result });
@@ -8694,7 +8866,7 @@ app.post('/api/tools/suggest', async (req, res) => {
   setImmediate(async () => {
     try {
       const p = await getProfile(userId);
-      const result = await callClaude(`Suggest 3 free marketing tools for ${p?.business_name || 'business'}, a ${p?.business_type || 'local business'}.\nAudience: ${p?.audience_description || 'local customers'}\nCity: ${pCity(p)}\n\nReturn ONLY valid JSON:\n[{"tool_name":"string","tool_type":"calculator|generator|checklist","description":"string","how_it_generates_leads":"string"}]`, 'claude-sonnet-4-5', 800);
+      const result = await callClaude(`Suggest 3 free marketing tools for ${p?.business_name || 'business'}, a ${p?.business_type || 'local business'}.\nAudience: ${p?.audience_description || 'local customers'}\nCity: ${pCity(p)}\n\nReturn ONLY valid JSON:\n[{"tool_name":"string","tool_type":"calculator|generator|checklist","description":"string","how_it_generates_leads":"string"}]`, 'social_post', 800);
       const tools = Array.isArray(result) ? result : [result];
       for (const t of tools) { await sbPost('free_tools', { user_id: userId, tool_name: t.tool_name, tool_type: t.tool_type, tool_description: t.description }).catch(() => {}); }
       log('/api/tools/suggest', `✅ ${tools.length} tools suggested`);
@@ -8713,7 +8885,7 @@ app.post('/api/popup/generate', async (req, res) => {
   try {
     const p = await getProfile(userId);
     const tones = Array.isArray(p?.tone_keywords) ? p.tone_keywords.join(', ') : 'professional';
-    const result = await callClaude(`Write popup copy for ${p?.business_name || 'business'}.\nType: ${popupType}\nBusiness: ${p?.business_type || 'local'} in ${pCity(p)}\nOffer: ${p?.current_offer || 'main service'}\nLanguage: ${p?.primary_language || 'English'}\nTone: ${tones}\n\nReturn ONLY valid JSON:\n{"headline":"string (max 8 words)","subheadline":"string (max 15 words)","cta_button":"string (max 4 words)","dismiss_text":"string","timing":"string","trigger":"exit_intent|scroll_50|time_30s"}`, 'claude-sonnet-4-5', 400);
+    const result = await callClaude(`Write popup copy for ${p?.business_name || 'business'}.\nType: ${popupType}\nBusiness: ${p?.business_type || 'local'} in ${pCity(p)}\nOffer: ${p?.current_offer || 'main service'}\nLanguage: ${p?.primary_language || 'English'}\nTone: ${tones}\n\nReturn ONLY valid JSON:\n{"headline":"string (max 8 words)","subheadline":"string (max 15 words)","cta_button":"string (max 4 words)","dismiss_text":"string","timing":"string","trigger":"exit_intent|scroll_50|time_30s"}`, 'social_post', 400);
     res.json(result);
   } catch (err) { res.status(500).json({ error: safePublicError(err) }); }
 });
@@ -8728,7 +8900,7 @@ app.post('/api/onboarding-cro/generate', async (req, res) => {
       const p = await getProfile(userId);
       if (!p) return;
       const prods = Array.isArray(p.products) ? p.products.map(pr => pr.name).join(', ') : 'their service';
-      const result = await callClaude(`Design customer onboarding for ${p.business_name}.\nBusiness: ${p.business_type} in ${pCity(p)}\nProducts: ${prods}\nGoal: get them to come back and refer friends\nLanguage: ${p.primary_language}\n\nCreate 5-email sequence:\n1 (immediate): Welcome + next action\n2 (day 1): Quick win tip\n3 (day 3): Your story/why\n4 (day 5): Social proof\n5 (day 7): Special offer for second visit\n\nEach: subject, preview, body (max 150 words), CTA. All in ${p.primary_language}.\nReturn ONLY valid JSON:\n{"emails":[{"day":0,"subject":"string","preview":"string","body":"string","cta":"string"}]}`, 'claude-sonnet-4-5', 2000);
+      const result = await callClaude(`Design customer onboarding for ${p.business_name}.\nBusiness: ${p.business_type} in ${pCity(p)}\nProducts: ${prods}\nGoal: get them to come back and refer friends\nLanguage: ${p.primary_language}\n\nCreate 5-email sequence:\n1 (immediate): Welcome + next action\n2 (day 1): Quick win tip\n3 (day 3): Your story/why\n4 (day 5): Social proof\n5 (day 7): Special offer for second visit\n\nEach: subject, preview, body (max 150 words), CTA. All in ${p.primary_language}.\nReturn ONLY valid JSON:\n{"emails":[{"day":0,"subject":"string","preview":"string","body":"string","cta":"string"}]}`, 'social_post', 2000);
       log('/api/onboarding-cro/generate', `✅ 5-email onboarding for ${p.business_name}`);
     } catch (err) { console.error('[onboarding-cro]', err.message); }
   });
@@ -8742,7 +8914,7 @@ app.post('/api/upgrade/generate-prompts', async (req, res) => {
   setImmediate(async () => {
     try {
       const p = await getProfile(userId);
-      await callClaude(`Write 3 upgrade prompts for ${p?.business_name || 'business'}.\nLanguage: ${p?.primary_language || 'English'}\n\nReturn ONLY valid JSON:\n{"prompts":[{"trigger":"feature_gate","headline":"string","body":"string","cta":"string","dismiss":"string"}]}`, 'claude-sonnet-4-5', 800);
+      await callClaude(`Write 3 upgrade prompts for ${p?.business_name || 'business'}.\nLanguage: ${p?.primary_language || 'English'}\n\nReturn ONLY valid JSON:\n{"prompts":[{"trigger":"feature_gate","headline":"string","body":"string","cta":"string","dismiss":"string"}]}`, 'short_copy', 800);
       log('/api/upgrade/generate-prompts', '✅ Upgrade prompts generated');
     } catch (err) { console.error('[upgrade]', err.message); }
   });
@@ -8756,7 +8928,7 @@ app.post('/api/signup-cro/analyze', async (req, res) => {
   setImmediate(async () => {
     try {
       const p = await getProfile(userId);
-      await callClaude(`Optimize signup flow for ${p?.business_name || 'business'}, a ${p?.business_type || 'local business'}.\nLanguage: ${p?.primary_language || 'English'}\n\nReturn ONLY valid JSON:\n{"landing":{"headline":"string","cta":"string"},"form":{"fields":["string"]},"confirmation":{"headline":"string"},"followup":{"sms":"string"}}`, 'claude-sonnet-4-5', 1000);
+      await callClaude(`Optimize signup flow for ${p?.business_name || 'business'}, a ${p?.business_type || 'local business'}.\nLanguage: ${p?.primary_language || 'English'}\n\nReturn ONLY valid JSON:\n{"landing":{"headline":"string","cta":"string"},"form":{"fields":["string"]},"confirmation":{"headline":"string"},"followup":{"sms":"string"}}`, 'short_copy', 1000);
       log('/api/signup-cro/analyze', '✅ Signup flow analyzed');
     } catch (err) { console.error('[signup-cro]', err.message); }
   });
@@ -8774,7 +8946,7 @@ app.post('/api/orchestrator/run/:userId', async (req, res) => {
       if (!p) return;
       const dayName = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
       const intel = await buildIntelligenceContext(userId);
-      const plan = await callClaude(`You are the AI brain for ${p.business_name}.\nToday: ${dayName}\nGoal: ${p.primary_goal}\nBudget: ${p.monthly_budget}\nSeason: ${p.seasonal || 'year_round'}\n\n${intel}\n\nPRIORITY RULES:\n- competitive_intelligence → counter-content\n- customer_voice complaints → address in content\n- ad_strategy wins → replicate across channels\n- content_performance → more of what works\n- lead_intelligence → optimize targeting\n\nDecide 2-3 tasks for TODAY.\nChoose from: social_post, email, ai_seo, marketing_ideas, customer_research, schema_markup, lead_magnet, community_post\n\nReturn ONLY valid JSON:\n{"tasks":[{"type":"string","priority":1,"reason":"string"}],"tomorrow_plan":"string","top_insight":"string"}`, 'claude-sonnet-4-5', 700);
+      const plan = await callClaude(`You are the AI brain for ${p.business_name}.\nToday: ${dayName}\nGoal: ${p.primary_goal}\nBudget: ${p.monthly_budget}\nSeason: ${p.seasonal || 'year_round'}\n\n${intel}\n\nPRIORITY RULES:\n- competitive_intelligence → counter-content\n- customer_voice complaints → address in content\n- ad_strategy wins → replicate across channels\n- content_performance → more of what works\n- lead_intelligence → optimize targeting\n\nDecide 2-3 tasks for TODAY.\nChoose from: social_post, email, ai_seo, marketing_ideas, customer_research, schema_markup, lead_magnet, community_post\n\nReturn ONLY valid JSON:\n{"tasks":[{"type":"string","priority":1,"reason":"string"}],"tomorrow_plan":"string","top_insight":"string"}`, 'orchestrator', 700);
       const tasks = plan.tasks || [];
       const executed = [];
       const SELF = 'https://maroa-api-production.up.railway.app';
@@ -9194,6 +9366,7 @@ app.get('/api/context/:userId', async (req, res) => {
     ]);
 
     const memoryContextStr = (await getMemoryContext(contextUserId).catch(() => '')) || '';
+    const perfThemesExtra = businessId ? await fetchPerformanceThemesContextBlock(businessId) : '';
 
     let full_master_prompt = '';
     try {
@@ -9203,13 +9376,14 @@ app.get('/api/context/:userId', async (req, res) => {
         getEmbedding,
         pineconeQuery,
         buildIntelligenceContext,
-        getMemoryContext
+        getMemoryContext,
+        perfThemesExtra || ''
       );
     } catch (e) {
       try {
-        full_master_prompt = buildMasterPrompt(mergedForPrompt, taskType);
+        full_master_prompt = buildMasterPrompt(mergedForPrompt, taskType) + (perfThemesExtra ? `\n\n${perfThemesExtra}\n` : '');
       } catch {
-        full_master_prompt = '';
+        full_master_prompt = perfThemesExtra || '';
       }
     }
 

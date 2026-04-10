@@ -5,8 +5,12 @@ const KOSOVO_ALBANIA_CITIES = ['tiranë','tirana','durrës','shkodër','vlorë',
   'suharekë','malishevë','drenas','lipjan','kaçanik','shtërpce','deçan','istog','klinë','rahovec',
   'podgoricë','shkup','skopje','tetovë','gostivar','ohër','bitola','struga'];
 
+function validateContent(content, profile, taskType) {
+  return validateGeneratedContent(content, profile, taskType);
+}
+
 function validateGeneratedContent(content, profile, taskType) {
-  if (!content || typeof content !== 'string') return { valid: true, issues: [], quality_score: 50 };
+  if (!content || typeof content !== 'string') return { valid: true, issues: [], quality_score: 50, score: 100 };
   const issues = [];
   const contentLower = content.toLowerCase();
 
@@ -26,6 +30,9 @@ function validateGeneratedContent(content, profile, taskType) {
   if (profile?.primary_language === 'Albanian') {
     const engWords = (content.match(/\b(the|and|but|is|are|was|were|have|has|this|that|with|from|your|our|their)\b/gi) || []).length;
     if (engWords > 8) issues.push('Content appears to be in English but Albanian is required');
+    const albanianWords = ['dhe', 'në', 'për', 'me', 'të', 'është', 'që'];
+    const hasAlbanian = albanianWords.some(w => contentLower.includes(w));
+    if (!hasAlbanian && content.length > 50) issues.push('wrong_language');
   }
 
   // Rule 3: Placeholder text
@@ -33,15 +40,29 @@ function validateGeneratedContent(content, profile, taskType) {
   for (const ph of placeholders) {
     if (contentLower.includes(ph)) issues.push(`Contains placeholder: ${ph}`);
   }
+  if (content.includes('[') && content.includes(']')) issues.push('has_placeholders');
+  if (content.includes('INSERT') || content.includes('PLACEHOLDER')) issues.push('has_placeholders');
 
   // Rule 4: Minimum length
-  if (taskType === 'social_post' && content.length < 50) issues.push('Social post too short');
+  if (taskType === 'social_post' && content.length < 50) issues.push('too_short');
+  if (taskType === 'social_post' && content.length > 2200) issues.push('too_long');
   if (taskType === 'email' && content.length < 100) issues.push('Email too short');
+
+  // Banned words (profile.words_never_use or never_do)
+  const banned = [];
+  if (Array.isArray(profile?.words_never_use)) banned.push(...profile.words_never_use);
+  if (profile?.never_do && typeof profile.never_do === 'string') banned.push(profile.never_do);
+  banned.forEach(word => {
+    if (word && String(word).trim() && contentLower.includes(String(word).toLowerCase())) {
+      issues.push(`banned_word:${word}`);
+    }
+  });
 
   // Quality score
   const quality_score = calculateQualityScore(content, profile, taskType);
+  const score = Math.max(0, 100 - (issues.length * 25));
 
-  return { valid: issues.length === 0, issues, quality_score };
+  return { valid: issues.length === 0, issues, quality_score, score };
 }
 
 function calculateQualityScore(content, profile, taskType) {
@@ -62,4 +83,4 @@ function calculateQualityScore(content, profile, taskType) {
   return Math.min(100, score);
 }
 
-module.exports = { validateGeneratedContent, calculateQualityScore };
+module.exports = { validateGeneratedContent, validateContent, calculateQualityScore };
