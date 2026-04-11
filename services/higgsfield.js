@@ -1,5 +1,8 @@
 'use strict';
 
+const https = require('https');
+const http = require('http');
+
 /**
  * Higgsfield + Claude orchestration for product creatives.
  * Factory receives server deps to avoid circular requires.
@@ -14,8 +17,11 @@ module.exports = function createHiggsfieldService(deps) {
     sbPost,
     ANTHROPIC_KEY,
     SERPAPI_KEY,
-    SUPABASE_URL
+    SUPABASE_URL,
+    SUPABASE_KEY
   } = deps;
+
+  const CONTENT_IMAGES_BUCKET = 'content-images';
 
   const clean = (v) => (v || '').replace(/[^\x20-\x7E]/g, '').trim();
   const HIGGSFIELD_API_KEY_ID = clean(process.env.HIGGSFIELD_API_KEY_ID || '');
@@ -31,6 +37,75 @@ module.exports = function createHiggsfieldService(deps) {
   const VIDEO_JOB_TIMEOUT_MS = 5 * 60 * 1000;
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  function downloadImageBuffer(sourceUrl) {
+    return new Promise((resolve, reject) => {
+      const proto = sourceUrl.startsWith('https') ? https : http;
+      proto.get(sourceUrl, { headers: { Accept: '*/*' } }, (res) => {
+        if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
+          return downloadImageBuffer(new URL(res.headers.location, sourceUrl).href).then(resolve).catch(reject);
+        }
+        if (res.statusCode !== 200) return reject(new Error(`Download failed: ${res.statusCode}`));
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+        res.on('error', reject);
+      }).on('error', reject);
+    });
+  }
+
+  async function uploadBufferToContentImages(imgBuf, userId, index) {
+    if (!SUPABASE_URL || !SUPABASE_KEY) throw new Error('Supabase storage not configured');
+    const ts = Date.now();
+    const objectPath = `${userId}/${ts}-${index}.png`;
+    const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${CONTENT_IMAGES_BUCKET}/${objectPath}`;
+    const uploadResp = await new Promise((resolve, reject) => {
+      const u = new URL(uploadUrl);
+      const req = https.request(
+        {
+          hostname: u.hostname,
+          port: u.port || 443,
+          path: u.pathname,
+          method: 'POST',
+          headers: {
+            apikey: SUPABASE_KEY,
+            Authorization: `Bearer ${SUPABASE_KEY}`,
+            'Content-Type': 'image/png',
+            'Content-Length': imgBuf.length,
+            'x-upsert': 'false'
+          }
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (c) => (data += c));
+          res.on('end', () => resolve({ status: res.statusCode, body: data }));
+        }
+      );
+      req.on('error', reject);
+      req.write(imgBuf);
+      req.end();
+    });
+    if (uploadResp.status >= 200 && uploadResp.status < 300) {
+      return `${SUPABASE_URL}/storage/v1/object/public/${CONTENT_IMAGES_BUCKET}/${objectPath}`;
+    }
+    throw new Error(`Upload failed: ${uploadResp.status} ${(uploadResp.body || '').slice(0, 200)}`);
+  }
+
+  /** Download Higgsfield CDN image and persist to Supabase Storage (public URL). */
+  async function mirrorHiggsfieldImageToSupabase(hfUrl, userId, index) {
+    const buf = await downloadImageBuffer(hfUrl);
+    return uploadBufferToContentImages(buf, userId, index);
+  }
+
+  async function persistGeneratedImageUrl(hfUrl, userId, index) {
+    if (!userId || !hfUrl || !hfUrl.startsWith('http')) return hfUrl;
+    try {
+      return await mirrorHiggsfieldImageToSupabase(hfUrl, userId, index);
+    } catch (e) {
+      logger.warn('higgsfield', null, 'mirror to content-images failed', { message: e.message, index });
+      return hfUrl;
+    }
+  }
 
   /** Full URL for a path on HIGGSFIELD_API_BASE (debug logging). */
   function higgsfieldUrl(path) {
@@ -347,6 +422,7 @@ module.exports = function createHiggsfieldService(deps) {
   async function generateProductImage(productImageUrl, brandDNA, options = {}) {
     if (!productImageUrl) throw new Error('productImageUrl required');
     const overridePrompt = typeof options.prompt === 'string' ? options.prompt.trim() : '';
+    const userId = options.userId || options.user_id || null;
 
     function buildSoulPayload(promptText, aspectRatio) {
       const p = {
@@ -364,7 +440,7 @@ module.exports = function createHiggsfieldService(deps) {
       for (let i = 0; i < 3; i++) {
         try {
           const url = await submitSoulAndWait(buildSoulPayload(overridePrompt, aspects[i] || '1:1'));
-          if (url) urls.push(url);
+          if (url) urls.push(await persistGeneratedImageUrl(url, userId, i));
         } catch (e) {
           console.error('[higgsfield:generateProductImage] soul generation failed (prompt override)', { index: i, message: e.message });
           console.error(e.stack);
@@ -400,7 +476,7 @@ module.exports = function createHiggsfieldService(deps) {
       const prompt = plan.three_prompts[i] || bestPrompt;
       try {
         const url = await submitSoulAndWait(buildSoulPayload(prompt, aspects[i] || '1:1'));
-        if (url) urls.push(url);
+        if (url) urls.push(await persistGeneratedImageUrl(url, userId, i));
       } catch (e) {
         console.error('[higgsfield:generateProductImage] soul generation failed', { index: i, message: e.message });
         console.error(e.stack);
@@ -484,7 +560,8 @@ module.exports = function createHiggsfieldService(deps) {
     };
   }
 
-  async function scoreContent(imageUrl, videoUrl, caption, brandDNA, platformData) {
+  async function scoreContent(imageUrl, videoUrl, caption, brandDNA, platformData, mirrorOpts = {}) {
+    const mirrorUserId = mirrorOpts.userId || mirrorOpts.user_id || null;
     let currentImage = imageUrl;
     let last = await runScoreDimensions(currentImage, videoUrl, caption, brandDNA, platformData);
     const flags = { regeneration_attempts: 0, manual_review: false };
@@ -507,7 +584,7 @@ module.exports = function createHiggsfieldService(deps) {
             aspect_ratio: '1:1',
             resolution: '1080p'
           });
-          if (url) currentImage = url;
+          if (url) currentImage = await persistGeneratedImageUrl(url, mirrorUserId, 100 + regenerationCount);
         } catch (e) {
           console.error('[higgsfield:scoreContent] score regen soul failed', e.message);
           console.error(e.stack);
@@ -614,7 +691,7 @@ module.exports = function createHiggsfieldService(deps) {
           out.errors.push({ step: 'limit', message: 'Monthly image quota exhausted' });
           break;
         }
-        const styled = await generateProductImage(productImageUrl, brandDNA).catch((e) => {
+        const styled = await generateProductImage(productImageUrl, brandDNA, { userId }).catch((e) => {
           console.error('[higgsfield:processProductCatalog] generateProductImage', e.message);
           console.error(e.stack);
           out.errors.push({ step: 'generateProductImage', message: e.message });
@@ -623,16 +700,17 @@ module.exports = function createHiggsfieldService(deps) {
         rem.images = Math.max(0, rem.images - (styled?.length || 0));
         const kept = [];
         for (const url of styled) {
-          const sc = await scoreContent(url, null, '', brandDNA, {}).catch(() => null);
+          const sc = await scoreContent(url, null, '', brandDNA, {}, { userId }).catch(() => null);
           if (sc && sc.total >= 7) {
-            kept.push({ url, score: sc });
+            const finalUrl = sc.imageUrl || url;
+            kept.push({ url: finalUrl, score: sc });
             scoreSum += sc.total;
             scoreN++;
             await sbPost('content_library', {
               user_id: userId,
               business_id: businessId,
               content_type: 'image',
-              file_url: url,
+              file_url: finalUrl,
               content_score: sc.total,
               score_breakdown: sc.score?.breakdown || sc.score,
               status: 'scheduled'

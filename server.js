@@ -622,7 +622,8 @@ const higgsfieldAI = createHiggsfieldService({
   sbPost,
   ANTHROPIC_KEY,
   SERPAPI_KEY,
-  SUPABASE_URL
+  SUPABASE_URL,
+  SUPABASE_KEY
 });
 
 // ─── Save image to Supabase Storage (permanent URL) ──────────────────────────
@@ -10148,7 +10149,8 @@ app.post('/api/generate', checkPlanLimit, async (req, res) => {
       if (!product_image_url) return apiError(res, 400, 'VALIDATION_ERROR', 'product_image_url required');
       extra = {
         image_urls: await higgsfieldAI.generateProductImage(product_image_url, brand_dna || {}, {
-          prompt: typeof prompt === 'string' ? prompt : undefined
+          prompt: typeof prompt === 'string' ? prompt : undefined,
+          userId: user_id
         })
       };
     } else if (action === 'generate_video_kling') {
@@ -10163,7 +10165,8 @@ app.post('/api/generate', checkPlanLimit, async (req, res) => {
         video_url || null,
         caption || '',
         brand_dna || {},
-        platform_data || {}
+        platform_data || {},
+        { userId: user_id }
       );
     } else if (action === 'generate_caption') {
       if (!platform) return apiError(res, 400, 'VALIDATION_ERROR', 'platform required');
