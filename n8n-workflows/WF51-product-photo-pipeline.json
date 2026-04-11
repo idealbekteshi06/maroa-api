@@ -7,7 +7,10 @@
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [200, 300]
+      "position": [
+        200,
+        300
+      ]
     },
     {
       "parameters": {
@@ -22,7 +25,10 @@
       "name": "Webhook Trigger",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [200, 520],
+      "position": [
+        200,
+        520
+      ],
       "webhookId": "product-upload"
     },
     {
@@ -33,7 +39,10 @@
       "name": "Validate Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [440, 400]
+      "position": [
+        440,
+        400
+      ]
     },
     {
       "parameters": {
@@ -47,7 +56,10 @@
       "name": "Fetch Brand DNA",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [680, 280],
+      "position": [
+        680,
+        280
+      ],
       "continueOnFail": true
     },
     {
@@ -62,7 +74,10 @@
       "name": "Fetch Marketing Trends",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [680, 480],
+      "position": [
+        680,
+        480
+      ],
       "continueOnFail": true
     },
     {
@@ -77,7 +92,10 @@
       "name": "Fetch Instagram Trends",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [680, 660],
+      "position": [
+        680,
+        660
+      ],
       "continueOnFail": true
     },
     {
@@ -88,7 +106,10 @@
       "name": "Merge All Context",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [960, 400]
+      "position": [
+        960,
+        400
+      ]
     },
     {
       "parameters": {
@@ -96,9 +117,18 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "x-api-key", "value": "={{ $env.ANTHROPIC_API_KEY }}" },
-            { "name": "anthropic-version", "value": "2023-06-01" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -112,13 +142,11 @@
       "name": "Claude Brand Analyzer",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [1200, 400],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "anthropic-account",
-          "name": "Anthropic account"
-        }
-      }
+      "position": [
+        1200,
+        400
+      ],
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -128,7 +156,10 @@
       "name": "Parse Strategy",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1440, 400]
+      "position": [
+        1440,
+        400
+      ]
     },
     {
       "parameters": {
@@ -138,7 +169,10 @@
       "name": "Split By Product Image",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1680, 400]
+      "position": [
+        1680,
+        400
+      ]
     },
     {
       "parameters": {
@@ -149,7 +183,10 @@
       "name": "Loop Each Image",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
-      "position": [1920, 400]
+      "position": [
+        1920,
+        400
+      ]
     },
     {
       "parameters": {
@@ -157,9 +194,18 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "x-api-key", "value": "={{ $env.ANTHROPIC_API_KEY }}" },
-            { "name": "anthropic-version", "value": "2023-06-01" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -173,7 +219,10 @@
       "name": "Claude Image Prompt Generator",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [2160, 400],
+      "position": [
+        2160,
+        400
+      ],
       "continueOnFail": true
     },
     {
@@ -184,7 +233,10 @@
       "name": "Parse Prompts",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2400, 400]
+      "position": [
+        2400,
+        400
+      ]
     },
     {
       "parameters": {
@@ -194,7 +246,10 @@
       "name": "Split Prompts",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2640, 400]
+      "position": [
+        2640,
+        400
+      ]
     },
     {
       "parameters": {
@@ -203,7 +258,10 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -217,7 +275,10 @@
       "name": "Generate Image",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [2880, 400],
+      "position": [
+        2880,
+        400
+      ],
       "continueOnFail": true
     },
     {
@@ -228,7 +289,10 @@
       "name": "Collect Image Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3120, 400]
+      "position": [
+        3120,
+        400
+      ]
     },
     {
       "parameters": {
@@ -237,7 +301,10 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -251,7 +318,10 @@
       "name": "Score Image",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [3360, 400],
+      "position": [
+        3360,
+        400
+      ],
       "continueOnFail": true
     },
     {
@@ -262,7 +332,10 @@
       "name": "Parse Image Score",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3600, 400]
+      "position": [
+        3600,
+        400
+      ]
     },
     {
       "parameters": {
@@ -279,7 +352,10 @@
       "name": "IF Image Approved",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [3840, 400]
+      "position": [
+        3840,
+        400
+      ]
     },
     {
       "parameters": {
@@ -289,7 +365,10 @@
       "name": "Approved Image",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [4080, 280]
+      "position": [
+        4080,
+        280
+      ]
     },
     {
       "parameters": {
@@ -299,7 +378,10 @@
       "name": "Rejected Image",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [4080, 520]
+      "position": [
+        4080,
+        520
+      ]
     },
     {
       "parameters": {
@@ -317,7 +399,10 @@
       "name": "IF Growth or Agency",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [4380, 280]
+      "position": [
+        4380,
+        280
+      ]
     },
     {
       "parameters": {
@@ -326,7 +411,10 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -340,7 +428,10 @@
       "name": "Generate Kling Video",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [4660, 160],
+      "position": [
+        4660,
+        160
+      ],
       "continueOnFail": true
     },
     {
@@ -359,7 +450,10 @@
       "name": "IF Agency Only",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [4920, 160]
+      "position": [
+        4920,
+        160
+      ]
     },
     {
       "parameters": {
@@ -368,7 +462,10 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -382,7 +479,10 @@
       "name": "Generate Sora Hero Ad",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [5200, 60],
+      "position": [
+        5200,
+        60
+      ],
       "continueOnFail": true
     },
     {
@@ -393,7 +493,10 @@
       "name": "Collect Video Results",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [5460, 280]
+      "position": [
+        5460,
+        280
+      ]
     },
     {
       "parameters": {
@@ -401,9 +504,18 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "x-api-key", "value": "={{ $env.ANTHROPIC_API_KEY }}" },
-            { "name": "anthropic-version", "value": "2023-06-01" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -417,7 +529,10 @@
       "name": "Claude Caption Generator",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [5700, 280],
+      "position": [
+        5700,
+        280
+      ],
       "continueOnFail": true
     },
     {
@@ -428,7 +543,10 @@
       "name": "Parse Captions",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [5940, 280]
+      "position": [
+        5940,
+        280
+      ]
     },
     {
       "parameters": {
@@ -436,9 +554,18 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "x-api-key", "value": "={{ $env.ANTHROPIC_API_KEY }}" },
-            { "name": "anthropic-version", "value": "2023-06-01" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -452,7 +579,10 @@
       "name": "Smart Schedule Builder",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [6180, 280],
+      "position": [
+        6180,
+        280
+      ],
       "continueOnFail": true
     },
     {
@@ -463,7 +593,10 @@
       "name": "Parse Schedule",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [6420, 280]
+      "position": [
+        6420,
+        280
+      ]
     },
     {
       "parameters": {
@@ -473,7 +606,10 @@
       "name": "Build Content Rows",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [6660, 280]
+      "position": [
+        6660,
+        280
+      ]
     },
     {
       "parameters": {
@@ -482,10 +618,22 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{ $env.SUPABASE_KEY }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" },
-            { "name": "Content-Type", "value": "application/json" },
-            { "name": "Prefer", "value": "return=minimal" }
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
           ]
         },
         "sendBody": true,
@@ -499,7 +647,10 @@
       "name": "Save to Content Library",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [6900, 280],
+      "position": [
+        6900,
+        280
+      ],
       "continueOnFail": true
     },
     {
@@ -509,7 +660,10 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -523,7 +677,10 @@
       "name": "Send WhatsApp Notification",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [7140, 280],
+      "position": [
+        7140,
+        280
+      ],
       "continueOnFail": true
     },
     {
@@ -534,7 +691,10 @@
       "name": "Build Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [7380, 280]
+      "position": [
+        7380,
+        280
+      ]
     },
     {
       "parameters": {
@@ -545,186 +705,417 @@
       "name": "Respond Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [7620, 280]
+      "position": [
+        7620,
+        280
+      ]
     }
   ],
   "connections": {
     "Manual Trigger": {
       "main": [
-        [{ "node": "Validate Input", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Webhook Trigger": {
       "main": [
-        [{ "node": "Validate Input", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Validate Input": {
       "main": [
         [
-          { "node": "Fetch Brand DNA", "type": "main", "index": 0 },
-          { "node": "Fetch Marketing Trends", "type": "main", "index": 0 },
-          { "node": "Fetch Instagram Trends", "type": "main", "index": 0 }
+          {
+            "node": "Fetch Brand DNA",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Marketing Trends",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Instagram Trends",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Fetch Brand DNA": {
       "main": [
-        [{ "node": "Merge All Context", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Merge All Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Fetch Marketing Trends": {
       "main": [
-        [{ "node": "Merge All Context", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Merge All Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Fetch Instagram Trends": {
       "main": [
-        [{ "node": "Merge All Context", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Merge All Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Merge All Context": {
       "main": [
-        [{ "node": "Claude Brand Analyzer", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Claude Brand Analyzer",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Claude Brand Analyzer": {
       "main": [
-        [{ "node": "Parse Strategy", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Parse Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Parse Strategy": {
       "main": [
-        [{ "node": "Split By Product Image", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Split By Product Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Split By Product Image": {
       "main": [
-        [{ "node": "Loop Each Image", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Loop Each Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Loop Each Image": {
       "main": [
-        [{ "node": "Claude Image Prompt Generator", "type": "main", "index": 0 }],
+        [
+          {
+            "node": "Claude Image Prompt Generator",
+            "type": "main",
+            "index": 0
+          }
+        ],
         []
       ]
     },
     "Claude Image Prompt Generator": {
       "main": [
-        [{ "node": "Parse Prompts", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Parse Prompts",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Parse Prompts": {
       "main": [
-        [{ "node": "Split Prompts", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Split Prompts",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Split Prompts": {
       "main": [
-        [{ "node": "Generate Image", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Generate Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Generate Image": {
       "main": [
-        [{ "node": "Collect Image Result", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Collect Image Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Collect Image Result": {
       "main": [
-        [{ "node": "Score Image", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Score Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Score Image": {
       "main": [
-        [{ "node": "Parse Image Score", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Parse Image Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Parse Image Score": {
       "main": [
-        [{ "node": "IF Image Approved", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "IF Image Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "IF Image Approved": {
       "main": [
-        [{ "node": "Approved Image", "type": "main", "index": 0 }],
-        [{ "node": "Rejected Image", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Approved Image",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rejected Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Approved Image": {
       "main": [
-        [{ "node": "IF Growth or Agency", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "IF Growth or Agency",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Rejected Image": {
       "main": [
-        [{ "node": "Loop Each Image", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Loop Each Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "IF Growth or Agency": {
       "main": [
-        [{ "node": "Generate Kling Video", "type": "main", "index": 0 }],
-        [{ "node": "Collect Video Results", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Generate Kling Video",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Collect Video Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Generate Kling Video": {
       "main": [
-        [{ "node": "IF Agency Only", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "IF Agency Only",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "IF Agency Only": {
       "main": [
-        [{ "node": "Generate Sora Hero Ad", "type": "main", "index": 0 }],
-        [{ "node": "Collect Video Results", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Generate Sora Hero Ad",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Collect Video Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Generate Sora Hero Ad": {
       "main": [
-        [{ "node": "Collect Video Results", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Collect Video Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Collect Video Results": {
       "main": [
-        [{ "node": "Claude Caption Generator", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Claude Caption Generator",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Claude Caption Generator": {
       "main": [
-        [{ "node": "Parse Captions", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Parse Captions",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Parse Captions": {
       "main": [
-        [{ "node": "Smart Schedule Builder", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Smart Schedule Builder",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Smart Schedule Builder": {
       "main": [
-        [{ "node": "Parse Schedule", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Parse Schedule",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Parse Schedule": {
       "main": [
-        [{ "node": "Build Content Rows", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Build Content Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Build Content Rows": {
       "main": [
-        [{ "node": "Save to Content Library", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Save to Content Library",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Save to Content Library": {
       "main": [
-        [{ "node": "Send WhatsApp Notification", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Send WhatsApp Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Send WhatsApp Notification": {
       "main": [
-        [{ "node": "Build Response", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Build Response": {
       "main": [
-        [{ "node": "Respond Webhook", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Respond Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
@@ -734,8 +1125,14 @@
   },
   "versionId": "wf51-v1",
   "tags": [
-    { "name": "content-pipeline" },
-    { "name": "product-photos" },
-    { "name": "generation" }
+    {
+      "name": "content-pipeline"
+    },
+    {
+      "name": "product-photos"
+    },
+    {
+      "name": "generation"
+    }
   ]
 }

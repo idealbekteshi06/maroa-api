@@ -7,7 +7,10 @@
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [200, 300]
+      "position": [
+        200,
+        300
+      ]
     },
     {
       "parameters": {
@@ -20,7 +23,10 @@
       "name": "Webhook Trigger",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [200, 500],
+      "position": [
+        200,
+        500
+      ],
       "webhookId": "score-content"
     },
     {
@@ -31,7 +37,10 @@
       "name": "Parse Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [440, 400]
+      "position": [
+        440,
+        400
+      ]
     },
     {
       "parameters": {
@@ -43,7 +52,11 @@
       "name": "Fetch Brand DNA",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [660, 300]
+      "position": [
+        660,
+        300
+      ],
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -55,49 +68,62 @@
       "name": "Fetch Platform Trends",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [660, 500]
+      "position": [
+        660,
+        500
+      ],
+      "continueOnFail": true
     },
     {
       "parameters": {
-        "jsCode": "const input = $('Parse Input').first().json;\nconst brandDna = $('Fetch Brand DNA').first().json || {};\nconst trendsRaw = $('Fetch Platform Trends').first().json || {};\n\n// Extract trend snippets\nconst trends = (trendsRaw.organic_results || []).slice(0, 5).map(r => r.snippet || r.title || '').join('\\n');\n\n// Build brand context\nconst brand = [\n  brandDna.brand_tone ? `Brand tone: ${brandDna.brand_tone}` : '',\n  brandDna.target_audience ? `Target audience: ${brandDna.target_audience}` : '',\n  brandDna.industry ? `Industry: ${brandDna.industry}` : '',\n  brandDna.usp ? `USP: ${brandDna.usp}` : '',\n  brandDna.brand_values ? `Values: ${brandDna.brand_values}` : ''\n].filter(Boolean).join('\\n');\n\nreturn [{ json: { ...input, brand_context: brand, trend_context: trends, industry: brandDna.industry || 'business' } }];"
+        "jsCode": "const input = $('Parse Input').first().json;\nconst brandDna = $('Fetch Brand DNA').first().json || {};\nconst trendsRaw = $('Fetch Platform Trends').first().json || {};\n\nconst trends = (trendsRaw.organic_results || []).slice(0, 5).map(r => r.snippet || r.title || '').join('\\n');\n\nconst brand = [\n  brandDna.brand_tone ? `Brand tone: ${brandDna.brand_tone}` : '',\n  brandDna.target_audience ? `Target audience: ${brandDna.target_audience}` : '',\n  brandDna.industry ? `Industry: ${brandDna.industry}` : '',\n  brandDna.usp ? `USP: ${brandDna.usp}` : '',\n  brandDna.brand_values ? `Values: ${brandDna.brand_values}` : ''\n].filter(Boolean).join('\\n');\n\nconst scorer_user_text = `You are a professional content quality scorer for social media marketing. You analyze content against 6 dimensions and return a strict score.\n\nBRAND DNA:\n${brand}\n\nCURRENT PLATFORM TRENDS (${input.platform}):\n${trends}\n\nCONTENT TO SCORE:\n- Platform: ${input.platform}\n- Caption: ${input.caption}\n- Image/Video URL: ${input.file_url}\n- Attempt: ${input.attempt_number} of 3\n\nScore each dimension:\n\na. Hook Strength (0-2):\n   Analyze caption first line:\n   - 2: Creates irresistible curiosity or strong emotion\n   - 1: Decent opening but not scroll-stopping\n   - 0: Weak or generic opening\n\nb. Visual Quality (0-2):\n   Analyze the image/video:\n   - 2: Professional, well-lit, perfectly composed\n   - 1: Acceptable quality, minor issues\n   - 0: Poor lighting, composition, or quality\n   If no image URL provided, score based on caption visual language.\n\nc. Brand Alignment (0-1):\n   Compare to brand DNA:\n   - 1: Perfectly matches brand voice and style\n   - 0: Inconsistent with brand identity\n\nd. Trend Relevance (0-2):\n   Compare to current trend data:\n   - 2: Uses current trending format + hashtags\n   - 1: Somewhat relevant to current trends\n   - 0: Outdated or irrelevant format\n\ne. CTA Clarity (0-1):\n   - 1: Clear, compelling call to action\n   - 0: Weak, missing, or confusing CTA\n\nf. Engagement Potential (0-2):\n   - 2: Highly likely to generate comments/shares\n   - 1: Some engagement potential\n   - 0: Unlikely to generate engagement\n\nTotal possible: 10 points.\n\nVerdict rules:\n- total_score >= 7: \"approved\"\n- total_score 5-6 AND attempt_number < 3: \"regenerate\"\n- total_score < 5 OR attempt_number >= 3: \"flag\"\n\nIf verdict is \"regenerate\", provide an improved_prompt that fixes the weaknesses.\nIf verdict is \"flag\", explain why clearly.\n\nReturn only valid JSON:\n{\n  \"total_score\": number,\n  \"breakdown\": { \"hook\": number, \"visual\": number, \"brand\": number, \"trend\": number, \"cta\": number, \"engagement\": number },\n  \"verdict\": \"approved\" | \"regenerate\" | \"flag\",\n  \"improvement_notes\": [\"specific fix 1\", \"specific fix 2\"],\n  \"improved_prompt\": \"string or null\"\n}`;\n\nreturn [{ json: { ...input, brand_context: brand, trend_context: trends, industry: brandDna.industry || 'business', scorer_user_text } }];"
       },
       "id": "wf52-merge-context",
       "name": "Merge Context",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 400]
+      "position": [
+        900,
+        400
+      ]
     },
     {
       "parameters": {
-        "resource": "chat",
-        "model": {
-          "__rl": true,
-          "value": "claude-opus-4-5",
-          "mode": "list"
-        },
-        "messages": {
-          "values": [
+        "method": "POST",
+        "url": "=https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
             {
-              "content": "=You are a professional content quality scorer for social media marketing. You analyze content against 6 dimensions and return a strict score.\n\nBRAND DNA:\n{{ $json.brand_context }}\n\nCURRENT PLATFORM TRENDS ({{ $json.platform }}):\n{{ $json.trend_context }}\n\nCONTENT TO SCORE:\n- Platform: {{ $json.platform }}\n- Caption: {{ $json.caption }}\n- Image/Video URL: {{ $json.file_url }}\n- Attempt: {{ $json.attempt_number }} of 3\n\nScore each dimension:\n\na. Hook Strength (0-2):\n   Analyze caption first line:\n   - 2: Creates irresistible curiosity or strong emotion\n   - 1: Decent opening but not scroll-stopping\n   - 0: Weak or generic opening\n\nb. Visual Quality (0-2):\n   Analyze the image/video:\n   - 2: Professional, well-lit, perfectly composed\n   - 1: Acceptable quality, minor issues\n   - 0: Poor lighting, composition, or quality\n   If no image URL provided, score based on caption visual language.\n\nc. Brand Alignment (0-1):\n   Compare to brand DNA:\n   - 1: Perfectly matches brand voice and style\n   - 0: Inconsistent with brand identity\n\nd. Trend Relevance (0-2):\n   Compare to current trend data:\n   - 2: Uses current trending format + hashtags\n   - 1: Somewhat relevant to current trends\n   - 0: Outdated or irrelevant format\n\ne. CTA Clarity (0-1):\n   - 1: Clear, compelling call to action\n   - 0: Weak, missing, or confusing CTA\n\nf. Engagement Potential (0-2):\n   - 2: Highly likely to generate comments/shares\n   - 1: Some engagement potential\n   - 0: Unlikely to generate engagement\n\nTotal possible: 10 points.\n\nVerdict rules:\n- total_score >= 7: \"approved\"\n- total_score 5-6 AND attempt_number < 3: \"regenerate\"\n- total_score < 5 OR attempt_number >= 3: \"flag\"\n\nIf verdict is \"regenerate\", provide an improved_prompt that fixes the weaknesses.\nIf verdict is \"flag\", explain why clearly.\n\nReturn only valid JSON:\n{\n  \"total_score\": number,\n  \"breakdown\": { \"hook\": number, \"visual\": number, \"brand\": number, \"trend\": number, \"cta\": number, \"engagement\": number },\n  \"verdict\": \"approved\" | \"regenerate\" | \"flag\",\n  \"improvement_notes\": [\"specific fix 1\", \"specific fix 2\"],\n  \"improved_prompt\": \"string or null\"\n}",
-              "role": "user"
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
             }
           ]
         },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-opus-4-5', max_tokens: 2000, messages: [{ role: 'user', content: (($json.file_url || '').trim().startsWith('http')) ? [{ type: 'image', source: { type: 'url', url: $json.file_url } }, { type: 'text', text: $json.scorer_user_text }] : $json.scorer_user_text }] }) }}",
         "options": {
-          "maxTokens": 2000
+          "timeout": 60000
         }
       },
       "id": "wf52-claude-scorer",
       "name": "Claude Vision Scorer",
-      "type": "@n8n/n8n-nodes-langchain.anthropicChat",
-      "typeVersion": 1,
-      "position": [1140, 400],
-      "credentials": {
-        "anthropicApi": {
-          "id": "anthropic-account",
-          "name": "Anthropic account"
-        }
-      }
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1140,
+        400
+      ],
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -107,7 +133,10 @@
       "name": "Parse Score",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1380, 400]
+      "position": [
+        1380,
+        400
+      ]
     },
     {
       "parameters": {
@@ -125,7 +154,10 @@
       "name": "IF Approved",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [1620, 400]
+      "position": [
+        1620,
+        400
+      ]
     },
     {
       "parameters": {
@@ -134,17 +166,35 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{ $env.SUPABASE_KEY }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" },
-            { "name": "Content-Type", "value": "application/json" },
-            { "name": "Prefer", "value": "return=minimal" }
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
           ]
         },
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
-            { "name": "status", "value": "approved" },
-            { "name": "approved_at", "value": "={{ new Date().toISOString() }}" }
+            {
+              "name": "status",
+              "value": "approved"
+            },
+            {
+              "name": "approved_at",
+              "value": "={{ new Date().toISOString() }}"
+            }
           ]
         },
         "options": {}
@@ -153,7 +203,10 @@
       "name": "Approve Content",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [1880, 200]
+      "position": [
+        1880,
+        200
+      ]
     },
     {
       "parameters": {
@@ -163,7 +216,10 @@
       "name": "Respond Approved",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2120, 200]
+      "position": [
+        2120,
+        200
+      ]
     },
     {
       "parameters": {
@@ -181,7 +237,10 @@
       "name": "IF Regenerate",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [1880, 500]
+      "position": [
+        1880,
+        500
+      ]
     },
     {
       "parameters": {
@@ -190,7 +249,10 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -202,7 +264,11 @@
       "name": "Regenerate Content",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [2120, 420]
+      "position": [
+        2120,
+        420
+      ],
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -211,7 +277,10 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -223,7 +292,11 @@
       "name": "Re-Score Loop",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [2360, 420]
+      "position": [
+        2360,
+        420
+      ],
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -232,16 +305,31 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{ $env.SUPABASE_KEY }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" },
-            { "name": "Content-Type", "value": "application/json" },
-            { "name": "Prefer", "value": "return=minimal" }
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
           ]
         },
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
-            { "name": "status", "value": "flagged" }
+            {
+              "name": "status",
+              "value": "flagged"
+            }
           ]
         },
         "options": {}
@@ -250,7 +338,10 @@
       "name": "Flag Content",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [2120, 680]
+      "position": [
+        2120,
+        680
+      ]
     },
     {
       "parameters": {
@@ -259,7 +350,10 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -271,7 +365,11 @@
       "name": "Notify Admin WhatsApp",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [2360, 680]
+      "position": [
+        2360,
+        680
+      ],
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -281,7 +379,10 @@
       "name": "Respond Flagged",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2600, 680]
+      "position": [
+        2600,
+        680
+      ]
     },
     {
       "parameters": {
@@ -292,7 +393,10 @@
       "name": "Respond Webhook Approved",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [2360, 200]
+      "position": [
+        2360,
+        200
+      ]
     },
     {
       "parameters": {
@@ -303,93 +407,206 @@
       "name": "Respond Webhook Flagged",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [2840, 680]
+      "position": [
+        2840,
+        680
+      ]
     }
   ],
   "connections": {
     "Manual Trigger": {
       "main": [
-        [{ "node": "Parse Input", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Parse Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Webhook Trigger": {
       "main": [
-        [{ "node": "Parse Input", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Parse Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Parse Input": {
       "main": [
         [
-          { "node": "Fetch Brand DNA", "type": "main", "index": 0 },
-          { "node": "Fetch Platform Trends", "type": "main", "index": 0 }
+          {
+            "node": "Fetch Brand DNA",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Platform Trends",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Fetch Brand DNA": {
       "main": [
-        [{ "node": "Merge Context", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Merge Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Fetch Platform Trends": {
       "main": [
-        [{ "node": "Merge Context", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Merge Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Merge Context": {
       "main": [
-        [{ "node": "Claude Vision Scorer", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Claude Vision Scorer",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Claude Vision Scorer": {
       "main": [
-        [{ "node": "Parse Score", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Parse Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Parse Score": {
       "main": [
-        [{ "node": "IF Approved", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "IF Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "IF Approved": {
       "main": [
-        [{ "node": "Approve Content", "type": "main", "index": 0 }],
-        [{ "node": "IF Regenerate", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Approve Content",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Regenerate",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Approve Content": {
       "main": [
-        [{ "node": "Respond Approved", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Respond Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Respond Approved": {
       "main": [
-        [{ "node": "Respond Webhook Approved", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Respond Webhook Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "IF Regenerate": {
       "main": [
-        [{ "node": "Regenerate Content", "type": "main", "index": 0 }],
-        [{ "node": "Flag Content", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Regenerate Content",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Flag Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Regenerate Content": {
       "main": [
-        [{ "node": "Re-Score Loop", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Re-Score Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Flag Content": {
       "main": [
-        [{ "node": "Notify Admin WhatsApp", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Notify Admin WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Notify Admin WhatsApp": {
       "main": [
-        [{ "node": "Respond Flagged", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Respond Flagged",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Respond Flagged": {
       "main": [
-        [{ "node": "Respond Webhook Flagged", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Respond Webhook Flagged",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
@@ -399,7 +616,11 @@
   },
   "versionId": "wf52-v1",
   "tags": [
-    { "name": "content-quality" },
-    { "name": "scoring" }
+    {
+      "name": "content-quality"
+    },
+    {
+      "name": "scoring"
+    }
   ]
 }
