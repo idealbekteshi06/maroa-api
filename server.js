@@ -170,9 +170,7 @@ app.use('/api/content/repurpose', requireValidUserId);
 app.use('/api/compete/counter', requireValidUserId);
 app.use('/api/reviews/auto-respond', requireValidUserId);
 app.use('/api/referral/setup', requireValidUserId);
-app.use('/api/launch/create', requireValidUserId);
-app.use('/api/onboarding-cro/generate', requireValidUserId);
-app.use('/api/upgrade/generate-prompts', requireValidUserId);
+app.use('/api/laun ompts', requireValidUserId);
 app.use('/api/signup-cro/analyze', requireValidUserId);
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -613,6 +611,19 @@ async function serpSearch(query, num = 5) {
     }));
   } catch { return []; }
 }
+
+const createHiggsfieldService = require('./services/higgsfield');
+const higgsfieldAI = createHiggsfieldService({
+  apiRequest,
+  serpSearch,
+  logger,
+  extractJSON,
+  sbGet,
+  sbPost,
+  ANTHROPIC_KEY,
+  SERPAPI_KEY,
+  SUPABASE_URL
+});
 
 // ─── Save image to Supabase Storage (permanent URL) ──────────────────────────
 async function saveImageToSupabase(imageUrl, businessId) {
@@ -10069,17 +10080,90 @@ app.get('/api/waitlist/count', async (req, res) => {
 
 // ─── POST /api/generate — Plan-gated generation with usage tracking ─────────
 const GENERATE_MODELS = {
-  generate_image:       { model_used: 'nano-banana-pro', credits_used: 1  },
-  generate_video:       { model_used: 'kling-3.0',       credits_used: 6  },
-  generate_video_kling: { model_used: 'kling-3.0',       credits_used: 6  },
-  generate_video_sora:  { model_used: 'sora-2',          credits_used: 50 }
+  generate_image:       { model_used: 'higgsfield-soul',     credits_used: 3  },
+  generate_video_kling: { model_used: 'kling-3.0',           credits_used: 6  },
+  generate_video_sora:  { model_used: 'sora-2',              credits_used: 50 },
+  process_product:      { model_used: 'product-catalog',     credits_used: 10 },
+  score_content:        { model_used: 'claude-vision-score', credits_used: 1 },
+  generate_caption:     { model_used: 'claude-caption',      credits_used: 1 }
 };
+
+async function monthlyUsageCount(userId, action) {
+  try {
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+    const rows = await sbGet(
+      'usage_logs',
+      `user_id=eq.${userId}&action=eq.${action}&created_at=gte.${monthStart}&select=id`
+    );
+    return Array.isArray(rows) ? rows.length : 0;
+  } catch {
+    return 0;
+  }
+}
 
 app.post('/api/generate', checkPlanLimit, async (req, res) => {
   try {
     const { user_id, action } = req.body;
     const model = GENERATE_MODELS[action];
     if (!model) return apiError(res, 400, 'INVALID_ACTION', `Unknown action: ${action}`);
+
+    const {
+      product_image_url,
+      product_image_urls,
+      brand_dna,
+      image_url,
+      video_url,
+      caption,
+      platform_data,
+      platform,
+      score,
+      business_id
+    } = req.body;
+
+    let extra = {};
+
+    if (action === 'process_product') {
+      const imgs = Array.isArray(product_image_urls) && product_image_urls.length
+        ? product_image_urls
+        : (product_image_url ? [product_image_url] : []);
+      if (!imgs.length) return apiError(res, 400, 'VALIDATION_ERROR', 'product_image_urls or product_image_url required');
+      const [imgU, kU, sU] = await Promise.all([
+        monthlyUsageCount(user_id, 'generate_image'),
+        monthlyUsageCount(user_id, 'generate_video_kling'),
+        monthlyUsageCount(user_id, 'generate_video_sora')
+      ]);
+      const L = req.planLimits || {};
+      const remaining = {
+        images: Math.max(0, (L.images || 0) - imgU),
+        kling: Math.max(0, (L.kling || 0) - kU),
+        sora: Math.max(0, (L.sora || 0) - sU)
+      };
+      extra = await higgsfieldAI.processProductCatalog(user_id, business_id || user_id, imgs, brand_dna || {}, {
+        plan: req.userPlan,
+        planLimits: L,
+        remaining
+      });
+    } else if (action === 'generate_image') {
+      if (!product_image_url) return apiError(res, 400, 'VALIDATION_ERROR', 'product_image_url required');
+      extra = { image_urls: await higgsfieldAI.generateProductImage(product_image_url, brand_dna || {}) };
+    } else if (action === 'generate_video_kling') {
+      if (!product_image_url) return apiError(res, 400, 'VALIDATION_ERROR', 'product_image_url required');
+      extra = { video_url: await higgsfieldAI.generateProductVideo(product_image_url, brand_dna || {}) };
+    } else if (action === 'generate_video_sora') {
+      if (!product_image_url) return apiError(res, 400, 'VALIDATION_ERROR', 'product_image_url required');
+      extra = { video_url: await higgsfieldAI.generateHeroAd(product_image_url, brand_dna || {}) };
+    } else if (action === 'score_content') {
+      extra = await higgsfieldAI.scoreContent(
+        image_url || null,
+        video_url || null,
+        caption || '',
+        brand_dna || {},
+        platform_data || {}
+      );
+    } else if (action === 'generate_caption') {
+      if (!platform) return apiError(res, 400, 'VALIDATION_ERROR', 'platform required');
+      extra = await higgsfieldAI.generateCaption(image_url, brand_dna || {}, platform, score, { plan: req.userPlan });
+    }
 
     await sbPost('usage_logs', {
       user_id,
@@ -10088,12 +10172,23 @@ app.post('/api/generate', checkPlanLimit, async (req, res) => {
       model_used: model.model_used,
       credits_used: model.credits_used,
       status: 'success'
-    });
+    }).catch(() => {});
 
-    res.json({ success: true, action, plan: req.userPlan, ...model });
+    res.json({ success: true, action, plan: req.userPlan, model_used: model.model_used, credits_used: model.credits_used, ...extra });
   } catch (err) {
     logger.error('/api/generate', req.body?.user_id, 'Generate failed', err);
-    apiError(res, 500, 'GENERATE_ERROR', err.message);
+    try {
+      await sbPost('usage_logs', {
+        user_id: req.body?.user_id,
+        action: req.body?.action,
+        plan_name: req.userPlan || 'unknown',
+        model_used: 'error',
+        credits_used: 0,
+        status: 'failed'
+      }).catch(() => {});
+    } catch { /* ignore */ }
+    const httpStatus = err && typeof err.status === 'number' && err.status >= 400 && err.status < 600 ? err.status : 500;
+    apiError(res, httpStatus, (typeof err.code === 'string' && err.code) ? err.code : 'GENERATE_ERROR', err.message || 'Generate failed');
   }
 });
 
