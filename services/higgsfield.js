@@ -20,14 +20,262 @@ module.exports = function createHiggsfieldService(deps) {
   const clean = (v) => (v || '').replace(/[^\x20-\x7E]/g, '').trim();
   const HIGGSFIELD_API_KEY_ID = clean(process.env.HIGGSFIELD_API_KEY_ID || '');
   const HIGGSFIELD_API_KEY_SECRET = clean(process.env.HIGGSFIELD_API_KEY_SECRET || '');
-  const HIGGSFIELD_AUTH_URL = clean(process.env.HIGGSFIELD_AUTH_URL) || 'https://cloud.higgsfield.ai/v1/auth/token';
   const HIGGSFIELD_API_BASE = clean(process.env.HIGGSFIELD_API_BASE) || 'https://platform.higgsfield.ai';
-  const HIGGSFIELD_SOUL_PATH = process.env.HIGGSFIELD_SOUL_PATH || '/v1/text2image/soul';
-  const HIGGSFIELD_KLING_PATH = process.env.HIGGSFIELD_KLING_PATH || '/v1/video/kling';
-  const HIGGSFIELD_SORA_PATH = process.env.HIGGSFIELD_SORA_PATH || '/v1/video/sora2';
-  const HIGGSFIELD_POLL_PATH = process.env.HIGGSFIELD_POLL_PATH || '/v1/jobs'; // GET /v1/jobs/:id
 
-  let tokenCache = { accessToken: null, expiresAt: 0 };
+  const PATH_SOUL = '/higgsfield-ai/soul/standard';
+  const PATH_KLING = '/higgsfield-ai/kling/standard';
+  const PATH_SORA = '/higgsfield-ai/sora/standard';
+
+  const POLL_INTERVAL_MS = 5000;
+  const IMAGE_JOB_TIMEOUT_MS = 3 * 60 * 1000;
+  const VIDEO_JOB_TIMEOUT_MS = 5 * 60 * 1000;
+
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  /** Full URL for a path on HIGGSFIELD_API_BASE (debug logging). */
+  function higgsfieldUrl(path) {
+    return path.startsWith('http') ? path : `${HIGGSFIELD_API_BASE}${path.startsWith('/') ? '' : '/'}${path}`;
+  }
+
+  /** Authorization: Key id:abcd**** (first 4 chars of secret only). */
+  function logAuthHeaderPreview() {
+    const id = HIGGSFIELD_API_KEY_ID || '(missing)';
+    const sec = HIGGSFIELD_API_KEY_SECRET || '';
+    const pre = sec.length >= 4 ? sec.slice(0, 4) : sec || '****';
+    return `Key ${id}:${pre}****`;
+  }
+
+  function safeStringify(obj, maxLen = 65536) {
+    try {
+      const s = typeof obj === 'string' ? obj : JSON.stringify(obj);
+      return s.length > maxLen ? `${s.slice(0, maxLen)}...[truncated ${s.length - maxLen} chars]` : s;
+    } catch {
+      return String(obj);
+    }
+  }
+
+  function keyAuthHeaders() {
+    if (!HIGGSFIELD_API_KEY_ID || !HIGGSFIELD_API_KEY_SECRET) {
+      throw new Error('Higgsfield credentials not configured (HIGGSFIELD_API_KEY_ID / HIGGSFIELD_API_KEY_SECRET)');
+    }
+    return {
+      Authorization: `Key ${HIGGSFIELD_API_KEY_ID}:${HIGGSFIELD_API_KEY_SECRET}`,
+      'Content-Type': 'application/json'
+    };
+  }
+
+  function parseJsonBody(body) {
+    if (body == null) return {};
+    if (typeof body === 'object') return body;
+    if (typeof body === 'string') {
+      try { return JSON.parse(body); } catch { return {}; }
+    }
+    return {};
+  }
+
+  function extractRequestId(resBody) {
+    const b = parseJsonBody(resBody);
+    return b.request_id || b.requestId || b.id || b.data?.request_id || b.data?.id || null;
+  }
+
+  function statusNorm(body) {
+    const s = body.status || body.state || body.request_status;
+    return s ? String(s).toLowerCase() : '';
+  }
+
+  function extractImageResultUrl(body) {
+    const b = parseJsonBody(body);
+    const result = b.result !== undefined ? b.result : b;
+    const u = result?.images?.[0]?.url;
+    return u && String(u).startsWith('http') ? u : null;
+  }
+
+  function extractVideoResultUrl(body) {
+    const b = parseJsonBody(body);
+    const result = b.result !== undefined ? b.result : b;
+    const u = result?.video?.url;
+    return u && String(u).startsWith('http') ? u : null;
+  }
+
+  async function hfPost(path, body, timeoutMs = 120000) {
+    const headers = keyAuthHeaders();
+    const url = higgsfieldUrl(path);
+    return apiRequest('POST', url, headers, body, timeoutMs);
+  }
+
+  async function hfGet(path, timeoutMs = 60000) {
+    const headers = keyAuthHeaders();
+    const url = higgsfieldUrl(path);
+    return apiRequest('GET', url, headers, null, timeoutMs);
+  }
+
+  /**
+   * Poll GET /requests/{request_id}/status until completed, failed, nsfw, or timeout.
+   * @param {'image'|'video'} kind
+   */
+  async function pollRequestStatus(requestId, kind, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    const statusPath = `/requests/${requestId}/status`;
+    const statusUrl = higgsfieldUrl(statusPath);
+    let lastHttp = null;
+    let lastBodySnapshot = null;
+    await sleep(POLL_INTERVAL_MS);
+    while (Date.now() < deadline) {
+      let r;
+      try {
+        r = await hfGet(statusPath);
+      } catch (err) {
+        console.error('[higgsfield:pollRequestStatus] hfGet threw', { statusUrl, requestId, message: err.message });
+        console.error(err.stack);
+        throw err;
+      }
+      lastHttp = r.status;
+      const body = parseJsonBody(r.body);
+      lastBodySnapshot = body;
+
+      if (r.status < 200 || r.status >= 300) {
+        console.error('[higgsfield:pollRequestStatus] GET non-success', {
+          statusUrl,
+          requestId,
+          httpStatus: r.status,
+          body: safeStringify(r.body)
+        });
+        throw new Error(`Higgsfield status poll HTTP ${r.status}`);
+      }
+
+      const st = statusNorm(body);
+
+      if (st === 'failed' || st === 'nsfw') {
+        console.error('[higgsfield:pollRequestStatus] terminal status', {
+          statusUrl,
+          requestId,
+          jobStatus: st,
+          body: safeStringify(body)
+        });
+        const err = new Error(body.message || body.error || `Higgsfield job ${st}`);
+        err.code = st;
+        throw err;
+      }
+
+      if (st === 'completed') {
+        const url = kind === 'image' ? extractImageResultUrl(body) : extractVideoResultUrl(body);
+        if (url) return url;
+        const fallback =
+          kind === 'image' ? extractImageResultUrl(body.result || body) : extractVideoResultUrl(body.result || body);
+        if (fallback) return fallback;
+        console.error('[higgsfield:pollRequestStatus] completed but no result URL', {
+          statusUrl,
+          requestId,
+          kind,
+          body: safeStringify(body)
+        });
+        throw new Error('Higgsfield completed but no result URL in response');
+      }
+
+      await sleep(POLL_INTERVAL_MS);
+    }
+    console.error('[higgsfield:pollRequestStatus] TIMEOUT', {
+      statusUrl,
+      requestId,
+      timeoutMs,
+      lastHttp,
+      lastBody: safeStringify(lastBodySnapshot)
+    });
+    throw new Error('Higgsfield job timeout');
+  }
+
+  async function submitSoulAndWait(payload) {
+    const postUrl = higgsfieldUrl(PATH_SOUL);
+    console.error('[higgsfield:submitSoulAndWait] POST', postUrl);
+    console.error('[higgsfield:submitSoulAndWait] Authorization (masked):', logAuthHeaderPreview());
+    console.error('[higgsfield:submitSoulAndWait] request body:', safeStringify(payload));
+
+    let r;
+    try {
+      r = await hfPost(PATH_SOUL, payload);
+    } catch (err) {
+      console.error('[higgsfield:submitSoulAndWait] hfPost exception:', err && err.message);
+      console.error(err && err.stack);
+      throw err;
+    }
+
+    if (r.status < 200 || r.status >= 300) {
+      console.error('[higgsfield:submitSoulAndWait] HTTP error status:', r.status);
+      console.error('[higgsfield:submitSoulAndWait] HTTP error body:', safeStringify(r.body));
+      const detail = typeof r.body === 'object' ? JSON.stringify(r.body).slice(0, 400) : String(r.body);
+      throw new Error(`Higgsfield Soul submit failed: HTTP ${r.status} ${detail}`);
+    }
+
+    const body = parseJsonBody(r.body);
+    const rid = extractRequestId(body);
+    const doneUrl = extractImageResultUrl(body);
+    if (statusNorm(body) === 'completed' && doneUrl) return doneUrl;
+    if (!rid) {
+      if (doneUrl) return doneUrl;
+      console.error('[higgsfield:submitSoulAndWait] missing request_id; parsed body:', safeStringify(body));
+      throw new Error('Higgsfield Soul did not return request_id');
+    }
+
+    try {
+      return await pollRequestStatus(rid, 'image', IMAGE_JOB_TIMEOUT_MS);
+    } catch (err) {
+      console.error('[higgsfield:submitSoulAndWait] pollRequestStatus failed:', err && err.message);
+      console.error(err && err.stack);
+      throw err;
+    }
+  }
+
+  async function submitVideoAndWait(path, payload) {
+    const postUrl = higgsfieldUrl(path);
+    console.error('[higgsfield:submitVideoAndWait] POST', postUrl);
+    console.error('[higgsfield:submitVideoAndWait] Authorization (masked):', logAuthHeaderPreview());
+    console.error('[higgsfield:submitVideoAndWait] request body:', safeStringify(payload));
+
+    let r;
+    try {
+      r = await hfPost(path, payload);
+    } catch (err) {
+      console.error('[higgsfield:submitVideoAndWait] hfPost exception:', err && err.message);
+      console.error(err && err.stack);
+      throw err;
+    }
+
+    if (r.status < 200 || r.status >= 300) {
+      console.error('[higgsfield:submitVideoAndWait] HTTP error status:', r.status);
+      console.error('[higgsfield:submitVideoAndWait] HTTP error body:', safeStringify(r.body));
+      const detail = typeof r.body === 'object' ? JSON.stringify(r.body).slice(0, 400) : String(r.body);
+      throw new Error(`Higgsfield video submit failed: HTTP ${r.status} ${detail}`);
+    }
+
+    const body = parseJsonBody(r.body);
+    const rid = extractRequestId(body);
+    const doneUrl = extractVideoResultUrl(body);
+    if (statusNorm(body) === 'completed' && doneUrl) return doneUrl;
+    if (!rid) {
+      if (doneUrl) return doneUrl;
+      console.error('[higgsfield:submitVideoAndWait] missing request_id; parsed body:', safeStringify(body));
+      throw new Error('Higgsfield video job did not return request_id');
+    }
+
+    try {
+      return await pollRequestStatus(rid, 'video', VIDEO_JOB_TIMEOUT_MS);
+    } catch (err) {
+      console.error('[higgsfield:submitVideoAndWait] pollRequestStatus failed:', err && err.message);
+      console.error(err && err.stack);
+      throw err;
+    }
+  }
+
+  async function cancelRequest(requestId) {
+    if (!requestId) return;
+    try {
+      await hfPost(`/requests/${requestId}/cancel`, {});
+    } catch (e) {
+      console.error('[higgsfield:cancelRequest] failed', { request_id: requestId, message: e.message });
+      console.error(e.stack);
+      logger.warn('higgsfield', null, 'cancel failed', { request_id: requestId, message: e.message });
+    }
+  }
 
   function brandText(brandDNA) {
     const b = brandDNA || {};
@@ -87,126 +335,6 @@ module.exports = function createHiggsfieldService(deps) {
     return extractJSON(raw) || { _raw: raw };
   }
 
-  async function refreshBearerToken() {
-    if (!HIGGSFIELD_API_KEY_ID || !HIGGSFIELD_API_KEY_SECRET) return null;
-    const bodies = [
-      { api_key_id: HIGGSFIELD_API_KEY_ID, api_key_secret: HIGGSFIELD_API_KEY_SECRET },
-      { client_id: HIGGSFIELD_API_KEY_ID, client_secret: HIGGSFIELD_API_KEY_SECRET },
-      { key_id: HIGGSFIELD_API_KEY_ID, secret: HIGGSFIELD_API_KEY_SECRET }
-    ];
-    for (const b of bodies) {
-      try {
-        const r = await apiRequest('POST', HIGGSFIELD_AUTH_URL, { 'Content-Type': 'application/json' }, b, 30000);
-        if (r.status >= 200 && r.status < 300 && r.body) {
-          const tok = r.body.access_token || r.body.token || r.body.accessToken;
-          const expSec = r.body.expires_in || r.body.expiresIn || 3600;
-          if (tok) {
-            tokenCache = {
-              accessToken: tok,
-              expiresAt: Date.now() + Math.max(60, expSec - 60) * 1000
-            };
-            return tok;
-          }
-        }
-      } catch (e) {
-        logger.warn('higgsfield', null, 'token attempt failed', { message: e.message });
-      }
-    }
-    return null;
-  }
-
-  async function getAuthHeaders() {
-    if (tokenCache.accessToken && Date.now() < tokenCache.expiresAt) {
-      return { Authorization: `Bearer ${tokenCache.accessToken}`, 'Content-Type': 'application/json' };
-    }
-    const t = await refreshBearerToken();
-    if (t) return { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' };
-    if (HIGGSFIELD_API_KEY_ID && HIGGSFIELD_API_KEY_SECRET) {
-      return {
-        'hf-api-key': HIGGSFIELD_API_KEY_ID,
-        'hf-secret': HIGGSFIELD_API_KEY_SECRET,
-        'Content-Type': 'application/json'
-      };
-    }
-    throw new Error('Higgsfield credentials not configured');
-  }
-
-  async function hfPost(path, body, timeoutMs = 120000) {
-    const headers = await getAuthHeaders();
-    const url = path.startsWith('http') ? path : `${HIGGSFIELD_API_BASE}${path.startsWith('/') ? '' : '/'}${path}`;
-    return apiRequest('POST', url, headers, body, timeoutMs);
-  }
-
-  async function hfGet(path, timeoutMs = 60000) {
-    const headers = await getAuthHeaders();
-    const url = path.startsWith('http') ? path : `${HIGGSFIELD_API_BASE}${path.startsWith('/') ? '' : '/'}${path}`;
-    return apiRequest('GET', url, headers, null, timeoutMs);
-  }
-
-  function extractJobId(resBody) {
-    if (!resBody || typeof resBody !== 'object') return null;
-    return resBody.id || resBody.job_id || resBody.jobId || resBody.data?.id || resBody.job?.id;
-  }
-
-  function extractImageUrls(resBody) {
-    const out = [];
-    const scan = (o) => {
-      if (!o) return;
-      if (typeof o === 'string' && o.startsWith('http')) out.push(o);
-      if (Array.isArray(o)) o.forEach(scan);
-      if (typeof o === 'object') {
-        if (o.url && typeof o.url === 'string' && o.url.startsWith('http')) out.push(o.url);
-        if (o.raw?.url) out.push(o.raw.url);
-        ['results', 'images', 'outputs', 'jobs', 'data'].forEach((k) => o[k] && scan(o[k]));
-      }
-    };
-    scan(resBody);
-    return [...new Set(out)];
-  }
-
-  function extractVideoUrl(resBody) {
-    if (!resBody) return null;
-    const tryKeys = (o) => {
-      if (!o || typeof o !== 'object') return null;
-      for (const k of ['video_url', 'videoUrl', 'url', 'output_url', 'result_url']) {
-        if (o[k] && String(o[k]).startsWith('http')) return o[k];
-      }
-      if (o.raw?.url && String(o.raw.url).startsWith('http')) return o.raw.url;
-      if (o.result?.url) return o.result.url;
-      return null;
-    };
-    let v = tryKeys(resBody);
-    if (v) return v;
-    if (resBody.jobs?.[0]) v = tryKeys(resBody.jobs[0]);
-    if (v) return v;
-    if (resBody.data) v = tryKeys(resBody.data);
-    return v || null;
-  }
-
-  async function pollJob(jobId, intervalMs, timeoutMs, extractFn) {
-    const start = Date.now();
-    let path = `${HIGGSFIELD_POLL_PATH}/${jobId}`;
-    while (Date.now() - start < timeoutMs) {
-      await new Promise((r) => setTimeout(r, intervalMs));
-      try {
-        const r = await hfGet(path);
-        let body = r.body;
-        if (typeof body === 'string') {
-          try { body = JSON.parse(body); } catch { /* ignore */ }
-        }
-        const done = body?.status === 'completed' || body?.state === 'completed' || body?.done === true;
-        const failed = body?.status === 'failed' || body?.state === 'failed';
-        if (failed) throw new Error(body?.error || 'Higgsfield job failed');
-        const url = extractFn(body);
-        if (done && url) return url;
-        if (url && (body?.progress === 1 || body?.percent === 100)) return url;
-      } catch (e) {
-        if (String(e.message).includes('failed')) throw e;
-      }
-    }
-    throw new Error('Higgsfield job timeout');
-  }
-
   async function nicheSerpContext(brandDNA) {
     const niche = brandDNA?.industry || 'marketing';
     const q1 = `best performing ${niche} Instagram content 2025`;
@@ -216,8 +344,36 @@ module.exports = function createHiggsfieldService(deps) {
     return lines.join('\n');
   }
 
-  async function generateProductImage(productImageUrl, brandDNA) {
+  async function generateProductImage(productImageUrl, brandDNA, options = {}) {
     if (!productImageUrl) throw new Error('productImageUrl required');
+    const overridePrompt = typeof options.prompt === 'string' ? options.prompt.trim() : '';
+
+    function buildSoulPayload(promptText, aspectRatio) {
+      const p = {
+        prompt: promptText,
+        aspect_ratio: aspectRatio,
+        resolution: '1080p'
+      };
+      if (productImageUrl.startsWith('http')) p.image_url = productImageUrl;
+      return p;
+    }
+
+    if (overridePrompt) {
+      const aspects = ['1:1', '9:16', '4:5'];
+      const urls = [];
+      for (let i = 0; i < 3; i++) {
+        try {
+          const url = await submitSoulAndWait(buildSoulPayload(overridePrompt, aspects[i] || '1:1'));
+          if (url) urls.push(url);
+        } catch (e) {
+          console.error('[higgsfield:generateProductImage] soul generation failed (prompt override)', { index: i, message: e.message });
+          console.error(e.stack);
+          logger.warn('higgsfield', null, 'soul generation failed (prompt override)', { message: e.message, index: i });
+        }
+      }
+      return urls.filter(Boolean);
+    }
+
     const serpCtx = await nicheSerpContext(brandDNA || {});
     const analysisPrompt =
       `You are a senior art director. Analyze the product reference image (attached) and this brand DNA:\n${brandText(brandDNA)}\n\n` +
@@ -238,34 +394,18 @@ module.exports = function createHiggsfieldService(deps) {
       };
     }
     const bestPrompt = plan.three_prompts[0];
-    const sizes = ['1536x1536', '1080x1920', '1080x1350'];
+    const aspects = ['1:1', '9:16', '4:5'];
     const urls = [];
     for (let i = 0; i < 3; i++) {
       const prompt = plan.three_prompts[i] || bestPrompt;
-      const width_and_height = sizes[i] || '1536x1536';
-      const payload = {
-        prompt,
-        width_and_height,
-        quality: 'hd',
-        batch_size: 1,
-        input_image: { url: productImageUrl }
-      };
-      const r = await hfPost(HIGGSFIELD_SOUL_PATH, payload).catch(() => ({ status: 500, body: {} }));
-      let jobId = extractJobId(r.body);
-      let collected = extractImageUrls(r.body);
-      if (jobId && !collected.length) {
-        try {
-          await pollJob(jobId, 3000, 120000, (b) => extractImageUrls(b)[0] || extractVideoUrl(b));
-          const st = await hfGet(`${HIGGSFIELD_POLL_PATH}/${jobId}`);
-          let stBody = st.body;
-          if (typeof stBody === 'string') {
-            try { stBody = JSON.parse(stBody); } catch { /* ignore */ }
-          }
-          collected = extractImageUrls(stBody);
-        } catch { /* use sync urls */ }
+      try {
+        const url = await submitSoulAndWait(buildSoulPayload(prompt, aspects[i] || '1:1'));
+        if (url) urls.push(url);
+      } catch (e) {
+        console.error('[higgsfield:generateProductImage] soul generation failed', { index: i, message: e.message });
+        console.error(e.stack);
+        logger.warn('higgsfield', null, 'soul generation failed', { message: e.message, index: i });
       }
-      if (!collected.length && r.status === 200) collected = extractImageUrls(r.body);
-      urls.push(...collected.slice(0, 1));
     }
     return urls.filter(Boolean);
   }
@@ -281,19 +421,13 @@ module.exports = function createHiggsfieldService(deps) {
       { max_tokens: 1500 }
     );
     const parsed = extractJSON(motionPrompt) || { prompt: 'Slow cinematic camera orbit, soft highlights, premium feel', duration_sec: 8 };
-    const r = await hfPost(HIGGSFIELD_KLING_PATH, {
+    const payload = {
       prompt: parsed.prompt,
-      input_image: productImageUrl,
-      duration: parsed.duration_sec || 8,
-      model: 'kling-3.0'
-    });
-    const jobId = extractJobId(r.body) || extractJobId(r.body?.data);
-    if (!jobId) {
-      const direct = extractVideoUrl(r.body);
-      if (direct) return direct;
-      throw new Error('Kling job did not return an id');
-    }
-    return pollJob(jobId, 5000, 180000, extractVideoUrl);
+      image_url: productImageUrl,
+      aspect_ratio: '9:16',
+      resolution: '720p'
+    };
+    return submitVideoAndWait(PATH_KLING, payload);
   }
 
   async function generateHeroAd(productImageUrl, brandDNA) {
@@ -306,19 +440,13 @@ module.exports = function createHiggsfieldService(deps) {
       { max_tokens: 2000 }
     );
     const parsed = extractJSON(script) || { full_prompt: 'Cinematic product ad, premium lighting, bold CTA endcard' };
-    const r = await hfPost(HIGGSFIELD_SORA_PATH, {
+    const payload = {
       prompt: parsed.full_prompt || parsed.prompt,
-      input_image: productImageUrl,
-      model: 'sora-2',
-      duration: 15
-    });
-    const jobId = extractJobId(r.body) || extractJobId(r.body?.data);
-    if (!jobId) {
-      const direct = extractVideoUrl(r.body);
-      if (direct) return direct;
-      throw new Error('Sora job did not return an id');
-    }
-    return pollJob(jobId, 10000, 300000, extractVideoUrl);
+      image_url: productImageUrl,
+      aspect_ratio: '9:16',
+      resolution: '720p'
+    };
+    return submitVideoAndWait(PATH_SORA, payload);
   }
 
   async function runScoreDimensions(imageUrl, videoUrl, caption, brandDNA, platformData) {
@@ -374,16 +502,15 @@ module.exports = function createHiggsfieldService(deps) {
       const np = fix.new_prompt || fix.prompt;
       if (currentImage && np) {
         try {
-          const r = await hfPost(HIGGSFIELD_SOUL_PATH, {
+          const url = await submitSoulAndWait({
             prompt: np,
-            width_and_height: '1536x1536',
-            quality: 'hd',
-            batch_size: 1,
-            input_image: { url: currentImage }
+            aspect_ratio: '1:1',
+            resolution: '1080p'
           });
-          const urls = extractImageUrls(r.body);
-          if (urls[0]) currentImage = urls[0];
+          if (url) currentImage = url;
         } catch (e) {
+          console.error('[higgsfield:scoreContent] score regen soul failed', e.message);
+          console.error(e.stack);
           logger.warn('higgsfield', null, 'score regen soul failed', { message: e.message });
         }
       }
@@ -488,6 +615,8 @@ module.exports = function createHiggsfieldService(deps) {
           break;
         }
         const styled = await generateProductImage(productImageUrl, brandDNA).catch((e) => {
+          console.error('[higgsfield:processProductCatalog] generateProductImage', e.message);
+          console.error(e.stack);
           out.errors.push({ step: 'generateProductImage', message: e.message });
           return [];
         });
@@ -527,6 +656,8 @@ module.exports = function createHiggsfieldService(deps) {
                 status: 'scheduled'
               }).catch(() => {});
             } catch (e) {
+              console.error('[higgsfield:processProductCatalog] kling', e.message);
+              console.error(e.stack);
               out.errors.push({ step: 'kling', message: e.message });
             }
           }
@@ -545,6 +676,8 @@ module.exports = function createHiggsfieldService(deps) {
               status: 'scheduled'
             }).catch(() => {});
           } catch (e) {
+            console.error('[higgsfield:processProductCatalog] sora', e.message);
+            console.error(e.stack);
             out.errors.push({ step: 'sora', message: e.message });
           }
         }
@@ -554,10 +687,14 @@ module.exports = function createHiggsfieldService(deps) {
             const cap = await generateCaption(k.url, brandDNA, 'instagram', k.score, { plan });
             out.items.push({ type: 'caption', image: k.url, ...cap });
           } catch (e) {
+            console.error('[higgsfield:processProductCatalog] caption', e.message);
+            console.error(e.stack);
             out.errors.push({ step: 'caption', message: e.message });
           }
         }
       } catch (e) {
+        console.error('[higgsfield:processProductCatalog] product_loop', e.message);
+        console.error(e.stack);
         out.errors.push({ step: 'product_loop', message: e.message });
       }
     }
@@ -565,7 +702,9 @@ module.exports = function createHiggsfieldService(deps) {
     out.average_score = scoreN ? Math.round((scoreSum / scoreN) * 10) / 10 : 0;
     try {
       out.schedule_preview = await schedule30DaysClaude(out.items, brandDNA);
-    } catch {
+    } catch (e) {
+      console.error('[higgsfield:processProductCatalog] schedule30DaysClaude', e.message);
+      console.error(e.stack);
       out.schedule_preview = [];
     }
 
@@ -578,6 +717,7 @@ module.exports = function createHiggsfieldService(deps) {
     generateHeroAd,
     scoreContent,
     generateCaption,
-    processProductCatalog
+    processProductCatalog,
+    cancelRequest
   };
 };

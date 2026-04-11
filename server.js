@@ -10117,7 +10117,8 @@ app.post('/api/generate', checkPlanLimit, async (req, res) => {
       platform_data,
       platform,
       score,
-      business_id
+      business_id,
+      prompt
     } = req.body;
 
     let extra = {};
@@ -10145,7 +10146,11 @@ app.post('/api/generate', checkPlanLimit, async (req, res) => {
       });
     } else if (action === 'generate_image') {
       if (!product_image_url) return apiError(res, 400, 'VALIDATION_ERROR', 'product_image_url required');
-      extra = { image_urls: await higgsfieldAI.generateProductImage(product_image_url, brand_dna || {}) };
+      extra = {
+        image_urls: await higgsfieldAI.generateProductImage(product_image_url, brand_dna || {}, {
+          prompt: typeof prompt === 'string' ? prompt : undefined
+        })
+      };
     } else if (action === 'generate_video_kling') {
       if (!product_image_url) return apiError(res, 400, 'VALIDATION_ERROR', 'product_image_url required');
       extra = { video_url: await higgsfieldAI.generateProductVideo(product_image_url, brand_dna || {}) };
