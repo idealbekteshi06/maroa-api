@@ -1,0 +1,675 @@
+{
+  "name": "WF53 — Brand DNA Builder",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "wf53-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "build-brand-dna",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wf53-webhook",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 520],
+      "webhookId": "build-brand-dna"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "wf53-schedule",
+      "name": "Schedule Monday 6am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [200, 740]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst body = input.body || input;\n\nconst business_id = body.business_id || '';\nconst onboarding_answers = body.onboarding_answers || null;\nconst force_rebuild = body.force_rebuild === true;\nconst is_scheduled = !business_id;\n\nreturn [{ json: { business_id, onboarding_answers, force_rebuild, is_scheduled } }];"
+      },
+      "id": "wf53-parse-input",
+      "name": "Parse Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 520]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.is_scheduled }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "wf53-if-scheduled",
+      "name": "IF Scheduled Run",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [700, 520]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://zqhyrbttuqkvmdewiytf.supabase.co/rest/v1/businesses?select=id,is_active&is_active=eq.true",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "wf53-fetch-all-businesses",
+      "name": "Fetch All Active Businesses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [960, 640]
+    },
+    {
+      "parameters": {
+        "jsCode": "const businesses = $input.first().json;\nconst arr = Array.isArray(businesses) ? businesses : [businesses];\nreturn arr.map(b => ({ json: { business_id: b.id, onboarding_answers: null, force_rebuild: false, is_scheduled: true } }));"
+      },
+      "id": "wf53-split-businesses",
+      "name": "Split Businesses",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 640]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "wf53-loop",
+      "name": "Loop Each Business",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1440, 520]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://zqhyrbttuqkvmdewiytf.supabase.co/rest/v1/businesses?select=*&id=eq.{{ $('Loop Each Business').first().json.business_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" }
+          ]
+        },
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf53-fetch-business",
+      "name": "Fetch Business Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1720, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://zqhyrbttuqkvmdewiytf.supabase.co/rest/v1/business_profiles?select=*&business_id=eq.{{ $('Loop Each Business').first().json.business_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" }
+          ]
+        },
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf53-fetch-onboarding",
+      "name": "Fetch Onboarding Answers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1720, 600],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const bizArr = $('Fetch Business Data').first().json;\nconst onbArr = $('Fetch Onboarding Answers').first().json;\nconst loopData = $('Loop Each Business').first().json;\n\nconst biz = Array.isArray(bizArr) ? bizArr[0] : bizArr || {};\nconst onb = Array.isArray(onbArr) ? onbArr[0] : onbArr || {};\nconst answers = loopData.onboarding_answers || onb || {};\n\nreturn [{ json: {\n  business_id: loopData.business_id,\n  business_name: biz.business_name || '',\n  industry: biz.industry || '',\n  target_audience: biz.target_audience || answers.target_audience || '',\n  brand_tone: biz.brand_tone || answers.brand_tone || '',\n  marketing_goal: biz.marketing_goal || answers.marketing_goal || '',\n  location: biz.location || answers.city || '',\n  competitors: biz.competitors || answers.competitors || '',\n  usp: answers.usp || biz.usp || '',\n  products: answers.products_services || '',\n  pain_points: answers.customer_pain_points || '',\n  brand_values: answers.brand_values || '',\n  content_style: answers.content_style_preference || '',\n  budget_range: answers.marketing_budget || '',\n  primary_language: biz.primary_language || answers.primary_language || 'English'\n} }];"
+      },
+      "id": "wf53-merge-biz-data",
+      "name": "Merge Business Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 500]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://serpapi.com/search.json?engine=google&q={{ encodeURIComponent($json.business_name + ' competitors ' + $json.industry) }}&api_key={{ $env.SERPAPI_KEY }}&num=5",
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf53-serp-competitors",
+      "name": "SerpAPI Direct Competitors",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2300, 320],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://serpapi.com/search.json?engine=google&q={{ encodeURIComponent('best ' + $json.industry + ' Instagram accounts 2026') }}&api_key={{ $env.SERPAPI_KEY }}&num=5",
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf53-serp-leaders",
+      "name": "SerpAPI Industry Leaders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2300, 520],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://serpapi.com/search.json?engine=google&q={{ encodeURIComponent($json.industry + ' viral content trends April 2026') }}&api_key={{ $env.SERPAPI_KEY }}&num=5",
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf53-serp-trends",
+      "name": "SerpAPI Trending Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2300, 720],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const bizData = $('Merge Business Data').first().json;\nconst compRaw = $('SerpAPI Direct Competitors').first().json || {};\nconst leadersRaw = $('SerpAPI Industry Leaders').first().json || {};\nconst trendsRaw = $('SerpAPI Trending Content').first().json || {};\n\nconst competitors = (compRaw.organic_results || []).slice(0, 5).map(r => ({\n  name: r.title || '',\n  url: r.link || '',\n  snippet: r.snippet || ''\n}));\n\nconst leaders = (leadersRaw.organic_results || []).slice(0, 5).map(r => ({\n  name: r.title || '',\n  snippet: r.snippet || ''\n}));\n\nconst trends = (trendsRaw.organic_results || []).slice(0, 5).map(r => r.snippet || r.title || '').filter(Boolean);\n\nconst competitorNames = competitors.map(c => c.name).filter(Boolean).slice(0, 3);\n\nreturn [{ json: {\n  ...bizData,\n  competitors_found: competitors,\n  industry_leaders: leaders,\n  trending_content: trends,\n  competitor_names: competitorNames\n} }];"
+      },
+      "id": "wf53-merge-research",
+      "name": "Merge Research Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2600, 520]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $input.first().json;\nconst names = ctx.competitor_names || [];\nconst items = names.map(name => ({ json: { ...ctx, current_competitor: name } }));\nif (items.length === 0) items.push({ json: { ...ctx, current_competitor: '' } });\nreturn items;"
+      },
+      "id": "wf53-split-competitors",
+      "name": "Split Competitors",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2860, 520]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://serpapi.com/search.json?engine=google_images&q={{ encodeURIComponent($json.current_competitor + ' Instagram posts') }}&api_key={{ $env.SERPAPI_KEY }}&num=5",
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf53-serp-competitor-images",
+      "name": "SerpAPI Competitor Images",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3100, 520],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Split Competitors').first().json;\nconst imgRaw = $input.first().json || {};\n\nconst images = (imgRaw.images_results || []).slice(0, 5).map(r => ({\n  title: r.title || '',\n  source: r.source || '',\n  thumbnail: r.thumbnail || ''\n}));\n\nconst compAnalysis = {\n  competitor: ctx.current_competitor,\n  visual_themes: images.map(i => i.title).filter(Boolean).slice(0, 3),\n  sources: images.map(i => i.source).filter(Boolean).slice(0, 3)\n};\n\nreturn [{ json: { ...ctx, competitor_analysis: compAnalysis } }];"
+      },
+      "id": "wf53-collect-comp-analysis",
+      "name": "Collect Competitor Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3340, 520]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "={{ $env.ANTHROPIC_API_KEY }}" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-opus-4-5\",\n  \"max_tokens\": 2000,\n  \"messages\": [{\n    \"role\": \"user\",\n    \"content\": \"You are an expert audience intelligence analyst.\\n\\nBusiness: {{ $json.business_name }}\\nIndustry: {{ $json.industry }}\\nTarget audience description: {{ $json.target_audience }}\\nLocation: {{ $json.location }}\\nProducts/Services: {{ $json.products }}\\nCustomer pain points: {{ $json.pain_points }}\\nMarketing goal: {{ $json.marketing_goal }}\\nLanguage: {{ $json.primary_language }}\\n\\nBuild a deep audience intelligence profile. Analyze:\\n\\n1. Demographics: age range, gender split, location patterns, income bracket\\n2. Psychographics: core values, lifestyle interests, aspirations, fears\\n3. Behavior: when they scroll social media, what makes them stop scrolling, what triggers engagement (likes, comments, shares, saves)\\n4. Language: words/phrases they use, words that resonate, emotional triggers, words to avoid\\n5. Content preferences: video vs image, long vs short form, educational vs entertaining\\n\\nReturn only valid JSON:\\n{\\n  \\\"demographics\\\": { \\\"age_range\\\": \\\"\\\", \\\"gender_split\\\": \\\"\\\", \\\"location_patterns\\\": \\\"\\\", \\\"income_bracket\\\": \\\"\\\" },\\n  \\\"psychographics\\\": { \\\"core_values\\\": [], \\\"interests\\\": [], \\\"aspirations\\\": [], \\\"fears\\\": [] },\\n  \\\"behavior\\\": { \\\"peak_scroll_times\\\": [], \\\"scroll_stoppers\\\": [], \\\"engagement_triggers\\\": [], \\\"save_triggers\\\": [] },\\n  \\\"language\\\": { \\\"power_words\\\": [], \\\"emotional_triggers\\\": [], \\\"words_to_avoid\\\": [], \\\"phrases_they_use\\\": [] },\\n  \\\"content_preferences\\\": { \\\"preferred_format\\\": \\\"\\\", \\\"content_length\\\": \\\"\\\", \\\"style\\\": \\\"\\\" }\\n}\"\n  }]\n}",
+        "options": { "timeout": 60000 }
+      },
+      "id": "wf53-audience-intel",
+      "name": "Audience Intelligence Builder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3600, 520],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.content?.[0]?.text || '';\nlet c = {};\ntry { c = JSON.parse(raw); }\ncatch(e) { const m = raw.match(/{[\\s\\S]*}/); if(m) try { c = JSON.parse(m[0]); } catch(e2) {} }\n\nconst ctx = $('Collect Competitor Analysis').first().json;\n\nreturn [{ json: {\n  ...ctx,\n  audience_intelligence: c\n} }];"
+      },
+      "id": "wf53-parse-audience",
+      "name": "Parse Audience Intel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3840, 520]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "={{ $env.ANTHROPIC_API_KEY }}" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-opus-4-5\",\n  \"max_tokens\": 4000,\n  \"messages\": [{\n    \"role\": \"user\",\n    \"content\": \"You are a world-class brand strategist synthesizing a complete Brand DNA profile.\\n\\nBUSINESS DATA:\\n- Name: {{ $json.business_name }}\\n- Industry: {{ $json.industry }}\\n- Location: {{ $json.location }}\\n- Products: {{ $json.products }}\\n- USP: {{ $json.usp }}\\n- Brand tone: {{ $json.brand_tone }}\\n- Brand values: {{ $json.brand_values }}\\n- Marketing goal: {{ $json.marketing_goal }}\\n- Target audience: {{ $json.target_audience }}\\n- Language: {{ $json.primary_language }}\\n\\nCOMPETITOR RESEARCH:\\n{{ JSON.stringify($json.competitors_found || []) }}\\n\\nINDUSTRY LEADERS:\\n{{ JSON.stringify($json.industry_leaders || []) }}\\n\\nTRENDING CONTENT:\\n{{ ($json.trending_content || []).join('\\\\n') }}\\n\\nCOMPETITOR VISUAL ANALYSIS:\\n{{ JSON.stringify($json.competitor_analysis || {}) }}\\n\\nAUDIENCE INTELLIGENCE:\\n{{ JSON.stringify($json.audience_intelligence || {}) }}\\n\\nSynthesize ALL data into a comprehensive Brand DNA. This will drive ALL future content generation, ad creation, and marketing decisions.\\n\\nReturn only valid JSON:\\n{\\n  \\\"brand_identity\\\": {\\n    \\\"name\\\": \\\"\\\",\\n    \\\"industry\\\": \\\"\\\",\\n    \\\"personality_type\\\": \\\"\\\",\\n    \\\"voice_tone\\\": \\\"\\\",\\n    \\\"visual_style\\\": \\\"\\\",\\n    \\\"color_direction\\\": \\\"\\\"\\n  },\\n  \\\"audience\\\": {\\n    \\\"primary_demographic\\\": \\\"\\\",\\n    \\\"psychographic_profile\\\": \\\"\\\",\\n    \\\"pain_points\\\": [],\\n    \\\"desires\\\": [],\\n    \\\"language_patterns\\\": []\\n  },\\n  \\\"competitive_landscape\\\": {\\n    \\\"main_competitors\\\": [],\\n    \\\"market_gaps\\\": [],\\n    \\\"differentiation_opportunities\\\": [],\\n    \\\"content_angles_to_avoid\\\": []\\n  },\\n  \\\"content_strategy\\\": {\\n    \\\"winning_formats\\\": [],\\n    \\\"posting_frequency\\\": \\\"\\\",\\n    \\\"content_pillars\\\": [],\\n    \\\"hook_formulas\\\": [],\\n    \\\"cta_patterns\\\": [],\\n    \\\"hashtag_strategy\\\": { \\\"mega\\\": [], \\\"mid\\\": [], \\\"niche\\\": [], \\\"branded\\\": [] }\\n  },\\n  \\\"trend_intelligence\\\": {\\n    \\\"current_trending_formats\\\": [],\\n    \\\"viral_triggers\\\": [],\\n    \\\"seasonal_opportunities\\\": [],\\n    \\\"platform_specific_tips\\\": { \\\"instagram\\\": \\\"\\\", \\\"tiktok\\\": \\\"\\\", \\\"facebook\\\": \\\"\\\" }\\n  },\\n  \\\"performance_benchmarks\\\": {\\n    \\\"avg_engagement_rate_industry\\\": \\\"\\\",\\n    \\\"target_metrics\\\": { \\\"engagement_rate\\\": \\\"\\\", \\\"reach_growth\\\": \\\"\\\", \\\"follower_growth\\\": \\\"\\\" },\\n    \\\"success_indicators\\\": []\\n  }\\n}\"\n  }]\n}",
+        "options": { "timeout": 90000 }
+      },
+      "id": "wf53-synthesize-dna",
+      "name": "Claude Brand DNA Synthesizer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4120, 520],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.content?.[0]?.text || '';\nlet c = {};\ntry { c = JSON.parse(raw); }\ncatch(e) { const m = raw.match(/{[\\s\\S]*}/); if(m) try { c = JSON.parse(m[0]); } catch(e2) {} }\n\nconst ctx = $('Parse Audience Intel').first().json;\n\nreturn [{ json: {\n  business_id: ctx.business_id,\n  business_name: ctx.business_name,\n  brand_dna: c,\n  audience_intelligence: ctx.audience_intelligence || {},\n  competitor_analysis: ctx.competitor_analysis || {},\n  generated_at: new Date().toISOString()\n} }];"
+      },
+      "id": "wf53-parse-dna",
+      "name": "Parse Brand DNA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4400, 520]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fetch existing versions to keep last 3\nconst ctx = $input.first().json;\n\n// Build the upsert row\nconst row = {\n  business_id: ctx.business_id,\n  brand_dna: JSON.stringify(ctx.brand_dna),\n  audience_intelligence: JSON.stringify(ctx.audience_intelligence),\n  competitor_analysis: JSON.stringify(ctx.competitor_analysis),\n  version: new Date().toISOString().slice(0, 10).replace(/-/g, ''),\n  generated_at: ctx.generated_at,\n  status: 'active'\n};\n\nreturn [{ json: { ...ctx, upsert_row: row } }];"
+      },
+      "id": "wf53-prepare-save",
+      "name": "Prepare Save",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4640, 520]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://zqhyrbttuqkvmdewiytf.supabase.co/rest/v1/brand_intelligence",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.upsert_row) }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf53-save-dna",
+      "name": "Save Brand DNA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4880, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://zqhyrbttuqkvmdewiytf.supabase.co/rest/v1/brand_intelligence?select=id,generated_at&business_id=eq.{{ $json.business_id }}&order=generated_at.desc&offset=3",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" }
+          ]
+        },
+        "options": { "timeout": 10000 }
+      },
+      "id": "wf53-fetch-old-versions",
+      "name": "Fetch Old Versions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4880, 620],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const oldVersions = $('Fetch Old Versions').first().json;\nconst arr = Array.isArray(oldVersions) ? oldVersions : [];\nconst ctx = $('Prepare Save').first().json;\n\n// Mark old versions (beyond 3) for deletion\nconst idsToDelete = arr.map(v => v.id).filter(Boolean);\n\nreturn [{ json: { ...ctx, old_version_ids: idsToDelete } }];"
+      },
+      "id": "wf53-cleanup-versions",
+      "name": "Cleanup Old Versions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [5140, 520]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.old_version_ids.length }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "wf53-if-old-versions",
+      "name": "IF Has Old Versions",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [5380, 520]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "=https://zqhyrbttuqkvmdewiytf.supabase.co/rest/v1/brand_intelligence?id=in.({{ $json.old_version_ids.join(',') }})",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" }
+          ]
+        },
+        "options": { "timeout": 10000 }
+      },
+      "id": "wf53-delete-old",
+      "name": "Delete Old Versions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [5640, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ideal.app.n8n.cloud/webhook/build-calendar",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"business_id\": \"{{ $json.business_id }}\",\n  \"brand_dna\": {{ JSON.stringify($json.brand_dna) }},\n  \"trigger\": \"brand_dna_updated\"\n}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf53-trigger-calendar",
+      "name": "Trigger Content Calendar Rebuild",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [5900, 520],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://maroa-api-production.up.railway.app/webhook/whatsapp-send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"business_id\": \"{{ $json.business_id }}\",\n  \"message\": \"Brand intelligence updated for {{ $json.business_name }}. Your content strategy has been refreshed with latest competitor data and trending formats.\"\n}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf53-notify",
+      "name": "Notify WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [6160, 520],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $input.first().json;\nreturn [{ json: {\n  success: true,\n  business_id: ctx.business_id,\n  business_name: ctx.business_name,\n  brand_dna_sections: Object.keys(ctx.brand_dna || {}),\n  generated_at: ctx.generated_at,\n  old_versions_cleaned: (ctx.old_version_ids || []).length\n} }];"
+      },
+      "id": "wf53-build-response",
+      "name": "Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [6400, 520]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "id": "wf53-respond",
+      "name": "Respond Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [6640, 520]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop back connector\nreturn [$input.first()];"
+      },
+      "id": "wf53-loop-back",
+      "name": "Loop Back",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [6640, 280]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [{ "node": "Parse Input", "type": "main", "index": 0 }]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [{ "node": "Parse Input", "type": "main", "index": 0 }]
+      ]
+    },
+    "Schedule Monday 6am": {
+      "main": [
+        [{ "node": "Parse Input", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Input": {
+      "main": [
+        [{ "node": "IF Scheduled Run", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF Scheduled Run": {
+      "main": [
+        [{ "node": "Fetch All Active Businesses", "type": "main", "index": 0 }],
+        [{ "node": "Loop Each Business", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch All Active Businesses": {
+      "main": [
+        [{ "node": "Split Businesses", "type": "main", "index": 0 }]
+      ]
+    },
+    "Split Businesses": {
+      "main": [
+        [{ "node": "Loop Each Business", "type": "main", "index": 0 }]
+      ]
+    },
+    "Loop Each Business": {
+      "main": [
+        [
+          { "node": "Fetch Business Data", "type": "main", "index": 0 },
+          { "node": "Fetch Onboarding Answers", "type": "main", "index": 0 }
+        ],
+        []
+      ]
+    },
+    "Fetch Business Data": {
+      "main": [
+        [{ "node": "Merge Business Data", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Onboarding Answers": {
+      "main": [
+        [{ "node": "Merge Business Data", "type": "main", "index": 0 }]
+      ]
+    },
+    "Merge Business Data": {
+      "main": [
+        [
+          { "node": "SerpAPI Direct Competitors", "type": "main", "index": 0 },
+          { "node": "SerpAPI Industry Leaders", "type": "main", "index": 0 },
+          { "node": "SerpAPI Trending Content", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "SerpAPI Direct Competitors": {
+      "main": [
+        [{ "node": "Merge Research Data", "type": "main", "index": 0 }]
+      ]
+    },
+    "SerpAPI Industry Leaders": {
+      "main": [
+        [{ "node": "Merge Research Data", "type": "main", "index": 0 }]
+      ]
+    },
+    "SerpAPI Trending Content": {
+      "main": [
+        [{ "node": "Merge Research Data", "type": "main", "index": 0 }]
+      ]
+    },
+    "Merge Research Data": {
+      "main": [
+        [{ "node": "Split Competitors", "type": "main", "index": 0 }]
+      ]
+    },
+    "Split Competitors": {
+      "main": [
+        [{ "node": "SerpAPI Competitor Images", "type": "main", "index": 0 }]
+      ]
+    },
+    "SerpAPI Competitor Images": {
+      "main": [
+        [{ "node": "Collect Competitor Analysis", "type": "main", "index": 0 }]
+      ]
+    },
+    "Collect Competitor Analysis": {
+      "main": [
+        [{ "node": "Audience Intelligence Builder", "type": "main", "index": 0 }]
+      ]
+    },
+    "Audience Intelligence Builder": {
+      "main": [
+        [{ "node": "Parse Audience Intel", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Audience Intel": {
+      "main": [
+        [{ "node": "Claude Brand DNA Synthesizer", "type": "main", "index": 0 }]
+      ]
+    },
+    "Claude Brand DNA Synthesizer": {
+      "main": [
+        [{ "node": "Parse Brand DNA", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Brand DNA": {
+      "main": [
+        [{ "node": "Prepare Save", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Save": {
+      "main": [
+        [
+          { "node": "Save Brand DNA", "type": "main", "index": 0 },
+          { "node": "Fetch Old Versions", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Save Brand DNA": {
+      "main": [
+        [{ "node": "Cleanup Old Versions", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Old Versions": {
+      "main": [
+        [{ "node": "Cleanup Old Versions", "type": "main", "index": 0 }]
+      ]
+    },
+    "Cleanup Old Versions": {
+      "main": [
+        [{ "node": "IF Has Old Versions", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF Has Old Versions": {
+      "main": [
+        [{ "node": "Delete Old Versions", "type": "main", "index": 0 }],
+        [{ "node": "Trigger Content Calendar Rebuild", "type": "main", "index": 0 }]
+      ]
+    },
+    "Delete Old Versions": {
+      "main": [
+        [{ "node": "Trigger Content Calendar Rebuild", "type": "main", "index": 0 }]
+      ]
+    },
+    "Trigger Content Calendar Rebuild": {
+      "main": [
+        [{ "node": "Notify WhatsApp", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notify WhatsApp": {
+      "main": [
+        [{ "node": "Build Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          { "node": "Respond Webhook", "type": "main", "index": 0 },
+          { "node": "Loop Back", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Loop Back": {
+      "main": [
+        [{ "node": "Loop Each Business", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "wf53-v1",
+  "tags": [
+    { "name": "brand-intelligence" },
+    { "name": "onboarding" },
+    { "name": "weekly" }
+  ]
+}

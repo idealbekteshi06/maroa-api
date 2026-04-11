@@ -1,0 +1,405 @@
+{
+  "name": "WF52 — Content Score Enforcer",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "wf52-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "score-content",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wf52-webhook",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 500],
+      "webhookId": "score-content"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize input from webhook or manual trigger\nconst input = $input.first().json;\nconst body = input.body || input;\n\nconst content_id = body.content_id;\nconst file_url = body.file_url || '';\nconst caption = body.caption || '';\nconst business_id = body.business_id;\nconst platform = body.platform || 'instagram';\nconst attempt_number = parseInt(body.attempt_number || '1', 10);\n\nif (!content_id || !business_id) {\n  throw new Error('content_id and business_id are required');\n}\n\nreturn [{ json: { content_id, file_url, caption, business_id, platform, attempt_number } }];"
+      },
+      "id": "wf52-parse-input",
+      "name": "Parse Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 400]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://maroa-api-production.up.railway.app/api/business/{{ $json.business_id }}/brand-dna",
+        "options": {}
+      },
+      "id": "wf52-fetch-brand-dna",
+      "name": "Fetch Brand DNA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://serpapi.com/search.json?engine=google&q=best+{{ $('Parse Input').first().json.platform }}+posts+{{ encodeURIComponent($json.industry || 'business') }}+2026&api_key={{ $env.SERPAPI_KEY }}&num=5",
+        "options": {}
+      },
+      "id": "wf52-fetch-trends",
+      "name": "Fetch Platform Trends",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [660, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Parse Input').first().json;\nconst brandDna = $('Fetch Brand DNA').first().json || {};\nconst trendsRaw = $('Fetch Platform Trends').first().json || {};\n\n// Extract trend snippets\nconst trends = (trendsRaw.organic_results || []).slice(0, 5).map(r => r.snippet || r.title || '').join('\\n');\n\n// Build brand context\nconst brand = [\n  brandDna.brand_tone ? `Brand tone: ${brandDna.brand_tone}` : '',\n  brandDna.target_audience ? `Target audience: ${brandDna.target_audience}` : '',\n  brandDna.industry ? `Industry: ${brandDna.industry}` : '',\n  brandDna.usp ? `USP: ${brandDna.usp}` : '',\n  brandDna.brand_values ? `Values: ${brandDna.brand_values}` : ''\n].filter(Boolean).join('\\n');\n\nreturn [{ json: { ...input, brand_context: brand, trend_context: trends, industry: brandDna.industry || 'business' } }];"
+      },
+      "id": "wf52-merge-context",
+      "name": "Merge Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": {
+          "__rl": true,
+          "value": "claude-opus-4-5",
+          "mode": "list"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are a professional content quality scorer for social media marketing. You analyze content against 6 dimensions and return a strict score.\n\nBRAND DNA:\n{{ $json.brand_context }}\n\nCURRENT PLATFORM TRENDS ({{ $json.platform }}):\n{{ $json.trend_context }}\n\nCONTENT TO SCORE:\n- Platform: {{ $json.platform }}\n- Caption: {{ $json.caption }}\n- Image/Video URL: {{ $json.file_url }}\n- Attempt: {{ $json.attempt_number }} of 3\n\nScore each dimension:\n\na. Hook Strength (0-2):\n   Analyze caption first line:\n   - 2: Creates irresistible curiosity or strong emotion\n   - 1: Decent opening but not scroll-stopping\n   - 0: Weak or generic opening\n\nb. Visual Quality (0-2):\n   Analyze the image/video:\n   - 2: Professional, well-lit, perfectly composed\n   - 1: Acceptable quality, minor issues\n   - 0: Poor lighting, composition, or quality\n   If no image URL provided, score based on caption visual language.\n\nc. Brand Alignment (0-1):\n   Compare to brand DNA:\n   - 1: Perfectly matches brand voice and style\n   - 0: Inconsistent with brand identity\n\nd. Trend Relevance (0-2):\n   Compare to current trend data:\n   - 2: Uses current trending format + hashtags\n   - 1: Somewhat relevant to current trends\n   - 0: Outdated or irrelevant format\n\ne. CTA Clarity (0-1):\n   - 1: Clear, compelling call to action\n   - 0: Weak, missing, or confusing CTA\n\nf. Engagement Potential (0-2):\n   - 2: Highly likely to generate comments/shares\n   - 1: Some engagement potential\n   - 0: Unlikely to generate engagement\n\nTotal possible: 10 points.\n\nVerdict rules:\n- total_score >= 7: \"approved\"\n- total_score 5-6 AND attempt_number < 3: \"regenerate\"\n- total_score < 5 OR attempt_number >= 3: \"flag\"\n\nIf verdict is \"regenerate\", provide an improved_prompt that fixes the weaknesses.\nIf verdict is \"flag\", explain why clearly.\n\nReturn only valid JSON:\n{\n  \"total_score\": number,\n  \"breakdown\": { \"hook\": number, \"visual\": number, \"brand\": number, \"trend\": number, \"cta\": number, \"engagement\": number },\n  \"verdict\": \"approved\" | \"regenerate\" | \"flag\",\n  \"improvement_notes\": [\"specific fix 1\", \"specific fix 2\"],\n  \"improved_prompt\": \"string or null\"\n}",
+              "role": "user"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 2000
+        }
+      },
+      "id": "wf52-claude-scorer",
+      "name": "Claude Vision Scorer",
+      "type": "@n8n/n8n-nodes-langchain.anthropicChat",
+      "typeVersion": 1,
+      "position": [1140, 400],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-account",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.content?.[0]?.text || $input.first().json.text || '';\nlet c = {};\ntry { c = JSON.parse(raw); }\ncatch(e) { const m = raw.match(/{[\\s\\S]*}/); if(m) try { c = JSON.parse(m[0]); } catch(e2) {} }\n\nconst input = $('Parse Input').first().json;\nconst total_score = c.total_score || 0;\nconst verdict = c.verdict || (total_score >= 7 ? 'approved' : total_score >= 5 && input.attempt_number < 3 ? 'regenerate' : 'flag');\n\nreturn [{ json: {\n  content_id: input.content_id,\n  business_id: input.business_id,\n  file_url: input.file_url,\n  caption: input.caption,\n  platform: input.platform,\n  attempt_number: input.attempt_number,\n  total_score,\n  breakdown: c.breakdown || {},\n  verdict,\n  improvement_notes: c.improvement_notes || [],\n  improved_prompt: c.improved_prompt || null\n} }];"
+      },
+      "id": "wf52-parse-score",
+      "name": "Parse Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1380, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.verdict }}",
+              "operation": "equals",
+              "value2": "approved"
+            }
+          ]
+        }
+      },
+      "id": "wf52-if-approved",
+      "name": "IF Approved",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1620, 400]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://zqhyrbttuqkvmdewiytf.supabase.co/rest/v1/generated_content?id=eq.{{ $json.content_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "status", "value": "approved" },
+            { "name": "approved_at", "value": "={{ new Date().toISOString() }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "wf52-approve-content",
+      "name": "Approve Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1880, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Parse Score').first().json;\nreturn [{ json: {\n  approved: true,\n  score: input.total_score,\n  breakdown: input.breakdown,\n  content_id: input.content_id,\n  verdict: 'approved'\n} }];"
+      },
+      "id": "wf52-respond-approved",
+      "name": "Respond Approved",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2120, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.verdict }}",
+              "operation": "equals",
+              "value2": "regenerate"
+            }
+          ]
+        }
+      },
+      "id": "wf52-if-regenerate",
+      "name": "IF Regenerate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1880, 500]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://maroa-api-production.up.railway.app/api/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"user_id\": \"{{ $('Parse Score').first().json.business_id }}\",\n  \"action\": \"generate_image\",\n  \"prompt\": \"{{ $('Parse Score').first().json.improved_prompt }}\",\n  \"content_id\": \"{{ $('Parse Score').first().json.content_id }}\"\n}",
+        "options": {}
+      },
+      "id": "wf52-regenerate-content",
+      "name": "Regenerate Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2120, 420]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ideal.app.n8n.cloud/webhook/score-content",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content_id\": \"{{ $('Parse Score').first().json.content_id }}\",\n  \"file_url\": \"{{ $('Parse Score').first().json.file_url }}\",\n  \"caption\": \"{{ $('Parse Score').first().json.caption }}\",\n  \"business_id\": \"{{ $('Parse Score').first().json.business_id }}\",\n  \"platform\": \"{{ $('Parse Score').first().json.platform }}\",\n  \"attempt_number\": {{ $('Parse Score').first().json.attempt_number + 1 }}\n}",
+        "options": {}
+      },
+      "id": "wf52-loop-score",
+      "name": "Re-Score Loop",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2360, 420]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://zqhyrbttuqkvmdewiytf.supabase.co/rest/v1/generated_content?id=eq.{{ $('Parse Score').first().json.content_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "status", "value": "flagged" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "wf52-flag-content",
+      "name": "Flag Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2120, 680]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://maroa-api-production.up.railway.app/webhook/whatsapp-send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"business_id\": \"{{ $('Parse Score').first().json.business_id }}\",\n  \"message\": \"Content flagged for review. Score: {{ $('Parse Score').first().json.total_score }}/10. Issues: {{ $('Parse Score').first().json.improvement_notes.join(', ') }}\"\n}",
+        "options": {}
+      },
+      "id": "wf52-notify-admin",
+      "name": "Notify Admin WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2360, 680]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Parse Score').first().json;\nreturn [{ json: {\n  approved: false,\n  score: input.total_score,\n  breakdown: input.breakdown,\n  verdict: input.verdict,\n  reason: input.improvement_notes,\n  content_id: input.content_id\n} }];"
+      },
+      "id": "wf52-respond-flagged",
+      "name": "Respond Flagged",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2600, 680]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "id": "wf52-respond-webhook-approved",
+      "name": "Respond Webhook Approved",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2360, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "id": "wf52-respond-webhook-flagged",
+      "name": "Respond Webhook Flagged",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2840, 680]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [{ "node": "Parse Input", "type": "main", "index": 0 }]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [{ "node": "Parse Input", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Input": {
+      "main": [
+        [
+          { "node": "Fetch Brand DNA", "type": "main", "index": 0 },
+          { "node": "Fetch Platform Trends", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch Brand DNA": {
+      "main": [
+        [{ "node": "Merge Context", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Platform Trends": {
+      "main": [
+        [{ "node": "Merge Context", "type": "main", "index": 0 }]
+      ]
+    },
+    "Merge Context": {
+      "main": [
+        [{ "node": "Claude Vision Scorer", "type": "main", "index": 0 }]
+      ]
+    },
+    "Claude Vision Scorer": {
+      "main": [
+        [{ "node": "Parse Score", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Score": {
+      "main": [
+        [{ "node": "IF Approved", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF Approved": {
+      "main": [
+        [{ "node": "Approve Content", "type": "main", "index": 0 }],
+        [{ "node": "IF Regenerate", "type": "main", "index": 0 }]
+      ]
+    },
+    "Approve Content": {
+      "main": [
+        [{ "node": "Respond Approved", "type": "main", "index": 0 }]
+      ]
+    },
+    "Respond Approved": {
+      "main": [
+        [{ "node": "Respond Webhook Approved", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF Regenerate": {
+      "main": [
+        [{ "node": "Regenerate Content", "type": "main", "index": 0 }],
+        [{ "node": "Flag Content", "type": "main", "index": 0 }]
+      ]
+    },
+    "Regenerate Content": {
+      "main": [
+        [{ "node": "Re-Score Loop", "type": "main", "index": 0 }]
+      ]
+    },
+    "Flag Content": {
+      "main": [
+        [{ "node": "Notify Admin WhatsApp", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notify Admin WhatsApp": {
+      "main": [
+        [{ "node": "Respond Flagged", "type": "main", "index": 0 }]
+      ]
+    },
+    "Respond Flagged": {
+      "main": [
+        [{ "node": "Respond Webhook Flagged", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "wf52-v1",
+  "tags": [
+    { "name": "content-quality" },
+    { "name": "scoring" }
+  ]
+}
