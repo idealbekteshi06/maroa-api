@@ -688,6 +688,11 @@ const wf4 = createWf4({
 });
 const { registerWf4Routes } = require('./services/wf4/registerRoutes');
 
+// ─── Workflow #3 — Ad Optimization Loop ────────────────────────────────────
+const createWf3 = require('./services/wf3');
+const wf3 = createWf3({ sbGet, sbPost, sbPatch, callClaude, extractJSON, logger, apiRequest });
+const { registerWf3Routes } = require('./services/wf3/registerRoutes');
+
 // ─── Save image to Supabase Storage (permanent URL) ──────────────────────────
 async function saveImageToSupabase(imageUrl, businessId) {
   if (!imageUrl || !imageUrl.startsWith('http')) return imageUrl;
@@ -10277,6 +10282,9 @@ registerWf2Routes({ app, wf2, apiError, logger });
 
 // ─── Workflow #4 routes (Reviews & Reputation) ──────────────────────────────
 registerWf4Routes({ app, wf4, apiError, logger });
+
+// ─── Workflow #3 routes (Ad Optimization) ──────────────────────────────────
+registerWf3Routes({ app, wf3, apiError, logger });
 
 // ─── In-process WF1 daily scheduler (opt-in via WF1_INTERNAL_CRON=true) ─────
 if (process.env.WF1_INTERNAL_CRON === 'true') {
