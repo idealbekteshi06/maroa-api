@@ -667,6 +667,16 @@ const wf15 = createWf15({
 });
 const { registerWf15Routes } = require('./services/wf15/registerRoutes');
 
+// ─── Workflow #2 — Lead Scoring & Routing ──────────────────────────────────
+const createWf2 = require('./services/wf2');
+const wf2 = createWf2({
+  sbGet, sbPost, sbPatch,
+  callClaude, extractJSON,
+  logger,
+  sendEmail,
+});
+const { registerWf2Routes } = require('./services/wf2/registerRoutes');
+
 // ─── Save image to Supabase Storage (permanent URL) ──────────────────────────
 async function saveImageToSupabase(imageUrl, businessId) {
   if (!imageUrl || !imageUrl.startsWith('http')) return imageUrl;
@@ -10250,6 +10260,9 @@ registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logger });
 
 // ─── Workflow #15 routes (AI Brain) ─────────────────────────────────────────
 registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logger });
+
+// ─── Workflow #2 routes (Lead Scoring & Routing) ────────────────────────────
+registerWf2Routes({ app, wf2, apiError, logger });
 
 // ─── In-process WF1 daily scheduler (opt-in via WF1_INTERNAL_CRON=true) ─────
 if (process.env.WF1_INTERNAL_CRON === 'true') {
