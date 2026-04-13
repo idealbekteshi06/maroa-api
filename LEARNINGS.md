@@ -161,11 +161,99 @@ All tables have `business_id` + `created_at` indexes, RLS enabled with service-r
 
 ---
 
-## 5. Open handoffs (things for the next session/operator)
+## 5. Commit log (chronological)
 
-- [ ] Run `migrations/024_wf1_content_engine.sql` in Supabase SQL editor before hitting any `/webhook/wf1-*` endpoint
-- [ ] Set Railway env var `WF1_INTERNAL_CRON=true` to enable in-process scheduler (default off; enable after first deploy)
-- [ ] Configure n8n external cron or Railway scheduled job to hit `/webhook/wf1-run-daily` every 60 min (it self-filters by timezone)
-- [ ] Configure n8n or Railway cron for `/webhook/wf1-measure-performance` every 30 min
-- [ ] Frontend needs `wf1-plan-get` to be callable via `GET` in addition to current implementation — confirmed both variants registered
-- [ ] Test business has no `events`/`approvals` rows yet — first WF1 run seeds them
+| Commit | Workflow | Files | Lines |
+|---|---|---|---|
+| `78db9b9` | WF1 — Daily Content Engine | 17 | +4229 |
+| `3bf919a` | WF13 — Weekly Strategy Brief | 11 | +2579 |
+| `ae4de6b` | WF15 — AI Brain | 4 | +576 |
+| `578053b` | WF2 — Lead Scoring & Routing | 4 | +657 |
+| `6aa2e01` | WF4 — Reviews & Reputation | 6 | +1004 |
+| `85ffa63` | WF3 — Ad Optimization Loop | 5 | +429 |
+| `0f81203` | WF5, 6, 7, 8, 9/11, 10, 12, 14 (batch) | 19 | +1818 |
+
+**Total:** 66 files, ~11,300 lines of backend code across 7 commits. All 15 workflows from the MAROA_15_WORKFLOWS_V2 spec are backend-present.
+
+## 6. Migration files added (in order)
+
+| File | Workflow |
+|---|---|
+| `024_wf1_content_engine.sql` | WF1: events, approvals, brain_decisions, content_plans/concepts/assets/posts/performance, learning_patterns, businesses.wf1_* |
+| `025_wf13_weekly_brief.sql` | WF13: weekly_briefs, brief_plan_actions, brief_delivery_log, brief_delivery_settings, reader_preferences_learned |
+| `026_wf15_ai_brain.sql` | WF15: brain_conversations, brain_messages, brain_tool_calls, brain_attachments, brain_memory |
+| `027_wf2_lead_scoring.sql` | WF2: lead_scores, lead_responses, routing_rules, icp_definitions, contacts.*extensions |
+| `028_wf4_reviews.sql` | WF4: reviews.*extensions, review_responses, review_requests, review_disputes, testimonial_library |
+| `029_wf3_ad_optimization.sql` | WF3: ad_optimization_runs, ad_optimization_actions |
+| `030_wf5_through_wf14.sql` | WF5-14: competitor_briefs, presence_audits, schema_markup_generated, email_segments/sequences/enrollments, insight_reports, inbox_threads/replies, studio_jobs, launches/launch_activities, budget_optimizer_runs |
+
+**Apply order:** 024 → 025 → 026 → 027 → 028 → 029 → 030. Each is idempotent (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP POLICY IF EXISTS`), so partial reapplication is safe.
+
+## 7. Services added (per workflow)
+
+| Workflow | Path | Modules |
+|---|---|---|
+| WF1 | `services/wf1/` | brandContext, contextBundle, guardrails, engine, publish, learningLoop, dailyRun, index, registerRoutes |
+| WF2 | `services/wf2/` | index, registerRoutes |
+| WF3 | `services/wf3/` | index, registerRoutes |
+| WF4 | `services/wf4/` | index, registerRoutes |
+| WF5 | `services/wf5/` | index |
+| WF6 | `services/wf6/` | index |
+| WF7 | `services/wf7/` | index |
+| WF8 | `services/wf8/` | index |
+| WF9/11 | `services/wf9/` | index |
+| WF10 | `services/wf10/` | index |
+| WF12 | `services/wf12/` | index |
+| WF13 | `services/wf13/` | contextBundle, engine, index, registerRoutes |
+| WF14 | `services/wf14/` | index |
+| WF15 | `services/wf15/` | index, registerRoutes |
+| WF5-14 routes | `services/wf_batch_routes.js` | batch route registrar |
+| Shared prompts | `services/prompts/` | foundation + 9 workflow modules (auto-generated for WF1/2/4/13/15, backend-native for WF3/5/6/7/8/9/10/12/14) |
+
+## 8. Open handoffs (what the next operator must do)
+
+### Required before first production traffic
+- [ ] Run all 7 migrations in Supabase SQL editor: 024 → 025 → 026 → 027 → 028 → 029 → 030
+- [ ] Verify `orchestration_logs` table exists (already in migrations 001-023) — required by WF1 idempotency guard
+- [ ] Set Railway env var `WF1_INTERNAL_CRON=true` to enable in-process schedulers OR configure external n8n cron hitting:
+  - `POST /webhook/wf1-run-daily` every 60 min (self-filters by local 06:00)
+  - `POST /webhook/wf1-measure-performance` every 30 min
+  - `POST /webhook/wf13-run-weekly` Sunday 22:00 (any timezone — batch processes all businesses)
+  - `POST /webhook/wf3-run-optimization` Mondays 06:00
+  - `POST /webhook/wf5-run-analysis` Mondays 07:00
+  - `POST /webhook/wf8-generate-report` 1st of month 08:00
+  - `POST /webhook/wf14-run` 1st of month 09:00
+  - `POST /webhook/wf7-dispatch-due` every 15 min
+
+### Frontend wiring
+- [ ] Frontend api.ts currently defines contracts for WF1, WF2, WF4, WF13, WF15 only. For WF3, WF5, WF6, WF7, WF8, WF9/11, WF10, WF12, WF14 the backend endpoints are live but no frontend caller exists yet — these need matching api.ts exports and UI pages. The endpoint paths + request/response shapes are documented above in section 4 (individual PRs) and enforced via the `services/wf_batch_routes.js` file.
+
+### Foundation framework sharing
+- [x] `scripts/sync_foundation.mjs` reads from `../maroa-ai-marketing-automator/src/lib/prompts/*.ts` and generates `services/prompts/*.js`
+- [x] Prestart hook (`"prestart": "node scripts/sync_foundation.mjs"`) runs on every server boot
+- [x] Graceful no-op when frontend repo is absent (Railway deploys)
+- [x] Generated files committed to git so Railway has them at deploy time
+
+### Higgsfield integration for WF10
+- [ ] WF10's `createStudioJob` calls `higgsfieldAI.generateImage` / `generateVideo` which must accept `{ prompt, businessId }` / `{ sourceImagePrompt, motionPrompt, aspectRatio, durationSeconds, businessId }` and return `{ url, thumbnailUrl }`. Current `services/higgsfield.js` factory may need a thin adapter — verify on first WF10 smoke test against Uje Karadaku.
+
+### Data-gathering pipelines (deferred)
+- [ ] WF5 competitor data: requires Apify/SerpAPI scheduled scraping that writes to `competitor_insights`. Current implementation reads from that table but does not populate it.
+- [ ] WF6 local presence data: requires Google Business Profile API + Schema.org validation + citation scraping. Current `runAudit` accepts manual input via `auditInput` parameter.
+- [ ] WF8 customer voice data: reads from existing `reviews` + `inbox_threads` tables. For MVP use, manual review seeding + WF9 intake are sufficient.
+- [ ] WF9 inbox data: requires platform webhooks (Meta Graph, LinkedIn, TikTok, Twitter, GBP, WhatsApp Business, email IMAP) to write into `inbox_threads`. Current `intakeThread` endpoint is the adapter — external webhook receivers point to it.
+
+## 9. Smoke tests performed
+
+| Workflow | Test | Result |
+|---|---|---|
+| Foundation sharing | Load foundation.js + workflow_1_daily_content.js, call buildStrategicDecisionPrompt | ✓ 17,927 char system prompt with all industry playbooks |
+| WF1 | End-to-end strategic decision against Uje Karadaku with fake Claude → 1 concept persisted, event logged | ✓ |
+| WF2 | Mock VP Marketing lead at Acme SaaS (pricing visits, demo, budget) | ✓ 100/100 hot tier |
+| WF1-15 | All 15 `require()` loads + `Object.keys` verification | ✓ All factories export their expected methods |
+| server.js | `node --check server.js` after each wiring step | ✓ 7 successful syntax checks |
+
+## 10. Test business
+
+All development and smoke tests use **Uje Karadaku** (`fea4aae5-14b4-486d-89f4-33a7d7e4ab60`), the Kosovo bottled water brand. Classifies as `dtc_ecommerce` per `guessBusinessModel`. Language: Albanian (primary), English (secondary). Timezone: Europe/Belgrade. Country: XK.
+
