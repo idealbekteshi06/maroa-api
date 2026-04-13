@@ -646,6 +646,18 @@ const wf1 = createWf1({
 });
 const { registerWf1Routes } = require('./services/wf1/registerRoutes');
 
+// ─── Workflow #13 — Weekly Strategy Brief ────────────────────────────────────
+const createWf13 = require('./services/wf13');
+const wf13 = createWf13({
+  sbGet, sbPost, sbPatch,
+  callClaude, extractJSON,
+  countryIntelligence: countryIntelligenceMod,
+  logger,
+  sendEmail,
+  sendWhatsApp,
+});
+const { registerWf13Routes } = require('./services/wf13/registerRoutes');
+
 // ─── Save image to Supabase Storage (permanent URL) ──────────────────────────
 async function saveImageToSupabase(imageUrl, businessId) {
   if (!imageUrl || !imageUrl.startsWith('http')) return imageUrl;
@@ -10223,6 +10235,9 @@ app.post('/api/generate', checkPlanLimit, async (req, res) => {
 // ─── Workflow #1 routes (Daily Content Engine) ──────────────────────────────
 // Registered after legacy routes so WF1 takes precedence on its wf1-* paths.
 registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger });
+
+// ─── Workflow #13 routes (Weekly Strategy Brief) ────────────────────────────
+registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logger });
 
 // ─── In-process WF1 daily scheduler (opt-in via WF1_INTERNAL_CRON=true) ─────
 if (process.env.WF1_INTERNAL_CRON === 'true') {

@@ -49,6 +49,9 @@ const OUT_PROMPTS = resolve(REPO_ROOT, 'services', 'prompts');
 const FILES = [
   { src: 'foundation.ts', out: 'foundation.js' },
   { src: 'workflow_1_daily_content.ts', out: 'workflow_1_daily_content.js' },
+  { src: 'workflow_13_weekly_brief.ts', out: 'workflow_13_weekly_brief.js' },
+  { src: 'workflow_15_ai_brain.ts', out: 'workflow_15_ai_brain.js' },
+  { src: 'workflow_2_lead_scoring.ts', out: 'workflow_2_lead_scoring.js' },
 ];
 
 function err(msg) {
@@ -133,6 +136,15 @@ function tsToCjs(src, filename) {
 
   // 9. Strip `satisfies X` assertions.
   out = out.replace(/\s+satisfies\s+[\w<>,\s|&.'"]+(?=\s*[;,)])/g, '');
+
+  // 9b. Strip non-null assertions: `x!.y` → `x.y`, `arr!.length` → `arr.length`
+  out = out.replace(/([\w$\)\]])!(?=\.|\[|\?\.|\?\[)/g, '$1');
+
+  // 9c. Strip generic type arguments on constructor/function calls:
+  //     `new Map<string, Foo>()` → `new Map()`
+  //     `arr.map<T>(fn)` → `arr.map(fn)`
+  //     `fn<T>(x)` → `fn(x)`
+  out = stripGenericTypeArgs(out);
 
   // 10. Append module.exports block.
   const exports = [...exportedConstNames, ...exportedFnNames];
@@ -223,6 +235,83 @@ function stripVariableAnnotations(src) {
     // Simpler approach: do this in a separate non-replace pass below.
     return fullMatch;
   });
+}
+
+function stripGenericTypeArgs(src) {
+  // Walk forward. When we see `IDENT<`, try to find a balanced `>` and check
+  // if the next char after `>` is `(`. If so, it's a generic type arg on a
+  // call — strip the `<...>`.
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    // Skip strings
+    if (ch === '`' || ch === '"' || ch === "'") {
+      const quote = ch;
+      out += ch; i++;
+      while (i < src.length) {
+        const c = src[i];
+        if (c === '\\') { out += c + (src[i + 1] || ''); i += 2; continue; }
+        if (c === quote) { out += c; i++; break; }
+        if (quote === '`' && c === '$' && src[i + 1] === '{') {
+          out += c; i++; out += src[i]; i++;
+          let d = 1;
+          while (i < src.length) {
+            const cc = src[i]; out += cc; i++;
+            if (cc === '{') d++;
+            else if (cc === '}') { d--; if (d === 0) break; }
+          }
+          continue;
+        }
+        out += c; i++;
+      }
+      continue;
+    }
+    // Skip comments
+    if (ch === '/' && src[i + 1] === '/') {
+      while (i < src.length && src[i] !== '\n') { out += src[i]; i++; }
+      continue;
+    }
+    if (ch === '/' && src[i + 1] === '*') {
+      out += '/*'; i += 2;
+      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) { out += src[i]; i++; }
+      if (i < src.length) { out += '*/'; i += 2; }
+      continue;
+    }
+
+    // Detect `IDENT<` where prev char (skipping space) is word-ish and current is `<`
+    if (ch === '<' && i > 0 && /[\w$\])]/.test(src[i - 1])) {
+      // Try to match a balanced `<...>` where inside is type-like (no `;` `{` `}`)
+      let j = i + 1;
+      let depth = 1;
+      let bail = false;
+      while (j < src.length && depth > 0) {
+        const c = src[j];
+        if (c === '<') depth++;
+        else if (c === '>') depth--;
+        else if (c === ';' || c === '{' || c === '}' || c === '(' || c === ')' || c === '\n') {
+          // Not a type arg — bail
+          bail = true;
+          break;
+        }
+        j++;
+      }
+      if (!bail && depth === 0) {
+        // j points past the closing `>`. Check next non-space char is `(`.
+        let k = j;
+        while (k < src.length && /\s/.test(src[k])) k++;
+        if (src[k] === '(') {
+          // Strip the `<...>` pair (keep whitespace before the `(`)
+          i = j; // skip past `>`
+          continue;
+        }
+      }
+    }
+
+    out += ch;
+    i++;
+  }
+  return out;
 }
 
 function stripAsTypeCasts(src) {
@@ -405,16 +494,32 @@ function stripTypeAnnotations(src) {
   while (i < src.length) {
     const ch = src[i];
 
-    // Detect the start of a parameter list: after `function NAME` or `NAME =`
-    // we don't need to special-case — just strip `: Type` anywhere inside
-    // parens where Type is a balanced expression ending at `,` `)` `=`.
+    // Detect type annotation colon. Must:
+    //  1. Be inside a paren list (findParamContext true)
+    //  2. NOT be a ternary colon — we detect this by walking back to find
+    //     an unmatched `?` at the same paren/ternary depth (heuristic:
+    //     if there's a `?` between the last `(` `,` or `{` and this `:`,
+    //     it's a ternary).
+    //  3. Be preceded (skipping whitespace) by an identifier or `)` / `]`.
     if (ch === ':' && i > 0) {
-      // Check if we're inside a parameter list. Look back to the last
-      // unmatched `(`; if found and the preceding char was an identifier or
-      // `)` (destructuring close), this is a param annotation.
-      const ctx = findParamContext(src, i);
-      if (ctx) {
-        // Skip the annotation — walk forward until `,`/`)`/`=` at the same depth.
+      const preceding = src.slice(Math.max(0, i - 200), i);
+      const inParams = findParamContext(src, i);
+      const lastOpen = Math.max(
+        preceding.lastIndexOf('('),
+        preceding.lastIndexOf(','),
+        preceding.lastIndexOf('{'),
+        preceding.lastIndexOf('=>'),
+      );
+      const sliceFromOpen = lastOpen >= 0 ? preceding.slice(lastOpen) : preceding;
+      const hasQuestionMark = /\?(?![.:])/.test(sliceFromOpen);
+      // Identifier just before `:` (skipping whitespace)?
+      let back = i - 1;
+      while (back >= 0 && /\s/.test(src[back])) back--;
+      const prevCh = src[back] || '';
+      const identBefore = /[\w$)\]?]/.test(prevCh);
+
+      if (inParams && !hasQuestionMark && identBefore && prevCh !== '?') {
+        // Skip annotation — walk forward until `,`/`)`/`=` at same depth.
         let j = i + 1;
         let depth = 0;
         while (j < src.length) {
@@ -490,24 +595,39 @@ function stripTypeAnnotations(src) {
 }
 
 function findParamContext(src, idx) {
-  // Walk backwards to find an unmatched `(`. If we find one without first
-  // hitting unbalanced `)` or entering a string, we're inside a param list.
-  let depth = 0;
+  // Walk backwards, tracking depths for `(`, `{`, `[`. Return true ONLY if
+  // the innermost unmatched opener is a `(`. This distinguishes function
+  // parameter colons from object-literal key colons and array-literal content.
+  let parenDepth = 0;
+  let braceDepth = 0;
+  let bracketDepth = 0;
   for (let i = idx - 1; i > 0; i--) {
     const c = src[i];
     if (c === '`' || c === '"' || c === "'") {
-      // Skip back over a string — find the matching opening quote
+      // Skip back over a string
       let j = i - 1;
       while (j > 0 && src[j] !== c) { if (src[j - 1] === '\\') j--; j--; }
       i = j;
       continue;
     }
-    if (c === ')') depth++;
+    if (c === ')') parenDepth++;
     else if (c === '(') {
-      if (depth === 0) return true;
-      depth--;
+      if (parenDepth === 0) {
+        // Innermost unmatched opener is `(` — check there's no closer
+        // `{` or `[` in between (those would mean we're actually inside
+        // an object/array literal nested in this paren).
+        return braceDepth === 0 && bracketDepth === 0;
+      }
+      parenDepth--;
+    } else if (c === '}') braceDepth++;
+    else if (c === '{') {
+      if (braceDepth === 0) return false; // innermost is `{` — object literal
+      braceDepth--;
+    } else if (c === ']') bracketDepth++;
+    else if (c === '[') {
+      if (bracketDepth === 0) return false; // innermost is `[` — array literal
+      bracketDepth--;
     }
-    // Guard: don't look back more than ~5000 chars
     if (idx - i > 5000) return false;
   }
   return false;
