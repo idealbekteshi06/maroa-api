@@ -52,6 +52,7 @@ const FILES = [
   { src: 'workflow_13_weekly_brief.ts', out: 'workflow_13_weekly_brief.js' },
   { src: 'workflow_15_ai_brain.ts', out: 'workflow_15_ai_brain.js' },
   { src: 'workflow_2_lead_scoring.ts', out: 'workflow_2_lead_scoring.js' },
+  { src: 'workflow_4_reviews.ts', out: 'workflow_4_reviews.js' },
 ];
 
 function err(msg) {
