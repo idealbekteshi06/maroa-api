@@ -658,6 +658,15 @@ const wf13 = createWf13({
 });
 const { registerWf13Routes } = require('./services/wf13/registerRoutes');
 
+// ─── Workflow #15 — AI Brain (Conversational Command Center) ────────────────
+const createWf15 = require('./services/wf15');
+const wf15 = createWf15({
+  sbGet, sbPost, sbPatch,
+  callClaude, extractJSON,
+  logger,
+});
+const { registerWf15Routes } = require('./services/wf15/registerRoutes');
+
 // ─── Save image to Supabase Storage (permanent URL) ──────────────────────────
 async function saveImageToSupabase(imageUrl, businessId) {
   if (!imageUrl || !imageUrl.startsWith('http')) return imageUrl;
@@ -10238,6 +10247,9 @@ registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger });
 
 // ─── Workflow #13 routes (Weekly Strategy Brief) ────────────────────────────
 registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logger });
+
+// ─── Workflow #15 routes (AI Brain) ─────────────────────────────────────────
+registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logger });
 
 // ─── In-process WF1 daily scheduler (opt-in via WF1_INTERNAL_CRON=true) ─────
 if (process.env.WF1_INTERNAL_CRON === 'true') {
