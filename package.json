@@ -4,8 +4,10 @@
   "description": "Maroa.ai webhook API server — replaces n8n webhook triggers",
   "main": "server.js",
   "scripts": {
+    "build": "node scripts/sync_foundation.mjs",
+    "prestart": "node scripts/sync_foundation.mjs",
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node scripts/sync_foundation.mjs && node --watch server.js"
   },
   "engines": {
     "node": ">=18.0.0"

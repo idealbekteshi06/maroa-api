@@ -1,0 +1,15 @@
+{
+  "generatedAt": "2026-04-13T19:46:36.534Z",
+  "files": [
+    {
+      "src": "foundation.ts",
+      "out": "foundation.js",
+      "hash": "2f112dc94e44"
+    },
+    {
+      "src": "workflow_1_daily_content.ts",
+      "out": "workflow_1_daily_content.js",
+      "hash": "e174e41743de"
+    }
+  ]
+}

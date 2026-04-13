@@ -626,6 +626,26 @@ const higgsfieldAI = createHiggsfieldService({
   SUPABASE_KEY
 });
 
+// ─── Workflow #1 — Daily Content Engine ──────────────────────────────────────
+// Factory wires: context bundle, strategic decision, platform generation,
+// quality gate, guardrails, publisher, learning loop, daily orchestrator.
+// Strategic framework is imported from services/prompts/foundation.js (auto-
+// generated from the frontend's canonical src/lib/prompts/foundation.ts via
+// scripts/sync_foundation.mjs — do not hand-edit the generated files).
+const createWf1 = require('./services/wf1');
+let countryIntelligenceMod = null;
+try { countryIntelligenceMod = require('./services/countryIntelligence'); } catch { /* optional */ }
+const wf1 = createWf1({
+  sbGet, sbPost, sbPatch,
+  callClaude, extractJSON,
+  apiRequest, serpSearch,
+  countryIntelligence: countryIntelligenceMod,
+  checkOrchestrationIdempotency,
+  recordOrchestrationTaskRun,
+  logger,
+});
+const { registerWf1Routes } = require('./services/wf1/registerRoutes');
+
 // ─── Save image to Supabase Storage (permanent URL) ──────────────────────────
 async function saveImageToSupabase(imageUrl, businessId) {
   if (!imageUrl || !imageUrl.startsWith('http')) return imageUrl;
@@ -10199,6 +10219,40 @@ app.post('/api/generate', checkPlanLimit, async (req, res) => {
     apiError(res, httpStatus, (typeof err.code === 'string' && err.code) ? err.code : 'GENERATE_ERROR', err.message || 'Generate failed');
   }
 });
+
+// ─── Workflow #1 routes (Daily Content Engine) ──────────────────────────────
+// Registered after legacy routes so WF1 takes precedence on its wf1-* paths.
+registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger });
+
+// ─── In-process WF1 daily scheduler (opt-in via WF1_INTERNAL_CRON=true) ─────
+if (process.env.WF1_INTERNAL_CRON === 'true') {
+  // Every 15 min: check all active businesses, run for any whose local time is 06:xx
+  const CRON_INTERVAL_MS = 15 * 60 * 1000;
+  setInterval(() => {
+    wf1.dailyRun.runForAllBusinesses({ force: false })
+      .then(r => { if (r.processed > 0) logger.info('/wf1/internal-cron', null, 'daily sweep', { processed: r.processed }); })
+      .catch(e => logger.error('/wf1/internal-cron', null, 'daily sweep failed', e));
+  }, CRON_INTERVAL_MS);
+
+  // Every 30 min: sweep 48h-due posts for learning loop + hybrid fallbacks
+  const MEASURE_INTERVAL_MS = 30 * 60 * 1000;
+  setInterval(() => {
+    Promise.all([
+      wf1.learningLoop.sweepDuePosts({ limit: 25 }),
+      wf1.dailyRun.processHybridFallbacks(),
+    ])
+      .then(([m, h]) => {
+        if (m.measured > 0 || h.processed > 0)
+          logger.info('/wf1/internal-cron', null, 'measure + fallback', { measured: m.measured, fallbacks: h.processed });
+      })
+      .catch(e => logger.error('/wf1/internal-cron', null, 'measure/fallback failed', e));
+  }, MEASURE_INTERVAL_MS);
+
+  logger.info('/wf1/internal-cron', null, 'in-process cron enabled', {
+    daily_interval_ms: CRON_INTERVAL_MS,
+    measure_interval_ms: MEASURE_INTERVAL_MS,
+  });
+}
 
 // ─── 404 ──────────────────────────────────────────────────────────────────────
 app.use((req, res) => apiError(res, 404, 'NOT_FOUND', `Route ${req.method} ${req.path} not found`));
