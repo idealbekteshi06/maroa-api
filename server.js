@@ -693,6 +693,27 @@ const createWf3 = require('./services/wf3');
 const wf3 = createWf3({ sbGet, sbPost, sbPatch, callClaude, extractJSON, logger, apiRequest });
 const { registerWf3Routes } = require('./services/wf3/registerRoutes');
 
+// ─── Workflows #5, #6, #7, #8, #9/11, #10, #12, #14 — batch wiring ──────────
+const createWf5 = require('./services/wf5');
+const createWf6 = require('./services/wf6');
+const createWf7 = require('./services/wf7');
+const createWf8 = require('./services/wf8');
+const createWf9 = require('./services/wf9');
+const createWf10 = require('./services/wf10');
+const createWf12 = require('./services/wf12');
+const createWf14 = require('./services/wf14');
+
+const wf5 = createWf5({ sbGet, sbPost, callClaude, extractJSON, serpSearch, logger });
+const wf6 = createWf6({ sbGet, sbPost, sbPatch, callClaude, extractJSON, logger });
+const wf7 = createWf7({ sbGet, sbPost, sbPatch, callClaude, extractJSON, sendEmail, logger });
+const wf8 = createWf8({ sbGet, sbPost, callClaude, extractJSON, logger });
+const wf9 = createWf9({ sbGet, sbPost, sbPatch, callClaude, extractJSON, logger });
+const wf10 = createWf10({ sbGet, sbPost, sbPatch, callClaude, extractJSON, higgsfieldAI, logger });
+const wf12 = createWf12({ sbGet, sbPost, sbPatch, callClaude, extractJSON, logger });
+const wf14 = createWf14({ sbGet, sbPost, sbPatch, callClaude, extractJSON, logger });
+
+const { registerBatchRoutes } = require('./services/wf_batch_routes');
+
 // ─── Save image to Supabase Storage (permanent URL) ──────────────────────────
 async function saveImageToSupabase(imageUrl, businessId) {
   if (!imageUrl || !imageUrl.startsWith('http')) return imageUrl;
@@ -10285,6 +10306,9 @@ registerWf4Routes({ app, wf4, apiError, logger });
 
 // ─── Workflow #3 routes (Ad Optimization) ──────────────────────────────────
 registerWf3Routes({ app, wf3, apiError, logger });
+
+// ─── Workflows #5, #6, #7, #8, #9/11, #10, #12, #14 — batch routes ─────────
+registerBatchRoutes({ app, wf5, wf6, wf7, wf8, wf9, wf10, wf12, wf14, apiError, logger });
 
 // ─── In-process WF1 daily scheduler (opt-in via WF1_INTERNAL_CRON=true) ─────
 if (process.env.WF1_INTERNAL_CRON === 'true') {
