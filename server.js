@@ -278,9 +278,9 @@ async function sbPatch(table, filter, data) {
 }
 
 const PLAN_TOKEN_BUDGETS = {
-  starter: { daily_tokens: 50000, max_tokens_per_call: 1000, calls_per_day: 30 },
-  growth: { daily_tokens: 200000, max_tokens_per_call: 2000, calls_per_day: 90 },
-  agency: { daily_tokens: 500000, max_tokens_per_call: 4000, calls_per_day: 150 }
+  starter: { daily_tokens: 200000, max_tokens_per_call: 4000, calls_per_day: 100 },
+  growth: { daily_tokens: 500000, max_tokens_per_call: 6000, calls_per_day: 200 },
+  agency: { daily_tokens: 1000000, max_tokens_per_call: 8000, calls_per_day: 500 }
 };
 
 function normalizePlanTier(plan) {
