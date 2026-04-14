@@ -124,7 +124,7 @@ function createEngine({
     // Claude Opus call. We pass the system prompt via `extra.system` so
     // callClaude preserves it. Expected ~3000 tokens out.
     const startedAt = Date.now();
-    const raw = await callClaude(user, 'claude-opus-4-5', 3500, {
+    const raw = await callClaude(user, 'claude-opus-4-5-20251101', 3500, {
       system,
       businessId,
       returnRaw: true,
@@ -148,7 +148,7 @@ function createEngine({
       status: conceptsIn.length ? 'awaiting_approval' : 'skipped',
       analysis,
       context_snapshot: bundle,
-      model_used: 'claude-opus-4-5',
+      model_used: 'claude-opus-4-5-20251101',
     });
 
     // Persist concepts
@@ -262,7 +262,7 @@ function createEngine({
     };
 
     const { system, user } = buildPlatformGenerationPrompt(brandContextReady, conceptBrief);
-    const raw = await callClaude(user, 'claude-sonnet-4-5', 3000, {
+    const raw = await callClaude(user, 'claude-sonnet-4-5-20251101', 3000, {
       system,
       businessId,
       returnRaw: true,
@@ -296,7 +296,7 @@ function createEngine({
       confidence: Number(parsed.confidence || 0),
       quality_score: qualityResult.score,
       quality_breakdown: qualityResult.breakdown,
-      model_used: 'claude-sonnet-4-5',
+      model_used: 'claude-sonnet-4-5-20251101',
       status: qualityResult.score >= 80 ? 'awaiting_approval' : 'generated',
     });
 
@@ -386,7 +386,7 @@ Return ONLY valid JSON:
 }`;
 
     try {
-      const raw = await callClaude(prompt, 'claude-haiku-4-5', 800, {
+      const raw = await callClaude(prompt, 'claude-haiku-4-5-20251001', 800, {
         businessId,
         returnRaw: true,
         skipBudget: false,
