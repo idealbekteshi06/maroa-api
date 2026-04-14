@@ -221,7 +221,7 @@ function isInternalMaroaWebhookUrl(urlString) {
 }
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
-function apiRequest(method, url, headers = {}, body = null, timeoutMs = 30000) {
+function apiRequest(method, url, headers = {}, body = null, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
     const u        = new URL(url);
     const bodyStr  = body ? JSON.stringify(body) : null;
