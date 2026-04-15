@@ -364,7 +364,7 @@ const WF1_GUARDRAILS = {
     minMinutesBetweenSamePlatform: 240,
     storiesMaxPerDay: 10,
   },
-  topicCooldownDays: 7,
+  topicCooldownDays: 0,
   trendingExceptionHalfLifeHours: 24,
   crisisAutoPause: {
     triggers: ['natural_disaster', 'public_figure_death', 'major_tragedy', 'contentious_election_day'],
