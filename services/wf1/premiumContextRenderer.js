@@ -63,7 +63,10 @@ function renderPremiumBrandContext(ctx) {
     audienceParts.push(`<gender>${ctx.gender}</gender>`);
   }
   if (safeArr(ctx.audienceInterests)) {
-    audienceParts.push(`<interests_and_tone_keywords>${ctx.audienceInterests.join(', ')}</interests_and_tone_keywords>`);
+    audienceParts.push(`<interests>${ctx.audienceInterests.join(', ')}</interests>`);
+  }
+  if (safeArr(ctx.targetCities)) {
+    audienceParts.push(`<target_cities>${ctx.targetCities.join(', ')}</target_cities>`);
   }
   if (ctx.painPointsFull) {
     audienceParts.push(`<pain_points>${String(ctx.painPointsFull).slice(0, 600)}</pain_points>`);
@@ -114,6 +117,7 @@ function renderPremiumBrandContext(ctx) {
   // ═══ BUSINESS ECONOMICS ═══
   const econParts = [];
   if (ctx.monthlyBudget) econParts.push(`<monthly_budget>${ctx.monthlyBudget}</monthly_budget>`);
+  if (ctx.currentSpend) econParts.push(`<current_spend_range>${ctx.currentSpend}</current_spend_range>`);
   if (ctx.avgOrderValue) econParts.push(`<avg_order_value>${ctx.avgOrderValue}</avg_order_value>`);
   if (ctx.ltv) econParts.push(`<ltv_target>${ctx.ltv}</ltv_target>`);
   if (ctx.cacTarget) econParts.push(`<cac_ceiling>${ctx.cacTarget}</cac_ceiling>`);
@@ -122,6 +126,7 @@ function renderPremiumBrandContext(ctx) {
   // ═══ STRATEGY ═══
   const stratParts = [];
   if (ctx.primaryMarketingGoal) stratParts.push(`<primary_goal>${ctx.primaryMarketingGoal}</primary_goal>`);
+  if (safeArr(ctx.marketingChallenges)) stratParts.push(`<active_challenges>${ctx.marketingChallenges.join('; ')}</active_challenges>`);
   if (ctx.adsExperience) stratParts.push(`<ads_experience>${ctx.adsExperience}</ads_experience>`);
   if (safeArr(ctx.activePlatforms)) stratParts.push(`<active_platforms>${ctx.activePlatforms.join(', ')}</active_platforms>`);
   if (ctx.postingFrequency && ctx.postingFrequency !== 'auto') stratParts.push(`<posting_preference>${ctx.postingFrequency}</posting_preference>`);

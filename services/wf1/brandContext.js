@@ -144,10 +144,21 @@ function parseLanguages(profile, business) {
  * @returns {import('../prompts/foundation.js').BrandContext}
  */
 function buildBrandContext({ business = {}, profile = {} }) {
+  // ─── Extract onboarding form data as fallback source ───
+  // The onboarding wizard stores rich data in businesses.onboarding_data.form.
+  // Flat columns on businesses/business_profiles may not be populated, so we
+  // use the form blob as the last-resort fallback for every field.
+  let form = {};
+  try {
+    const raw = business.onboarding_data;
+    const od = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    form = od?.form || {};
+  } catch { /* ignore parse errors */ }
+
   const businessModel = guessBusinessModel(
-    profile.industry || business.industry,
-    profile.business_type,
-    profile.audience_description || business.target_audience
+    profile.industry || business.industry || form.business_type,
+    profile.business_type || form.business_type,
+    profile.audience_description || business.target_audience || form.business_description
   );
   const marketingStage = guessMarketingStage(business, profile);
   const ltv = Number(profile.ltv || business.ltv || DEFAULT_LTV[businessModel] || 0);
@@ -157,7 +168,7 @@ function buildBrandContext({ business = {}, profile = {} }) {
     businessId: business.id || profile.user_id || '',
     businessName: business.business_name || profile.business_name || 'Unnamed business',
     businessModel,
-    industry: profile.industry || business.industry || 'unknown',
+    industry: profile.industry || business.industry || form.business_type || 'unknown',
     marketingStage,
     narrativeArc: profile.narrative_arc || undefined,
     ltv: ltv || undefined,
@@ -167,34 +178,36 @@ function buildBrandContext({ business = {}, profile = {} }) {
     primaryMarkets: parseMarkets(profile, business),
     primaryLanguages: parseLanguages(profile, business),
     audience: { personas: parsePersonas(profile, business) },
-    competitors: parseCompetitors(profile.competitors || business.competitors),
+    competitors: parseCompetitors(profile.competitors || business.competitors || form.competitors),
 
     // ─── Expanded onboarding context (additive — backward compatible) ───
-    // Maps real DB columns from business_profiles + businesses tables.
+    // Priority: profile columns → business columns → onboarding_data.form fallback.
     // Every field has a safe fallback so downstream code never breaks.
 
     // Positioning & identity
-    uniqueSellingProposition: profile.usp || business.usp || '',
-    businessDescription: profile.audience_description || business.target_audience || '',
-    businessType: profile.business_type || business.business_type || '',
+    uniqueSellingProposition: profile.usp || business.usp || form.differentiator || '',
+    businessDescription: profile.audience_description || business.target_audience || form.business_description || '',
+    businessType: profile.business_type || business.business_type || form.business_type || '',
     tagline: profile.tagline || '',
-    websiteUrl: business.website_url || '',
+    websiteUrl: business.website_url || form.website_url || '',
 
     // Budget & economics
-    monthlyBudget: Number(profile.monthly_budget || business.monthly_budget || 0) || 0,
-    avgOrderValue: Number(profile.avg_spend || business.avg_spend || 0) || 0,
+    monthlyBudget: Number(profile.monthly_budget || business.monthly_budget || (Array.isArray(form.monthly_budget) ? form.monthly_budget[0] : form.monthly_budget) || 0) || 0,
+    avgOrderValue: Number(profile.avg_spend || business.avg_order_value || 0) || 0,
     currentOffer: profile.current_offer || '',
+    currentSpend: form.current_spend || '',
 
     // Audience demographics
-    ageMin: Number(profile.audience_age_min || 18),
-    ageMax: Number(profile.audience_age_max || 65),
-    gender: profile.audience_gender || 'mixed',
-    dreamCustomer: profile.audience_description || business.target_audience || '',
-    painPointsFull: profile.pain_point || '',
-    audienceInterests: parseList(profile.tone_keywords || business.tone_keywords),
+    ageMin: Number(profile.audience_age_min || business.target_age_min || form.age_min || 18),
+    ageMax: Number(profile.audience_age_max || business.target_age_max || form.age_max || 65),
+    gender: profile.audience_gender || business.target_gender || form.gender || 'all',
+    dreamCustomer: profile.audience_description || form.dream_customer || business.target_audience || '',
+    painPointsFull: profile.pain_point || form.pain_points || '',
+    audienceInterests: parseList(profile.tone_keywords || business.tone_keywords || form.interests),
+    targetCities: parseList(form.target_cities),
 
     // Content guardrails
-    bannedWords: parseList(profile.never_do || business.never_do),
+    bannedWords: parseList(profile.never_do || business.never_do || form.topics_to_avoid),
 
     // Competitive positioning
     theyDoBetter: profile.they_do_better || '',
@@ -208,8 +221,8 @@ function buildBrandContext({ business = {}, profile = {} }) {
     })(),
 
     // Scheduling & platforms
-    activePlatforms: parseList(business.social_accounts_connected),
-    postingFrequency: profile.best_posting_times || 'auto',
+    activePlatforms: parseList(business.social_accounts_connected === true ? form.platforms : (business.social_accounts_connected || form.platforms)),
+    postingFrequency: profile.best_posting_times || business.posting_frequency || form.post_frequency || 'auto',
 
     // Seasonality
     seasonal: profile.seasonal || 'year_round',
@@ -220,16 +233,17 @@ function buildBrandContext({ business = {}, profile = {} }) {
     })(),
 
     // Marketing context
-    primaryMarketingGoal: profile.primary_goal || business.marketing_goal || '',
+    primaryMarketingGoal: profile.primary_goal || business.marketing_goal || form.marketing_goal || '',
+    marketingChallenges: parseList(form.challenges),
     adsExperience: profile.ads_experience || '',
 
     // Defensive: expose field presence flags for downstream logic
     _rawBusinessFields: {
-      hasUSP: !!(profile.usp || business.usp),
-      hasDescription: !!(profile.audience_description || business.target_audience),
-      hasBudget: !!(profile.monthly_budget || business.monthly_budget),
-      hasBannedWords: !!(profile.never_do || business.never_do),
-      hasPainPoints: !!profile.pain_point,
+      hasUSP: !!(profile.usp || business.usp || form.differentiator),
+      hasDescription: !!(profile.audience_description || business.target_audience || form.business_description),
+      hasBudget: !!(profile.monthly_budget || business.monthly_budget || form.monthly_budget),
+      hasBannedWords: !!(profile.never_do || business.never_do || form.topics_to_avoid),
+      hasPainPoints: !!(profile.pain_point || form.pain_points),
       hasProducts: !!(profile.products || business.products),
       hasCompetitorContext: !!(profile.they_do_better || profile.we_do_better),
     },
