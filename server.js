@@ -10372,5 +10372,14 @@ function gracefulShutdown(signal) {
   }, 10000).unref();
 }
 
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('/process', null, 'Unhandled Promise Rejection — NOT crashing server', { reason: String(reason) });
+});
+
+process.on('uncaughtException', (err) => {
+  logger.error('/process', null, 'Uncaught Exception — shutting down gracefully', { error: err.message, stack: err.stack });
+  setTimeout(() => process.exit(1), 2000);
+});
+
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
