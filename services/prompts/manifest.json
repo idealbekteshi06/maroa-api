@@ -1,15 +1,10 @@
 {
-  "generatedAt": "2026-04-13T20:04:02.359Z",
+  "generatedAt": "2026-04-16T11:02:16.148Z",
   "files": [
     {
       "src": "foundation.ts",
       "out": "foundation.js",
       "hash": "2f112dc94e44"
-    },
-    {
-      "src": "workflow_1_daily_content.ts",
-      "out": "workflow_1_daily_content.js",
-      "hash": "e174e41743de"
     },
     {
       "src": "workflow_13_weekly_brief.ts",
@@ -25,6 +20,11 @@
       "src": "workflow_2_lead_scoring.ts",
       "out": "workflow_2_lead_scoring.js",
       "hash": "c812ec7ddecd"
+    },
+    {
+      "src": "workflow_4_reviews.ts",
+      "out": "workflow_4_reviews.js",
+      "hash": "390e19a78ad9"
     }
   ]
 }
