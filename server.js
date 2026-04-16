@@ -10310,33 +10310,66 @@ registerWf3Routes({ app, wf3, apiError, logger });
 // ─── Workflows #5, #6, #7, #8, #9/11, #10, #12, #14 — batch routes ─────────
 registerBatchRoutes({ app, wf5, wf6, wf7, wf8, wf9, wf10, wf12, wf14, apiError, logger });
 
-// ─── In-process WF1 daily scheduler (opt-in via WF1_INTERNAL_CRON=true) ─────
-if (process.env.WF1_INTERNAL_CRON === 'true') {
-  // Every 15 min: check all active businesses, run for any whose local time is 06:xx
-  const CRON_INTERVAL_MS = 15 * 60 * 1000;
-  setInterval(() => {
-    wf1.dailyRun.runForAllBusinesses({ force: false })
-      .then(r => { if (r.processed > 0) logger.info('/wf1/internal-cron', null, 'daily sweep', { processed: r.processed }); })
-      .catch(e => logger.error('/wf1/internal-cron', null, 'daily sweep failed', e));
-  }, CRON_INTERVAL_MS);
+// ─── WF1 safe hourly auto-run (6 safety guards) ─────────────────────────────
+{
+  const WF1_SWEEP_INTERVAL_MS = 60 * 60 * 1000;       // 1 hour
+  const WF1_MEASURE_INTERVAL_MS = 60 * 60 * 1000;     // 1 hour (staggered by 30 min)
+  const WF1_HEAP_LIMIT_BYTES = 750 * 1024 * 1024;     // 750 MB — skip if above
+  let wf1SweepRunning = false;
+  let wf1MeasureRunning = false;
 
-  // Every 30 min: sweep 48h-due posts for learning loop + hybrid fallbacks
-  const MEASURE_INTERVAL_MS = 30 * 60 * 1000;
-  setInterval(() => {
-    Promise.all([
-      wf1.learningLoop.sweepDuePosts({ limit: 25 }),
-      wf1.dailyRun.processHybridFallbacks(),
-    ])
-      .then(([m, h]) => {
+  function wf1HeapOk(tag) {
+    const used = process.memoryUsage().heapUsed;
+    if (used > WF1_HEAP_LIMIT_BYTES) {
+      logger.warn('/wf1/auto-run', null, `${tag}: skipped — heap ${Math.round(used / 1024 / 1024)}MB > 750MB limit`);
+      return false;
+    }
+    return true;
+  }
+
+  // ── Daily content sweep (hourly, checks each business's local 06:xx) ──
+  setInterval(async () => {
+    if (process.env.WF1_AUTO_RUN === 'false') return;
+    if (wf1SweepRunning) { logger.warn('/wf1/auto-run', null, 'sweep: skipped — previous still running'); return; }
+    if (!wf1HeapOk('sweep')) return;
+    wf1SweepRunning = true;
+    try {
+      const r = await wf1.dailyRun.runForAllBusinesses({ force: false });
+      if (r.processed > 0) logger.info('/wf1/auto-run', null, 'sweep completed', { processed: r.processed });
+    } catch (e) {
+      logger.error('/wf1/auto-run', null, 'sweep failed', { error: e.message });
+    } finally {
+      wf1SweepRunning = false;
+    }
+  }, WF1_SWEEP_INTERVAL_MS);
+
+  // ── Learning loop + hybrid fallbacks (hourly, staggered 30 min after sweep) ──
+  setTimeout(() => {
+    setInterval(async () => {
+      if (process.env.WF1_AUTO_RUN === 'false') return;
+      if (wf1MeasureRunning) { logger.warn('/wf1/auto-run', null, 'measure: skipped — previous still running'); return; }
+      if (!wf1HeapOk('measure')) return;
+      wf1MeasureRunning = true;
+      try {
+        const [m, h] = await Promise.all([
+          wf1.learningLoop.sweepDuePosts({ limit: 25 }),
+          wf1.dailyRun.processHybridFallbacks(),
+        ]);
         if (m.measured > 0 || h.processed > 0)
-          logger.info('/wf1/internal-cron', null, 'measure + fallback', { measured: m.measured, fallbacks: h.processed });
-      })
-      .catch(e => logger.error('/wf1/internal-cron', null, 'measure/fallback failed', e));
-  }, MEASURE_INTERVAL_MS);
+          logger.info('/wf1/auto-run', null, 'measure + fallback', { measured: m.measured, fallbacks: h.processed });
+      } catch (e) {
+        logger.error('/wf1/auto-run', null, 'measure/fallback failed', { error: e.message });
+      } finally {
+        wf1MeasureRunning = false;
+      }
+    }, WF1_MEASURE_INTERVAL_MS);
+  }, 30 * 60 * 1000); // stagger 30 min after startup
 
-  logger.info('/wf1/internal-cron', null, 'in-process cron enabled', {
-    daily_interval_ms: CRON_INTERVAL_MS,
-    measure_interval_ms: MEASURE_INTERVAL_MS,
+  logger.info('/wf1/auto-run', null, 'hourly auto-run enabled', {
+    sweep_interval_ms: WF1_SWEEP_INTERVAL_MS,
+    measure_interval_ms: WF1_MEASURE_INTERVAL_MS,
+    heap_limit_mb: 750,
+    kill_switch: 'WF1_AUTO_RUN=false',
   });
 }
 
