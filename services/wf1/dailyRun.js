@@ -119,7 +119,7 @@ function createDailyRun({ sbGet, sbPost, sbPatch, logger, engine, publisher, che
             status: 'pending',
             priority: Math.round(qs),
             sla_at: slaAt,
-          }).catch(() => {});
+          }).catch(e => logger?.warn('/wf1/dailyRun', businessId, 'approval insert failed', { error: e.message }));
         }
 
         results.push({
@@ -195,7 +195,7 @@ function createDailyRun({ sbGet, sbPost, sbPatch, logger, engine, publisher, che
             status: pub.ok ? 'approved' : 'rejected',
             decided_at: new Date().toISOString(),
             decision_reason: pub.ok ? 'SLA fallback auto-approved (quality ≥ 90)' : `Publish failed: ${pub.error}`,
-          }).catch(() => {});
+          }).catch(e => logger?.warn('/wf1/dailyRun', approval.business_id, 'approval status patch failed', { error: e.message }));
           results.push({ approvalId: approval.id, action: 'auto_published', ok: pub.ok });
         } catch (e) {
           results.push({ approvalId: approval.id, action: 'error', error: e.message });
@@ -206,7 +206,7 @@ function createDailyRun({ sbGet, sbPost, sbPatch, logger, engine, publisher, che
           status: 'expired',
           decided_at: new Date().toISOString(),
           decision_reason: `SLA expired, quality ${qs} below fallback threshold 90`,
-        }).catch(() => {});
+        }).catch(e => logger?.warn('/wf1/dailyRun', approval.business_id, 'approval expiry patch failed', { error: e.message }));
         results.push({ approvalId: approval.id, action: 'expired' });
       }
     }

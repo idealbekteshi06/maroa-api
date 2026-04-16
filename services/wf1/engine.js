@@ -236,7 +236,7 @@ function createEngine({
         status: 'rejected',
         rejection_reason: `Guardrails: ${guardResult.reasons.join('; ')}`,
         updated_at: new Date().toISOString(),
-      }).catch(() => {});
+      }).catch(e => logger?.warn('/wf1/engine', businessId, 'concept rejection patch failed', { error: e.message }));
       return { assetId: null, qualityScore: 0, blocked: true, reasons: guardResult.reasons };
     }
 
@@ -305,7 +305,7 @@ function createEngine({
       quality_score: qualityResult.score,
       quality_breakdown: qualityResult.breakdown,
       updated_at: new Date().toISOString(),
-    }).catch(() => {});
+    }).catch(e => logger?.warn('/wf1/engine', businessId, 'concept quality patch failed', { error: e.message }));
 
     // Log event
     await sbPost('events', {

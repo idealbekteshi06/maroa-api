@@ -8395,6 +8395,21 @@ async function paddleWebhookHandler(req, res) {
         const bizArr = await sbGet('businesses', `paddle_subscription_id=eq.${data.id}&select=id`);
         if (bizArr[0]) await sbPatch('businesses', `id=eq.${bizArr[0].id}`, { plan: 'free' });
       }
+    } else if (eventType === 'subscription.past_due' || eventType === 'transaction.payment_failed') {
+      // Payment failed — downgrade to free
+      const failBizId = data.custom_data?.business_id;
+      if (failBizId) {
+        await sbPatch('businesses', `id=eq.${failBizId}`, { plan: 'free', plan_price: 0 });
+        logger.warn('/paddle/webhook', failBizId, 'Payment failed — downgraded to free', { event_type: eventType });
+      } else if (data.subscription_id || data.id) {
+        // Fallback: find by subscription ID
+        const subId = data.subscription_id || data.id;
+        const bizArr = await sbGet('businesses', `paddle_subscription_id=eq.${subId}&select=id`);
+        if (bizArr[0]) {
+          await sbPatch('businesses', `id=eq.${bizArr[0].id}`, { plan: 'free', plan_price: 0 });
+          logger.warn('/paddle/webhook', bizArr[0].id, 'Payment failed — downgraded to free (by sub ID)', { event_type: eventType });
+        }
+      }
     } else if (eventType === 'transaction.completed') {
       const customData = data.custom_data || {};
       if (customData.business_id) {

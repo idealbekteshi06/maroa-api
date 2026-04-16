@@ -75,9 +75,11 @@ const planGate = (feature) => async (req, res, next) => {
     next();
 
   } catch (err) {
-    // Fail open — don't block users if Supabase is slow
-    console.error('[planGate] Error fetching plan:', err.message);
-    next();
+    // Fail closed — deny access to paid features if plan can't be verified
+    console.error('[planGate] Error fetching plan — denying access:', err.message);
+    return res.status(503).json({
+      error: { code: 'SERVICE_UNAVAILABLE', message: 'Unable to verify plan. Please try again.' }
+    });
   }
 };
 
