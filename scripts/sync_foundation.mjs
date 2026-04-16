@@ -48,7 +48,10 @@ const OUT_PROMPTS = resolve(REPO_ROOT, 'services', 'prompts');
 
 const FILES = [
   { src: 'foundation.ts', out: 'foundation.js' },
-  { src: 'workflow_1_daily_content.ts', out: 'workflow_1_daily_content.js' },
+  // workflow_1_daily_content.js is now maintained directly in the backend.
+  // It uses backend-only imports (premiumContextRenderer.js) that don't exist
+  // in the frontend repo. The TS source remains as the original reference.
+  // { src: 'workflow_1_daily_content.ts', out: 'workflow_1_daily_content.js' },
   { src: 'workflow_13_weekly_brief.ts', out: 'workflow_13_weekly_brief.js' },
   { src: 'workflow_15_ai_brain.ts', out: 'workflow_15_ai_brain.js' },
   { src: 'workflow_2_lead_scoring.ts', out: 'workflow_2_lead_scoring.js' },

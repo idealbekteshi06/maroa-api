@@ -329,7 +329,71 @@ function createEngine({
   }
 
   // ── Phase 4: quality score via Haiku ──────────────────────────────────
+
+  /**
+   * Pre-screening checks that run BEFORE the Haiku call.
+   * Fast-fail on obvious violations to save API cost and latency.
+   */
+  function preScreenAsset({ brandContext, concept, asset }) {
+    const flags = [];
+
+    // ── Banned word check ──
+    const bannedWords = [
+      ...(brandContext.brandVoice?.bannedWords || []),
+      ...(brandContext.bannedWords || []),
+    ].map(w => w.toLowerCase().trim()).filter(Boolean);
+
+    if (bannedWords.length) {
+      const textToScan = [
+        asset.caption || '',
+        asset.hook || '',
+        asset.cta || '',
+        ...(asset.hashtags || []),
+      ].join(' ').toLowerCase();
+
+      for (const word of bannedWords) {
+        if (textToScan.includes(word)) {
+          flags.push({ type: 'banned_word', severity: 'auto_fail', detail: `Banned word violation: "${word}"` });
+        }
+      }
+    }
+
+    // ── Platform-native check ──
+    const videoFormats = ['instagram_reel', 'tiktok', 'youtube_shorts'];
+    if (videoFormats.includes(concept.platform)) {
+      const hasMotionBrief = asset.visualBrief?.shots?.length > 1 || asset.burnedInCaptions;
+      if (!hasMotionBrief) {
+        flags.push({ type: 'platform_native', severity: 'warning', detail: `${concept.platform} expects video/motion brief but asset has no multi-shot or burned-in captions` });
+      }
+    }
+
+    return flags;
+  }
+
   async function scoreAsset({ businessId, brandContext, concept, asset }) {
+    // ── Pre-screening: fast-fail on banned words ──
+    const preFlags = preScreenAsset({ brandContext, concept, asset });
+    const autoFailFlags = preFlags.filter(f => f.severity === 'auto_fail');
+
+    if (autoFailFlags.length) {
+      logger?.info('/wf1/engine', businessId, 'asset auto-failed pre-screening', {
+        flags: autoFailFlags.map(f => f.detail),
+      });
+      return {
+        score: 0,
+        breakdown: { compliance: 0 },
+        verdict: 'fail',
+        notes: autoFailFlags.map(f => f.detail).join('; '),
+        preScreenFlags: preFlags,
+      };
+    }
+
+    // ── Build pre-screening context for Haiku ──
+    const warningFlags = preFlags.filter(f => f.severity === 'warning');
+    const preScreenContext = warningFlags.length
+      ? `\nPRE-SCREENING WARNINGS (factor these into your score):\n${warningFlags.map(f => `  ⚠ ${f.detail}`).join('\n')}\n`
+      : '';
+
     const prompt = `You are the quality gate for a senior-agency content pipeline.
 Score this generated asset against the 6 dimensions of the spec.
 
@@ -337,7 +401,7 @@ BRAND
   Name: ${brandContext.businessName}
   Industry: ${brandContext.industry}
   Tone: ${brandContext.brandVoice?.tone || 'unknown'}
-  Banned words: ${(brandContext.brandVoice?.bannedWords || []).join(', ') || 'none'}
+  Banned words: ${[...(brandContext.brandVoice?.bannedWords || []), ...(brandContext.bannedWords || [])].join(', ') || 'none'}
 
 CONCEPT
   Platform: ${concept.platform}
@@ -353,7 +417,7 @@ ASSET
   Hashtags: ${(asset.hashtags || []).join(' ')}
   CTA: ${asset.cta || ''}
   Visual brief: ${JSON.stringify(asset.visualBrief || {}).slice(0, 400)}
-
+${preScreenContext}
 SCORING RUBRIC (total 100)
   brand_voice_match     (0-20)
   hook_strength         (0-20)
@@ -363,10 +427,11 @@ SCORING RUBRIC (total 100)
   compliance            (0-10)
 
 Compliance rules (auto-fail if any violated):
-  - No banned words
+  - No banned words (check against the banned words list above)
   - No copyright claims ("best", "#1", "award-winning") without proof
   - No medical/financial claims
   - Caption length appropriate for platform
+  - For video platforms (reels/tiktok/shorts): visual brief must include multi-shot motion description
 
 If any compliance rule fails, set total_score to max(0, score - 30).
 
@@ -398,6 +463,7 @@ Return ONLY valid JSON:
         breakdown: parsed.breakdown || {},
         verdict: parsed.verdict || (score >= 80 ? 'pass' : 'fail'),
         notes: parsed.notes || '',
+        preScreenFlags: preFlags,
       };
     } catch (e) {
       logger?.warn('/wf1/engine', businessId, 'quality score failed, defaulting to 70', { error: e.message });
