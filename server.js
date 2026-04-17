@@ -8374,7 +8374,16 @@ app.get('/webhook/dashboard-events', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const allowedOrigins = [
+    'https://maroa.ai',
+    'https://www.maroa.ai',
+    'https://maroa-ai-marketing-automator.lovable.app',
+    process.env.NODE_ENV !== 'production' && 'http://localhost:5173'
+  ].filter(Boolean);
+  const reqOrigin = req.headers.origin;
+  if (allowedOrigins.includes(reqOrigin)) {
+    res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+  }
   res.write(`data: ${JSON.stringify({ type: 'connected', business_id })}\n\n`);
   sseClients.set(business_id, res);
   const heartbeat = setInterval(() => { if (!res.writableEnded) res.write(`data: ${JSON.stringify({ type: 'heartbeat' })}\n\n`); }, 30000);
@@ -9817,10 +9826,12 @@ function contextSelectedPlatforms(biz) {
 }
 
 async function resolveContextEntities(paramId) {
+  // Explicit column allowlist — must NOT include *_access_token / *_refresh_token.
+  const bizCols = 'id,user_id,business_name,business_type,city,country,primary_language,target_audience,competitors,industry,onboarding_data,is_active,created_at,email,first_name';
   let biz = null;
   try {
-    let r = await sbGet('businesses', `id=eq.${paramId}&select=*`);
-    if (!r.length) r = await sbGet('businesses', `user_id=eq.${paramId}&select=*`);
+    let r = await sbGet('businesses', `id=eq.${paramId}&select=${bizCols}`);
+    if (!r.length) r = await sbGet('businesses', `user_id=eq.${paramId}&select=${bizCols}`);
     biz = r[0] || null;
   } catch {}
   let profile = null;
@@ -10117,7 +10128,16 @@ app.post('/webhook/ai-chat', async (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const allowedOrigins = [
+      'https://maroa.ai',
+      'https://www.maroa.ai',
+      'https://maroa-ai-marketing-automator.lovable.app',
+      process.env.NODE_ENV !== 'production' && 'http://localhost:5173'
+    ].filter(Boolean);
+    const reqOrigin = req.headers.origin;
+    if (allowedOrigins.includes(reqOrigin)) {
+      res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+    }
     res.flushHeaders();
 
     const bodyStr = JSON.stringify({
