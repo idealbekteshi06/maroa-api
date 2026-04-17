@@ -3,6 +3,10 @@
 // The AI does everything forever and gets smarter every week.
 
 'use strict';
+const Sentry = require('@sentry/node');
+if (process.env.SENTRY_DSN) {
+  Sentry.init({ dsn: process.env.SENTRY_DSN, environment: process.env.NODE_ENV || 'production' });
+}
 const express  = require('express');
 const cors     = require('cors');
 const expressRateLimit = require('express-rate-limit');
@@ -10507,10 +10511,12 @@ function gracefulShutdown(signal) {
 
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('/process', null, 'Unhandled Promise Rejection — NOT crashing server', { reason: String(reason) });
+  if (process.env.SENTRY_DSN) Sentry.captureException(reason instanceof Error ? reason : new Error(String(reason)));
 });
 
 process.on('uncaughtException', (err) => {
   logger.error('/process', null, 'Uncaught Exception — shutting down gracefully', { error: err.message, stack: err.stack });
+  if (process.env.SENTRY_DSN) Sentry.captureException(err);
   setTimeout(() => process.exit(1), 2000);
 });
 
