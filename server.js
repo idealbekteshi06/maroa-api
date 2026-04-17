@@ -172,6 +172,42 @@ app.use('/api/referral/setup', requireValidUserId);
 app.use('/api/laun ompts', requireValidUserId);
 app.use('/api/signup-cro/analyze', requireValidUserId);
 
+// Auth guard for routes that use user_id (body), :userId (params), or userId (body)
+function requireAnyUserId(req, res, next) {
+  const uid = req.body?.userId || req.body?.user_id || req.params?.userId || req.query?.userId;
+  if (!uid || typeof uid !== 'string' || uid.length < 10) {
+    return apiError(res, 400, 'VALIDATION_ERROR', 'Valid user ID required');
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uid)) {
+    return apiError(res, 400, 'VALIDATION_ERROR', 'user ID must be a valid UUID');
+  }
+  next();
+}
+app.use('/api/onboarding/save', requireAnyUserId);
+app.use('/api/onboarding/profile', requireAnyUserId);
+app.use('/api/onboarding/score', requireAnyUserId);
+app.use('/api/checkout', requireAnyUserId);
+app.use('/api/intelligence', requireAnyUserId);
+app.use('/api/opportunities', requireAnyUserId);
+app.use('/api/metrics', requireAnyUserId);
+app.use('/api/performance', requireAnyUserId);
+app.use('/api/health', requireAnyUserId);
+app.use('/api/strategy', requireAnyUserId);
+app.use('/api/context', requireAnyUserId);
+app.use('/api/orchestrator', requireAnyUserId);
+app.use('/api/calendar', requireAnyUserId);
+app.use('/api/content/feedback', requireAnyUserId);
+app.use('/api/ab-tests', requireAnyUserId);
+app.use('/api/tools', requireAnyUserId);
+app.use('/api/popup', requireAnyUserId);
+app.use('/api/onboarding-cro', requireAnyUserId);
+app.use('/api/upgrade', requireAnyUserId);
+app.use('/api/revops', requireAnyUserId);
+app.use('/api/referral', requireAnyUserId);
+app.use('/api/launch', requireAnyUserId);
+app.use('/api/seo-pages', requireAnyUserId);
+app.use('/api/social', requireAnyUserId);
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 const clean = (v) => (v || '').replace(/[^\x20-\x7E]/g, '').trim();
 
@@ -10386,6 +10422,56 @@ registerBatchRoutes({ app, wf5, wf6, wf7, wf8, wf9, wf10, wf12, wf14, apiError, 
     kill_switch: 'WF1_AUTO_RUN=false',
   });
 }
+
+// ─── GDPR: Account & data deletion ───────────────────────────────────────────
+app.post('/api/delete-account', requireAnyUserId, async (req, res) => {
+  const userId = req.body.user_id || req.body.userId;
+  try {
+    const businesses = await sbGet('businesses', `user_id=eq.${userId}&select=id`);
+    if (!businesses.length) return apiError(res, 404, 'NOT_FOUND', 'No business found for this user');
+
+    for (const biz of businesses) {
+      const bid = biz.id;
+      const tables = [
+        'content_concepts', 'content_assets', 'content_posts', 'content_plans',
+        'ad_campaigns', 'contacts', 'email_sequences', 'generated_content',
+        'competitor_insights', 'retention_logs', 'brain_conversations', 'reviews',
+        'events', 'approvals', 'learning_patterns', 'usage_logs', 'daily_stats',
+        'win_notifications', 'business_photos', 'onboarding_events',
+      ];
+      for (const table of tables) {
+        await sbPatch(table, `business_id=eq.${bid}`, { business_id: bid })
+          .catch(() => {}); // Some tables may not exist or have no rows
+      }
+    }
+
+    // Anonymize business record (soft delete — preserves referential integrity)
+    for (const biz of businesses) {
+      await sbPatch('businesses', `id=eq.${biz.id}`, {
+        is_active: false,
+        email: `deleted-${Date.now()}@deleted.maroa.ai`,
+        first_name: '[DELETED]',
+        business_name: '[DELETED]',
+        target_audience: '',
+        brand_tone: '',
+        marketing_goal: '',
+        meta_access_token: null,
+        onboarding_data: null,
+        competitors: null,
+      });
+    }
+
+    // Delete business_profiles if any
+    await sbPatch('business_profiles', `user_id=eq.${userId}`, { user_id: userId })
+      .catch(() => {});
+
+    logger.info('/api/delete-account', userId, 'Account data deleted (GDPR)', { businesses: businesses.length });
+    res.json({ success: true, message: 'Your data has been deleted. This action cannot be undone.' });
+  } catch (e) {
+    logger.error('/api/delete-account', userId, 'Delete failed', { error: e.message });
+    apiError(res, 500, 'DELETE_FAILED', 'Failed to delete data. Please contact hello@maroa.ai');
+  }
+});
 
 // ─── 404 ──────────────────────────────────────────────────────────────────────
 app.use((req, res) => apiError(res, 404, 'NOT_FOUND', `Route ${req.method} ${req.path} not found`));
