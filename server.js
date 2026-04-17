@@ -16,6 +16,7 @@ const crypto   = require('crypto');
 const { randomUUID: uuidv4 } = require('crypto');
 const { validate } = require('./lib/validators');
 const { checkRateLimit } = require('./lib/rateLimit');
+const { zodValidate, businessIdBody } = require('./lib/schemas');
 const planGate = require('./middleware/planGate');
 const { checkPlanLimit } = require('./middleware/planLimits');
 const paddle = require('./services/paddle');
@@ -73,9 +74,11 @@ const corsOptions = {
   origin: [
     'https://maroa-ai-marketing-automator.lovable.app',
     'https://maroa.ai',
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:5173'
+    ...(process.env.NODE_ENV !== 'production' ? [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://localhost:5173'
+    ] : []),
   ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'apikey', 'x-orchestrator-secret', 'x-webhook-secret', 'paddle-signature'],
@@ -160,6 +163,18 @@ app.use('/api/community', aiRateLimit);
 app.use('/api/pricing', aiRateLimit);
 app.use('/api/schema', aiRateLimit);
 app.use('/api/ai-seo', aiRateLimit);
+
+// Expensive AI webhooks — per-business/user throttle to protect API credit.
+app.use('/webhook/content-generate', aiRateLimit);
+app.use('/webhook/video-script-generate', aiRateLimit);
+app.use('/webhook/video-generate-runway', aiRateLimit);
+app.use('/webhook/master-agent', aiRateLimit);
+app.use('/webhook/ai-brain-run', aiRateLimit);
+
+// Body-shape validation for critical webhooks.
+app.use('/webhook/instant-content', zodValidate(businessIdBody));
+app.use('/webhook/content-approved', zodValidate(businessIdBody));
+app.use('/webhook/competitor-check', zodValidate(businessIdBody));
 app.use('/api/ideas/generate', requireValidUserId);
 app.use('/api/lead-magnets/generate', requireValidUserId);
 app.use('/api/research/analyze', requireValidUserId);
