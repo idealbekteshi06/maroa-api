@@ -67,8 +67,7 @@ const app = express();
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 const corsOptions = {
   origin: [
-    'https://maroa-ai-marketing-automator.vercel.app',
-    'https://maroa-frontend.vercel.app',
+    'https://maroa-ai-marketing-automator.lovable.app',
     'https://maroa.ai',
     'http://localhost:3000',
     'http://localhost:3001',
@@ -1680,7 +1679,7 @@ app.post('/webhook/new-user-signup', async (req, res) => {
 </div>
 <p style="color:#555;font-size:16px;line-height:1.6">Your business <strong>${business_name}</strong> is all set up. Head to your dashboard to see your AI marketing engine in action.</p>
 <div style="text-align:center;margin:30px 0">
-  <a href="https://maroa-frontend.vercel.app/dashboard" style="background:#0A84FF;color:white;padding:14px 32px;border-radius:12px;text-decoration:none;font-weight:bold;font-size:16px">Open Dashboard</a>
+  <a href="https://maroa.ai/dashboard" style="background:#0A84FF;color:white;padding:14px 32px;border-radius:12px;text-decoration:none;font-weight:bold;font-size:16px">Open Dashboard</a>
 </div>
 </body></html>`;
         await sendEmail(email, `Welcome ${firstName}! Your AI marketing is live`, html);
@@ -2014,7 +2013,7 @@ app.post('/webhook/instant-content', async (req, res) => {
 <p>Theme: <strong>${result.content_theme || 'Weekly Content'}</strong></p>
 <p>Quality Score: <strong>${result.quality_score}/100</strong></p>
 <p>All platforms ready: Instagram, Facebook, LinkedIn, TikTok, Google Ads, Email</p>
-<p><a href="https://maroa-ai-marketing-automator.vercel.app" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Approve Content</a></p>`;
+<p><a href="https://maroa.ai" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Approve Content</a></p>`;
         await sendEmail(email, `Your ${result.content_theme || 'weekly'} content is ready!`, html);
       }
       try { storeInsight(business_id, 'content', 'content_performance', 'top_content_type', `${result.content_theme || 'general'}: ${(result.instagram_caption || '').slice(0, 80)}`); } catch {}
@@ -2161,7 +2160,7 @@ app.post('/webhook/account-connected', async (req, res) => {
     if (biz?.email) {
       const html = `<h2>Platforms Connected!</h2><p>You've successfully connected: <strong>${connected.join(', ')}</strong></p>
 <p>Your AI will now post automatically and track performance across all platforms.</p>
-<p><a href="https://maroa-ai-marketing-automator.vercel.app" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Go to Dashboard</a></p>`;
+<p><a href="https://maroa.ai" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Go to Dashboard</a></p>`;
       await sendEmail(biz.email, `${connected.length} platform${connected.length > 1 ? 's' : ''} connected to maroa.ai!`, html);
     }
 
@@ -2244,7 +2243,7 @@ app.post('/webhook/create-campaigns', async (req, res) => {
 <p>We've created 3 optimized Meta ad campaigns for <strong>${biz.business_name}</strong>:</p>
 <ul><li>Awareness Campaign (40% budget)</li><li>Engagement Campaign (25% budget)</li><li>Retargeting Campaign (35% budget)</li></ul>
 <p>All campaigns are set to PAUSED — activate them when ready in your dashboard.</p>
-<p><a href="https://maroa-ai-marketing-automator.vercel.app" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Manage Campaigns</a></p>`;
+<p><a href="https://maroa.ai" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Manage Campaigns</a></p>`;
       await sendEmail(biz.email, `Your ad campaigns are ready, ${biz.first_name || biz.business_name}!`, html);
     }
 
@@ -2615,7 +2614,7 @@ app.post('/meta-oauth-exchange', async (req, res) => {
 
   const APP_ID     = clean(process.env.META_APP_ID)     || '26551713411132003';
   const APP_SECRET = clean(process.env.META_APP_SECRET) || '';
-  const REDIRECT   = redirect_uri || 'https://maroa-ai-marketing-automator.vercel.app/social-callback';
+  const REDIRECT   = redirect_uri || 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
 
   // Guard: fail immediately if secret is missing — saves a confusing Facebook error
   if (!APP_SECRET) {
@@ -2795,7 +2794,7 @@ app.post('/api/checkout', async (req, res) => {
       businessId: user_id,
       plan,
       customerEmail: biz.email,
-      successUrl: success_url || 'https://maroa-ai-marketing-automator.vercel.app/dashboard?upgraded=true',
+      successUrl: success_url || 'https://maroa.ai/dashboard?upgraded=true',
     });
     log('/api/checkout', `Paddle checkout for ${biz.email} → ${plan}`);
     res.json({ success: true, checkout_url: result.checkout_url, transaction_id: result.transaction_id });
@@ -2902,7 +2901,7 @@ app.post('/webhook/org-invite-member', planGate('multi_workspace'), async (req, 
     });
     const html = `<h2>You've been invited to ${org?.name || 'a maroa.ai workspace'}</h2>
 <p>You've been added as a <strong>${role}</strong>. Click below to accept:</p>
-<p><a href="https://maroa-ai-marketing-automator.vercel.app/accept-invite?org=${org_id}&email=${encodeURIComponent(email)}"
+<p><a href="https://maroa.ai/accept-invite?org=${org_id}&email=${encodeURIComponent(email)}"
    style="background:#667eea;color:white;padding:12px 24px;border-radius:6px;text-decoration:none">
    Accept Invitation
 </a></p>`;
@@ -2941,7 +2940,7 @@ app.post('/webhook/org-white-label-update', planGate('white_label'), async (req,
 
 const LINKEDIN_CLIENT_ID     = (process.env.LINKEDIN_CLIENT_ID     || '').replace(/[^\x20-\x7E]/g,'').trim();
 const LINKEDIN_CLIENT_SECRET = (process.env.LINKEDIN_CLIENT_SECRET || '').replace(/[^\x20-\x7E]/g,'').trim();
-const LINKEDIN_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.vercel.app/social-callback';
+const LINKEDIN_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
 
 // GET /linkedin-oauth-start — redirect user to LinkedIn consent screen
 app.get('/linkedin-oauth-start', (req, res) => {
@@ -3148,7 +3147,7 @@ Return only valid JSON: {"post_text":"...","content_theme":"..."}`;
 
 const TWITTER_CLIENT_ID     = (process.env.TWITTER_CLIENT_ID     || '').replace(/[^\x20-\x7E]/g,'').trim();
 const TWITTER_CLIENT_SECRET = (process.env.TWITTER_CLIENT_SECRET || '').replace(/[^\x20-\x7E]/g,'').trim();
-const TWITTER_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.vercel.app/social-callback';
+const TWITTER_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
 
 // GET /twitter-oauth-start — redirect user to Twitter consent screen (PKCE)
 app.get('/twitter-oauth-start', async (req, res) => {
@@ -3335,7 +3334,7 @@ Return only valid JSON: {"tweet":"...","content_theme":"..."}`;
 
 const TIKTOK_CLIENT_KEY    = (process.env.TIKTOK_CLIENT_KEY    || '').replace(/[^\x20-\x7E]/g,'').trim();
 const TIKTOK_CLIENT_SECRET = (process.env.TIKTOK_CLIENT_SECRET || '').replace(/[^\x20-\x7E]/g,'').trim();
-const TIKTOK_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.vercel.app/social-callback';
+const TIKTOK_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
 
 // GET /tiktok-oauth-start — redirect user to TikTok consent screen (PKCE)
 app.get('/tiktok-oauth-start', async (req, res) => {
@@ -3804,7 +3803,7 @@ Return exactly this JSON structure:
     Posts: ${totals.posts_published} &nbsp;·&nbsp;
     Active Campaigns: ${activeCampaigns}
   </p>
-  <a href="https://maroa-ai-marketing-automator.vercel.app/analytics"
+  <a href="https://maroa.ai/analytics"
      style="display:inline-block;background:#667eea;color:white;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:8px">
     View Full Analytics →
   </a>
@@ -4176,7 +4175,7 @@ Return ONLY valid JSON: { "objective": "OUTCOME_TRAFFIC", "daily_budget_usd": ${
 
           if (biz.email) {
             await sendEmail(biz.email, `Your ad campaign strategy is ready — ${biz.business_name}`,
-              `<h2>Your AI Ad Campaign is Ready (Draft)</h2><p>Your AI built a complete ad strategy with ${creatives.length} creative variations.</p><p><strong>To launch:</strong> Connect your Meta Ads account in Settings.</p><p><a href="https://maroa-ai-marketing-automator.vercel.app/settings" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Connect Meta Ads →</a></p>`
+              `<h2>Your AI Ad Campaign is Ready (Draft)</h2><p>Your AI built a complete ad strategy with ${creatives.length} creative variations.</p><p><strong>To launch:</strong> Connect your Meta Ads account in Settings.</p><p><a href="https://maroa.ai/settings" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Connect Meta Ads →</a></p>`
             ).catch(() => {});
           }
           log('/webhook/meta-campaign-create', `✅ Draft campaign saved for ${biz.business_name}`);
@@ -5252,7 +5251,7 @@ Return ONLY valid JSON:
         const html = `<h2>🔥 Ready-to-Buy Lead Detected!</h2>
 <p><strong>${contact.first_name || ''} ${contact.last_name || ''}</strong> (${contact.email}) scored <strong>${aiScore}/100</strong> and is ready to buy.</p>
 <p><strong>Recommended action:</strong> ${recommendedAction}</p>
-<p><a href="https://maroa-ai-marketing-automator.vercel.app/crm" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View in CRM</a></p>`;
+<p><a href="https://maroa.ai/crm" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View in CRM</a></p>`;
         sendEmail(biz.email, `🔥 ${contact.first_name || 'Lead'} is ready to buy — ${biz.business_name}`, html).catch(() => {});
       }
     }
@@ -5600,7 +5599,7 @@ Return ONLY valid JSON:
 <p><strong>Title:</strong> ${content.title || keyword}</p>
 <p><strong>Word count:</strong> ${content.word_count || 0} words</p>
 <p><strong>SEO score:</strong> ${content.seo_score || 0}/100</p>
-<p><a href="https://maroa-ai-marketing-automator.vercel.app/content" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Approve</a></p>`;
+<p><a href="https://maroa.ai/content" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Approve</a></p>`;
         await sendEmail(biz.email, `New ${typeLabel} ready: ${content.title || keyword}`, html).catch(() => {});
       }
 
@@ -6044,7 +6043,7 @@ Return ONLY valid JSON:
 <p><strong>Hook:</strong> "${(script.scenes || [])[0]?.text || ''}"</p>
 <p><strong>Caption:</strong> ${script.caption || ''}</p>
 ${thumbnail_url ? `<img src="${thumbnail_url}" style="max-width:300px;border-radius:8px"><br>` : ''}
-<p><a href="https://maroa-ai-marketing-automator.vercel.app/video" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View & Film</a></p>`;
+<p><a href="https://maroa.ai/video" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View & Film</a></p>`;
         await sendEmail(biz.email, `Your ${platformLabel} script is ready: "${script.thumbnail_text || useTopic}"`, html).catch(() => {});
       }
 
@@ -6473,7 +6472,7 @@ Return ONLY valid JSON: { "response_text": "..." }`;
 <p><strong>Reviewer:</strong> ${review.reviewer_name || 'Anonymous'} — ${stars}⭐</p>
 <p><strong>Review:</strong> "${review.review_text || ''}"</p>
 <p><strong>Draft Response:</strong></p><blockquote>${response_text}</blockquote>
-<p><a href="https://maroa-ai-marketing-automator.vercel.app/reviews" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Publish</a></p>`;
+<p><a href="https://maroa.ai/reviews" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Publish</a></p>`;
       await sendEmail(biz.email, `Review response draft ready — ${stars}⭐ from ${review.reviewer_name || 'customer'}`, html).catch(() => {});
     }
 
@@ -6981,7 +6980,7 @@ Based on ALL data, return ONLY valid JSON with your decisions:
 <li>Active campaigns: ${activeCampaigns.length} | Avg ROAS: ${avgRoas}</li>
 <li>Hot leads: ${hotLeads}</li></ul>
 <p><strong>Strategy:</strong> ${decisions.content_strategy || ''}</p>
-<p><a href="https://maroa-ai-marketing-automator.vercel.app/dashboard" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View Dashboard</a></p>`;
+<p><a href="https://maroa.ai/dashboard" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View Dashboard</a></p>`;
         await sendEmail(biz.email, `📈 ${biz.business_name} — AI Agent Win Alert`, html).catch(() => {});
         actions_taken.push('sent_win_alert');
       }
@@ -6989,7 +6988,7 @@ Based on ALL data, return ONLY valid JSON with your decisions:
       // 4e. Send hot lead alert
       if (acts.send_lead_alert && hotLeads > 0 && biz.email) {
         const html = `<h2>🔥 Hot Lead Alert</h2><p>You have ${hotLeads} leads ready to buy. Check your CRM now!</p>
-<p><a href="https://maroa-ai-marketing-automator.vercel.app/crm" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View Leads</a></p>`;
+<p><a href="https://maroa.ai/crm" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View Leads</a></p>`;
         await sendEmail(biz.email, `🔥 ${hotLeads} hot leads detected — ${biz.business_name}`, html).catch(() => {});
         actions_taken.push('sent_lead_alert');
       }
@@ -7131,7 +7130,7 @@ Return ONLY valid JSON:
         const html = `<h2>⚡ Competitor Alert — ${biz.business_name}</h2>
 <p>${result.summary || 'Significant competitor changes detected.'}</p>
 <ul>${changesList}</ul>
-<p><a href="https://maroa-ai-marketing-automator.vercel.app/competitors" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View Full Report</a></p>`;
+<p><a href="https://maroa.ai/competitors" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View Full Report</a></p>`;
         await sendEmail(biz.email, `⚡ Competitor change detected — ${biz.business_name}`, html);
         log('/webhook/competitor-alert-check', `⚡ Alert sent for ${biz.business_name}: ${result.summary}`);
       } else {
@@ -7911,7 +7910,7 @@ Return ONLY valid JSON:
 <p><strong>Immediate action:</strong> ${response.immediate_action || ''}</p>
 <h3>Recovery Plan:</h3>
 <ul>${(response.recovery_plan || []).map(s => `<li><strong>${s.timeframe}:</strong> ${s.action}</li>`).join('')}</ul>
-<p><a href="https://maroa-ai-marketing-automator.vercel.app/dashboard" style="background:#e53e3e;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View Dashboard</a></p>`;
+<p><a href="https://maroa.ai/dashboard" style="background:#e53e3e;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">View Dashboard</a></p>`;
         await sendEmail(biz.email, `⚠️ CRISIS: ${response.crisis_level} — ${biz.business_name}`, html).catch(() => {});
       }
 
@@ -8054,7 +8053,7 @@ app.post('/webhook/auto-approve-content', async (req, res) => {
           if (biz.email) {
             await sendEmail(biz.email,
               `Content needs your review — ${piece.content_theme || 'new post'}`,
-              `<h2>Quick Review Needed</h2><p>AI scored this <strong>${score}/10</strong>:</p><blockquote>${caption.slice(0, 300)}</blockquote><p><a href="https://maroa-ai-marketing-automator.vercel.app/content" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Approve</a></p>`
+              `<h2>Quick Review Needed</h2><p>AI scored this <strong>${score}/10</strong>:</p><blockquote>${caption.slice(0, 300)}</blockquote><p><a href="https://maroa.ai/content" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Approve</a></p>`
             ).catch(() => {});
           }
           sent_for_review++;
@@ -8569,7 +8568,7 @@ app.post('/webhook/referral-create', async (req, res) => {
     // Unique code per referral to avoid duplicate key errors
     const refCode = bizCode + '-' + crypto.randomBytes(3).toString('hex');
     const ref = await sbPost('referrals', { referrer_business_id: business_id, referee_email, referral_code: refCode, status: 'pending' });
-    const signupUrl = `https://maroa-ai-marketing-automator.vercel.app/signup?ref=${refCode}`;
+    const signupUrl = `https://maroa.ai/signup?ref=${refCode}`;
     await sendEmail(referee_email, `${biz.business_name} thinks maroa.ai could help you`,
       `<h2>You've been referred!</h2><p>${biz.business_name} thinks AI marketing could help your business.</p><p>Get <strong>30 days free</strong> when you sign up:</p><p><a href="${signupUrl}" style="background:#667eea;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">Start Free →</a></p>`
     ).catch(() => {});
@@ -9464,7 +9463,7 @@ app.post('/api/orchestrator/run/:userId', async (req, res) => {
 <div style="background:#f8fafc;border-radius:12px;padding:16px;margin:12px 0">${taskList || 'No tasks needed today — everything is on track.'}</div>
 ${plan.top_insight ? `<p><strong>💡 Top insight:</strong> ${plan.top_insight}</p>` : ''}
 ${plan.tomorrow_plan ? `<p><strong>📅 Tomorrow's plan:</strong> ${plan.tomorrow_plan}</p>` : ''}
-<p style="margin-top:20px"><a href="https://maroa-ai-marketing-automator.vercel.app/dashboard" style="background:#667eea;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600">View Dashboard →</a></p>
+<p style="margin-top:20px"><a href="https://maroa.ai/dashboard" style="background:#667eea;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600">View Dashboard →</a></p>
 <p style="color:#94a3b8;font-size:12px;margin-top:24px">This is your automated daily AI marketing report from maroa.ai</p></div>`;
           await sendEmail(biz.email, `Your AI did this overnight — ${biz.business_name}`, html);
         }
