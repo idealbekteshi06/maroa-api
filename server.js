@@ -126,6 +126,7 @@ function requireN8nWebhookSecret(req, res, next) {
   if (pathOnly === '/webhook/paddle-webhook') return next();
   if (pathOnly === '/webhook/email-approve') return next();
   if (pathOnly === '/webhook/dashboard-events') return next();
+  if (pathOnly === '/webhook/data-deletion-request') return next();
   if (req.method === 'OPTIONS') return next();
   if (!N8N_WEBHOOK_SECRET) {
     return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'N8N_WEBHOOK_SECRET not configured');
@@ -10524,6 +10525,46 @@ registerWf3Routes({ app, wf3, apiError, logger });
 
 // ─── Workflows #5, #6, #7, #8, #9/11, #10, #12, #14 — batch routes ─────────
 registerBatchRoutes({ app, wf5, wf6, wf7, wf8, wf9, wf10, wf12, wf14, apiError, logger });
+
+// ─── Data Deletion Request (public, no auth) ────────────────────────────────
+app.post('/webhook/data-deletion-request', async (req, res) => {
+  try {
+    const { name, email, meta_account, reason, requested_at } = req.body || {};
+    if (!name || !email) return apiError(res, 400, 'INVALID_REQUEST', 'name and email required');
+
+    // Log to Supabase
+    await sbPost('data_deletion_requests', {
+      name, email, meta_account: meta_account || null,
+      reason: reason || null, requested_at: requested_at || new Date().toISOString(),
+      status: 'pending',
+    }).catch(() => {});
+
+    // Send email to info@maroa.ai via Resend
+    if (RESEND_API_KEY) {
+      const fromHdr = FROM_EMAIL.includes('<') ? FROM_EMAIL : `maroa.ai <${FROM_EMAIL}>`;
+      await apiRequest('POST', 'https://api.resend.com/emails',
+        { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        {
+          from: fromHdr,
+          to: ['info@maroa.ai'],
+          subject: `Data Deletion Request from ${name}`,
+          html: `<h2>New Data Deletion Request</h2>
+            <p><strong>Name:</strong> ${name}</p>
+            <p><strong>Email:</strong> ${email}</p>
+            <p><strong>Meta Account:</strong> ${meta_account || 'Not provided'}</p>
+            <p><strong>Reason:</strong> ${reason || 'Not provided'}</p>
+            <p><strong>Requested at:</strong> ${requested_at || new Date().toISOString()}</p>
+            <p><em>Process within 30 days per Meta Platform Terms.</em></p>`
+        }
+      ).catch(e => logger?.error('data-deletion email failed', e));
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    logger?.error('data-deletion-request', err);
+    apiError(res, 500, 'DELETION_REQUEST_FAILED', err.message);
+  }
+});
 
 // ─── WF1 safe hourly auto-run (6 safety guards) ─────────────────────────────
 {
