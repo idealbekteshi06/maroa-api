@@ -17,8 +17,17 @@ const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
     })
   : null;
 
-if (!supabaseAdmin) {
-  console.warn('[auth] supabaseAdmin NOT initialized — JWT verification disabled');
+if (supabaseAdmin) {
+  console.log('[auth] supabaseAdmin initialized OK — JWT verification enabled');
+} else {
+  console.warn('[auth] supabaseAdmin NOT initialized — JWT verification disabled', {
+    hasUrl: !!SUPABASE_URL,
+    urlLen: SUPABASE_URL.length,
+    hasKey: !!SUPABASE_SERVICE_ROLE_KEY,
+    keyLen: SUPABASE_SERVICE_ROLE_KEY.length,
+    envKeyRaw: (process.env.SUPABASE_KEY || '').length,
+    envServiceRaw: (process.env.SUPABASE_SERVICE_ROLE_KEY || '').length,
+  });
 }
 
 const OPEN_PATHS = new Set([
