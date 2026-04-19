@@ -5,7 +5,7 @@
 
 const { createClient } = require('@supabase/supabase-js');
 
-const clean = (v) => (typeof v === 'string' ? v.replace(/[\r\n\t\0]/g, '').trim() : '');
+const clean = (v) => (v || '').replace(/[^\x20-\x7E]/g, '').trim();
 
 const SUPABASE_URL = clean(process.env.SUPABASE_URL);
 const SUPABASE_SERVICE_ROLE_KEY = clean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY);
