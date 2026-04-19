@@ -10639,32 +10639,90 @@ app.post('/api/delete-account', requireAnyUserId, async (req, res) => {
 });
 
 // ─── Meta Data Deletion Request (GDPR / Platform Terms) ─────────────────────
-app.post('/webhook/data-deletion-request', async (req, res) => {
+const deletionRequestLimiter = expressRateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  message: { error: 'Too many deletion requests. Please try again later or email info@maroa.ai directly.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.post('/webhook/data-deletion-request', deletionRequestLimiter, async (req, res) => {
   try {
     const { name, email, meta_account, reason, requested_at } = req.body || {};
-    if (!email) return apiError(res, 400, 'VALIDATION_ERROR', 'email is required');
 
-    await sbPost('data_deletion_requests', {
-      name: name || '',
-      email,
-      meta_account: meta_account || null,
-      reason: reason || null,
-      requested_at: requested_at || new Date().toISOString(),
-      status: 'pending',
-    }).catch(() => {});
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      return apiError(res, 400, 'VALIDATION_ERROR', 'Name is required');
+    }
+    if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return apiError(res, 400, 'VALIDATION_ERROR', 'Valid email is required');
+    }
+    if (name.length > 200 || email.length > 320) {
+      return apiError(res, 400, 'VALIDATION_ERROR', 'Input too long');
+    }
+    if (reason && reason.length > 2000) {
+      return apiError(res, 400, 'VALIDATION_ERROR', 'Reason too long');
+    }
 
-    await sendEmail('info@maroa.ai', `Data Deletion Request from ${name || email}`, `
-      <h2>New Data Deletion Request</h2>
-      <p><strong>Name:</strong> ${name || 'Not provided'}</p>
-      <p><strong>Email:</strong> ${email}</p>
-      <p><strong>Meta Account:</strong> ${meta_account || 'Not provided'}</p>
-      <p><strong>Reason:</strong> ${reason || 'Not provided'}</p>
-      <p><strong>Requested at:</strong> ${requested_at || new Date().toISOString()}</p>
-      <p><em>Process within 30 days per Meta Platform Terms.</em></p>
-    `).catch(e => logger.warn('/webhook/data-deletion-request', null, 'email failed', { error: e.message }));
+    const sanitize = (s) => (s || '').toString().replace(/[<>]/g, '').trim().slice(0, 2000);
+    const cleanName = sanitize(name);
+    const cleanEmail = sanitize(email).toLowerCase();
+    const cleanMetaAccount = sanitize(meta_account);
+    const cleanReason = sanitize(reason);
+    const ipAddress = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip || 'unknown';
+    const userAgent = (req.headers['user-agent'] || 'unknown').toString().slice(0, 500);
+    const ts = requested_at || new Date().toISOString();
 
-    logger.info('/webhook/data-deletion-request', null, 'Deletion request received', { email });
-    res.json({ success: true, message: 'Your request has been received. We will process it within 30 days.' });
+    // 1. Log to Supabase
+    let requestId = 'unknown';
+    try {
+      const row = await sbPost('data_deletion_requests', {
+        name: cleanName, email: cleanEmail, meta_account: cleanMetaAccount || null,
+        reason: cleanReason || null, requested_at: ts, status: 'pending',
+        ip_address: ipAddress, user_agent: userAgent,
+      });
+      requestId = row?.id || requestId;
+    } catch (e) {
+      logger.warn('/webhook/data-deletion-request', null, 'DB insert failed', { error: e.message });
+    }
+
+    // 2. Notify admin
+    await sendEmail('info@maroa.ai', `[Data Deletion] Request from ${cleanName}`, `
+      <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
+        <h2 style="border-bottom:2px solid #e5e5e5;padding-bottom:12px">New Data Deletion Request</h2>
+        <p><strong>Request ID:</strong> <code>${requestId}</code></p>
+        <p><strong>Name:</strong> ${cleanName}</p>
+        <p><strong>Email:</strong> ${cleanEmail}</p>
+        <p><strong>Meta Account:</strong> ${cleanMetaAccount || '<em>Not provided</em>'}</p>
+        <p><strong>Reason:</strong> ${cleanReason || '<em>Not provided</em>'}</p>
+        <p><strong>Requested at:</strong> ${ts}</p>
+        <p><strong>IP:</strong> <code>${ipAddress}</code></p>
+        <div style="margin-top:20px;padding:16px;background:#fff7ed;border-left:4px solid #f59e0b;border-radius:4px">
+          <strong>Action required:</strong> Process within 30 days per Meta Platform Terms and GDPR.
+        </div>
+      </div>
+    `).catch(e => logger.warn('/webhook/data-deletion-request', null, 'admin email failed', { error: e.message }));
+
+    // 3. Send confirmation to user
+    await sendEmail(cleanEmail, 'We received your data deletion request', `
+      <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
+        <h2>Request received</h2>
+        <p>Hi ${cleanName},</p>
+        <p>We've received your data deletion request for maroa.ai. Here's what happens next:</p>
+        <ul style="line-height:1.7">
+          <li>We will process your request within <strong>30 days</strong>.</li>
+          <li>We will permanently delete your account, all content, and all data from connected platforms.</li>
+          <li>Once complete, we'll send a confirmation email to this address.</li>
+        </ul>
+        <p>If you submitted this by mistake, reply to this email or contact <a href="mailto:info@maroa.ai">info@maroa.ai</a>.</p>
+        <p style="color:#666;font-size:13px;margin-top:32px;border-top:1px solid #e5e5e5;padding-top:16px">
+          Request reference: <code>${requestId}</code><br>maroa.ai · Gjilan, Kosovo
+        </p>
+      </div>
+    `).catch(e => logger.warn('/webhook/data-deletion-request', null, 'user email failed', { error: e.message }));
+
+    logger.info('/webhook/data-deletion-request', null, 'Deletion request received', { email: cleanEmail, requestId });
+    res.json({ success: true, message: 'Data deletion request received. We will process it within 30 days.', request_id: requestId });
   } catch (err) {
     logger.error('/webhook/data-deletion-request', null, 'Deletion request failed', { error: err.message });
     apiError(res, 500, 'DELETE_REQUEST_FAILED', 'Failed to process request. Please email info@maroa.ai directly.');

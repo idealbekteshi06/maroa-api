@@ -32,6 +32,7 @@ const OPEN_PATHS = new Set([
   '/webhook/paddle-webhook',
   '/webhook/email-approve',
   '/webhook/dashboard-events',
+  '/webhook/data-deletion-request',
 ]);
 
 function requireAuthOrWebhookSecret(req, res, next) {
