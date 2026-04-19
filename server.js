@@ -71,15 +71,23 @@ const app = express();
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 const corsOptions = {
-  origin: [
-    'https://maroa-ai-marketing-automator.lovable.app',
-    'https://maroa.ai',
-    ...(process.env.NODE_ENV !== 'production' ? [
+  origin: (origin, callback) => {
+    // Allow requests with no origin (curl, server-to-server, mobile apps, n8n)
+    if (!origin) return callback(null, true);
+    const allowed = [
+      'https://maroa-ai-marketing-automator.lovable.app',
+      'https://maroa-ai-marketing-automator.vercel.app',
+      'https://maroa.ai',
+      'https://www.maroa.ai',
       'http://localhost:3000',
       'http://localhost:3001',
-      'http://localhost:5173'
-    ] : []),
-  ],
+      'http://localhost:5173',
+    ];
+    if (allowed.includes(origin)) return callback(null, true);
+    // Allow all *.vercel.app preview deployments
+    if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/.test(origin)) return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
+  },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'apikey', 'x-orchestrator-secret', 'x-webhook-secret', 'paddle-signature'],
   credentials: true
