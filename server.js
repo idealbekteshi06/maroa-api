@@ -10638,6 +10638,39 @@ app.post('/api/delete-account', requireAnyUserId, async (req, res) => {
   }
 });
 
+// ─── Meta Data Deletion Request (GDPR / Platform Terms) ─────────────────────
+app.post('/webhook/data-deletion-request', async (req, res) => {
+  try {
+    const { name, email, meta_account, reason, requested_at } = req.body || {};
+    if (!email) return apiError(res, 400, 'VALIDATION_ERROR', 'email is required');
+
+    await sbPost('data_deletion_requests', {
+      name: name || '',
+      email,
+      meta_account: meta_account || null,
+      reason: reason || null,
+      requested_at: requested_at || new Date().toISOString(),
+      status: 'pending',
+    }).catch(() => {});
+
+    await sendEmail('info@maroa.ai', `Data Deletion Request from ${name || email}`, `
+      <h2>New Data Deletion Request</h2>
+      <p><strong>Name:</strong> ${name || 'Not provided'}</p>
+      <p><strong>Email:</strong> ${email}</p>
+      <p><strong>Meta Account:</strong> ${meta_account || 'Not provided'}</p>
+      <p><strong>Reason:</strong> ${reason || 'Not provided'}</p>
+      <p><strong>Requested at:</strong> ${requested_at || new Date().toISOString()}</p>
+      <p><em>Process within 30 days per Meta Platform Terms.</em></p>
+    `).catch(e => logger.warn('/webhook/data-deletion-request', null, 'email failed', { error: e.message }));
+
+    logger.info('/webhook/data-deletion-request', null, 'Deletion request received', { email });
+    res.json({ success: true, message: 'Your request has been received. We will process it within 30 days.' });
+  } catch (err) {
+    logger.error('/webhook/data-deletion-request', null, 'Deletion request failed', { error: err.message });
+    apiError(res, 500, 'DELETE_REQUEST_FAILED', 'Failed to process request. Please email info@maroa.ai directly.');
+  }
+});
+
 // ─── 404 ──────────────────────────────────────────────────────────────────────
 app.use((req, res) => apiError(res, 404, 'NOT_FOUND', `Route ${req.method} ${req.path} not found`));
 
