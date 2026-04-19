@@ -129,7 +129,8 @@ function requireN8nWebhookSecret(req, res, next) {
   next();
 }
 
-app.use('/webhook', requireN8nWebhookSecret);
+const { requireAuthOrWebhookSecret } = require('./middleware/requireAuthOrWebhookSecret');
+app.use('/webhook', requireAuthOrWebhookSecret);
 
 const aiLimitExpress = expressRateLimit({
   windowMs: 60 * 1000,
