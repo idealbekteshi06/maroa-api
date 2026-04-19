@@ -202,6 +202,36 @@ app.use('/api/signup-cro/analyze', requireValidUserId);
 
 // Auth guard for routes that use user_id (body), :userId (params), or userId (body)
 function requireAnyUserId(req, res, next) {
+  // 1. Try to extract userId from Supabase JWT in Authorization header
+  const authHeader = req.get('authorization') || '';
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (match) {
+    const { createClient } = require('@supabase/supabase-js');
+    const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim();
+    const SUPABASE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '').trim();
+    if (SUPABASE_URL && SUPABASE_KEY) {
+      const admin = createClient(SUPABASE_URL, SUPABASE_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      return admin.auth.getUser(match[1].trim())
+        .then(({ data, error }) => {
+          if (error || !data?.user) {
+            return apiError(res, 401, 'UNAUTHORIZED', 'Invalid auth token');
+          }
+          req.user = data.user;
+          // Inject userId into request so downstream handlers work unchanged
+          if (!req.params) req.params = {};
+          req.params.userId = data.user.id;
+          if (!req.body) req.body = {};
+          if (!req.body.userId) req.body.userId = data.user.id;
+          if (!req.body.user_id) req.body.user_id = data.user.id;
+          next();
+        })
+        .catch(() => apiError(res, 401, 'UNAUTHORIZED', 'Auth verification failed'));
+    }
+  }
+
+  // 2. Fallback: legacy body/params/query userId (for backward compat with n8n calls)
   const uid = req.body?.userId || req.body?.user_id || req.params?.userId || req.query?.userId;
   if (!uid || typeof uid !== 'string' || uid.length < 10) {
     return apiError(res, 400, 'VALIDATION_ERROR', 'Valid user ID required');
