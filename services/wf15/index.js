@@ -36,7 +36,7 @@ const { buildBrandContext } = require('../wf1/brandContext.js');
 function createWf15(deps) {
   const {
     sbGet, sbPost, sbPatch,
-    callClaude, extractJSON,
+    callClaude, streamClaude, extractJSON,
     logger,
   } = deps;
 
@@ -143,7 +143,7 @@ function createWf15(deps) {
     return { conversationId: row.id };
   }
 
-  async function sendMessage({ businessId, conversationId, content, attachmentIds = [] }) {
+  async function sendMessage({ businessId, conversationId, content, attachmentIds = [], res }) {
     // Load brand context + memory
     const [brandContext, memory, history] = await Promise.all([
       resolveBrandContext(businessId),
@@ -161,6 +161,23 @@ function createWf15(deps) {
       model_used: null,
     });
 
+    // Create placeholder assistant message (will be updated when stream completes)
+    const assistantMsg = await sbPost('brain_messages', {
+      conversation_id: conversationId,
+      business_id: businessId,
+      role: 'assistant',
+      content: '',
+      attachments: [],
+      tool_calls: [],
+      reasoning: null,
+      model_used: null,
+    });
+
+    // Send meta event with assistant message ID so frontend can track it
+    if (res) {
+      res.write(`event: meta\ndata: ${JSON.stringify({ assistantMessageId: assistantMsg.id })}\n\n`);
+    }
+
     // Route model
     const routing = routeModel(content, attachmentIds.length > 0);
     const model =
@@ -170,30 +187,58 @@ function createWf15(deps) {
 
     // Build prompt
     const system = buildBrainSystemPrompt(brandContext, memory);
-    // Fold history into user prompt (simple concat for now; proper message array would be better)
     const historyBlock = (history || [])
       .filter(m => m.role !== 'system')
       .map(m => `${m.role.toUpperCase()}: ${m.content}`)
       .join('\n\n');
     const userPrompt = `${historyBlock}\n\nUSER: ${content}\n\nASSISTANT:`;
 
-    const raw = await callClaude(userPrompt, model, 2500, {
-      system,
-      businessId,
-      returnRaw: true,
-    });
+    let fullText = '';
+    try {
+      if (streamClaude && res) {
+        // Real streaming path
+        fullText = await streamClaude({
+          model,
+          system,
+          messages: [{ role: 'user', content: userPrompt }],
+          maxTokens: 2500,
+          businessId,
+          onToken: (chunk) => {
+            if (!res.writableEnded) {
+              res.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
+            }
+          },
+        });
+      } else {
+        // Fallback: one-shot (when streamClaude not available or no res)
+        fullText = await callClaude(userPrompt, model, 2500, {
+          system, businessId, returnRaw: true,
+        });
+      }
+    } catch (e) {
+      // Stream error — notify client and save error state
+      if (res && !res.writableEnded) {
+        res.write(`event: error\ndata: ${JSON.stringify({ message: e.message || 'Stream failed' })}\n\n`);
+        res.end();
+      }
+      await sbPatch('brain_messages', `id=eq.${assistantMsg.id}`, {
+        content: `[Error: ${e.message}]`,
+        model_used: routing.model,
+      }).catch(() => {});
+      throw e;
+    }
 
-    // Persist assistant message
-    const assistantMsg = await sbPost('brain_messages', {
-      conversation_id: conversationId,
-      business_id: businessId,
-      role: 'assistant',
-      content: String(raw || ''),
-      attachments: [],
-      tool_calls: [],
-      reasoning: null,
+    // Update assistant message with full text
+    await sbPatch('brain_messages', `id=eq.${assistantMsg.id}`, {
+      content: fullText,
       model_used: routing.model,
-    });
+    }).catch(e => logger?.warn('/wf15', businessId, 'assistant message update failed', { error: e.message }));
+
+    // Send done event
+    if (res && !res.writableEnded) {
+      res.write(`data: [DONE]\n\n`);
+      res.end();
+    }
 
     // Update conversation metadata
     await sbPatch('brain_conversations', `id=eq.${conversationId}`, {

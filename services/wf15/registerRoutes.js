@@ -49,16 +49,27 @@ function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logge
     }
   });
 
-  // ─── POST /webhook/wf15-send-message ───────────────────────
+  // ─── POST /webhook/wf15-send-message (SSE streaming) ───────
   app.post('/webhook/wf15-send-message', async (req, res) => {
     const { businessId, conversationId, content, attachmentIds } = req.body || {};
     if (!businessId || !conversationId || !content) return apiError(res, 400, 'INVALID_REQUEST', 'businessId + conversationId + content required');
+
+    // Set SSE headers — response is a stream, not JSON
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+
     try {
-      const r = await wf15.sendMessage({ businessId, conversationId, content, attachmentIds });
-      res.json(r);
+      await wf15.sendMessage({ businessId, conversationId, content, attachmentIds, res });
+      // sendMessage handles res.write + res.end internally
     } catch (e) {
       logger?.error('/webhook/wf15-send-message', businessId, 'send failed', e);
-      apiError(res, 500, 'WF15_SEND_FAILED', e.message);
+      if (!res.writableEnded) {
+        res.write(`event: error\ndata: ${JSON.stringify({ message: e.message || 'Send failed' })}\n\n`);
+        res.end();
+      }
     }
   });
 

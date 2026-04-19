@@ -546,6 +546,83 @@ async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOver
   throw lastErr || new Error('Claude request failed');
 }
 
+/**
+ * Streaming Claude call — sends tokens to onToken(chunk) as they arrive.
+ * Resolves with the full accumulated text when the stream ends.
+ * No retries (streaming retries are complex — caller can retry the whole call).
+ */
+async function streamClaude({ model, system, messages, maxTokens = 2500, onToken, businessId }) {
+  if (businessId) {
+    const b = await checkTokenBudgetForBusiness(businessId);
+    if (!b.allowed) {
+      const e = new Error(b.reason || 'AI budget exceeded');
+      e.status = 402;
+      e.code = 'AI_BUDGET_EXCEEDED';
+      throw e;
+    }
+    maxTokens = Math.min(maxTokens, b.maxTokensPerCall || maxTokens);
+  }
+
+  const body = { model, max_tokens: maxTokens, stream: true, messages };
+  if (system) body.system = system;
+  const bodyStr = JSON.stringify(body);
+
+  return new Promise((resolve, reject) => {
+    let fullText = '';
+    const streamReq = https.request({
+      hostname: 'api.anthropic.com', port: 443, path: '/v1/messages', method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Length': Buffer.byteLength(bodyStr),
+      },
+    }, (streamRes) => {
+      if (streamRes.statusCode !== 200) {
+        let errBody = '';
+        streamRes.on('data', c => errBody += c);
+        streamRes.on('end', () => reject(new Error(`Claude stream ${model}: ${streamRes.statusCode} ${errBody.slice(0, 300)}`)));
+        return;
+      }
+      let buffer = '';
+      streamRes.on('data', (chunk) => {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+              fullText += parsed.delta.text;
+              if (onToken) onToken(parsed.delta.text);
+            }
+          } catch { /* ignore malformed SSE lines */ }
+        }
+      });
+      streamRes.on('end', () => {
+        if (businessId) {
+          setImmediate(() => {
+            sbGet('businesses', `id=eq.${businessId}&select=user_id`)
+              .then(rows => recordOrchestrationTaskRun(rows[0]?.user_id || businessId, 'ai_call'))
+              .catch(() => {});
+          });
+        }
+        resolve(fullText);
+      });
+      streamRes.on('error', (e) => reject(e));
+    });
+    streamReq.on('error', (e) => reject(e));
+    streamReq.setTimeout(120000, () => {
+      streamReq.destroy(new Error('Stream timeout (120s)'));
+    });
+    streamReq.write(bodyStr);
+    streamReq.end();
+  });
+}
+
 async function fetchPerformanceThemesContextBlock(businessId) {
   if (!businessId) return '';
   try {
@@ -755,7 +832,7 @@ const { registerWf13Routes } = require('./services/wf13/registerRoutes');
 const createWf15 = require('./services/wf15');
 const wf15 = createWf15({
   sbGet, sbPost, sbPatch,
-  callClaude, extractJSON,
+  callClaude, streamClaude, extractJSON,
   logger,
 });
 const { registerWf15Routes } = require('./services/wf15/registerRoutes');
