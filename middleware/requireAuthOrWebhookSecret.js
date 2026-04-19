@@ -93,6 +93,14 @@ function requireAuthOrWebhookSecret(req, res, next) {
       code: 'UNAUTHORIZED',
       message: 'Missing authentication (provide Authorization: Bearer <jwt>, ?token=<jwt>, or x-webhook-secret)',
       timestamp: new Date().toISOString(),
+      _debug: {
+        hasBearer: !!match,
+        hasSbAdmin: !!supabaseAdmin,
+        hasCreateClient: !!createClient,
+        hasUrl: !!SUPABASE_URL,
+        hasKey: !!SUPABASE_SERVICE_ROLE_KEY,
+        hasQueryToken: !!(req.query && req.query.token),
+      },
     },
   });
 }
