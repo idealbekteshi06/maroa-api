@@ -5,9 +5,10 @@
 
 const { createClient } = require('@supabase/supabase-js');
 
-const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim();
-const SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '').trim();
-const N8N_WEBHOOK_SECRET = (process.env.N8N_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET || '').trim();
+const clean = (v) => (v || '').replace(/[^\x20-\x7E]/g, '').trim();
+const SUPABASE_URL = clean(process.env.SUPABASE_URL) || 'https://zqhyrbttuqkvmdewiytf.supabase.co';
+const SUPABASE_SERVICE_ROLE_KEY = clean(process.env.SUPABASE_SERVICE_ROLE_KEY) || clean(process.env.SUPABASE_KEY) || '';
+const N8N_WEBHOOK_SECRET = clean(process.env.N8N_WEBHOOK_SECRET) || clean(process.env.WEBHOOK_SECRET) || '';
 
 // Service-role client — used ONLY to verify JWTs server-side
 const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
@@ -72,6 +73,10 @@ function requireAuthOrWebhookSecret(req, res, next) {
       timestamp: new Date().toISOString(),
     },
   });
+}
+
+if (!supabaseAdmin) {
+  console.warn('[auth] WARNING: No SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY — JWT auth disabled, webhook-secret only');
 }
 
 module.exports = { requireAuthOrWebhookSecret };
