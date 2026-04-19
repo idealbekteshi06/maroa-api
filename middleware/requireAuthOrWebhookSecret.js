@@ -3,7 +3,14 @@
 
 'use strict';
 
-const { createClient } = require('@supabase/supabase-js');
+let createClient;
+try {
+  createClient = require('@supabase/supabase-js').createClient;
+  console.log('[auth] @supabase/supabase-js loaded OK');
+} catch (e) {
+  console.error('[auth] FAILED to load @supabase/supabase-js:', e.message);
+  createClient = null;
+}
 
 const clean = (v) => (v || '').replace(/[^\x20-\x7E]/g, '').trim();
 
@@ -11,7 +18,7 @@ const SUPABASE_URL = clean(process.env.SUPABASE_URL);
 const SUPABASE_SERVICE_ROLE_KEY = clean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY);
 const N8N_WEBHOOK_SECRET = clean(process.env.N8N_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET);
 
-const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+const supabaseAdmin = createClient && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
   ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
     })
