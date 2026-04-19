@@ -24,17 +24,8 @@ const supabaseAdmin = createClient && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
     })
   : null;
 
-if (supabaseAdmin) {
-  console.log('[auth] supabaseAdmin initialized OK — JWT verification enabled');
-} else {
-  console.warn('[auth] supabaseAdmin NOT initialized — JWT verification disabled', {
-    hasUrl: !!SUPABASE_URL,
-    urlLen: SUPABASE_URL.length,
-    hasKey: !!SUPABASE_SERVICE_ROLE_KEY,
-    keyLen: SUPABASE_SERVICE_ROLE_KEY.length,
-    envKeyRaw: (process.env.SUPABASE_KEY || '').length,
-    envServiceRaw: (process.env.SUPABASE_SERVICE_ROLE_KEY || '').length,
-  });
+if (!supabaseAdmin) {
+  console.warn('[auth] supabaseAdmin NOT initialized — JWT verification disabled');
 }
 
 const OPEN_PATHS = new Set([
@@ -93,14 +84,6 @@ function requireAuthOrWebhookSecret(req, res, next) {
       code: 'UNAUTHORIZED',
       message: 'Missing authentication (provide Authorization: Bearer <jwt>, ?token=<jwt>, or x-webhook-secret)',
       timestamp: new Date().toISOString(),
-      _debug: {
-        hasBearer: !!match,
-        hasSbAdmin: !!supabaseAdmin,
-        hasCreateClient: !!createClient,
-        hasUrl: !!SUPABASE_URL,
-        hasKey: !!SUPABASE_SERVICE_ROLE_KEY,
-        hasQueryToken: !!(req.query && req.query.token),
-      },
     },
   });
 }
