@@ -8432,11 +8432,16 @@ app.get('/webhook/dashboard-events', (req, res) => {
     'https://maroa.ai',
     'https://www.maroa.ai',
     'https://maroa-ai-marketing-automator.lovable.app',
-    process.env.NODE_ENV !== 'production' && 'http://localhost:5173'
-  ].filter(Boolean);
+    'https://maroa-ai-marketing-automator.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:3000',
+  ];
   const reqOrigin = req.headers.origin;
-  if (allowedOrigins.includes(reqOrigin)) {
+  // Also allow any *.vercel.app preview deployment
+  const isVercelPreview = /^https:\/\/[a-z0-9-]+\.vercel\.app$/.test(reqOrigin || '');
+  if (reqOrigin && (allowedOrigins.includes(reqOrigin) || isVercelPreview)) {
     res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
   }
   res.write(`data: ${JSON.stringify({ type: 'connected', business_id })}\n\n`);
   sseClients.set(business_id, res);
@@ -10186,11 +10191,16 @@ app.post('/webhook/ai-chat', async (req, res) => {
       'https://maroa.ai',
       'https://www.maroa.ai',
       'https://maroa-ai-marketing-automator.lovable.app',
-      process.env.NODE_ENV !== 'production' && 'http://localhost:5173'
-    ].filter(Boolean);
+      'https://maroa-ai-marketing-automator.vercel.app',
+      'http://localhost:5173',
+      'http://localhost:3000',
+    ];
     const reqOrigin = req.headers.origin;
-    if (allowedOrigins.includes(reqOrigin)) {
+    // Also allow any *.vercel.app preview deployment
+    const isVercelPreview = /^https:\/\/[a-z0-9-]+\.vercel\.app$/.test(reqOrigin || '');
+    if (reqOrigin && (allowedOrigins.includes(reqOrigin) || isVercelPreview)) {
       res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
     }
     res.flushHeaders();
 
