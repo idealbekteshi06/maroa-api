@@ -10783,7 +10783,7 @@ function parseSignedRequest(signedRequest, appSecret) {
   } catch { return null; }
 }
 
-app.post('/webhook/meta-deauthorize', async (req, res) => {
+app.post('/webhook/meta-deauthorize', express.urlencoded({ extended: false }), async (req, res) => {
   const metaSecret = clean(process.env.META_APP_SECRET) || '';
   if (!metaSecret) {
     logger.error('/webhook/meta-deauthorize', null, 'META_APP_SECRET not configured');
@@ -10822,7 +10822,7 @@ app.post('/webhook/meta-deauthorize', async (req, res) => {
 });
 
 // ─── Meta Data Deletion Callback (GDPR requirement) ────────────────────────
-app.post('/webhook/meta-data-deletion', async (req, res) => {
+app.post('/webhook/meta-data-deletion', express.urlencoded({ extended: false }), async (req, res) => {
   const metaSecret = clean(process.env.META_APP_SECRET) || '';
   if (!metaSecret) {
     logger.error('/webhook/meta-data-deletion', null, 'META_APP_SECRET not configured');
