@@ -33,6 +33,9 @@ const OPEN_PATHS = new Set([
   '/webhook/email-approve',
   '/webhook/dashboard-events',
   '/webhook/data-deletion-request',
+  '/webhook/meta-deauthorize',
+  '/webhook/meta-data-deletion',
+  '/api/data-deletion-status',
 ]);
 
 function requireAuthOrWebhookSecret(req, res, next) {

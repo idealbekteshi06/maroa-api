@@ -10770,6 +10770,137 @@ app.post('/webhook/data-deletion-request', deletionRequestLimiter, async (req, r
   }
 });
 
+// ─── Meta Deauthorize Callback (Facebook Login requirement) ─────────────────
+function parseSignedRequest(signedRequest, appSecret) {
+  try {
+    const [encodedSig, payload] = signedRequest.split('.');
+    if (!encodedSig || !payload) return null;
+    const sig = Buffer.from(encodedSig.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    const data = JSON.parse(Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString());
+    const expectedSig = crypto.createHmac('sha256', appSecret).update(payload).digest();
+    if (sig.length !== expectedSig.length || !crypto.timingSafeEqual(sig, expectedSig)) return null;
+    return data;
+  } catch { return null; }
+}
+
+app.post('/webhook/meta-deauthorize', async (req, res) => {
+  const metaSecret = clean(process.env.META_APP_SECRET) || '';
+  if (!metaSecret) {
+    logger.error('/webhook/meta-deauthorize', null, 'META_APP_SECRET not configured');
+    return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'Meta App Secret not configured');
+  }
+  const signedRequest = req.body?.signed_request;
+  if (!signedRequest) return apiError(res, 400, 'INVALID_REQUEST', 'signed_request is required');
+
+  const data = parseSignedRequest(signedRequest, metaSecret);
+  if (!data) return apiError(res, 400, 'INVALID_SIGNATURE', 'Invalid signed_request');
+
+  const metaUserId = data.user_id;
+  const confirmCode = crypto.randomUUID();
+
+  // Mark connection as revoked if we have a matching business
+  try {
+    const bizRows = await sbGet('businesses', `meta_access_token=not.is.null&select=id,facebook_page_id,instagram_account_id`);
+    // We don't store Meta user_id directly, so log the event for manual processing
+    logger.info('/webhook/meta-deauthorize', null, 'Meta deauthorize callback received', {
+      meta_user_id: metaUserId, confirmation_code: confirmCode, businesses_with_meta: bizRows.length,
+    });
+  } catch (e) {
+    logger.warn('/webhook/meta-deauthorize', null, 'DB lookup failed', { error: e.message });
+  }
+
+  // Log to events table
+  await sbPost('events', {
+    business_id: null,
+    kind: 'meta.deauthorize',
+    workflow: 'meta_compliance',
+    payload: { meta_user_id: metaUserId, confirmation_code: confirmCode },
+    severity: 'warn',
+  }).catch(() => {});
+
+  res.json({ url: `https://maroa.ai/data-deletion-status?code=${confirmCode}`, confirmation_code: confirmCode });
+});
+
+// ─── Meta Data Deletion Callback (GDPR requirement) ────────────────────────
+app.post('/webhook/meta-data-deletion', async (req, res) => {
+  const metaSecret = clean(process.env.META_APP_SECRET) || '';
+  if (!metaSecret) {
+    logger.error('/webhook/meta-data-deletion', null, 'META_APP_SECRET not configured');
+    return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'Meta App Secret not configured');
+  }
+  const signedRequest = req.body?.signed_request;
+  if (!signedRequest) return apiError(res, 400, 'INVALID_REQUEST', 'signed_request is required');
+
+  const data = parseSignedRequest(signedRequest, metaSecret);
+  if (!data) return apiError(res, 400, 'INVALID_SIGNATURE', 'Invalid signed_request');
+
+  const metaUserId = data.user_id;
+  const confirmCode = crypto.randomUUID();
+
+  // Create deletion request record
+  try {
+    await sbPost('data_deletion_requests', {
+      name: `Meta User ${metaUserId}`,
+      email: `meta-user-${metaUserId}@meta.deletion`,
+      meta_account: metaUserId,
+      reason: 'Meta platform data deletion callback',
+      requested_at: new Date().toISOString(),
+      status: 'pending',
+      ip_address: (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip || 'unknown',
+      user_agent: (req.headers['user-agent'] || '').toString().slice(0, 500),
+    });
+  } catch (e) {
+    logger.warn('/webhook/meta-data-deletion', null, 'DB insert failed', { error: e.message });
+  }
+
+  // Log event
+  await sbPost('events', {
+    business_id: null,
+    kind: 'meta.data_deletion_request',
+    workflow: 'meta_compliance',
+    payload: { meta_user_id: metaUserId, confirmation_code: confirmCode },
+    severity: 'warn',
+  }).catch(() => {});
+
+  // Notify admin
+  await sendEmail('info@maroa.ai', `[Meta] Data Deletion Request — User ${metaUserId}`, `
+    <h2>Meta Data Deletion Callback</h2>
+    <p><strong>Meta User ID:</strong> ${metaUserId}</p>
+    <p><strong>Confirmation Code:</strong> <code>${confirmCode}</code></p>
+    <p><strong>Status URL:</strong> <a href="https://maroa.ai/data-deletion-status?code=${confirmCode}">Check status</a></p>
+    <p><em>Process within 30 days. Required by Meta Platform Terms.</em></p>
+  `).catch(e => logger.warn('/webhook/meta-data-deletion', null, 'admin email failed', { error: e.message }));
+
+  logger.info('/webhook/meta-data-deletion', null, 'Meta data deletion callback received', {
+    meta_user_id: metaUserId, confirmation_code: confirmCode,
+  });
+
+  res.json({ url: `https://maroa.ai/data-deletion-status?code=${confirmCode}`, confirmation_code: confirmCode });
+});
+
+// ─── Data Deletion Status Check (public — uses confirmation code) ───────────
+app.get('/api/data-deletion-status', async (req, res) => {
+  const code = req.query?.code;
+  if (!code || typeof code !== 'string' || code.length < 10) {
+    return apiError(res, 400, 'VALIDATION_ERROR', 'confirmation code required');
+  }
+
+  // Check events table for the confirmation code
+  try {
+    const events = await sbGet('events', `kind=in.(meta.deauthorize,meta.data_deletion_request)&payload->>confirmation_code=eq.${code}&select=kind,created_at,payload&limit=1`);
+    if (events[0]) {
+      return res.json({
+        status: 'pending',
+        message: 'Your data deletion request is being processed. We will complete it within 30 days.',
+        requested_at: events[0].created_at,
+        completed_at: null,
+      });
+    }
+  } catch {}
+
+  res.json({ status: 'not_found', message: 'No deletion request found for this code.' });
+});
+
 // ─── 404 ──────────────────────────────────────────────────────────────────────
 app.use((req, res) => apiError(res, 404, 'NOT_FOUND', `Route ${req.method} ${req.path} not found`));
 
