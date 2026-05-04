@@ -65,7 +65,7 @@ function createWf5(deps) {
 
     const bundle = await gatherBundle(businessId);
     const { system, user } = buildCompetitorAnalysisPrompt(brandContext, bundle);
-    const raw = await callClaude(user, 'claude-opus-4-5', 3000, { system, businessId, returnRaw: true });
+    const raw = await callClaude(user, 'claude-opus-4-7', 3000, { system, businessId, returnRaw: true });
     const parsed = extractJSON(raw) || {};
 
     const row = await sbPost('competitor_briefs', {
@@ -78,7 +78,7 @@ function createWf5(deps) {
       white_space: parsed.white_space_opportunities || [],
       actions: parsed.recommended_actions || [],
       frameworks_cited: parsed.frameworks_cited || [],
-      model_used: 'claude-opus-4-5',
+      model_used: 'claude-opus-4-7',
     });
 
     await sbPost('events', {

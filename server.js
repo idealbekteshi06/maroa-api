@@ -371,6 +371,13 @@ async function sbPatch(table, filter, data) {
   return true;
 }
 
+async function sbDelete(table, filter) {
+  const r = await apiRequest('DELETE', `${SUPABASE_URL}/rest/v1/${table}?${filter}`,
+    { ...sbH(), 'Prefer': 'return=minimal' });
+  if (![200, 201, 204, 404].includes(r.status)) throw new Error(`sbDelete ${table}: ${r.status} ${JSON.stringify(r.body).slice(0,200)}`);
+  return true;
+}
+
 const PLAN_TOKEN_BUDGETS = {
   starter: { daily_tokens: 200000, max_tokens_per_call: 4000, calls_per_day: 100 },
   growth: { daily_tokens: 500000, max_tokens_per_call: 6000, calls_per_day: 200 },
@@ -443,7 +450,7 @@ function claudeBiz(userId) {
 // ─── Claude model selection & API ───────────────────────────────────────────
 function selectModel(taskType) {
   if (['strategy', 'monthly_review', 'positioning', 'research', 'orchestrator'].includes(taskType)) {
-    return { model: 'claude-opus-4-5', max_tokens: 4000 };
+    return { model: 'claude-opus-4-7', max_tokens: 4000 };
   }
   if (['social_post', 'email', 'campaign', 'paid_ad', 'sales_pitch'].includes(taskType)) {
     return { model: 'claude-sonnet-4-5', max_tokens: 2000 };
@@ -456,7 +463,7 @@ function selectModel(taskType) {
 
 /**
  * Call Claude. Backward compatible:
- * - callClaude(prompt, 'claude-opus-4-5', 3000) — explicit model
+ * - callClaude(prompt, 'claude-opus-4-7', 3000) — explicit model
  * - callClaude(prompt, 'strategy', 1500) — taskType + optional max override
  * - callClaude(prompt, 'social_post', undefined, { returnRaw: true, system: '...' })
  */
@@ -487,8 +494,43 @@ async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOver
     maxTokens = Math.min(maxTokens, b.maxTokensPerCall || maxTokens);
   }
 
-  const body = { model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] };
-  if (extra.system) body.system = extra.system;
+  // Build user message content. Default = single text block from `prompt`.
+  // If extra.fileIds, extra.documentBlocks, or extra.imageBlocks are provided,
+  // prepend them as content blocks (Files API + Citations support).
+  let userContent;
+  const docBlocks = [];
+  for (const fileId of extra.fileIds || []) {
+    const blk = { type: 'document', source: { type: 'file', file_id: fileId } };
+    if (extra.citations) blk.citations = { enabled: true };
+    if (extra.cacheDocuments) blk.cache_control = { type: 'ephemeral' };
+    docBlocks.push(blk);
+  }
+  for (const dblk of extra.documentBlocks || []) docBlocks.push(dblk);
+  for (const iblk of extra.imageBlocks || []) docBlocks.push(iblk);
+  userContent = docBlocks.length === 0 ? prompt : [...docBlocks, { type: 'text', text: prompt }];
+
+  const body = { model, max_tokens: maxTokens, messages: [{ role: 'user', content: userContent }] };
+  if (extra.system) {
+    // Anthropic prompt caching — set extra.cacheSystem:true to mark the system
+    // prompt as cacheable (≥1024 tokens, 5-min TTL). Saves 50-90% on repeated
+    // calls with the same system prompt (creative-director, image-vetter, etc).
+    if (extra.cacheSystem) {
+      body.system = [{ type: 'text', text: extra.system, cache_control: { type: 'ephemeral' } }];
+    } else {
+      body.system = extra.system;
+    }
+  }
+
+  const headers = {
+    'x-api-key': ANTHROPIC_KEY,
+    'anthropic-version': '2023-06-01',
+    'Content-Type': 'application/json'
+  };
+  const betas = [];
+  if (extra.cacheSystem || extra.cacheDocuments) betas.push('prompt-caching-2024-07-31');
+  if ((extra.fileIds && extra.fileIds.length) || extra.documentBlocks?.some?.(b => b?.source?.type === 'file')) betas.push('files-api-2025-04-14');
+  if (extra.extraBetas) betas.push(...(Array.isArray(extra.extraBetas) ? extra.extraBetas : [extra.extraBetas]));
+  if (betas.length) headers['anthropic-beta'] = [...new Set(betas)].join(',');
 
   const retries = extra.retries !== undefined ? extra.retries : 3;
   let attempt = 0;
@@ -497,9 +539,7 @@ async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOver
   while (attempt < retries) {
     attempt++;
     try {
-      const r = await apiRequest('POST', 'https://api.anthropic.com/v1/messages', {
-        'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json'
-      }, body);
+      const r = await apiRequest('POST', 'https://api.anthropic.com/v1/messages', headers, body);
 
       if (r.status === 200) {
         if (extra.businessId && !extra.skipUsageLog) {
@@ -512,6 +552,21 @@ async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOver
               .catch(() => {});
           });
         }
+        // Surface cache hit/miss for observability
+        if (extra.cacheSystem && r.body?.usage) {
+          const u = r.body.usage;
+          if (u.cache_read_input_tokens || u.cache_creation_input_tokens) {
+            logger.info('/claude', extra.businessId || null, 'cache stats', {
+              read: u.cache_read_input_tokens || 0,
+              created: u.cache_creation_input_tokens || 0,
+              uncached: u.input_tokens || 0,
+            });
+          }
+        }
+        // Caller may need the full response body (for citations parsing,
+        // tool_use blocks, structured outputs, etc) — not just the first
+        // text block. Set extra.returnFullResponse:true to get it.
+        if (extra.returnFullResponse) return r.body;
         const raw = r.body?.content?.[0]?.text || '';
         if (extra.returnRaw) return raw;
         return extractJSON(raw) || { _raw: raw };
@@ -806,6 +861,15 @@ const higgsfieldAI = createHiggsfieldService({
 const createWf1 = require('./services/wf1');
 let countryIntelligenceMod = null;
 try { countryIntelligenceMod = require('./services/countryIntelligence'); } catch { /* optional */ }
+
+// Pre-create the Anthropic Batch service early so WF1's overnight batch
+// consolidator can wire to it. The other Anthropic services (Files / Memory /
+// Managed Agents) are created later alongside their routes.
+const { createBatchService: _earlyBatchFactory } = require('./services/anthropic-batch');
+const _batchServiceForWf1 = ANTHROPIC_KEY
+  ? _earlyBatchFactory({ apiKey: ANTHROPIC_KEY, logger, sbGet, sbPost, sbPatch })
+  : null;
+
 const wf1 = createWf1({
   sbGet, sbPost, sbPatch,
   callClaude, extractJSON,
@@ -813,6 +877,7 @@ const wf1 = createWf1({
   countryIntelligence: countryIntelligenceMod,
   checkOrchestrationIdempotency,
   recordOrchestrationTaskRun,
+  batchService: _batchServiceForWf1,
   logger,
 });
 const { registerWf1Routes } = require('./services/wf1/registerRoutes');
@@ -3251,7 +3316,7 @@ Return only valid JSON: {"post_text":"...","content_theme":"..."}`;
 
       const aiResp = await apiRequest('POST', 'https://api.anthropic.com/v1/messages',
         { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-        { model: 'claude-opus-4-5', max_tokens: 700, messages: [{ role: 'user', content: prompt }] });
+        { model: 'claude-opus-4-7', max_tokens: 700, messages: [{ role: 'user', content: prompt }] });
 
       const raw = aiResp.body?.content?.[0]?.text || '{}';
       const parsed = extractJSON(raw) || {};
@@ -3447,7 +3512,7 @@ Return only valid JSON: {"tweet":"...","content_theme":"..."}`;
 
       const aiResp = await apiRequest('POST', 'https://api.anthropic.com/v1/messages',
         { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-        { model: 'claude-opus-4-5', max_tokens: 500, messages: [{ role: 'user', content: prompt }] });
+        { model: 'claude-opus-4-7', max_tokens: 500, messages: [{ role: 'user', content: prompt }] });
 
       const raw = aiResp.body?.content?.[0]?.text || '{}';
       const parsed = extractJSON(raw) || {};
@@ -3642,7 +3707,7 @@ Return only valid JSON: {"hook":"...","script":"...","caption":"...","hashtags":
 
     const aiResp = await apiRequest('POST', 'https://api.anthropic.com/v1/messages',
       { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-      { model: 'claude-opus-4-5', max_tokens: 600, messages: [{ role: 'user', content: prompt }] });
+      { model: 'claude-opus-4-7', max_tokens: 600, messages: [{ role: 'user', content: prompt }] });
 
     const raw = aiResp.body?.content?.[0]?.text || '{}';
     const parsed = extractJSON(raw) || {};
@@ -10525,6 +10590,45 @@ registerWf3Routes({ app, wf3, apiError, logger });
 
 // ─── Workflows #5, #6, #7, #8, #9/11, #10, #12, #14 — batch routes ─────────
 registerBatchRoutes({ app, wf5, wf6, wf7, wf8, wf9, wf10, wf12, wf14, apiError, logger });
+
+// ─── Creative Director (Cannes-grade strategy) + Soul ID character routes ──
+const { registerCreativeRoutes } = require('./services/creative/registerRoutes');
+registerCreativeRoutes({
+  app,
+  hfService: higgsfieldAI,
+  sbGet, sbPost, sbPatch,
+  apiError,
+  logger,
+  checkOrchestrationIdempotency,
+});
+
+// ─── Anthropic 2026 features: Files / Batch / Citations / Memory / Agents ──
+const { createFilesService } = require('./services/anthropic-files');
+const { createBatchService } = require('./services/anthropic-batch');
+const anthropicCitations = require('./services/anthropic-citations');
+const { createMemoryService } = require('./services/anthropic-memory');
+const { createManagedAgentService } = require('./services/managed-agent');
+const { registerAnthropicRoutes } = require('./services/anthropic/registerRoutes');
+
+const filesService = createFilesService({ apiKey: ANTHROPIC_KEY, logger });
+// Reuse the early batch service we wired into WF1 above (single instance per process)
+const batchService = _batchServiceForWf1 || createBatchService({ apiKey: ANTHROPIC_KEY, logger, sbGet, sbPost, sbPatch });
+const memoryService = createMemoryService({ apiKey: ANTHROPIC_KEY, logger });
+const managedAgentService = createManagedAgentService({ apiKey: ANTHROPIC_KEY, logger });
+
+registerAnthropicRoutes({
+  app,
+  sbGet, sbPost, sbPatch, sbDelete,
+  apiError,
+  logger,
+  checkOrchestrationIdempotency,
+  filesService,
+  batchService,
+  memoryService,
+  managedAgentService,
+  citations: anthropicCitations,
+  callClaude,
+});
 
 // ─── Data Deletion Request (public, no auth) ────────────────────────────────
 app.post('/webhook/data-deletion-request', async (req, res) => {

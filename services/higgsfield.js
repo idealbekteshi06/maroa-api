@@ -2,11 +2,10 @@
 
 const https = require('https');
 const http = require('http');
+const hf = require('./prompts/higgsfield');
+const vetter = require('./prompts/image-vetter');
+const creative = require('./prompts/creative-director');
 
-/**
- * Higgsfield + Claude orchestration for product creatives.
- * Factory receives server deps to avoid circular requires.
- */
 module.exports = function createHiggsfieldService(deps) {
   const {
     apiRequest,
@@ -31,6 +30,38 @@ module.exports = function createHiggsfieldService(deps) {
   const PATH_SOUL = '/higgsfield-ai/soul/standard';
   const PATH_KLING = '/higgsfield-ai/kling/standard';
   const PATH_SORA = '/higgsfield-ai/sora/standard';
+  // Phase 3 model expansion
+  const PATH_DOP = process.env.HIGGSFIELD_PATH_DOP || '/higgsfield-ai/dop/standard';
+  const PATH_DOP_TURBO = process.env.HIGGSFIELD_PATH_DOP_TURBO || '/higgsfield-ai/dop/turbo';
+  const PATH_SEEDREAM = process.env.HIGGSFIELD_PATH_SEEDREAM || '/bytedance/seedream/v4/text-to-image';
+  const PATH_SEEDREAM_EDIT = process.env.HIGGSFIELD_PATH_SEEDREAM_EDIT || '/bytedance/seedream/v4/edit';
+  const PATH_SEEDANCE = process.env.HIGGSFIELD_PATH_SEEDANCE || '/bytedance/seedance/v1/pro/image-to-video';
+  const PATH_VEO = process.env.HIGGSFIELD_PATH_VEO || '/google/veo/v3-1';
+  const PATH_NANO_BANANA = process.env.HIGGSFIELD_PATH_NANO_BANANA || '/higgsfield-ai/nano-banana-2';
+  const PATH_KLING_3 = process.env.HIGGSFIELD_PATH_KLING_3 || '/higgsfield-ai/kling/v3';
+  // Soul ID character training
+  const PATH_CHARACTER_CREATE = process.env.HIGGSFIELD_PATH_CHARACTER_CREATE || '/higgsfield-ai/soul/characters';
+  const PATH_CHARACTER_STATUS = process.env.HIGGSFIELD_PATH_CHARACTER_STATUS || '/higgsfield-ai/soul/characters';
+
+  const PATHS_BY_MODEL = {
+    'soul 2.0': PATH_SOUL,
+    'soul standard': PATH_SOUL,
+    'kling 3.0': PATH_KLING_3,
+    'kling 2.6': PATH_KLING,
+    'sora 2': PATH_SORA,
+    'higgsfield dop standard': PATH_DOP,
+    'higgsfield dop turbo': PATH_DOP_TURBO,
+    'seedream 4.5': PATH_SEEDREAM,
+    'seedream edit': PATH_SEEDREAM_EDIT,
+    'seedance 2.0': PATH_SEEDANCE,
+    'veo 3.1': PATH_VEO,
+    'nano banana 2': PATH_NANO_BANANA,
+    'nano banana pro': PATH_NANO_BANANA
+  };
+
+  function pathForModel(modelId) {
+    return PATHS_BY_MODEL[(modelId || '').toLowerCase()] || PATH_SOUL;
+  }
 
   const POLL_INTERVAL_MS = 5000;
   const IMAGE_JOB_TIMEOUT_MS = 3 * 60 * 1000;
@@ -423,6 +454,7 @@ module.exports = function createHiggsfieldService(deps) {
     if (!productImageUrl) throw new Error('productImageUrl required');
     const overridePrompt = typeof options.prompt === 'string' ? options.prompt.trim() : '';
     const userId = options.userId || options.user_id || null;
+    const contentTheme = options.contentTheme || options.content_theme || 'product hero';
 
     function buildSoulPayload(promptText, aspectRatio) {
       const p = {
@@ -451,75 +483,116 @@ module.exports = function createHiggsfieldService(deps) {
     }
 
     const serpCtx = await nicheSerpContext(brandDNA || {});
-    const analysisPrompt =
-      `You are a senior art director. Analyze the product reference image (attached) and this brand DNA:\n${brandText(brandDNA)}\n\n` +
-      `Top SERP signals in niche:\n${serpCtx}\n\n` +
-      `Return ONLY valid JSON with keys: product_summary (string), three_prompts (array of 3 strings) for Soul image-to-image. ` +
-      `Each prompt must optimize for: professional studio lighting, brand-consistent style, and these aspect intents: square 1:1, vertical 9:16, feed 4:5. ` +
-      `Mention lighting, backdrop, and trend-aware styling.`;
-
-    const raw = await claudeVision(analysisPrompt, [productImageUrl], { max_tokens: 4096 });
-    let plan = extractJSON(raw);
-    if (!plan?.three_prompts?.length) {
-      plan = {
-        three_prompts: [
-          `${brandDNA?.industry || 'product'} hero shot, soft studio light, 1:1, ultra clean`,
-          `${brandDNA?.industry || 'product'} lifestyle, rim light, 9:16 vertical, editorial`,
-          `${brandDNA?.industry || 'product'} premium still life, softbox, 4:5, muted palette`
-        ]
-      };
-    }
-    const bestPrompt = plan.three_prompts[0];
+    const brief = hf.buildImageBrief({
+      brandDNA,
+      contentTheme,
+      productImageUrl,
+      hasReferenceImage: true,
+      isI2V: true
+    });
+    const userPrompt = `${brief.userTask}\n\nLive niche signals (last week SERP):\n${serpCtx}`;
+    const raw = await claudeVision(userPrompt, [productImageUrl], { max_tokens: 4096, system: brief.system });
+    const plan = extractJSON(raw) || {};
+    const promptObjs = Array.isArray(plan.prompts) && plan.prompts.length
+      ? plan.prompts
+      : [
+          { aspect_ratio: '1:1', prompt: `Macro shot, low angle, static. Product on raw concrete with soft window side-light. Style: Cinematic commercial, warm neutral tones, soft diffused light, sharp focus throughout, 1:1.` },
+          { aspect_ratio: '9:16', prompt: `Selfie angle medium shot. Product held at arm's length, natural daylight, Editorial Street Style preset. Style: Lifestyle, warm neutral, 9:16.` },
+          { aspect_ratio: '4:5', prompt: `Cowboy shot, eye-level, slight handheld. Product on wooden counter at golden hour, side-light from window left. Style: Lifestyle, Kodak Portra 400 grain, lifted shadows, 4:5.` }
+        ];
     const aspects = ['1:1', '9:16', '4:5'];
     const urls = [];
+    // Genre router picked the right model — use the dispatcher so it routes
+    // to nano-banana-pro / soul / etc. instead of always Soul.
+    const modelId = (brief.model && brief.model.id) || 'soul 2.0';
+    const targetPath = pathForModel(modelId);
     for (let i = 0; i < 3; i++) {
-      const prompt = plan.three_prompts[i] || bestPrompt;
+      const obj = promptObjs[i] || promptObjs[0];
+      const prompt = hf.killSlop(obj.prompt);
       try {
-        const url = await submitSoulAndWait(buildSoulPayload(prompt, aspects[i] || '1:1'));
+        const payload = buildSoulPayload(prompt, obj.aspect_ratio || aspects[i] || '1:1');
+        // submitSoulAndWait hard-codes PATH_SOUL; route to the right path when it differs
+        const url = targetPath === PATH_SOUL
+          ? await submitSoulAndWait(payload)
+          : await submitImageOnPath(targetPath, payload);
         if (url) urls.push(await persistGeneratedImageUrl(url, userId, i));
       } catch (e) {
-        console.error('[higgsfield:generateProductImage] soul generation failed', { index: i, message: e.message });
+        console.error('[higgsfield:generateProductImage] gen failed', { index: i, model: modelId, message: e.message });
         console.error(e.stack);
-        logger.warn('higgsfield', null, 'soul generation failed', { message: e.message, index: i });
+        logger.warn('higgsfield', null, 'gen failed', { message: e.message, index: i, model: modelId });
       }
     }
     return urls.filter(Boolean);
   }
 
-  async function generateProductVideo(productImageUrl, brandDNA) {
+  /**
+   * Generic image submit + poll for any non-Soul image path. Mirrors
+   * submitSoulAndWait but accepts the path explicitly.
+   */
+  async function submitImageOnPath(path, payload) {
+    const r = await hfPost(path, payload);
+    if (r.status < 200 || r.status >= 300) {
+      console.error('[higgsfield:submitImageOnPath] HTTP', r.status, safeStringify(r.body));
+      throw new Error(`Higgsfield ${path} HTTP ${r.status}`);
+    }
+    const body = parseJsonBody(r.body);
+    const rid = extractRequestId(body);
+    const doneUrl = extractImageResultUrl(body);
+    if (statusNorm(body) === 'completed' && doneUrl) return doneUrl;
+    if (!rid) {
+      if (doneUrl) return doneUrl;
+      throw new Error(`Higgsfield ${path} did not return request_id`);
+    }
+    return await pollRequestStatus(rid, 'image', IMAGE_JOB_TIMEOUT_MS);
+  }
+
+  async function generateProductVideo(productImageUrl, brandDNA, opts = {}) {
     if (!productImageUrl) throw new Error('productImageUrl required');
+    const contentTheme = opts.contentTheme || opts.content_theme || 'product video reel';
+    const brief = hf.buildVideoBrief({
+      brandDNA,
+      contentTheme,
+      productImageUrl,
+      isI2V: true,
+      wantsAudio: false,
+      durationSec: 8
+    });
     const motionPrompt = await claudeVision(
-      `Analyze the product image. Brand: ${brandText(brandDNA)}\n\n` +
-      'Write ONE cinematic motion prompt for image-to-video (Kling 3.0). ' +
-      'Respect product type (food/fashion/tech), brand tone, and trending short-form pacing. ' +
-      'Return JSON only: {"prompt":"...","duration_sec":8}',
+      brief.userTask,
       [productImageUrl],
-      { max_tokens: 1500 }
+      { max_tokens: 2000, system: brief.system }
     );
-    const parsed = extractJSON(motionPrompt) || { prompt: 'Slow cinematic camera orbit, soft highlights, premium feel', duration_sec: 8 };
+    const parsed = extractJSON(motionPrompt) || {};
+    const promptText = hf.killSlop(parsed.prompt || 'Product on a sunlit surface. Camera: slow Macro Dolly In. Style: Cinematic commercial, warm neutral, soft diffused window light, 9:16.');
     const payload = {
-      prompt: parsed.prompt,
+      prompt: promptText,
       image_url: productImageUrl,
-      aspect_ratio: '9:16',
+      aspect_ratio: parsed.aspect_ratio || '9:16',
       resolution: '720p'
     };
     return submitVideoAndWait(PATH_KLING, payload);
   }
 
-  async function generateHeroAd(productImageUrl, brandDNA) {
+  async function generateHeroAd(productImageUrl, brandDNA, opts = {}) {
     if (!productImageUrl) throw new Error('productImageUrl required');
+    const contentTheme = opts.contentTheme || opts.content_theme || 'hero ad commercial 15s';
+    const brief = hf.buildHeroAdBrief({
+      brandDNA,
+      contentTheme,
+      productImageUrl,
+      isI2V: true
+    });
     const script = await claudeVision(
-      `You are a commercial director. Using the product image and brand DNA:\n${brandText(brandDNA)}\n\n` +
-      'Write a 15s cinematic ad script with sections: hook 0-3s, reveal 3-8s, benefits 8-12s, CTA 12-15s. ' +
-      'Return JSON only: {"full_prompt":"single paragraph combining all beats for video generation"}',
+      brief.userTask,
       [productImageUrl],
-      { max_tokens: 2000 }
+      { max_tokens: 2500, system: brief.system }
     );
-    const parsed = extractJSON(script) || { full_prompt: 'Cinematic product ad, premium lighting, bold CTA endcard' };
+    const parsed = extractJSON(script) || {};
+    const promptText = hf.killSlop(parsed.prompt || 'Product hero on a sunlit surface. Camera: Robo Arm arcing slowly base to lid. Style: Cinematic commercial, warm neutral, soft diffused light, 9:16. Audio: gentle ambient, soft surface contact, single clean piano note on CTA.');
     const payload = {
-      prompt: parsed.full_prompt || parsed.prompt,
+      prompt: promptText,
       image_url: productImageUrl,
-      aspect_ratio: '9:16',
+      aspect_ratio: parsed.aspect_ratio || '9:16',
       resolution: '720p'
     };
     return submitVideoAndWait(PATH_SORA, payload);
@@ -789,11 +862,249 @@ module.exports = function createHiggsfieldService(deps) {
     return out;
   }
 
+  /**
+   * Vet a customer-uploaded image. Returns a verdict object:
+   *   { verdict, total_100, scores, next_action, ... }
+   *
+   * verdict ∈ { use_as_is, enhance_via_higgsfield, regenerate_fresh, reject }
+   *
+   * When verdict is 'enhance_via_higgsfield', next_action.i2i_prompts is a
+   * ready-to-submit array of { aspect_ratio, prompt } objects.
+   */
+  async function vetCustomerAsset(imageUrl, brandDNA, options = {}) {
+    if (!imageUrl) throw new Error('imageUrl required');
+    const contentTheme = options.contentTheme || options.content_theme || '';
+    const req = vetter.buildVetterRequest({ brandDNA, contentTheme });
+    const raw = await claudeVision(req.userTask, [imageUrl], {
+      max_tokens: 2500,
+      system: req.system,
+      model: options.model || 'claude-sonnet-4-5'
+    });
+    const parsed = extractJSON(raw) || {};
+    const verdict = vetter.synthesizeVerdict({
+      rawVetterOutput: parsed,
+      brandDNA,
+      contentTheme
+    });
+    return verdict;
+  }
+
+  /**
+   * Vet many images, group by verdict, ready for downstream routing.
+   */
+  async function vetCustomerAssetBatch(imageUrls, brandDNA, options = {}) {
+    const out = { use_as_is: [], enhance_via_higgsfield: [], regenerate_fresh: [], reject: [], errors: [] };
+    for (const url of imageUrls || []) {
+      try {
+        const v = await vetCustomerAsset(url, brandDNA, options);
+        if (out[v.verdict]) out[v.verdict].push({ url, ...v });
+        else out.errors.push({ url, error: `unknown verdict: ${v.verdict}` });
+      } catch (e) {
+        console.error('[higgsfield:vetCustomerAssetBatch] failed for', url, e.message);
+        out.errors.push({ url, error: e.message });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Vet → Decide → Generate. Replaces the blind generateProductImage path
+   * for callers who want the full intelligent pipeline.
+   */
+  async function smartProcessAsset(imageUrl, brandDNA, options = {}) {
+    const verdict = await vetCustomerAsset(imageUrl, brandDNA, options);
+    if (verdict.verdict === 'use_as_is') {
+      return { verdict, generated: [imageUrl], path: 'use_as_is' };
+    }
+    if (verdict.verdict === 'reject') {
+      return { verdict, generated: [], path: 'reject' };
+    }
+    if (verdict.verdict === 'enhance_via_higgsfield') {
+      const userId = options.userId || options.user_id || null;
+      const urls = [];
+      for (let i = 0; i < verdict.next_action.i2i_prompts.length; i++) {
+        const p = verdict.next_action.i2i_prompts[i];
+        try {
+          const out = await submitSoulAndWait({
+            prompt: p.prompt,
+            aspect_ratio: p.aspect_ratio,
+            resolution: '1080p',
+            image_url: imageUrl
+          });
+          if (out) urls.push(await persistGeneratedImageUrl(out, userId, i));
+        } catch (e) {
+          console.error('[higgsfield:smartProcessAsset] enhance failed', { aspect: p.aspect_ratio, message: e.message });
+          logger.warn('higgsfield', null, 'enhance i2i failed', { message: e.message, aspect: p.aspect_ratio });
+        }
+      }
+      if (urls.length === 0) {
+        return await smartProcessAssetRegenerate(imageUrl, brandDNA, options, verdict);
+      }
+      return { verdict, generated: urls, path: 'enhance_via_higgsfield' };
+    }
+    return await smartProcessAssetRegenerate(imageUrl, brandDNA, options, verdict);
+  }
+
+  async function smartProcessAssetRegenerate(imageUrl, brandDNA, options, verdict) {
+    const generated = await generateProductImage(imageUrl, brandDNA, {
+      ...options,
+      contentTheme: options.contentTheme || verdict?.next_action?.genre || 'product hero'
+    });
+    return { verdict, generated, path: 'regenerate_fresh' };
+  }
+
+  /**
+   * Cannes-grade strategic concept generation.
+   * Returns { concept, image_brief, video_brief } where:
+   *   - concept: the full creative-director JSON output (top_concept + scores + insight + ...)
+   *   - image_brief: ready to feed into submitSoulAndWait (or the existing generateProductImage path)
+   *   - video_brief: ready to feed into submitVideoAndWait
+   *
+   * Use Claude Opus for the strategic call (model: claude-opus-4-7).
+   */
+  async function developCreativeConcept(brandDNA, businessGoal, contentGoal, options = {}) {
+    const brief = creative.buildCreativeBrief({
+      brandDNA,
+      businessGoal,
+      contentGoal,
+      ideaLevel: options.ideaLevel || 'campaign',
+      rotation: options.rotation || 0
+    });
+    // claudeText is the local module helper (no caching support). Use the
+    // injected callClaude when available for prompt caching + token budget.
+    const raw = typeof deps.callClaude === 'function'
+      ? await deps.callClaude(brief.userTask, options.model || 'claude-opus-4-7', 4096, {
+          system: brief.system,
+          businessId: options.businessId || null,
+          cacheSystem: true,         // creative-director system prompt is 13k chars — perfect cache target
+          returnRaw: true,
+        })
+      : await claudeText(brief.userTask, 'strategy', 4096, {
+          model: options.model || 'claude-opus-4-7',
+          system: brief.system,
+          returnRaw: true
+        });
+    const concept = extractJSON(raw) || { _raw: raw, _parse_failed: true };
+    return concept;
+  }
+
+  /**
+   * Full pipeline: strategy → MCSLA prompt → image generation.
+   * The output of every step is captured so you can audit which layer drove each decision.
+   */
+  async function generateStrategicProductImage(productImageUrl, brandDNA, options = {}) {
+    const businessGoal = options.businessGoal || (brandDNA?.marketing_goal || brandDNA?.marketingGoal || 'increase awareness');
+    const contentGoal = options.contentGoal || options.contentTheme || 'monthly content theme';
+    const concept = await developCreativeConcept(brandDNA, businessGoal, contentGoal, { ideaLevel: 'campaign' });
+
+    const imageBrief = creative.buildImageBriefFromConcept(concept, brandDNA);
+    const userId = options.userId || options.user_id || null;
+
+    const aspects = ['1:1', '9:16', '4:5'];
+    const urls = [];
+    let plan = null;
+    try {
+      const raw = productImageUrl
+        ? await claudeVision(imageBrief.userTask, [productImageUrl], { max_tokens: 4096, system: imageBrief.system })
+        : await claudeText(imageBrief.userTask, 'social_post', 4096, { system: imageBrief.system, returnRaw: true });
+      plan = extractJSON(raw) || {};
+    } catch (e) {
+      console.error('[higgsfield:generateStrategicProductImage] mcsla plan failed', e.message);
+    }
+
+    const promptObjs = Array.isArray(plan?.prompts) && plan.prompts.length
+      ? plan.prompts
+      : aspects.map((ar) => ({
+          aspect_ratio: ar,
+          prompt: `${imageBrief.creativeContext?.subject || 'product'} — ${imageBrief.creativeContext?.action || 'static'}. Camera: ${imageBrief.creativeContext?.camera || 'Static'}. Style: ${imageBrief.creativeContext?.look || 'Cinematic commercial'}, ${ar}.`
+        }));
+
+    for (let i = 0; i < 3; i++) {
+      const obj = promptObjs[i] || promptObjs[0];
+      const prompt = hf.killSlop(obj.prompt);
+      try {
+        const payload = {
+          prompt,
+          aspect_ratio: obj.aspect_ratio || aspects[i],
+          resolution: '1080p'
+        };
+        if (productImageUrl && productImageUrl.startsWith('http')) payload.image_url = productImageUrl;
+        const url = await submitSoulAndWait(payload);
+        if (url) urls.push(await persistGeneratedImageUrl(url, userId, i));
+      } catch (e) {
+        console.error('[higgsfield:generateStrategicProductImage] soul gen failed', { i, message: e.message });
+        logger.warn('higgsfield', null, 'strategic soul gen failed', { message: e.message, index: i });
+      }
+    }
+    return { concept, generated: urls };
+  }
+
+  /**
+   * Phase 2 — Soul ID character training.
+   * Creates a Higgsfield Soul Character from 1-5+ reference images.
+   * Returns { higgsfield_character_id } once training submitted.
+   * Default endpoint can be overridden via HIGGSFIELD_PATH_CHARACTER_CREATE env.
+   */
+  async function trainSoulCharacter({ characterId, sourceImageUrls, name }) {
+    if (!Array.isArray(sourceImageUrls) || sourceImageUrls.length === 0) {
+      throw new Error('sourceImageUrls (1-5+) required');
+    }
+    const payload = {
+      name: (name || characterId || 'character').slice(0, 80),
+      reference_image_urls: sourceImageUrls.slice(0, 20),
+      meta: { external_id: characterId || null }
+    };
+    const r = await hfPost(PATH_CHARACTER_CREATE, payload, 180000);
+    if (r.status < 200 || r.status >= 300) {
+      console.error('[higgsfield:trainSoulCharacter] HTTP', r.status, safeStringify(r.body));
+      throw new Error(`Higgsfield character create HTTP ${r.status}`);
+    }
+    const body = parseJsonBody(r.body);
+    const hfId = body.character_id || body.id || body.data?.character_id || body.data?.id;
+    if (!hfId) {
+      console.error('[higgsfield:trainSoulCharacter] missing character id in response', safeStringify(body));
+      throw new Error('Higgsfield character create did not return a character id');
+    }
+    return { higgsfield_character_id: hfId, raw: body };
+  }
+
+  /**
+   * Phase 3 — generic model dispatcher.
+   * Submits to whatever Higgsfield endpoint matches the model id.
+   * Image models go through submitSoulAndWait-style polling; video models through video pollers.
+   */
+  async function generateWithModel(modelId, payload, kind = 'image') {
+    const path = pathForModel(modelId);
+    if (kind === 'video') return submitVideoAndWait(path, payload);
+    // image path — reuse the soul-style submit/poll
+    const postUrl = higgsfieldUrl(path);
+    console.error('[higgsfield:generateWithModel] POST', postUrl, '(model:', modelId, ')');
+    const r = await hfPost(path, payload);
+    if (r.status < 200 || r.status >= 300) throw new Error(`Higgsfield ${modelId} HTTP ${r.status}`);
+    const body = parseJsonBody(r.body);
+    const rid = extractRequestId(body);
+    const doneUrl = extractImageResultUrl(body);
+    if (statusNorm(body) === 'completed' && doneUrl) return doneUrl;
+    if (!rid) {
+      if (doneUrl) return doneUrl;
+      throw new Error(`Higgsfield ${modelId} did not return request_id`);
+    }
+    return await pollRequestStatus(rid, 'image', IMAGE_JOB_TIMEOUT_MS);
+  }
+
   return {
     generateProductImage,
     generateProductVideo,
     generateHeroAd,
     scoreContent,
+    vetCustomerAsset,
+    vetCustomerAssetBatch,
+    smartProcessAsset,
+    developCreativeConcept,
+    generateStrategicProductImage,
+    trainSoulCharacter,
+    generateWithModel,
+    pathForModel,
     generateCaption,
     processProductCatalog,
     cancelRequest

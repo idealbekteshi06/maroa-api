@@ -28,6 +28,7 @@ const createEngine = require('./engine.js');
 const createPublisher = require('./publish.js');
 const createLearningLoop = require('./learningLoop.js');
 const createDailyRun = require('./dailyRun.js');
+const createBatchOvernight = require('./batchOvernight.js');
 
 function createWf1(deps) {
   const {
@@ -37,6 +38,7 @@ function createWf1(deps) {
     countryIntelligence,
     checkOrchestrationIdempotency,
     recordOrchestrationTaskRun,
+    batchService,
     logger,
   } = deps;
 
@@ -64,7 +66,20 @@ function createWf1(deps) {
     recordOrchestrationTaskRun,
   });
 
-  return { engine, publisher, learningLoop, dailyRun, guardrails, contextBundleBuilder, buildBrandContext };
+  // Optional: nightly batch consolidator for 50% Sonnet cost on overnight runs.
+  // Only wires up if batchService is provided in deps.
+  const batchOvernight = batchService
+    ? createBatchOvernight({
+        sbGet, sbPost, sbPatch,
+        extractJSON,
+        logger,
+        contextBundleBuilder,
+        buildBrandContext,
+        batchService,
+      })
+    : null;
+
+  return { engine, publisher, learningLoop, dailyRun, guardrails, contextBundleBuilder, buildBrandContext, batchOvernight };
 }
 
 module.exports = createWf1;

@@ -274,6 +274,43 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
       apiError(res, 500, 'WF1_MEASURE_FAILED', e.message);
     }
   });
+
+  // ─── POST /webhook/wf1-overnight-batch-submit (cron target, ~23:00 UTC) ─
+  // Consolidates every active business's WF1 strategic-decision call into ONE
+  // Anthropic Message Batch — 50% Sonnet cost cut on overnight bulk content.
+  // Body: { dryRun?: boolean, businessIds?: string[] }
+  app.post('/webhook/wf1-overnight-batch-submit', async (req, res) => {
+    if (!wf1.batchOvernight) {
+      return apiError(res, 503, 'BATCH_OVERNIGHT_DISABLED', 'batchService not configured — overnight batch unavailable');
+    }
+    try {
+      const { dryRun, businessIds } = req.body || {};
+      const result = await wf1.batchOvernight.submitOvernightBatch({ dryRun: !!dryRun, businessIds: Array.isArray(businessIds) ? businessIds : null });
+      res.json(result);
+    } catch (e) {
+      logger?.error('/webhook/wf1-overnight-batch-submit', null, 'submit failed', e);
+      apiError(res, 500, 'WF1_BATCH_SUBMIT_FAILED', e.message);
+    }
+  });
+
+  // ─── POST /webhook/wf1-overnight-batch-apply (cron target, every 10 min) ─
+  // Polls a submitted batch; when ended, parses each succeeded response and
+  // writes content_plans + content_concepts rows. Idempotent on retries.
+  // Body: { anthropicBatchId: string }
+  app.post('/webhook/wf1-overnight-batch-apply', async (req, res) => {
+    if (!wf1.batchOvernight) {
+      return apiError(res, 503, 'BATCH_OVERNIGHT_DISABLED', 'batchService not configured — overnight batch unavailable');
+    }
+    const { anthropicBatchId } = req.body || {};
+    if (!anthropicBatchId) return apiError(res, 400, 'INVALID_REQUEST', 'anthropicBatchId required');
+    try {
+      const result = await wf1.batchOvernight.applyOvernightBatch({ anthropicBatchId });
+      res.json(result);
+    } catch (e) {
+      logger?.error('/webhook/wf1-overnight-batch-apply', null, 'apply failed', e);
+      apiError(res, 500, 'WF1_BATCH_APPLY_FAILED', e.message);
+    }
+  });
 }
 
 module.exports = { registerWf1Routes };

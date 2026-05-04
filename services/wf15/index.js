@@ -181,7 +181,7 @@ function createWf15(deps) {
     // Route model
     const routing = routeModel(content, attachmentIds.length > 0);
     const model =
-      routing.model === 'opus' ? 'claude-opus-4-5' :
+      routing.model === 'opus' ? 'claude-opus-4-7' :
       routing.model === 'sonnet' ? 'claude-sonnet-4-5' :
       'claude-haiku-4-5';
 

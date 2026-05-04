@@ -62,7 +62,7 @@ function createWf14(deps) {
     const brandContext = await resolveBrandContext(businessId);
     const state = await gatherState(businessId);
     const { system, user } = buildBudgetOptimizerPrompt(brandContext, state);
-    const raw = await callClaude(user, 'claude-opus-4-5', 3000, { system, businessId, returnRaw: true });
+    const raw = await callClaude(user, 'claude-opus-4-7', 3000, { system, businessId, returnRaw: true });
     const parsed = extractJSON(raw) || {};
 
     const row = await sbPost('budget_optimizer_runs', {
@@ -76,7 +76,7 @@ function createWf14(deps) {
       total_spend_change_usd: parsed.total_spend_change_usd || 0,
       projected_blended_roas: parsed.projected_blended_roas_next_month || 0,
       confidence: parsed.confidence || 'medium',
-      model_used: 'claude-opus-4-5',
+      model_used: 'claude-opus-4-7',
       status: 'awaiting_approval',
     });
 

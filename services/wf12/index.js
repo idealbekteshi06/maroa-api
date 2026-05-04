@@ -22,7 +22,7 @@ function createWf12(deps) {
   async function planLaunch({ businessId, request }) {
     const brandContext = await resolveBrandContext(businessId);
     const { system, user } = buildLaunchPlanPrompt(brandContext, request);
-    const raw = await callClaude(user, 'claude-opus-4-5', 4500, { system, businessId, returnRaw: true });
+    const raw = await callClaude(user, 'claude-opus-4-7', 4500, { system, businessId, returnRaw: true });
     const plan = extractJSON(raw) || {};
 
     const launchRow = await sbPost('launches', {

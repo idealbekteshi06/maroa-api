@@ -97,7 +97,7 @@ function createEngine({
       // Phase 2: synthesis
       await sbPatch('weekly_briefs', `id=eq.${briefRow.id}`, { status: 'synthesizing', updated_at: new Date().toISOString() });
       const synthesisPrompt = buildStrategicSynthesisPrompt(brandContext, bundle);
-      const synthesisRaw = await callClaude(synthesisPrompt.user, 'claude-opus-4-5', 5000, {
+      const synthesisRaw = await callClaude(synthesisPrompt.user, 'claude-opus-4-7', 5000, {
         system: synthesisPrompt.system,
         businessId,
         returnRaw: true,
@@ -131,7 +131,7 @@ function createEngine({
         subject_line: deliverable.subjectLine || synthesis.headline,
         headline: synthesis.headline,
         word_count: synthesis.wordCountEstimate || null,
-        model_used_synthesis: 'claude-opus-4-5',
+        model_used_synthesis: 'claude-opus-4-7',
         model_used_polish: 'claude-sonnet-4-5',
         generated_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),

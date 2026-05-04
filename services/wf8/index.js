@@ -38,7 +38,7 @@ function createWf8(deps) {
     const brandContext = await resolveBrandContext(businessId);
     const bundle = await gatherBundle(businessId);
     const { system, user } = buildCustomerInsightPrompt(brandContext, bundle);
-    const raw = await callClaude(user, 'claude-opus-4-5', 4000, { system, businessId, returnRaw: true });
+    const raw = await callClaude(user, 'claude-opus-4-7', 4000, { system, businessId, returnRaw: true });
     const parsed = extractJSON(raw) || {};
     const row = await sbPost('insight_reports', {
       business_id: businessId,

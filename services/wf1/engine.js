@@ -23,6 +23,7 @@ const {
   AUTONOMY_MODES,
 } = require('../prompts/workflow_1_daily_content.js');
 const { FOUNDATION_SYSTEM_PROMPT } = require('../prompts/foundation.js');
+const creativeDirector = require('../prompts/creative-director');
 
 function createEngine({
   sbGet,
@@ -121,11 +122,81 @@ function createEngine({
 
     const { system, user } = buildStrategicDecisionPrompt(brandContext, bundle);
 
+    // Agency tier gets the upstream Cannes-grade creative-director pass FIRST,
+    // then folds the chosen concept into the daily-content prompt for richer
+    // downstream concepts. Free/Growth tiers go straight to the existing path.
+    const businessRow = (await sbGet('businesses', `id=eq.${businessId}&select=plan,plan_price`).catch(() => []))[0] || {};
+    const isAgency = String(businessRow.plan || '').toLowerCase() === 'agency';
+
+    let creativeConcept = null;
+    let creativeConceptId = null;
+    let augmentedSystem = system;
+    let augmentedUser = user;
+
+    if (isAgency) {
+      try {
+        const cdBrief = creativeDirector.buildCreativeBrief({
+          brandDNA: {
+            business_name: brandContext.businessName,
+            industry: brandContext.industry,
+            brand_tone: brandContext.toneOfVoice,
+            target_audience: brandContext.idealCustomer,
+            location: brandContext.country,
+            marketing_goal: brandContext.northStarMetric,
+            visualPalette: brandContext.visualPalette,
+            compositionRules: brandContext.compositionRules,
+            motionIdentity: brandContext.motionIdentity,
+          },
+          businessGoal: brandContext.northStarMetric || 'increase awareness',
+          contentGoal: `Daily content theme for ${todayLocalDate}`,
+          ideaLevel: 'campaign',
+        });
+        const cdRaw = await callClaude(cdBrief.userTask, 'claude-opus-4-7', 4000, {
+          system: cdBrief.system,
+          businessId,
+          cacheSystem: true, // creative-director prompt is 13k chars — high cache savings
+          returnRaw: true,
+        });
+        creativeConcept = extractJSON(cdRaw) || {};
+        if (creativeConcept?.top_concept) {
+          // Persist as a creative_concepts row
+          const ccRow = await sbPost('creative_concepts', {
+            business_id: businessId,
+            content_goal: `Daily content theme for ${todayLocalDate}`,
+            idea_level: 'campaign',
+            insight: creativeConcept.insight || null,
+            tension_type: creativeConcept.tension_type || null,
+            top_concept: creativeConcept.top_concept,
+            runner_up: creativeConcept.runner_up || null,
+            ideas_considered: creativeConcept.ideas_considered || [],
+            weighted_score: Number(creativeConcept.top_concept?.scores?.weighted) || null,
+            humankind_score: Number(creativeConcept.top_concept?.scores?.humankind) || null,
+            grey_score: Number(creativeConcept.top_concept?.scores?.grey) || null,
+            pattern: creativeConcept.top_concept?.pattern || null,
+            comparable_canon: creativeConcept.top_concept?.comparable_canon || null,
+            status: 'used',
+            decided_at: new Date().toISOString(),
+            model_used: 'claude-opus-4-7',
+          }).catch(() => null);
+          creativeConceptId = ccRow?.[0]?.id || ccRow?.id || null;
+          // Inject the concept as additional context for the daily-content strategic prompt
+          augmentedUser = `${user}\n\n---\nUPSTREAM CREATIVE-DIRECTOR CONCEPT (Cannes-grade Agency tier):\nInsight: ${creativeConcept.insight}\nTop concept: ${creativeConcept.top_concept?.name} — ${creativeConcept.top_concept?.one_sentence}\nPattern: ${creativeConcept.top_concept?.pattern}\nWhy it matters: ${creativeConcept.top_concept?.rationale || ''}\n\nLock the daily concepts to this strategic direction. Do not invent contradictory themes.`;
+          logger?.info('/wf1/engine', businessId, 'creative-director concept locked', {
+            concept_id: creativeConceptId,
+            pattern: creativeConcept.top_concept?.pattern,
+            weighted: creativeConcept.top_concept?.scores?.weighted,
+          });
+        }
+      } catch (e) {
+        logger?.warn('/wf1/engine', businessId, 'creative-director pass failed, falling back to standard path', { error: e.message });
+      }
+    }
+
     // Claude Opus call. We pass the system prompt via `extra.system` so
     // callClaude preserves it. Expected ~3000 tokens out.
     const startedAt = Date.now();
-    const raw = await callClaude(user, 'claude-opus-4-5', 3500, {
-      system,
+    const raw = await callClaude(augmentedUser, 'claude-opus-4-7', 3500, {
+      system: augmentedSystem,
       businessId,
       returnRaw: true,
     });
@@ -148,7 +219,7 @@ function createEngine({
       status: conceptsIn.length ? 'awaiting_approval' : 'skipped',
       analysis,
       context_snapshot: bundle,
-      model_used: 'claude-opus-4-5',
+      model_used: 'claude-opus-4-7',
     });
 
     // Persist concepts
@@ -174,6 +245,7 @@ function createEngine({
         risk_level: c.riskLevel || 'low',
         cost_estimate_usd: c.costEstimate || 0,
         status: 'pending',
+        creative_concept_id: creativeConceptId,
       }).catch(e => {
         logger?.error('/wf1/engine', businessId, 'concept insert failed', e);
         return null;
@@ -261,7 +333,20 @@ function createEngine({
       costEstimate: Number(concept.cost_estimate_usd || 0),
     };
 
-    const { system, user } = buildPlatformGenerationPrompt(brandContextReady, conceptBrief);
+    let { system, user } = buildPlatformGenerationPrompt(brandContextReady, conceptBrief);
+
+    // If this concept came from an Agency-tier creative-director run, thread the
+    // upstream visual/audio/camera direction into the Sonnet prompt so the
+    // platform-native asset honours the strategic concept.
+    if (concept.creative_concept_id) {
+      const ccRows = await sbGet('creative_concepts', `id=eq.${concept.creative_concept_id}&select=top_concept,insight,pattern,comparable_canon`).catch(() => []);
+      const cc = ccRows[0];
+      const downstream = cc?.top_concept?.downstream_brief_for_higgsfield;
+      if (downstream) {
+        user = `${user}\n\n---\nUPSTREAM CREATIVE DIRECTION (lock the asset to this — do not invent contradictory visuals):\nInsight: ${cc.insight || ''}\nPattern: ${cc.pattern || ''} (${cc.comparable_canon || 'no canon match'})\nVisualization (subject the camera sees): ${downstream.subject || ''}\nAction (what happens): ${downstream.action || ''}\nLook (style + grade + lighting): ${downstream.look || ''}\nCamera (named preset): ${downstream.camera || ''}\nNative aspect: ${downstream.platform_native_aspect || ''}\n${downstream.audio_cue ? 'Audio cue: ' + downstream.audio_cue : ''}\n\nThe visual brief you generate must align with these directions. Caption + hook tone should reflect the insight.`;
+      }
+    }
+
     const raw = await callClaude(user, 'claude-sonnet-4-5', 3000, {
       system,
       businessId,

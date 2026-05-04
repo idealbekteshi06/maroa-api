@@ -46,7 +46,8 @@ ADD COLUMN IF NOT EXISTS profile_score INTEGER DEFAULT 0;
 
 -- RLS
 ALTER TABLE business_profiles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS "service_full_business_profiles" ON business_profiles FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_full_business_profiles" ON business_profiles;
+CREATE POLICY "service_full_business_profiles" ON business_profiles FOR ALL USING (true) WITH CHECK (true);
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_business_profiles_user ON business_profiles(user_id);
