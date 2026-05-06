@@ -913,6 +913,57 @@ const wf2 = createWf2({
 });
 const { registerWf2Routes } = require('./services/wf2/registerRoutes');
 
+// ─── Ad Optimizer (user-facing WF02 — Daily Ad Optimizer) ──────────────────
+// International (multi-region/currency/language), SMB-budget calibrated,
+// trend-aware, anti-thrashing, learning-phase respecting. See CLAUDE.md WF02.
+const createAdOptimizer = require('./services/ad-optimizer');
+const adOptimizer = createAdOptimizer({
+  sbGet, sbPost, sbPatch,
+  callClaude, extractJSON,
+  logger,
+  Sentry: typeof Sentry !== 'undefined' ? Sentry : null,
+});
+
+// ─── AI-SEO (NEW capability — get sites cited by ChatGPT/Perplexity/Claude) ─
+// 8-dimension audit + llms.txt + JSON-LD schema generation. International,
+// SMB-calibrated, deterministic baseline + LLM synthesis layered on top.
+const createAiSeo = require('./services/ai-seo');
+const aiSeo = createAiSeo({
+  sbGet, sbPost, sbPatch,
+  callClaude, extractJSON,
+  logger,
+  Sentry: typeof Sentry !== 'undefined' ? Sentry : null,
+});
+
+// ─── CRO (NEW capability — landing-page audit + copy rewrite) ──────────────
+// 7-dimension SMB-calibrated audit + hero/CTA/value-prop rewrites.
+// International (CTA conventions per language), RTL-aware.
+const createCro = require('./services/cro');
+const croService = createCro({
+  sbGet, sbPost, sbPatch,
+  callClaude, extractJSON,
+  logger,
+  Sentry: typeof Sentry !== 'undefined' ? Sentry : null,
+});
+
+// ─── Pacing Alerts (4-hour cadence between WF02 daily audits) ──────────────
+const createPacingAlerts = require('./services/pacing-alerts');
+const pacingAlerts = createPacingAlerts({
+  sbGet, sbPost, sbPatch,
+  logger,
+  Sentry: typeof Sentry !== 'undefined' ? Sentry : null,
+});
+
+// ─── Weekly Scorecard (replaces WF17 — Sunday 22:00 UTC) ───────────────────
+const createWeeklyScorecard = require('./services/weekly-scorecard');
+const weeklyScorecard = createWeeklyScorecard({
+  sbGet, sbPost, sbPatch,
+  callClaude, extractJSON,
+  sendEmail,
+  logger,
+  Sentry: typeof Sentry !== 'undefined' ? Sentry : null,
+});
+
 // ─── Workflow #4 — Reviews & Reputation ────────────────────────────────────
 const createWf4 = require('./services/wf4');
 const wf4 = createWf4({
@@ -10581,6 +10632,21 @@ registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logger });
 
 // ─── Workflow #2 routes (Lead Scoring & Routing) ────────────────────────────
 registerWf2Routes({ app, wf2, apiError, logger });
+
+// ─── Ad Optimizer routes (user-facing WF02 — Daily Ad Optimizer) ───────────
+adOptimizer.registerRoutes({ app, apiError });
+
+// ─── AI-SEO routes (NEW — citability for AI assistants) ───────────────────
+aiSeo.registerRoutes({ app, apiError });
+
+// ─── CRO routes (NEW — landing page audit + rewrite) ──────────────────────
+croService.registerRoutes({ app, apiError });
+
+// ─── Pacing Alerts routes (between daily ad audits) ───────────────────────
+pacingAlerts.registerRoutes({ app, apiError });
+
+// ─── Weekly Scorecard routes (replaces WF17 monthly report) ───────────────
+weeklyScorecard.registerRoutes({ app, apiError });
 
 // ─── Workflow #4 routes (Reviews & Reputation) ──────────────────────────────
 registerWf4Routes({ app, wf4, apiError, logger });
