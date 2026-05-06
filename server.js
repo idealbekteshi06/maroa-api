@@ -964,6 +964,25 @@ const weeklyScorecard = createWeeklyScorecard({
   Sentry: typeof Sentry !== 'undefined' ? Sentry : null,
 });
 
+// ─── Forecasting (predictive — ROAS / spend / revenue / LTV / budget alloc) ─
+const createForecasting = require('./services/forecasting');
+const forecasting = createForecasting({
+  sbGet, sbPost, sbPatch,
+  callClaude, extractJSON,
+  logger,
+  Sentry: typeof Sentry !== 'undefined' ? Sentry : null,
+});
+
+// ─── VOC (Voice-of-Customer — mines reviews/comments/emails for real signal) ─
+const createVoc = require('./services/voc');
+const vocService = createVoc({
+  sbGet, sbPost, sbPatch,
+  callClaude, extractJSON,
+  serpSearch, apiRequest,
+  logger,
+  Sentry: typeof Sentry !== 'undefined' ? Sentry : null,
+});
+
 // ─── Workflow #4 — Reviews & Reputation ────────────────────────────────────
 const createWf4 = require('./services/wf4');
 const wf4 = createWf4({
@@ -10647,6 +10666,12 @@ pacingAlerts.registerRoutes({ app, apiError });
 
 // ─── Weekly Scorecard routes (replaces WF17 monthly report) ───────────────
 weeklyScorecard.registerRoutes({ app, apiError });
+
+// ─── Forecasting routes (predictive) ──────────────────────────────────────
+forecasting.registerRoutes({ app, apiError });
+
+// ─── VOC routes (Voice-of-Customer mining) ────────────────────────────────
+vocService.registerRoutes({ app, apiError });
 
 // ─── Workflow #4 routes (Reviews & Reputation) ──────────────────────────────
 registerWf4Routes({ app, wf4, apiError, logger });
