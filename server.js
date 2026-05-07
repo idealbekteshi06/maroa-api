@@ -82,10 +82,14 @@ const corsOptions = {
       'http://localhost:3000',
       'http://localhost:3001',
       'http://localhost:5173',
+      'http://localhost:8080',
     ];
     if (allowed.includes(origin)) return callback(null, true);
     // Allow all *.vercel.app preview deployments
     if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/.test(origin)) return callback(null, true);
+    // Allow all *.lovable.app preview deployments
+    if (/^https:\/\/[a-z0-9-]+\.lovable\.app$/.test(origin)) return callback(null, true);
+    logger.warn('cors', null, 'origin rejected', { origin });
     return callback(new Error('Not allowed by CORS'));
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
