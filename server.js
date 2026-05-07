@@ -3168,6 +3168,56 @@ app.post('/api/content/generate', async (req, res) => {
   }
 });
 
+// GET /api/cron-health/:businessId — drives the live "Lead scoring active",
+// "Competitor monitoring", "SEO monitoring" status banners on Home.
+// Reads last-run timestamps from the existing tables that each cron writes to.
+// A cron is "healthy" if it ran inside its expected cadence + a 30% grace window.
+app.get('/api/cron-health/:businessId', async (req, res) => {
+  const businessId = String(req.params.businessId || '').trim();
+  if (!businessId) return apiError(res, 400, 'VALIDATION_ERROR', 'businessId required');
+
+  const HOUR = 3_600_000;
+  const DAY = 86_400_000;
+  const now = Date.now();
+
+  function statusFor(lastRunIso, expectedIntervalMs) {
+    if (!lastRunIso) return { last_run_at: null, healthy: false, age_hours: null };
+    const ts = new Date(lastRunIso).getTime();
+    if (Number.isNaN(ts)) return { last_run_at: lastRunIso, healthy: false, age_hours: null };
+    const ageMs = now - ts;
+    const grace = expectedIntervalMs * 1.3;
+    return {
+      last_run_at: lastRunIso,
+      healthy: ageMs <= grace,
+      age_hours: Math.round(ageMs / HOUR),
+    };
+  }
+
+  try {
+    const [contentRows, compRows, snapRows, learnRows, retentionRows, winRows] = await Promise.all([
+      sbGet('generated_content', `business_id=eq.${businessId}&select=created_at&order=created_at.desc&limit=1`).catch(() => []),
+      sbGet('competitor_insights', `business_id=eq.${businessId}&select=recorded_at&order=recorded_at.desc&limit=1`).catch(() => []),
+      sbGet('analytics_snapshots', `business_id=eq.${businessId}&select=snapshot_date&order=snapshot_date.desc&limit=1`).catch(() => []),
+      sbGet('learning_logs', `business_id=eq.${businessId}&select=created_at&order=created_at.desc&limit=1`).catch(() => []),
+      sbGet('retention_logs', `business_id=eq.${businessId}&select=sent_at&order=sent_at.desc&limit=1`).catch(() => []),
+      sbGet('win_notifications', `business_id=eq.${businessId}&select=notified_at&order=notified_at.desc&limit=1`).catch(() => []),
+    ]);
+
+    return res.json({
+      generated_at: new Date().toISOString(),
+      content_generation: statusFor(contentRows[0]?.created_at, 7 * DAY),       // weekly cron
+      competitor_monitor: statusFor(compRows[0]?.recorded_at, 7 * DAY),         // weekly Friday scan
+      analytics_snapshot: statusFor(snapRows[0]?.snapshot_date, 1 * DAY),       // daily
+      lead_scoring:       statusFor(learnRows[0]?.created_at, 1 * DAY),         // daily
+      retention_emails:   statusFor(retentionRows[0]?.sent_at, 1 * DAY),
+      win_notifications:  statusFor(winRows[0]?.notified_at, 6 * HOUR),
+    });
+  } catch (err) {
+    console.error('[cron-health]', err.message);
+    return apiError(res, 500, 'CRON_HEALTH_FAILED', err.message);
+  }
+});
+
 app.get('/api/business/:businessId/brand-voice', async (req, res) => {
   const businessId = String(req.params.businessId || '').trim();
   if (!businessId) return res.status(400).json({ error: 'businessId required' });
