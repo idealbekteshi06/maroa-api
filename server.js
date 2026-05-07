@@ -3097,6 +3097,101 @@ app.get('/api/billing/plans', (req, res) => {
   res.json({ plans: PLANS });
 });
 
+// ─── Brand Voice (read + rebuild) ─────────────────────────────────────────
+// Frontend BrandVoiceCard reads from this. Returns null body when no anchor exists yet.
+const brandVoiceService = require('./services/prompts/brand-voice');
+
+function _toUiBrandVoice(anchor, vocLatest) {
+  if (!anchor) return null;
+  const tone = Array.isArray(anchor.tone_descriptors) && anchor.tone_descriptors.length
+    ? anchor.tone_descriptors.join(', ')
+    : (anchor.voice_register || '');
+  const customerPhrases = [];
+  if (vocLatest) {
+    for (const key of ['jtbd_signals', 'pain_points']) {
+      const arr = Array.isArray(vocLatest[key]) ? vocLatest[key] : [];
+      for (const item of arr) {
+        const phrase = typeof item === 'string' ? item : (item && (item.phrase || item.quote || item.text)) || null;
+        if (phrase && customerPhrases.length < 8) customerPhrases.push(phrase);
+      }
+    }
+  }
+  const confidenceMap = { high: 92, medium: 70, low: 45, minimal: 25 };
+  return {
+    tone,
+    do_use: Array.isArray(anchor.do_words) ? anchor.do_words : [],
+    do_not_use: Array.isArray(anchor.do_not_words) ? anchor.do_not_words : [],
+    customer_phrases: customerPhrases,
+    updated_at: anchor.regenerated_at || null,
+    confidence: confidenceMap[String(anchor.confidence || '').toLowerCase()] || null,
+    derived_from: Array.isArray(anchor.derived_from) ? anchor.derived_from.join(' · ') : null,
+  };
+}
+
+app.get('/api/business/:businessId/brand-voice', async (req, res) => {
+  const businessId = String(req.params.businessId || '').trim();
+  if (!businessId) return res.status(400).json({ error: 'businessId required' });
+  try {
+    const profileRows = await sbGet('business_profiles', `user_id=eq.${businessId}&select=brand_voice_anchor,brand_voice_regenerated_at`).catch(() => []);
+    const profile = profileRows[0] || {};
+    let anchor = profile.brand_voice_anchor || null;
+    if (typeof anchor === 'string') {
+      try { anchor = JSON.parse(anchor); } catch { anchor = null; }
+    }
+    if (!anchor) {
+      const bizRows = await sbGet('businesses', `id=eq.${businessId}&select=brand_voice_locked,brand_tone`).catch(() => []);
+      const biz = bizRows[0] || {};
+      let locked = biz.brand_voice_locked || null;
+      if (typeof locked === 'string') {
+        try { locked = JSON.parse(locked); } catch { locked = null; }
+      }
+      if (locked && typeof locked === 'object') anchor = locked;
+    }
+    if (!anchor && req.query.fallback !== 'false') {
+      return res.json({ voice: null });
+    }
+    let voc = null;
+    try {
+      const vocRows = await sbGet('voc_analyses', `business_id=eq.${businessId}&order=analyzed_at.desc&limit=1`);
+      voc = vocRows[0] || null;
+    } catch { voc = null; }
+    const ui = _toUiBrandVoice(anchor, voc);
+    return res.json({ voice: ui });
+  } catch (err) {
+    console.error('[brand-voice GET]', err.message);
+    res.status(500).json({ error: 'brand-voice fetch failed', detail: err.message });
+  }
+});
+
+app.post('/webhook/build-brand-voice', async (req, res) => {
+  const businessId = String((req.body && (req.body.business_id || req.body.businessId)) || '').trim();
+  if (!businessId) return res.status(400).json({ error: 'business_id required' });
+  try {
+    const [bizRows, profileRows, vocRows] = await Promise.all([
+      sbGet('businesses', `id=eq.${businessId}&select=*`).catch(() => []),
+      sbGet('business_profiles', `user_id=eq.${businessId}&select=*`).catch(() => []),
+      sbGet('voc_analyses', `business_id=eq.${businessId}&order=analyzed_at.desc&limit=1`).catch(() => []),
+    ]);
+    const biz = { ...(bizRows[0] || {}), ...(profileRows[0] || {}) };
+    if (!biz || !biz.id && !bizRows[0]) return res.status(404).json({ error: 'business not found' });
+    const anchor = brandVoiceService.buildAnchor({ business: biz, vocAnalysis: vocRows[0] || null });
+    if (profileRows[0]) {
+      await sbPatch('business_profiles', `user_id=eq.${businessId}`, {
+        brand_voice_anchor: anchor,
+        brand_voice_regenerated_at: new Date().toISOString(),
+      }).catch(() => {});
+    }
+    await sbPatch('businesses', `id=eq.${businessId}`, {
+      brand_voice_locked: JSON.stringify(anchor),
+    }).catch(() => {});
+    const ui = _toUiBrandVoice(anchor, vocRows[0] || null);
+    return res.json({ ok: true, voice: ui });
+  } catch (err) {
+    console.error('[build-brand-voice]', err.message);
+    res.status(500).json({ error: 'build-brand-voice failed', detail: err.message });
+  }
+});
+
 // POST /api/checkout — create Paddle checkout session
 // Body: { user_id, plan }
 app.post('/api/checkout', async (req, res) => {
