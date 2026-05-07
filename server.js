@@ -3101,6 +3101,30 @@ app.get('/api/billing/plans', (req, res) => {
   res.json({ plans: PLANS });
 });
 
+// ─── Inngest serve handler ────────────────────────────────────────────────
+// Mounts our Inngest cron + event functions (services/inngest/functions.js)
+// at /api/inngest. This is the URL Inngest Cloud calls to invoke functions.
+// Set INNGEST_EVENT_KEY + INNGEST_SIGNING_KEY in Railway env to activate.
+// Without those env vars, the handler still loads but returns 401 to Inngest
+// Cloud — safe to ship before keys are set.
+try {
+  const { serve: inngestServe } = require('inngest/express');
+  const { inngest } = require('./services/inngest/client');
+  const { functions: inngestFunctions } = require('./services/inngest/functions');
+  app.use(
+    '/api/inngest',
+    inngestServe({
+      client: inngest,
+      functions: inngestFunctions,
+      // serveHost lets Inngest Cloud know the public URL when behind a proxy.
+      serveHost: process.env.INNGEST_SERVE_HOST || undefined,
+    })
+  );
+  console.log(`[inngest] mounted ${inngestFunctions.length} functions at /api/inngest`);
+} catch (e) {
+  console.error('[inngest] failed to mount:', e.message);
+}
+
 // ─── Brand Voice (read + rebuild) ─────────────────────────────────────────
 // Frontend BrandVoiceCard reads from this. Returns null body when no anchor exists yet.
 const brandVoiceService = require('./services/prompts/brand-voice');
