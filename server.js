@@ -3128,6 +3128,42 @@ function _toUiBrandVoice(anchor, vocLatest) {
   };
 }
 
+// POST /api/content/generate — synchronous instant content generation.
+// Unlike /webhook/instant-content which is fire-and-forget, this awaits the
+// full generateInstantContent flow and returns the row (or a real error).
+// Frontend UX path: WelcomeModal + Generate Now buttons hit this for honest
+// success/failure feedback.
+app.post('/api/content/generate', async (req, res) => {
+  const businessId = String((req.body && (req.body.business_id || req.body.businessId)) || '').trim();
+  const userId = String((req.body && (req.body.user_id || req.body.userId)) || '').trim();
+  const email = String((req.body && req.body.email) || '').trim();
+  if (!businessId) return apiError(res, 400, 'VALIDATION_ERROR', 'business_id required');
+
+  try {
+    const rl = await checkRateLimit(`gen:${businessId || userId || req.ip}`);
+    if (!rl.success) return apiError(res, 429, 'RATE_LIMITED', 'Too many generation requests — please wait 1 minute.');
+  } catch {}
+
+  try {
+    const bizRows = await sbGet('businesses', `id=eq.${businessId}&select=id,business_name,industry,brand_tone`);
+    if (!bizRows[0]) {
+      return apiError(res, 404, 'BUSINESS_NOT_FOUND', `No business profile found for id ${businessId}. Finish onboarding first.`);
+    }
+    const result = await generateInstantContent(businessId, email || undefined);
+    res.json({ ok: true, content: result });
+    if (email) {
+      try {
+        const html = `<h2>Your weekly content is ready!</h2><p>Theme: <strong>${result.content_theme || 'Weekly Content'}</strong></p><p><a href="https://maroa.ai/dashboard?tab=content">Review &amp; Approve Content</a></p>`;
+        await sendEmail(email, `Your ${result.content_theme || 'weekly'} content is ready!`, html);
+      } catch {}
+    }
+  } catch (err) {
+    console.error('[/api/content/generate]', err.message);
+    try { await logError(businessId, 'instant-content-sync', err.message, req.body); } catch {}
+    return apiError(res, 500, 'GENERATION_FAILED', err.message || 'Content generation failed');
+  }
+});
+
 app.get('/api/business/:businessId/brand-voice', async (req, res) => {
   const businessId = String(req.params.businessId || '').trim();
   if (!businessId) return res.status(400).json({ error: 'businessId required' });
