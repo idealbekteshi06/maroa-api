@@ -1,0 +1,67 @@
+name: CI
+
+# Runs on every push to main + every PR. Blocks merge if anything fails.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test + Lint + Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (production-safe)
+        run: npm ci
+
+      # ─── 1. Unit + integration tests (fast, must pass) ──────────────────
+      - name: Run test suite
+        run: npm test
+        env:
+          NODE_ENV: test
+
+      # ─── 2. Lint (style + bug-prone patterns) ───────────────────────────
+      - name: ESLint
+        run: npm run lint
+        continue-on-error: false
+
+      # ─── 3. Format check (Prettier) ─────────────────────────────────────
+      - name: Prettier check
+        run: npm run format:check
+        continue-on-error: false
+
+      # ─── 4. Security audit (npm audit + dependency vulnerabilities) ─────
+      - name: npm audit (high severity blocks merge)
+        run: npm audit --audit-level=high
+        continue-on-error: false
+
+      # ─── 5. Syntax check on every JS file (catches stupid typos fast) ───
+      - name: Syntax check entrypoints
+        run: |
+          node --check server.js
+          for f in services/**/*.js services/**/**/*.js; do
+            node --check "$f" || exit 1
+          done
+
+  notify-failure:
+    name: Notify on failure
+    runs-on: ubuntu-latest
+    needs: test
+    if: failure()
+    steps:
+      - name: Log failure
+        run: |
+          echo "::error::CI failed on ${{ github.sha }}. Block deploy."

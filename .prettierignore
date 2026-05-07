@@ -1,0 +1,9 @@
+node_modules/
+n8n-workflows/
+maroa-ai-marketing-automator/
+mcp-server/
+*.min.js
+*.min.css
+package-lock.json
+.github/
+migrations/

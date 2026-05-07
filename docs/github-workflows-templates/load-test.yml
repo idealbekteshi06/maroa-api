@@ -1,0 +1,40 @@
+name: Load Test (weekly)
+
+# Fires synthetic traffic against staging every Monday at 04:00 UTC.
+# Surfaces capacity issues BEFORE customers hit them.
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'  # Mon 04:00 UTC
+  workflow_dispatch:      # also runnable on demand
+
+jobs:
+  load-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run load test against staging
+        run: node scripts/load-test.js
+        env:
+          MAROA_STAGING_URL: ${{ secrets.MAROA_STAGING_URL }}
+          MAROA_STAGING_WEBHOOK_SECRET: ${{ secrets.MAROA_STAGING_WEBHOOK_SECRET }}
+
+      - name: Upload load-test report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: load-test-report
+          path: load-test-report.json
+          retention-days: 30

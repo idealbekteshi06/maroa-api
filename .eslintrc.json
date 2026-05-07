@@ -1,0 +1,43 @@
+{
+  "root": true,
+  "env": {
+    "node": true,
+    "es2022": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "script"
+  },
+  "extends": ["eslint:recommended"],
+  "rules": {
+    "no-unused-vars": ["warn", {
+      "argsIgnorePattern": "^_",
+      "varsIgnorePattern": "^_"
+    }],
+    "no-console": "off",
+    "no-empty": ["warn", { "allowEmptyCatch": true }],
+    "no-prototype-builtins": "off",
+    "no-useless-escape": "warn",
+    "no-control-regex": "off",
+    "no-misleading-character-class": "warn",
+    "no-async-promise-executor": "warn",
+    "require-atomic-updates": "off",
+    "no-inner-declarations": "off"
+  },
+  "ignorePatterns": [
+    "node_modules/",
+    "n8n-workflows/",
+    "maroa-ai-marketing-automator/",
+    "mcp-server/",
+    "scripts/sync_foundation.mjs",
+    "*.min.js"
+  ],
+  "overrides": [
+    {
+      "files": ["tests/**/*.js"],
+      "rules": {
+        "no-unused-vars": "off"
+      }
+    }
+  ]
+}

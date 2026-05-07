@@ -121,6 +121,28 @@ app.post('/webhook/paddle-webhook', paddleWebhookRawBody, paddleWebhookHandler);
 
 app.use(express.json({ limit: '10mb' }));
 
+// ─── Observability — metrics middleware (auto-tracks all HTTP requests) ──
+const observability = require('./services/observability');
+app.use(observability.metricsMiddleware());
+
+// ─── /metrics endpoint (Prometheus-compatible, no auth — internal use) ──
+// Tools like Datadog / Prometheus / Grafana scrape this.
+app.get('/metrics', (req, res) => {
+  res.setHeader('Content-Type', 'text/plain; version=0.0.4');
+  res.send(observability.metrics.exportPrometheus());
+});
+
+// ─── /api/cost-report endpoint (auth-protected via webhook secret) ──
+app.post('/webhook/cost-report', async (req, res) => {
+  try {
+    const days = Number(req.body?.days) || 7;
+    const r = await observability.costTracker.buildCostReport({ sbGet, days });
+    res.json(r);
+  } catch (e) {
+    apiError(res, 500, 'COST_REPORT_FAILED', e.message);
+  }
+});
+
 function requireN8nWebhookSecret(req, res, next) {
   const pathOnly = req.originalUrl.split('?')[0];
   if (pathOnly === '/webhook/paddle-webhook') return next();

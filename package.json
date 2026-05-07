@@ -1,6 +1,6 @@
 {
   "name": "maroa-api",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Maroa.ai webhook API server — replaces n8n webhook triggers",
   "main": "server.js",
   "scripts": {
@@ -8,7 +8,16 @@
     "prestart": "node scripts/sync_foundation.mjs",
     "start": "node server.js",
     "dev": "node scripts/sync_foundation.mjs && node --watch server.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "lint": "eslint . --ext .js",
+    "lint:fix": "eslint . --ext .js --fix",
+    "format": "prettier --write '**/*.{js,json,md}'",
+    "format:check": "prettier --check '**/*.{js,json,md}'",
+    "load-test": "node scripts/load-test.js",
+    "cost-report": "node scripts/cost-report.js",
+    "check-deliverability": "node scripts/check-deliverability.js",
+    "restore-drill": "bash scripts/restore-drill.sh",
+    "ops:audit": "npm run lint && npm test && npm audit --audit-level=high"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -22,6 +31,10 @@
     "express": "^4.18.2",
     "express-rate-limit": "^8.3.2",
     "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5"
   },
   "keywords": [
     "maroa",
