@@ -286,10 +286,32 @@ function _applyAntiThrashing(llmDecision, inputs) {
   return { decision: llmDecision, changed: false };
 }
 
+/**
+ * Audit existing ad copy for psychology principles. Used by callers that
+ * have ad creative text + want to know which principles are present/missing
+ * BEFORE making the scale/pause/keep decision (creative-quality dimension).
+ *
+ * Lazy-loaded to avoid circular import paths.
+ */
+async function auditAdCopyPsychology({ adCopy, business, plan, callClaude, extractJSON, logger }) {
+  if (!adCopy || typeof adCopy !== 'string' || adCopy.length < 10) {
+    return { skipped: true, reason: 'insufficient_copy' };
+  }
+  const psy = require('../marketing-psychology');
+  return psy.audit({
+    text: adCopy,
+    business,
+    funnelStage: 'consideration',
+    plan: plan || 'free',
+    callClaude, extractJSON, logger,
+  });
+}
+
 module.exports = {
   buildAuditInputs,
   buildAuditPrompt,
   auditCampaign,
+  auditAdCopyPsychology,
   // Re-exports for tests + callers
   i18n,
   budget,

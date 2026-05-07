@@ -17,6 +17,16 @@
 const slop = require('./slop-patterns');
 const advisor = require('../advisor-tool');
 
+/**
+ * Lazy-loaded — avoids circular import surprises.
+ * Marketing-psychology depends on ad-optimizer i18n which depends on nothing.
+ */
+let _psychology = null;
+function getPsychology() {
+  if (!_psychology) _psychology = require('../marketing-psychology');
+  return _psychology;
+}
+
 // ─── System prompt ─────────────────────────────────────────────────────────
 
 function buildRewriteSystemPrompt() {
@@ -255,7 +265,7 @@ async function rewrite({ text, business, plan = 'free', callClaude, extractJSON,
  *
  * Other services call this before shipping any customer-facing content.
  */
-async function polish({ text, business, plan, callClaude, extractJSON, logger }) {
+async function polish({ text, business, plan, callClaude, extractJSON, logger, includePsychology = false, funnelStage }) {
   const detected = detect(text);
   if (!detected.should_rewrite) {
     return {
@@ -263,6 +273,7 @@ async function polish({ text, business, plan, callClaude, extractJSON, logger })
       changed: false,
       slop_score: detected.slop_score,
       reason: 'already_clean',
+      ...(includePsychology ? { psychology: _quickPsychAudit(text, business, funnelStage) } : {}),
     };
   }
   const r = await rewrite({ text, business, plan, callClaude, extractJSON, logger });
@@ -275,6 +286,38 @@ async function polish({ text, business, plan, callClaude, extractJSON, logger })
     llm_used: r.llm_used,
     reason: r.reason || (r.polished !== text ? 'rewritten' : 'no_change_needed'),
     changes_made: r.changes_made || [],
+    // After rewrite, include psychology snapshot of FINAL polished text
+    ...(includePsychology ? { psychology: _quickPsychAudit(r.polished, business, funnelStage) } : {}),
+  };
+}
+
+/**
+ * Deterministic-only psychology audit — fast and free.
+ * Caller can dig deeper with full marketingPsychology.audit() if needed.
+ */
+function _quickPsychAudit(text, business, funnelStage = 'consideration') {
+  const psy = getPsychology();
+  const industry = String(business?.industry || business?.business_type || '').toLowerCase();
+  const detection = psy.detector.detect(text || '');
+  const missingFit = psy.detector.suggestMissing({ text, industry, funnelStage, limit: 3 });
+  const misapplied = psy.detector.detectMisapplied({ text, industry });
+  const totalRisk = detection.applied.reduce((sum, a) => {
+    const p = psy.byId(a.id);
+    return sum + (p?.ethical_risk || 0);
+  }, 0);
+  const avgRisk = detection.applied.length > 0 ? totalRisk / detection.applied.length : 0;
+  const manipulationRisk = avgRisk >= 6 ? 'high' : avgRisk >= 4 ? 'medium' : 'low';
+  const score = psy.detector.computeScore({
+    appliedCount: detection.applied.length,
+    missingFitCount: missingFit.length,
+    misappliedCount: misapplied.length,
+    manipulationRisk,
+  });
+  return {
+    score,
+    principles_applied: detection.applied.map(a => ({ id: a.id, name: a.name })),
+    top_missing: missingFit.slice(0, 3).map(m => ({ id: m.id, name: m.name, example_after: m.example_after })),
+    manipulation_risk: manipulationRisk,
   };
 }
 

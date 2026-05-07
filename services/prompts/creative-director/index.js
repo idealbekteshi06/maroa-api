@@ -85,11 +85,84 @@ function buildVideoBriefFromConcept(concept, brandDNA, opts = {}) {
   return brief;
 }
 
+/**
+ * Enrich a creative concept with marketing-psychology principle.
+ *
+ * After the creative-director produces a top_concept, this helper applies
+ * the best-fit psychology principle to its hook + CTA copy. Returns the
+ * concept WITH a `psychology_enriched` field — never mutates the input.
+ *
+ * Designed for use right after concept generation in the WF1 daily content
+ * flow, or any caller that wants psychology-baked copy.
+ */
+async function enrichConceptWithPsychology({ concept, business, plan, callClaude, extractJSON, logger }) {
+  if (!concept || !concept.top_concept) return concept;
+  // Lazy load — avoids circular deps with marketing-psychology if any
+  const psy = require('../marketing-psychology');
+  const planTier = String(plan || 'free').toLowerCase();
+
+  // Free tier: deterministic-only audit (no LLM, no rewrites)
+  if (planTier === 'free') {
+    const auditResult = await psy.audit({
+      text: concept.top_concept.hook || concept.top_concept.one_sentence || '',
+      business,
+      funnelStage: 'awareness',
+      plan: 'free',
+      callClaude, extractJSON, logger,
+    });
+    return {
+      ...concept,
+      psychology_enriched: {
+        applied: false,
+        reason: 'free_tier',
+        audit_summary: auditResult,
+      },
+    };
+  }
+
+  // Growth+: actually apply best-fit principle to the hook
+  try {
+    const hook = concept.top_concept.hook;
+    const cta = concept.top_concept.downstream_brief_for_higgsfield?.action;
+    const [hookRes, ctaRes] = await Promise.all([
+      hook ? psy.apply({
+        text: hook, business, principleId: 'auto', plan: planTier,
+        funnelStage: 'awareness', callClaude, extractJSON, logger,
+      }) : Promise.resolve(null),
+      cta ? psy.apply({
+        text: cta, business, principleId: 'auto', plan: planTier,
+        funnelStage: 'decision', callClaude, extractJSON, logger,
+      }) : Promise.resolve(null),
+    ]);
+
+    return {
+      ...concept,
+      psychology_enriched: {
+        applied: true,
+        hook_rewrite: hookRes && !hookRes.refused ? {
+          original: hook,
+          rewritten: hookRes.rewritten,
+          principle: hookRes.applied_principle,
+        } : null,
+        cta_rewrite: ctaRes && !ctaRes.refused ? {
+          original: cta,
+          rewritten: ctaRes.rewritten,
+          principle: ctaRes.applied_principle,
+        } : null,
+      },
+    };
+  } catch (e) {
+    logger?.warn?.('creative-director.enrichConceptWithPsychology', null, 'failed', e?.message);
+    return { ...concept, psychology_enriched: { applied: false, reason: 'error' } };
+  }
+}
+
 module.exports = {
   buildCreativeBrief,
   convertConceptToMcslaInputs,
   buildImageBriefFromConcept,
   buildVideoBriefFromConcept,
+  enrichConceptWithPsychology,
   ...systemPrompt,
   ...methodologies,
   ...scoring,

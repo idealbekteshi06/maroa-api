@@ -14,6 +14,12 @@ const scoring    = require('./scoring');
 const schema     = require('./output-schema');
 const sysPrompt  = require('./system-prompt');
 
+let _psychology = null;
+function getPsychology() {
+  if (!_psychology) _psychology = require('../marketing-psychology');
+  return _psychology;
+}
+
 /**
  * Audit a page end-to-end.
  */
@@ -75,7 +81,7 @@ async function auditPage(opts) {
  * Rewrite hero / CTA / value-prop block.
  */
 async function rewritePage(opts) {
-  const { business, currentHero, plan = 'free', callClaude, extractJSON, logger } = opts || {};
+  const { business, currentHero, plan = 'free', callClaude, extractJSON, logger, applyPsychology = false } = opts || {};
   if (typeof callClaude !== 'function') throw new Error('rewritePage: callClaude required');
   if (typeof extractJSON !== 'function') throw new Error('rewritePage: extractJSON required');
 
@@ -114,12 +120,72 @@ async function rewritePage(opts) {
     cta_score: i18nCro.scoreCta(c.text, marketProfile),
   }));
 
+  let psychologyEnriched = null;
+  // Optional: apply psychology principle to top hero headline + top CTA
+  // (Agency tier only — Growth+ pays for it via the existing rewrite call)
+  if (applyPsychology && String(plan).toLowerCase() === 'agency'
+      && Array.isArray(v.normalized.hero_headline_variants) && v.normalized.hero_headline_variants.length) {
+    psychologyEnriched = await _applyPsychologyToTopVariant({
+      hero: v.normalized.hero_headline_variants[0],
+      ctaText: ctas[0]?.text,
+      business,
+      callClaude, extractJSON, logger,
+    });
+  }
+
   return {
     ...v.normalized,
     primary_cta_variants: ctas,
     market_country: marketProfile.country,
     llm_used: true,
+    ...(psychologyEnriched ? { psychology_enriched: psychologyEnriched } : {}),
   };
+}
+
+/**
+ * Run psychology.apply() on the top hero variant + CTA. Returns enriched
+ * versions WITHOUT replacing originals (caller can choose).
+ */
+async function _applyPsychologyToTopVariant({ hero, ctaText, business, callClaude, extractJSON, logger }) {
+  const psy = getPsychology();
+  try {
+    const heroResult = hero?.text
+      ? await psy.apply({
+          text: hero.text,
+          business,
+          principleId: 'auto',
+          plan: 'agency',
+          funnelStage: 'consideration',
+          callClaude, extractJSON, logger,
+        })
+      : null;
+    const ctaResult = ctaText
+      ? await psy.apply({
+          text: ctaText,
+          business,
+          principleId: 'auto',
+          plan: 'agency',
+          funnelStage: 'decision',
+          callClaude, extractJSON, logger,
+        })
+      : null;
+    return {
+      hero_psychology: heroResult && !heroResult.refused ? {
+        original: hero.text,
+        rewritten: heroResult.rewritten,
+        applied_principle: heroResult.applied_principle,
+        rationale: heroResult.changes_made,
+      } : null,
+      cta_psychology: ctaResult && !ctaResult.refused ? {
+        original: ctaText,
+        rewritten: ctaResult.rewritten,
+        applied_principle: ctaResult.applied_principle,
+      } : null,
+    };
+  } catch (e) {
+    logger?.warn?.('cro.applyPsychology', null, 'failed', e?.message);
+    return null;
+  }
 }
 
 // ─── Internal helpers ────────────────────────────────────────────────────

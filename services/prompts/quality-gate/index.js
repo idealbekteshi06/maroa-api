@@ -21,17 +21,20 @@ const voicePolish = require('../voice-polish');
 const brandVoice = require('../brand-voice');
 const advisor = require('../advisor-tool');
 const adI18n = require('../ad-optimizer/i18n-market');
+const psychology = require('../marketing-psychology');
 
 // ─── Default thresholds (per content type) ─────────────────────────────────
 
+// `psychology_min` — content types that benefit from psychology principles
+// have a minimum overall_score. Set to 0 to skip psychology entirely.
 const DEFAULT_THRESHOLDS = {
-  caption:        { slop_max: 35, specificity_min: 40, allow_retry: true,  use_advisor_growth: false },
-  ad_copy:        { slop_max: 25, specificity_min: 60, allow_retry: true,  use_advisor_growth: true  },
-  audit_narrative:{ slop_max: 30, specificity_min: 70, allow_retry: false, use_advisor_growth: false },
-  scorecard_text: { slop_max: 30, specificity_min: 60, allow_retry: true,  use_advisor_growth: false },
-  email_subject:  { slop_max: 40, specificity_min: 30, allow_retry: true,  use_advisor_growth: false },
-  hero_rewrite:   { slop_max: 25, specificity_min: 70, allow_retry: true,  use_advisor_growth: true  },
-  generic:        { slop_max: 35, specificity_min: 50, allow_retry: true,  use_advisor_growth: false },
+  caption:        { slop_max: 35, specificity_min: 40, psychology_min: 30, allow_retry: true,  use_advisor_growth: false },
+  ad_copy:        { slop_max: 25, specificity_min: 60, psychology_min: 50, allow_retry: true,  use_advisor_growth: true  },
+  audit_narrative:{ slop_max: 30, specificity_min: 70, psychology_min: 0,  allow_retry: false, use_advisor_growth: false },
+  scorecard_text: { slop_max: 30, specificity_min: 60, psychology_min: 0,  allow_retry: true,  use_advisor_growth: false },
+  email_subject:  { slop_max: 40, specificity_min: 30, psychology_min: 35, allow_retry: true,  use_advisor_growth: false },
+  hero_rewrite:   { slop_max: 25, specificity_min: 70, psychology_min: 60, allow_retry: true,  use_advisor_growth: true  },
+  generic:        { slop_max: 35, specificity_min: 50, psychology_min: 0,  allow_retry: true,  use_advisor_growth: false },
 };
 
 function thresholdsFor(contentType, overrides) {
@@ -125,6 +128,70 @@ function checkClaimSubstantiation(text, citations) {
     ungrounded_claims: ungrounded.map(u => u.phrase),
     has_citations: hasAnyCitations,
   };
+}
+
+/**
+ * Psychology check — runs detector-only (deterministic, no LLM cost).
+ * Returns score, manipulation risk, and whether the threshold is met.
+ *
+ * Skipped (passed:true) when threshold === 0 (audit_narrative, scorecard, generic).
+ */
+function checkPsychology(text, business, contentType, threshold, funnelStageHint) {
+  if (!threshold || threshold === 0) {
+    return { passed: true, score: null, skipped: true };
+  }
+  const industry = String(business?.industry || business?.business_type || '').toLowerCase();
+  const funnelStage = funnelStageHint || _funnelStageFor(contentType);
+
+  const detection = psychology.detector.detect(text || '');
+  const missingFit = psychology.detector.suggestMissing({
+    text, industry, funnelStage, limit: 5,
+  });
+  const misapplied = psychology.detector.detectMisapplied({ text, industry });
+
+  // Calc manipulation risk
+  const totalRisk = detection.applied.reduce((sum, a) => {
+    const p = psychology.byId(a.id);
+    return sum + (p?.ethical_risk || 0);
+  }, 0);
+  const avgRisk = detection.applied.length > 0 ? totalRisk / detection.applied.length : 0;
+  const manipulationRisk = avgRisk >= 6 ? 'high' : avgRisk >= 4 ? 'medium' : 'low';
+
+  const score = psychology.detector.computeScore({
+    appliedCount: detection.applied.length,
+    missingFitCount: missingFit.length,
+    misappliedCount: misapplied.length,
+    manipulationRisk,
+  });
+
+  return {
+    passed: score >= threshold && manipulationRisk !== 'high',
+    score,
+    threshold,
+    principles_applied: detection.applied.map(a => a.id),
+    missing_count: missingFit.length,
+    misapplied_count: misapplied.length,
+    manipulation_risk: manipulationRisk,
+    top_recommendation: missingFit[0] ? {
+      principle_id: missingFit[0].id,
+      name: missingFit[0].name,
+      example_after: missingFit[0].example_after,
+    } : null,
+  };
+}
+
+function _funnelStageFor(contentType) {
+  // Map content type → expected funnel stage
+  const map = {
+    caption: 'awareness',
+    ad_copy: 'consideration',
+    audit_narrative: 'retention',
+    scorecard_text: 'retention',
+    email_subject: 'awareness',
+    hero_rewrite: 'consideration',
+    generic: 'consideration',
+  };
+  return map[contentType] || 'consideration';
 }
 
 function checkLanguageMatch(text, expectedLang) {
@@ -272,6 +339,7 @@ async function gate(opts) {
     brand_voice_match: checkBrandVoiceMatch(text, anchor),
     claim_substantiation: checkClaimSubstantiation(text, citations),
     language_match: checkLanguageMatch(text, expectedLang),
+    psychology: checkPsychology(text, business, contentType, thr.psychology_min, opts?.funnelStage),
     advisor: null,
   };
 
@@ -285,6 +353,15 @@ async function gate(opts) {
 
   const softBlockingIssues = [];
   if (checks.brand_voice_match.violations.some(v => v.type === 'do_not_word')) softBlockingIssues.push('brand_voice_violation');
+  // Psychology score below threshold (only when threshold > 0) — retry-eligible
+  if (!checks.psychology.skipped && !checks.psychology.passed && checks.psychology.manipulation_risk !== 'high') {
+    softBlockingIssues.push('psychology_below_threshold');
+  }
+  // High manipulation risk = HARD reject (cannot fix by re-write — need different principle)
+  // We treat it as soft only if there's a safer alternative the retry can pick.
+  if (!checks.psychology.skipped && checks.psychology.manipulation_risk === 'high') {
+    softBlockingIssues.push('manipulation_risk_high');
+  }
 
   // Reject path — hard fails only at this stage
   if (hardBlockingIssues.length) {
