@@ -22,6 +22,7 @@
 
 const createEngine = require('./engine');
 const { registerAdOptimizerRoutes } = require('./registerRoutes');
+const launcher = require('./launcher');
 
 function createAdOptimizer(deps) {
   const engine = createEngine(deps);
@@ -35,7 +36,21 @@ function createAdOptimizer(deps) {
     });
   }
 
-  return { engine, registerRoutes };
+  // Bind launcher with shared deps so the cold-start orchestrator can call
+  // adOptimizer.coldStartLaunch({ businessId, approvedConcept, coldStartRunId }).
+  function coldStartLaunch(args) {
+    return launcher.coldStartLaunch({
+      ...args,
+      deps: {
+        sbGet: deps.sbGet,
+        sbPost: deps.sbPost,
+        logger: deps.logger,
+        sentry: deps.Sentry,
+      },
+    });
+  }
+
+  return { engine, registerRoutes, coldStartLaunch, launcher };
 }
 
 module.exports = createAdOptimizer;

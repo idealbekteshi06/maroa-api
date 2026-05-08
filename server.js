@@ -10952,6 +10952,43 @@ registerAnthropicRoutes({
   callClaude,
 });
 
+// ─── Cold-start onboarding ──────────────────────────────────────────────────
+// Drives a new business through industry-classify → competitor-detect →
+// brand-voice → Soul ID → concepts → campaign launch → content → AI-SEO.
+// State machine in cold_start_runs (migration 045). Inngest functions
+// `cold-start-run` and `cold-start-resume` drive durable execution.
+const coldStartService = require('./services/cold-start');
+const { registerColdStartRoutes } = require('./services/cold-start/registerRoutes');
+const creativeDirectorPrompts = require('./services/prompts/creative-director');
+const aiSeoForColdStart = (() => {
+  // ai-seo's cold-start API hook — only call .runBaseline if it exists. The
+  // existing service exposes a route handler, so we wrap it here as a no-op
+  // until ai-seo gets a programmatic baseline runner (Week 9).
+  try { return require('./services/ai-seo'); } catch { return null; }
+})();
+const higgsfieldForColdStart = (() => {
+  try { return require('./services/higgsfield'); } catch { return null; }
+})();
+const wf1ForColdStart = (() => {
+  try { return require('./services/wf1'); } catch { return null; }
+})();
+
+registerColdStartRoutes({
+  app,
+  apiError,
+  logger,
+  sentry: Sentry,
+  sbGet, sbPost, sbPatch,
+  callClaude,
+  brandVoice: brandVoiceService,
+  creativeDirector: creativeDirectorPrompts,
+  higgsfield: higgsfieldForColdStart,
+  adOptimizer,
+  aiSeo: aiSeoForColdStart,
+  wf1: wf1ForColdStart,
+  coldStart: coldStartService,
+});
+
 // ─── Data Deletion Request (public, no auth) ────────────────────────────────
 app.post('/webhook/data-deletion-request', async (req, res) => {
   try {

@@ -273,6 +273,63 @@ const anthropicBatchReconcilePoll = inngest.createFunction(
   }
 );
 
+// ─── Cold-start onboarding orchestrator ──────────────────────────────────
+// Triggered by `maroa/cold-start.run` event when a new business signs up.
+// Listens for `maroa/cold-start.resume` to wake from awaiting_input states
+// (e.g. after the customer uploads photos or approves a concept).
+//
+// We don't run phases inside this function — instead we POST to the resume
+// endpoint, which has full DI of brand-voice/creative-director/higgsfield/
+// ad-optimizer. Keeps the Inngest layer thin and consistent with our other
+// crons. Each step.run() is durable so a flap doesn't lose progress.
+const coldStartRun = inngest.createFunction(
+  {
+    id: 'cold-start-run',
+    name: 'Cold-start · onboarding orchestrator',
+    retries: 3,
+    concurrency: { limit: 1, key: 'event.data.businessId' },
+    triggers: [{ event: 'maroa/cold-start.run' }],
+  },
+  async ({ event, step }) => {
+    const businessId = event?.data?.businessId;
+    if (!businessId) return { ok: false, reason: 'missing businessId' };
+
+    // Drive phases until awaiting_input or terminal state. Resume events
+    // are handled by a sibling function that calls the same endpoint.
+    const result = await step.run('resume-until-stop', async () =>
+      callInternal('/webhook/cold-start-resume', { businessId })
+    );
+    return {
+      ok: !!result?.ok,
+      status: result?.status ?? null,
+      current_phase: result?.current_phase ?? null,
+      last_error: result?.last_error ?? null,
+    };
+  }
+);
+
+const coldStartResume = inngest.createFunction(
+  {
+    id: 'cold-start-resume',
+    name: 'Cold-start · resume after customer action',
+    retries: 3,
+    concurrency: { limit: 1, key: 'event.data.businessId' },
+    triggers: [{ event: 'maroa/cold-start.resume' }],
+  },
+  async ({ event, step }) => {
+    const businessId = event?.data?.businessId;
+    if (!businessId) return { ok: false, reason: 'missing businessId' };
+    const result = await step.run('resume', async () =>
+      callInternal('/webhook/cold-start-resume', { businessId })
+    );
+    return {
+      ok: !!result?.ok,
+      status: result?.status ?? null,
+      current_phase: result?.current_phase ?? null,
+    };
+  }
+);
+
 // ─── WF13 weekly synthesis (Sunday 07:00 UTC) ─────────────────────────────
 // Generates the weekly brief for every active business. Runs early Sunday so
 // briefs are ready when the customer-facing weekly scorecard fires at 22:00.
@@ -312,6 +369,10 @@ const functions = [
 
   // WF13 weekly brief synthesis
   wf13WeeklySynthesis,
+
+  // Cold-start onboarding orchestrator (event-driven, not cron)
+  coldStartRun,
+  coldStartResume,
 
   // Manual triggers (for dashboard testing)
   manualAdAudit,
