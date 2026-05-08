@@ -10989,6 +10989,32 @@ registerColdStartRoutes({
   coldStart: coldStartService,
 });
 
+// ─── Multi-platform ads + Daily Creative Engine + Measurement Health (Week 5-7)
+const creativeEngineService = require('./services/creative-engine');
+const measurementHealthService = require('./services/measurement-health');
+const { registerCreativeEngineRoutes } = require('./services/creative-engine/registerRoutes');
+
+registerCreativeEngineRoutes({
+  app,
+  apiError,
+  logger,
+  sentry: Sentry,
+  sbGet, sbPost, sbPatch,
+  callClaude,
+  brandVoice: brandVoiceService,
+  higgsfield: higgsfieldForColdStart,
+  creativeEngine: creativeEngineService,
+  measurementHealth: measurementHealthService,
+  // Real per-platform diagnostic clients ship behind their own env-gated
+  // services in services/meta-ads/, services/google-ads/, services/tiktok-ads/.
+  // For now we pass undefined; the probe gracefully returns 'unknown' verdict
+  // until those clients are wired with real Meta Marketing API / Google Ads
+  // API / TikTok Marketing API credentials.
+  metaInsights: undefined,
+  googleAdsDiag: undefined,
+  tiktokDiag: undefined,
+});
+
 // ─── Data Deletion Request (public, no auth) ────────────────────────────────
 app.post('/webhook/data-deletion-request', async (req, res) => {
   try {

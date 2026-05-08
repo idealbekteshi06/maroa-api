@@ -273,6 +273,75 @@ const anthropicBatchReconcilePoll = inngest.createFunction(
   }
 );
 
+// ─── Daily Creative Engine (every day at 09:00 UTC, after ad audit) ──────
+// Generates 3-5 new ad variants per business and queues them for testing.
+// Plan-tier-gated: free=0, growth=3, agency=5 variants per day.
+const creativeEngineDaily = inngest.createFunction(
+  {
+    id: 'creative-engine-daily',
+    name: 'Creative Engine · daily variant generation',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 9 * * *' }],
+  },
+  async ({ step }) => {
+    const result = await step.run('generate-all-businesses', async () =>
+      callInternal('/webhook/creative-engine-generate-all', {})
+    );
+    return { ok: true, generated: result?.generated ?? 0, businesses: result?.businesses ?? 0 };
+  }
+);
+
+// ─── Creative Engine evaluator (every 6 hours) ───────────────────────────
+// Looks at variants in status='testing' that have been live for ≥72h and
+// promotes/kills based on z-score CTR vs cohort baseline.
+const creativeEngineEvaluate = inngest.createFunction(
+  {
+    id: 'creative-engine-evaluate-6h',
+    name: 'Creative Engine · evaluate testing variants',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 */6 * * *' }],
+  },
+  async ({ step }) => {
+    const result = await step.run('evaluate-all', async () =>
+      callInternal('/webhook/creative-engine-evaluate-all', {})
+    );
+    return {
+      ok: true,
+      evaluated: result?.evaluated ?? 0,
+      promoted: result?.promoted ?? 0,
+      killed: result?.killed ?? 0,
+    };
+  }
+);
+
+// ─── Measurement Health probe (daily at 07:00 UTC, before ad audit) ──────
+// Runs Meta EMQ + dedup + Google EC + TikTok Events API health checks across
+// all active businesses. If a business's measurement is broken, the daily
+// ad audit at 08:00 UTC will skip scaling decisions for that platform.
+const measurementHealthProbe = inngest.createFunction(
+  {
+    id: 'measurement-health-probe-daily',
+    name: 'Measurement Health · daily probe',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 7 * * *' }],
+  },
+  async ({ step }) => {
+    const result = await step.run('probe-all-businesses', async () =>
+      callInternal('/webhook/measurement-health-probe-all', {})
+    );
+    return {
+      ok: true,
+      probed: result?.probed ?? 0,
+      healthy: result?.healthy ?? 0,
+      degraded: result?.degraded ?? 0,
+      broken: result?.broken ?? 0,
+    };
+  }
+);
+
 // ─── Cold-start onboarding orchestrator ──────────────────────────────────
 // Triggered by `maroa/cold-start.run` event when a new business signs up.
 // Listens for `maroa/cold-start.resume` to wake from awaiting_input states
@@ -373,6 +442,11 @@ const functions = [
   // Cold-start onboarding orchestrator (event-driven, not cron)
   coldStartRun,
   coldStartResume,
+
+  // Multi-platform ads + Daily Creative Engine + Measurement Health (Week 5-7)
+  measurementHealthProbe,
+  creativeEngineDaily,
+  creativeEngineEvaluate,
 
   // Manual triggers (for dashboard testing)
   manualAdAudit,
