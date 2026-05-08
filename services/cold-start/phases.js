@@ -231,11 +231,15 @@ async function trainSoulId({ businessId, deps }) {
 
   let soulId;
   try {
+    // higgsfield.trainSoulCharacter expects { sourceImageUrls, characterId?, name? }
+    // and returns { higgsfield_character_id }. We use the businessId as the
+    // external character correlation key.
     const r = await higgsfield.trainSoulCharacter({
-      businessId,
-      imageUrls: photoRows.slice(0, 3).map((p) => p.photo_url),
+      characterId: `biz_${businessId}`,
+      sourceImageUrls: photoRows.slice(0, 5).map((p) => p.photo_url),
+      name: `business_${businessId}`,
     });
-    soulId = r?.soul_id || r?.id || null;
+    soulId = r?.higgsfield_character_id || r?.soul_id || r?.id || null;
   } catch (e) {
     logger?.error?.('cold-start.train_soul_id', businessId, 'training failed', e);
     return { ok: false, reason: `Soul ID training failed: ${e.message}` };

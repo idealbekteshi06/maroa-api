@@ -29,8 +29,8 @@ module.exports = function createHiggsfieldService(deps) {
 
   const PATH_SOUL = '/higgsfield-ai/soul/standard';
   const PATH_KLING = '/higgsfield-ai/kling/standard';
-  const PATH_SORA = '/higgsfield-ai/sora/standard';
-  // Phase 3 model expansion
+  const PATH_SORA = process.env.HIGGSFIELD_PATH_SORA || '/higgsfield-ai/sora/standard';
+  // Phase 3 model expansion (verified against 2026 model lineup)
   const PATH_DOP = process.env.HIGGSFIELD_PATH_DOP || '/higgsfield-ai/dop/standard';
   const PATH_DOP_TURBO = process.env.HIGGSFIELD_PATH_DOP_TURBO || '/higgsfield-ai/dop/turbo';
   const PATH_SEEDREAM = process.env.HIGGSFIELD_PATH_SEEDREAM || '/bytedance/seedream/v4/text-to-image';
@@ -38,7 +38,15 @@ module.exports = function createHiggsfieldService(deps) {
   const PATH_SEEDANCE = process.env.HIGGSFIELD_PATH_SEEDANCE || '/bytedance/seedance/v1/pro/image-to-video';
   const PATH_VEO = process.env.HIGGSFIELD_PATH_VEO || '/google/veo/v3-1';
   const PATH_NANO_BANANA = process.env.HIGGSFIELD_PATH_NANO_BANANA || '/higgsfield-ai/nano-banana-2';
+  const PATH_NANO_BANANA_PRO = process.env.HIGGSFIELD_PATH_NANO_BANANA_PRO || '/higgsfield-ai/nano-banana-pro';
   const PATH_KLING_3 = process.env.HIGGSFIELD_PATH_KLING_3 || '/higgsfield-ai/kling/v3';
+  const PATH_KLING_IMG_3 = process.env.HIGGSFIELD_PATH_KLING_IMG_3 || '/higgsfield-ai/kling-image/v3';
+  const PATH_WAN = process.env.HIGGSFIELD_PATH_WAN || '/higgsfield-ai/wan/v2-7';
+  const PATH_FLUX_KONTEXT = process.env.HIGGSFIELD_PATH_FLUX_KONTEXT || '/black-forest-labs/flux-kontext';
+  // Cinema Studio 3.5 — current default per Higgsfield 2026 (replaces 2.5/3.0)
+  const PATH_CINEMA = process.env.HIGGSFIELD_PATH_CINEMA || '/higgsfield-ai/cinema-studio/v3-5';
+  // Vibe Motion — Remotion code generator for kinetic typography (text never breaks)
+  const PATH_VIBE_MOTION = process.env.HIGGSFIELD_PATH_VIBE_MOTION || '/higgsfield-ai/vibe-motion/standard';
   // Soul ID character training
   const PATH_CHARACTER_CREATE = process.env.HIGGSFIELD_PATH_CHARACTER_CREATE || '/higgsfield-ai/soul/characters';
   const PATH_CHARACTER_STATUS = process.env.HIGGSFIELD_PATH_CHARACTER_STATUS || '/higgsfield-ai/soul/characters';
@@ -47,6 +55,7 @@ module.exports = function createHiggsfieldService(deps) {
     'soul 2.0': PATH_SOUL,
     'soul standard': PATH_SOUL,
     'kling 3.0': PATH_KLING_3,
+    'kling image 3.0': PATH_KLING_IMG_3,
     'kling 2.6': PATH_KLING,
     'sora 2': PATH_SORA,
     'higgsfield dop standard': PATH_DOP,
@@ -56,8 +65,38 @@ module.exports = function createHiggsfieldService(deps) {
     'seedance 2.0': PATH_SEEDANCE,
     'veo 3.1': PATH_VEO,
     'nano banana 2': PATH_NANO_BANANA,
-    'nano banana pro': PATH_NANO_BANANA
+    'nano banana pro': PATH_NANO_BANANA_PRO,
+    'wan 2.7': PATH_WAN,
+    'flux kontext': PATH_FLUX_KONTEXT,
+    'cinema studio': PATH_CINEMA,
+    'cinema studio 3.5': PATH_CINEMA,
+    'vibe motion': PATH_VIBE_MOTION,
   };
+
+  // Capability → recommended-model resolver. Maroa picks the right model per
+  // job rather than letting callers guess. This is the "expert curation"
+  // layer — based on 2026 Higgsfield research (Sora 2 / Veo 3.1 / Kling 3.0
+  // / Nano Banana Pro / Soul 2.0 / Vibe Motion).
+  const MODEL_FOR_CAPABILITY = {
+    // Image
+    product_photo_4k: 'nano banana pro',
+    product_photo_fast: 'seedream 4.5',
+    founder_portrait: 'soul 2.0',
+    carousel_4k_series: 'kling image 3.0',
+    before_after: 'flux kontext',
+    // Video
+    short_reel: 'sora 2',
+    short_reel_with_audio: 'kling 3.0',
+    hero_landing_video: 'veo 3.1',
+    high_fps_action: 'wan 2.7',
+    image_to_video: 'seedance 2.0',
+    // Special
+    kinetic_typography: 'vibe motion',
+    multi_shot_cinematic: 'cinema studio 3.5',
+  };
+  function modelForCapability(cap) {
+    return MODEL_FOR_CAPABILITY[String(cap || '').toLowerCase()] || 'soul 2.0';
+  }
 
   function pathForModel(modelId) {
     return PATHS_BY_MODEL[(modelId || '').toLowerCase()] || PATH_SOUL;
@@ -1105,6 +1144,7 @@ module.exports = function createHiggsfieldService(deps) {
     trainSoulCharacter,
     generateWithModel,
     pathForModel,
+    modelForCapability,
     generateCaption,
     processProductCatalog,
     cancelRequest
