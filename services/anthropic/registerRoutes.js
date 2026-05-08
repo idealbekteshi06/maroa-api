@@ -292,6 +292,33 @@ function registerAnthropicRoutes(deps) {
     }
   }));
 
+  // Cron fanout — scans all in-flight non-WF1 batches and reconciles each.
+  // WF1 overnight batches are handled by /webhook/wf1-overnight-batch-apply-all
+  // which does the WF1-specific apply step. Idempotent.
+  app.post('/webhook/anthropic-batch-reconcile-all', limiters.batchPoll, trace('/webhook/anthropic-batch-reconcile-all', async (req, res) => {
+    try {
+      const inflight = await sbGet('anthropic_batches',
+        'status=eq.in_progress&purpose=neq.wf1_overnight&select=anthropic_batch_id&limit=50'
+      ).catch(() => []);
+      const results = [];
+      let reconciled = 0;
+      let errors = 0;
+      for (const row of inflight) {
+        try {
+          const r = await batchService.reconcileResults(row.anthropic_batch_id);
+          results.push({ anthropicBatchId: row.anthropic_batch_id, ...r });
+          if (r?.status === 'ended') reconciled += 1;
+        } catch (e) {
+          errors += 1;
+          results.push({ anthropicBatchId: row.anthropic_batch_id, ok: false, error: e.message });
+        }
+      }
+      res.json({ scanned: inflight.length, reconciled, errors, results });
+    } catch (e) {
+      apiError(res, 500, 'BATCH_RECONCILE_ALL_FAILED', e.message);
+    }
+  }));
+
   app.post('/webhook/anthropic-batch-cancel', limiters.batchPoll, trace('/webhook/anthropic-batch-cancel', async (req, res) => {
     const id = req.body?.anthropicBatchId || req.body?.batchId;
     if (!id) return apiError(res, 400, 'INVALID_REQUEST', 'anthropicBatchId required');

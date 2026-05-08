@@ -10992,68 +10992,15 @@ app.post('/webhook/data-deletion-request', async (req, res) => {
   }
 });
 
-// ─── WF1 safe hourly auto-run (6 safety guards) ─────────────────────────────
-{
-  const WF1_SWEEP_INTERVAL_MS = 60 * 60 * 1000;       // 1 hour
-  const WF1_MEASURE_INTERVAL_MS = 60 * 60 * 1000;     // 1 hour (staggered by 30 min)
-  const WF1_HEAP_LIMIT_BYTES = 750 * 1024 * 1024;     // 750 MB — skip if above
-  let wf1SweepRunning = false;
-  let wf1MeasureRunning = false;
-
-  function wf1HeapOk(tag) {
-    const used = process.memoryUsage().heapUsed;
-    if (used > WF1_HEAP_LIMIT_BYTES) {
-      logger.warn('/wf1/auto-run', null, `${tag}: skipped — heap ${Math.round(used / 1024 / 1024)}MB > 750MB limit`);
-      return false;
-    }
-    return true;
-  }
-
-  // ── Daily content sweep (hourly, checks each business's local 06:xx) ──
-  setInterval(async () => {
-    if (process.env.WF1_AUTO_RUN === 'false') return;
-    if (wf1SweepRunning) { logger.warn('/wf1/auto-run', null, 'sweep: skipped — previous still running'); return; }
-    if (!wf1HeapOk('sweep')) return;
-    wf1SweepRunning = true;
-    try {
-      const r = await wf1.dailyRun.runForAllBusinesses({ force: false });
-      if (r.processed > 0) logger.info('/wf1/auto-run', null, 'sweep completed', { processed: r.processed });
-    } catch (e) {
-      logger.error('/wf1/auto-run', null, 'sweep failed', { error: e.message });
-    } finally {
-      wf1SweepRunning = false;
-    }
-  }, WF1_SWEEP_INTERVAL_MS);
-
-  // ── Learning loop + hybrid fallbacks (hourly, staggered 30 min after sweep) ──
-  setTimeout(() => {
-    setInterval(async () => {
-      if (process.env.WF1_AUTO_RUN === 'false') return;
-      if (wf1MeasureRunning) { logger.warn('/wf1/auto-run', null, 'measure: skipped — previous still running'); return; }
-      if (!wf1HeapOk('measure')) return;
-      wf1MeasureRunning = true;
-      try {
-        const [m, h] = await Promise.all([
-          wf1.learningLoop.sweepDuePosts({ limit: 25 }),
-          wf1.dailyRun.processHybridFallbacks(),
-        ]);
-        if (m.measured > 0 || h.processed > 0)
-          logger.info('/wf1/auto-run', null, 'measure + fallback', { measured: m.measured, fallbacks: h.processed });
-      } catch (e) {
-        logger.error('/wf1/auto-run', null, 'measure/fallback failed', { error: e.message });
-      } finally {
-        wf1MeasureRunning = false;
-      }
-    }, WF1_MEASURE_INTERVAL_MS);
-  }, 30 * 60 * 1000); // stagger 30 min after startup
-
-  logger.info('/wf1/auto-run', null, 'hourly auto-run enabled', {
-    sweep_interval_ms: WF1_SWEEP_INTERVAL_MS,
-    measure_interval_ms: WF1_MEASURE_INTERVAL_MS,
-    heap_limit_mb: 750,
-    kill_switch: 'WF1_AUTO_RUN=false',
-  });
-}
+// ─── WF1 hourly auto-run ────────────────────────────────────────────────────
+// Migrated to Inngest 2026-05-08. The in-process setInterval was fragile —
+// reset on every Railway redeploy, no retries, no observability. Now durable.
+//
+// Inngest functions (see services/inngest/functions.js):
+//   wf1-daily-sweep-hourly        → /webhook/wf1-run-daily       (every hour :00)
+//   wf1-measure-fallbacks-hourly  → /webhook/wf1-measure-performance (every hour :30)
+//
+// Kill-switch removed — to disable, pause the function in Inngest dashboard.
 
 // ─── GDPR: Account & data deletion ───────────────────────────────────────────
 app.post('/api/delete-account', requireAnyUserId, async (req, res) => {

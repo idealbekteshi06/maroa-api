@@ -311,6 +311,39 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
       apiError(res, 500, 'WF1_BATCH_APPLY_FAILED', e.message);
     }
   });
+
+  // ─── POST /webhook/wf1-overnight-batch-apply-all (cron fanout, every 10 min) ─
+  // Scans anthropic_batches for in-flight wf1_overnight batches and applies each.
+  // Called by Inngest cron `wf1-overnight-batch-apply-poll`. Idempotent.
+  // Returns: { scanned, applied, errors }
+  app.post('/webhook/wf1-overnight-batch-apply-all', async (req, res) => {
+    if (!wf1.batchOvernight) {
+      return apiError(res, 503, 'BATCH_OVERNIGHT_DISABLED', 'batchService not configured');
+    }
+    try {
+      const inflight = await sbGet('anthropic_batches',
+        'status=eq.in_progress&purpose=eq.wf1_overnight&select=anthropic_batch_id&limit=50'
+      ).catch(() => []);
+      const results = [];
+      let applied = 0;
+      let errors = 0;
+      for (const row of inflight) {
+        try {
+          const r = await wf1.batchOvernight.applyOvernightBatch({ anthropicBatchId: row.anthropic_batch_id });
+          results.push({ anthropicBatchId: row.anthropic_batch_id, ...r });
+          if (r?.status === 'ended' || r?.applied) applied += 1;
+        } catch (e) {
+          errors += 1;
+          results.push({ anthropicBatchId: row.anthropic_batch_id, ok: false, error: e.message });
+          logger?.error('/webhook/wf1-overnight-batch-apply-all', null, 'apply failed', { anthropicBatchId: row.anthropic_batch_id, error: e.message });
+        }
+      }
+      res.json({ scanned: inflight.length, applied, errors, results });
+    } catch (e) {
+      logger?.error('/webhook/wf1-overnight-batch-apply-all', null, 'fanout failed', e);
+      apiError(res, 500, 'WF1_BATCH_APPLY_ALL_FAILED', e.message);
+    }
+  });
 }
 
 module.exports = { registerWf1Routes };

@@ -159,10 +159,161 @@ const manualScorecardRun = inngest.createFunction(
   }
 );
 
+// ─── WF1 daily content sweep (hourly) ─────────────────────────────────────
+// Replaces the in-process setInterval that used to live in server.js. The
+// underlying engine (services/wf1/dailyRun) iterates each business and only
+// fires when local clock hits 06:xx — so an hourly cron is correct.
+const wf1DailySweepHourly = inngest.createFunction(
+  {
+    id: 'wf1-daily-sweep-hourly',
+    name: 'WF1 · daily content sweep',
+    retries: 3,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 * * * *' }],
+  },
+  async ({ step }) => {
+    const result = await step.run('sweep-all-businesses', async () =>
+      callInternal('/webhook/wf1-run-daily', { force: false })
+    );
+    return { ok: true, processed: result?.processed ?? null };
+  }
+);
+
+// ─── WF1 measurement + hybrid fallbacks (hourly, staggered :30) ───────────
+// Runs at minute 30 of every hour so it doesn't collide with the sweep at :00.
+const wf1MeasureFallbacksHourly = inngest.createFunction(
+  {
+    id: 'wf1-measure-fallbacks-hourly',
+    name: 'WF1 · measurement + hybrid fallbacks',
+    retries: 3,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 30 * * * *' }],
+  },
+  async ({ step }) => {
+    const result = await step.run('measure-and-fallback', async () =>
+      callInternal('/webhook/wf1-measure-performance', { limit: 25 })
+    );
+    return {
+      ok: true,
+      measured: result?.measurement?.measured ?? null,
+      fallbacks: result?.hybridFallbacks?.processed ?? null,
+    };
+  }
+);
+
+// ─── WF1 overnight batch submit (nightly 23:00 UTC) ───────────────────────
+// Consolidates every active business's WF1 strategic-decision call into ONE
+// Anthropic Message Batch — 50% Sonnet cost cut on overnight bulk content.
+// Single-fire — retries: 1 to avoid double-submission.
+const wf1OvernightBatchSubmitNightly = inngest.createFunction(
+  {
+    id: 'wf1-overnight-batch-submit-nightly',
+    name: 'WF1 · overnight batch submit',
+    retries: 1,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 23 * * *' }],
+  },
+  async ({ step }) => {
+    const result = await step.run('submit-overnight-batch', async () =>
+      callInternal('/webhook/wf1-overnight-batch-submit', { dryRun: false })
+    );
+    return {
+      ok: true,
+      anthropicBatchId: result?.anthropicBatchId ?? null,
+      submitted: result?.submitted ?? null,
+    };
+  }
+);
+
+// ─── WF1 overnight batch poll + apply (every 10 min) ──────────────────────
+// Scans anthropic_batches for in-flight wf1_overnight batches and applies any
+// that have reached `ended`. Safe to run more often than necessary; idempotent.
+const wf1OvernightBatchApplyPoll = inngest.createFunction(
+  {
+    id: 'wf1-overnight-batch-apply-poll',
+    name: 'WF1 · overnight batch apply (poll)',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC */10 * * * *' }],
+  },
+  async ({ step }) => {
+    const result = await step.run('apply-all-inflight', async () =>
+      callInternal('/webhook/wf1-overnight-batch-apply-all', {})
+    );
+    return {
+      ok: true,
+      scanned: result?.scanned ?? 0,
+      applied: result?.applied ?? 0,
+      errors: result?.errors ?? 0,
+    };
+  }
+);
+
+// ─── Anthropic non-WF1 batch reconcile (every 5 min) ──────────────────────
+// Reconciles in-flight Anthropic batches that aren't owned by WF1 (those go
+// through their own apply path above). Generic poll for all other batch users.
+const anthropicBatchReconcilePoll = inngest.createFunction(
+  {
+    id: 'anthropic-batch-reconcile-poll',
+    name: 'Anthropic · non-WF1 batch reconcile (poll)',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC */5 * * * *' }],
+  },
+  async ({ step }) => {
+    const result = await step.run('reconcile-all-inflight', async () =>
+      callInternal('/webhook/anthropic-batch-reconcile-all', {})
+    );
+    return {
+      ok: true,
+      scanned: result?.scanned ?? 0,
+      reconciled: result?.reconciled ?? 0,
+      errors: result?.errors ?? 0,
+    };
+  }
+);
+
+// ─── WF13 weekly synthesis (Sunday 07:00 UTC) ─────────────────────────────
+// Generates the weekly brief for every active business. Runs early Sunday so
+// briefs are ready when the customer-facing weekly scorecard fires at 22:00.
+const wf13WeeklySynthesis = inngest.createFunction(
+  {
+    id: 'wf13-weekly-synthesis',
+    name: 'WF13 · weekly synthesis',
+    retries: 3,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 7 * * 0' }],
+  },
+  async ({ step }) => {
+    const result = await step.run('synthesize-all-businesses', async () =>
+      callInternal('/webhook/wf13-run-weekly', { force: false })
+    );
+    return {
+      ok: true,
+      processed: result?.processed ?? null,
+    };
+  }
+);
+
 const functions = [
+  // Domain crons (originally migrated from n8n)
   adOptimizerDaily,
   pacingAlertsRun,
   weeklyScorecardAll,
+
+  // WF1 (content) — replaces in-process setInterval + wires orphan endpoints
+  wf1DailySweepHourly,
+  wf1MeasureFallbacksHourly,
+  wf1OvernightBatchSubmitNightly,
+  wf1OvernightBatchApplyPoll,
+
+  // Anthropic generic batch reconcile (non-WF1 batches)
+  anthropicBatchReconcilePoll,
+
+  // WF13 weekly brief synthesis
+  wf13WeeklySynthesis,
+
+  // Manual triggers (for dashboard testing)
   manualAdAudit,
   manualPacingRun,
   manualScorecardRun,
