@@ -11038,6 +11038,65 @@ app.post('/webhook/social-post-schedule', async (req, res) => {
   }
 });
 
+// ─── Email Lifecycle (Week 10) — adapter wires existing Resend sendEmail ─
+const emailLifecycleService = require('./services/email-lifecycle');
+
+// Adapter — email-lifecycle expects { to, subject, html, metadata } and
+// returns { ok, id?, reason? }. The existing sendEmail(to, subject, html)
+// returns { sent, id, error }. Adapter normalizes both directions.
+async function sendEmailViaResend(args) {
+  const { to, subject, html, metadata } = args || {};
+  try {
+    const r = await sendEmail(to, subject, html);
+    if (r?.sent) return { ok: true, id: r.id, metadata };
+    if (r?.queued) return { ok: false, reason: 'queued (RESEND_API_KEY missing)' };
+    return { ok: false, reason: r?.error || `HTTP ${r?.status}` };
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
+}
+
+app.post('/webhook/email-lifecycle-process-due', async (req, res) => {
+  try {
+    const r = await emailLifecycleService.processDueRuns({
+      deps: { sbGet, sbPatch, sendEmail: sendEmailViaResend, logger },
+    });
+    res.json(r);
+  } catch (e) {
+    apiError(res, 500, 'EMAIL_LIFECYCLE_PROCESS_FAILED', e.message);
+  }
+});
+
+app.post('/webhook/email-lifecycle-enroll', async (req, res) => {
+  const { businessId, stage, email, name } = req.body || {};
+  if (!businessId || !stage || !email) {
+    return apiError(res, 400, 'INVALID_REQUEST', 'businessId + stage + email required');
+  }
+  try {
+    const r = await emailLifecycleService.enrollRecipient({
+      businessId, stage, email, name,
+      deps: { sbGet, sbPost, logger },
+    });
+    res.json(r);
+  } catch (e) {
+    apiError(res, 500, 'EMAIL_LIFECYCLE_ENROLL_FAILED', e.message);
+  }
+});
+
+app.post('/webhook/email-lifecycle-bootstrap', async (req, res) => {
+  const businessId = req.body?.businessId || req.body?.business_id;
+  if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
+  try {
+    const r = await emailLifecycleService.ensureSequencesForBusiness({
+      businessId,
+      deps: { sbGet, sbPost, logger },
+    });
+    res.json(r);
+  } catch (e) {
+    apiError(res, 500, 'EMAIL_LIFECYCLE_BOOTSTRAP_FAILED', e.message);
+  }
+});
+
 // ─── Autopilot Brain (Week 12) — daily orchestrator + customer brief ─────
 const autopilotBrainService = require('./services/autopilot-brain');
 
@@ -11088,6 +11147,48 @@ app.get('/webhook/social-platforms', async (req, res) => {
   }
 });
 
+// Real production API clients (wired 2026-05-10)
+const metaMarketingClient = require('./services/meta-marketing');
+const googleAdsApiClient = require('./services/google-ads-api');
+const tiktokMarketingClient = require('./services/tiktok-marketing');
+const metaAdLibraryClient = require('./services/meta-ad-library');
+
+// Adapter — measurement-health expects metaInsights/googleAdsDiag/tiktokDiag
+// as async ({ businessId }) → { ... }. Each fetches the business row first,
+// then delegates to the real client.
+const metaInsightsAdapter = async ({ businessId }) => {
+  const rows = await sbGet('businesses', `id=eq.${businessId}&select=meta_access_token,ad_account_id,meta_pixel_id`).catch(() => []);
+  const business = rows?.[0];
+  if (!business) return null;
+  return metaMarketingClient.fetchMeasurementHealth({ business });
+};
+const googleAdsDiagAdapter = async ({ businessId }) => {
+  const rows = await sbGet('businesses', `id=eq.${businessId}&select=google_refresh_token,google_customer_id`).catch(() => []);
+  const business = rows?.[0];
+  if (!business) return null;
+  return googleAdsApiClient.fetchEnhancedConversionsHealth({ business });
+};
+const tiktokDiagAdapter = async ({ businessId }) => {
+  const rows = await sbGet('businesses', `id=eq.${businessId}&select=tiktok_access_token,tiktok_advertiser_id`).catch(() => []);
+  const business = rows?.[0];
+  if (!business) return null;
+  return tiktokMarketingClient.fetchEventsHealth({ business });
+};
+
+// Adapter — competitor-watch expects metaAdLibraryApi.search({ search_terms,
+// ad_reached_countries, ad_active_status, limit }) and returns array of ads.
+// Our real client uses { search_terms, country, limit } so we wrap.
+const metaAdLibraryAdapter = {
+  search: async (opts) => {
+    const country = (opts?.ad_reached_countries && opts.ad_reached_countries[0]) || opts?.country || 'US';
+    return metaAdLibraryClient.search({
+      search_terms: opts.search_terms,
+      country,
+      limit: opts.limit || 50,
+    });
+  },
+};
+
 registerCreativeEngineRoutes({
   app,
   apiError,
@@ -11101,15 +11202,10 @@ registerCreativeEngineRoutes({
   measurementHealth: measurementHealthService,
   competitorWatch: competitorWatchService,
   citationTracker: citationTrackerService,
-  // Real per-platform diagnostic clients ship behind their own env-gated
-  // services in services/meta-ads/, services/google-ads/, services/tiktok-ads/.
-  // For now we pass undefined; the probe gracefully returns 'unknown' verdict
-  // until those clients are wired with real Meta Marketing API / Google Ads
-  // API / TikTok Marketing API credentials.
-  metaInsights: undefined,
-  googleAdsDiag: undefined,
-  tiktokDiag: undefined,
-  metaAdLibraryApi: undefined,
+  metaInsights: metaInsightsAdapter,
+  googleAdsDiag: googleAdsDiagAdapter,
+  tiktokDiag: tiktokDiagAdapter,
+  metaAdLibraryApi: metaAdLibraryAdapter,
 });
 
 // ─── Data Deletion Request (public, no auth) ────────────────────────────────

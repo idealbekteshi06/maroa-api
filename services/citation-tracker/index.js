@@ -221,13 +221,13 @@ async function queryPerplexity({ prompt, deps }) {
 }
 
 async function queryDataForSEO({ prompt, engine, deps }) {
-  // DataForSEO LLM Mentions API — covers Google AI Overviews + ChatGPT
-  // citations. Returns cited URLs + the AI response text.
-  if (!process.env.DATAFORSEO_API_KEY) return null;
-  // Implementation here would POST to DataForSEO's LLM Mentions endpoint.
-  // We sketch it as a contract — real wiring lives in the per-customer
-  // background job behind the LIVE flag.
-  return null;
+  // Prefer the injected client (testable). Fall back to the real services/dataforseo
+  // module which uses DATAFORSEO_LOGIN + DATAFORSEO_PASSWORD.
+  const client = deps?.dataforseoClient || (() => {
+    try { return require('../dataforseo'); } catch { return null; }
+  })();
+  if (!client?.query) return null;
+  return client.query({ prompt, engine });
 }
 
 // ─── Daily run ───────────────────────────────────────────────────────────

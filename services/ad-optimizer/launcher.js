@@ -210,17 +210,34 @@ async function coldStartLaunch({
         logger?.warn?.('ad-optimizer.launcher', businessId, 'campaign persist failed', { platform, error: e.message });
       }
 
-      // ── Live publish to Meta/Google/TikTok ──
-      // Behind META_AD_LAUNCH_LIVE flag because this creates real charges.
-      // Implementation skeleton: each platform integration is shipped behind
-      // its own env var + tested separately.
+      // ── Live publish per platform (gated behind *_LIVE env flags) ──
       if (liveMode) {
         try {
-          // TODO: per-platform publish — gated by individual env vars to avoid
-          // accidental live launches. Implementations live in services/meta-ads/,
-          // services/google-ads/, services/tiktok-ads/ which are scaffolded
-          // separately to keep this module testable.
-          logger?.info?.('ad-optimizer.launcher', businessId, 'live publish skipped (per-platform impl pending)', { platform });
+          if (platform === 'meta') {
+            const metaClient = deps.metaMarketingClient || (() => {
+              try { return require('../meta-marketing'); } catch { return null; }
+            })();
+            if (metaClient?.createCampaignWithAdSetsAndAds) {
+              const r = await metaClient.createCampaignWithAdSetsAndAds({ business, payload });
+              if (!r.ok) errors.push({ platform, audience: audience.label, error: r.reason });
+            }
+          } else if (platform === 'google') {
+            const googleClient = deps.googleAdsApiClient || (() => {
+              try { return require('../google-ads-api'); } catch { return null; }
+            })();
+            if (googleClient?.createPmaxCampaign) {
+              const r = await googleClient.createPmaxCampaign({ business, payload });
+              if (!r.ok) errors.push({ platform, audience: audience.label, error: r.reason });
+            }
+          } else if (platform === 'tiktok') {
+            const tiktokClient = deps.tiktokMarketingClient || (() => {
+              try { return require('../tiktok-marketing'); } catch { return null; }
+            })();
+            if (tiktokClient?.createSmartPlusCampaign) {
+              const r = await tiktokClient.createSmartPlusCampaign({ business, payload });
+              if (!r.ok) errors.push({ platform, audience: audience.label, error: r.reason });
+            }
+          }
         } catch (e) {
           errors.push({ platform, audience: audience.label, error: `publish: ${e.message}` });
           sentry?.captureException?.(e, { tags: { module: 'ad-optimizer.launcher', platform, business_id: businessId } });
