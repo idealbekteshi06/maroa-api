@@ -342,6 +342,31 @@ const measurementHealthProbe = inngest.createFunction(
   }
 );
 
+// ─── Email lifecycle processor (every 15 min) ────────────────────────────
+// Walks email_sequence_runs where next_send_at <= now and dispatches
+// the next email step. Idempotent — already-sent steps are tracked in send_log.
+const emailLifecycleProcess = inngest.createFunction(
+  {
+    id: 'email-lifecycle-process-15m',
+    name: 'Email Lifecycle · process due runs',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC */15 * * * *' }],
+  },
+  async ({ step }) => {
+    const result = await step.run('process-due', async () =>
+      callInternal('/webhook/email-lifecycle-process-due', {})
+    );
+    return {
+      ok: true,
+      due: result?.due ?? 0,
+      sent: result?.sent ?? 0,
+      failed: result?.failed ?? 0,
+      completed: result?.completed ?? 0,
+    };
+  }
+);
+
 // ─── AI Search Citation Tracker (daily at 06:00 UTC) ────────────────────
 // Runs the prompt seed library against ChatGPT / Perplexity / Google AI
 // Overviews / Claude for every Growth+ business. Cost: ~$3-5/business/mo.
@@ -501,6 +526,9 @@ const functions = [
 
   // Citation Tracker (Week 9)
   citationTrackerDaily,
+
+  // Email Lifecycle (Week 10)
+  emailLifecycleProcess,
 
   // Manual triggers (for dashboard testing)
   manualAdAudit,
