@@ -25,6 +25,7 @@ function registerCreativeEngineRoutes(deps) {
     creativeEngine, measurementHealth,
     metaInsights, googleAdsDiag, tiktokDiag,
     competitorWatch, metaAdLibraryApi,
+    citationTracker,
   } = deps;
 
   function buildEngineDeps() {
@@ -149,6 +150,58 @@ function registerCreativeEngineRoutes(deps) {
       res.json(r);
     } catch (e) {
       apiError(res, 500, 'MEASUREMENT_HEALTH_PROBE_FAILED', e.message);
+    }
+  });
+
+  // ─── Citation Tracker cron fanout (Week 9) ──────────────────────────────
+  app.post('/webhook/citation-tracker-run-all', async (req, res) => {
+    if (!citationTracker?.runDailyForBusiness) {
+      return apiError(res, 503, 'CITATION_TRACKER_DISABLED', 'citation-tracker not configured');
+    }
+    try {
+      const businesses = await sbGet('businesses',
+        'is_active=eq.true&plan=in.(growth,agency)&select=id&limit=1000'
+      ).catch(() => []);
+      let ran = 0, cited = 0, costUsd = 0;
+      const trackerDeps = { sbGet, sbPost, sbPatch, logger };
+      for (const b of businesses) {
+        try {
+          const r = await citationTracker.runDailyForBusiness({ businessId: b.id, deps: trackerDeps });
+          if (r?.ok) {
+            ran += r.ran || 0;
+            cited += r.cited || 0;
+            costUsd += r.cost_usd || 0;
+          }
+        } catch (e) {
+          logger?.warn?.('/webhook/citation-tracker-run-all', b.id, 'run failed', { error: e.message });
+        }
+      }
+      res.json({ ok: true, businesses: businesses.length, ran, cited, cost_usd: costUsd });
+    } catch (e) {
+      apiError(res, 500, 'CITATION_TRACKER_RUN_ALL_FAILED', e.message);
+    }
+  });
+
+  app.post('/webhook/citation-tracker-run', async (req, res) => {
+    const businessId = req.body?.businessId || req.body?.business_id;
+    if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
+    try {
+      const r = await citationTracker.runDailyForBusiness({ businessId, deps: { sbGet, sbPost, sbPatch, logger } });
+      res.json(r);
+    } catch (e) {
+      apiError(res, 500, 'CITATION_TRACKER_RUN_FAILED', e.message);
+    }
+  });
+
+  app.get('/webhook/citation-tracker-share-of-voice', async (req, res) => {
+    const businessId = req.query?.businessId || req.query?.business_id;
+    const days = Number(req.query?.days || 7);
+    if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
+    try {
+      const r = await citationTracker.computeShareOfVoice({ businessId, days, deps: { sbGet } });
+      res.json(r);
+    } catch (e) {
+      apiError(res, 500, 'CITATION_TRACKER_SOV_FAILED', e.message);
     }
   });
 

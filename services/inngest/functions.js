@@ -342,6 +342,30 @@ const measurementHealthProbe = inngest.createFunction(
   }
 );
 
+// ─── AI Search Citation Tracker (daily at 06:00 UTC) ────────────────────
+// Runs the prompt seed library against ChatGPT / Perplexity / Google AI
+// Overviews / Claude for every Growth+ business. Cost: ~$3-5/business/mo.
+const citationTrackerDaily = inngest.createFunction(
+  {
+    id: 'citation-tracker-daily',
+    name: 'Citation Tracker · daily AI search runs',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 6 * * *' }],
+  },
+  async ({ step }) => {
+    const result = await step.run('run-all-businesses', async () =>
+      callInternal('/webhook/citation-tracker-run-all', {})
+    );
+    return {
+      ok: true,
+      ran: result?.ran ?? 0,
+      cited: result?.cited ?? 0,
+      cost_usd: result?.cost_usd ?? 0,
+    };
+  }
+);
+
 // ─── Competitor War Room (every 4h) ──────────────────────────────────────
 // Scans Meta Ad Library + Google Auction Insights for top-5 competitors per
 // business. Reacts to new ad launches / spend shifts / keyword overlap.
@@ -474,6 +498,9 @@ const functions = [
 
   // Competitor War Room (Week 8)
   competitorWatchRun,
+
+  // Citation Tracker (Week 9)
+  citationTrackerDaily,
 
   // Manual triggers (for dashboard testing)
   manualAdAudit,
