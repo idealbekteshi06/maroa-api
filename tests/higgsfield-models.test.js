@@ -144,3 +144,51 @@ test('higgsfield: HIGGSFIELD_PATH_CINEMA env override is respected', () => {
   const path = svc.pathForModel('cinema studio');
   assert.strictEqual(path, '/custom/cinema/v4');
 });
+
+// ─── Soul ID training contract (verified vs CLI 0.1.34) ────────────────────
+
+test('trainSoulCharacter: rejects fewer than 5 reference images (Higgsfield minimum)', async () => {
+  const svc = makeService();
+  await assert.rejects(
+    () => svc.trainSoulCharacter({
+      characterId: 'x',
+      sourceImageUrls: ['https://1', 'https://2', 'https://3'],
+      name: 'test',
+    }),
+    /5.20 reference images/i
+  );
+});
+
+test('trainSoulCharacter: rejects more than 20 reference images (Higgsfield maximum)', async () => {
+  const svc = makeService();
+  const tooMany = [];
+  for (let i = 0; i < 21; i += 1) tooMany.push(`https://${i}`);
+  await assert.rejects(
+    () => svc.trainSoulCharacter({ characterId: 'x', sourceImageUrls: tooMany, name: 'test' }),
+    /5.20 reference images/i
+  );
+});
+
+test('trainSoulCharacter: rejects unknown model selector', async () => {
+  const svc = makeService();
+  const five = ['https://1', 'https://2', 'https://3', 'https://4', 'https://5'];
+  await assert.rejects(
+    () => svc.trainSoulCharacter({
+      characterId: 'x',
+      sourceImageUrls: five,
+      name: 'test',
+      model: 'soul_3',  // doesn't exist
+    }),
+    /soul_2.*soul_cinematic/i
+  );
+});
+
+test('higgsfield: uploadImageToHiggsfield is exported', () => {
+  const svc = makeService();
+  assert.strictEqual(typeof svc.uploadImageToHiggsfield, 'function');
+});
+
+test('higgsfield: waitForSoulIdTraining is exported', () => {
+  const svc = makeService();
+  assert.strictEqual(typeof svc.waitForSoulIdTraining, 'function');
+});

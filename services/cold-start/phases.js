@@ -210,16 +210,19 @@ async function trainSoulId({ businessId, deps }) {
     `business_id=eq.${businessId}&photo_type=eq.character_sheet&is_active=eq.true&select=id,photo_url`
   ).catch(() => []);
 
-  if (!photoRows || photoRows.length < 3) {
-    // Customer hasn't uploaded the 3-angle character sheet yet. Wait, don't fail.
+  // Higgsfield Soul ID requires 5–20 reference images (verified against
+  // CLI 0.1.34: `higgsfield soul-id create` requires --image flag 5+ times).
+  // We ask for 5 minimum, accept up to 10 for the cold-start flow (more
+  // images = better identity lock per the research).
+  if (!photoRows || photoRows.length < 5) {
     return {
       ok: true,
       awaitingInput: true,
       data: {
         next_user_action: 'upload_character_sheet',
-        message: 'Upload 3 photos of yourself (front, 3/4, profile) to unlock Soul ID character lock',
+        message: 'Upload 5 photos of yourself (front, 3/4, profile, two more angles) to unlock Soul ID character lock',
         uploaded: photoRows?.length ?? 0,
-        required: 3,
+        required: 5,
       },
     };
   }
@@ -230,16 +233,21 @@ async function trainSoulId({ businessId, deps }) {
   }
 
   let soulId;
+  let modelUsed;
   try {
-    // higgsfield.trainSoulCharacter expects { sourceImageUrls, characterId?, name? }
-    // and returns { higgsfield_character_id }. We use the businessId as the
-    // external character correlation key.
+    // higgsfield.trainSoulCharacter contract verified against CLI 0.1.34:
+    //   - 5–20 reference images required
+    //   - model selector: 'soul_2' (default, faster, cheaper) or 'soul_cinematic'
+    //     (higher fidelity, more credits — used for premium plan tiers)
+    //   - returns { higgsfield_character_id, model_used, image_count }
     const r = await higgsfield.trainSoulCharacter({
       characterId: `biz_${businessId}`,
-      sourceImageUrls: photoRows.slice(0, 5).map((p) => p.photo_url),
+      sourceImageUrls: photoRows.slice(0, 10).map((p) => p.photo_url),
       name: `business_${businessId}`,
+      model: 'soul_2',
     });
     soulId = r?.higgsfield_character_id || r?.soul_id || r?.id || null;
+    modelUsed = r?.model_used || 'soul_2';
   } catch (e) {
     logger?.error?.('cold-start.train_soul_id', businessId, 'training failed', e);
     return { ok: false, reason: `Soul ID training failed: ${e.message}` };
@@ -253,7 +261,7 @@ async function trainSoulId({ businessId, deps }) {
     soul_id_trained_at: new Date().toISOString(),
   }).catch(() => {});
 
-  return { ok: true, data: { soul_id: soulId } };
+  return { ok: true, data: { soul_id: soulId, model_used: modelUsed } };
 }
 
 // ─── Phase 5: generate creative concepts (3 variants) ────────────────────

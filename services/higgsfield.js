@@ -1084,14 +1084,96 @@ module.exports = function createHiggsfieldService(deps) {
    * Returns { higgsfield_character_id } once training submitted.
    * Default endpoint can be overridden via HIGGSFIELD_PATH_CHARACTER_CREATE env.
    */
-  async function trainSoulCharacter({ characterId, sourceImageUrls, name }) {
-    if (!Array.isArray(sourceImageUrls) || sourceImageUrls.length === 0) {
-      throw new Error('sourceImageUrls (1-5+) required');
+  /**
+   * Upload a buffer to Higgsfield's /upload endpoint. Required before Soul ID
+   * training — the create-character endpoint takes upload IDs, not URLs.
+   * Returns the upload ID per Higgsfield's `higgsfield upload create` contract.
+   */
+  async function uploadImageToHiggsfield(buf, filename = 'reference.png') {
+    if (!HIGGSFIELD_API_KEY_ID || !HIGGSFIELD_API_KEY_SECRET) {
+      throw new Error('Higgsfield credentials not configured');
     }
+    // multipart/form-data — boundary + part with field name 'file'
+    const boundary = `----maroa-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const parts = [];
+    parts.push(Buffer.from(`--${boundary}\r\n`));
+    parts.push(Buffer.from(`Content-Disposition: form-data; name="file"; filename="${filename.replace(/"/g, '')}"\r\n`));
+    parts.push(Buffer.from(`Content-Type: image/png\r\n\r\n`));
+    parts.push(buf);
+    parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
+    const body = Buffer.concat(parts);
+
+    const url = higgsfieldUrl(process.env.HIGGSFIELD_PATH_UPLOAD || '/upload/create');
+    const u = new URL(url);
+    const respBody = await new Promise((resolve, reject) => {
+      const req = https.request({
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: u.pathname + u.search,
+        method: 'POST',
+        headers: {
+          Authorization: `Key ${HIGGSFIELD_API_KEY_ID}:${HIGGSFIELD_API_KEY_SECRET}`,
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          'Content-Length': body.length,
+        },
+      }, (res) => {
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => resolve({ status: res.statusCode, body: data }));
+      });
+      req.on('error', reject);
+      req.write(body);
+      req.end();
+    });
+    if (respBody.status < 200 || respBody.status >= 300) {
+      console.error('[higgsfield:uploadImage] HTTP', respBody.status, respBody.body.slice(0, 300));
+      throw new Error(`Higgsfield upload HTTP ${respBody.status}`);
+    }
+    const parsed = parseJsonBody(respBody.body);
+    const id = parsed.id || parsed.upload_id || parsed.data?.id || parsed.data?.upload_id;
+    if (!id) {
+      throw new Error(`Higgsfield upload returned no id: ${respBody.body.slice(0, 200)}`);
+    }
+    return id;
+  }
+
+  /**
+   * Train a Soul ID character from reference photos.
+   *
+   * Contract verified against the official Higgsfield CLI 0.1.34
+   * (`higgsfield soul-id create --help`):
+   *   - Required: 5 to 20 reference images (single-photo training is NOT supported)
+   *   - Required: model selector — `soul_2: true` OR `soul_cinematic: true`
+   *   - Images must be UPLOAD IDs, not URLs — we upload each first and collect IDs
+   *
+   * @param {Object} args
+   * @param {string} args.characterId           internal correlation key
+   * @param {string[]} args.sourceImageUrls     5–20 reference image URLs
+   * @param {string} args.name                  human-friendly character name
+   * @param {'soul_2'|'soul_cinematic'} [args.model='soul_2']
+   * @returns {Promise<{ higgsfield_character_id: string, raw: object }>}
+   */
+  async function trainSoulCharacter({ characterId, sourceImageUrls, name, model = 'soul_2' }) {
+    if (!Array.isArray(sourceImageUrls) || sourceImageUrls.length < 5 || sourceImageUrls.length > 20) {
+      throw new Error(`Higgsfield Soul ID requires 5–20 reference images (got ${sourceImageUrls?.length || 0})`);
+    }
+    if (model !== 'soul_2' && model !== 'soul_cinematic') {
+      throw new Error(`Higgsfield Soul ID model must be 'soul_2' or 'soul_cinematic' (got '${model}')`);
+    }
+
+    // Upload each image to Higgsfield first, collect IDs
+    const imageIds = [];
+    for (let i = 0; i < sourceImageUrls.length; i += 1) {
+      const buf = await downloadImageBuffer(sourceImageUrls[i]);
+      const id = await uploadImageToHiggsfield(buf, `ref-${i}.png`);
+      imageIds.push(id);
+    }
+
     const payload = {
       name: (name || characterId || 'character').slice(0, 80),
-      reference_image_urls: sourceImageUrls.slice(0, 20),
-      meta: { external_id: characterId || null }
+      image_ids: imageIds,
+      [model]: true,
+      meta: { external_id: characterId || null },
     };
     const r = await hfPost(PATH_CHARACTER_CREATE, payload, 180000);
     if (r.status < 200 || r.status >= 300) {
@@ -1104,7 +1186,28 @@ module.exports = function createHiggsfieldService(deps) {
       console.error('[higgsfield:trainSoulCharacter] missing character id in response', safeStringify(body));
       throw new Error('Higgsfield character create did not return a character id');
     }
-    return { higgsfield_character_id: hfId, raw: body };
+    return { higgsfield_character_id: hfId, raw: body, model_used: model, image_count: imageIds.length };
+  }
+
+  /**
+   * Poll Soul ID training status.
+   * Mirrors the CLI's `higgsfield soul-id wait <soul_id>` semantics.
+   */
+  async function waitForSoulIdTraining(characterId, timeoutMs = 10 * 60 * 1000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const r = await hfGet(`${PATH_CHARACTER_STATUS}/${characterId}`);
+      if (r.status >= 200 && r.status < 300) {
+        const body = parseJsonBody(r.body);
+        const status = body.status || body.state || body.data?.status;
+        if (status === 'completed' || status === 'ready' || status === 'trained') return body;
+        if (status === 'failed' || status === 'error') {
+          throw new Error(`Higgsfield Soul ID training failed: ${body.error || body.message || 'unknown'}`);
+        }
+      }
+      await sleep(15000); // poll every 15s
+    }
+    throw new Error('Higgsfield Soul ID training timed out');
   }
 
   /**
@@ -1142,6 +1245,8 @@ module.exports = function createHiggsfieldService(deps) {
     developCreativeConcept,
     generateStrategicProductImage,
     trainSoulCharacter,
+    waitForSoulIdTraining,
+    uploadImageToHiggsfield,
     generateWithModel,
     pathForModel,
     modelForCapability,

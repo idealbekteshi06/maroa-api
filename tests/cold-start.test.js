@@ -73,21 +73,7 @@ test('classifyIndustry: falls back to Claude when industry empty', async () => {
 
 // ─── Phase 4: train Soul ID gates on photos ──────────────────────────────
 
-test('trainSoulId: returns awaitingInput when fewer than 3 photos uploaded', async () => {
-  const deps = {
-    sbGet: async () => [{ id: 'p1', photo_url: 'https://...' }],
-    sbPatch: async () => {},
-    higgsfield: { trainSoulCharacter: async () => ({}) },
-    logger: { warn: () => {}, error: () => {} },
-  };
-  const r = await phases.trainSoulId({ businessId: 'biz-3', deps });
-  assert.strictEqual(r.ok, true);
-  assert.strictEqual(r.awaitingInput, true);
-  assert.strictEqual(r.data.uploaded, 1);
-  assert.strictEqual(r.data.required, 3);
-});
-
-test('trainSoulId: trains when 3+ photos uploaded', async () => {
+test('trainSoulId: returns awaitingInput when fewer than 5 photos uploaded (Higgsfield minimum)', async () => {
   const deps = {
     sbGet: async () => [
       { id: 'p1', photo_url: 'https://1' },
@@ -95,13 +81,66 @@ test('trainSoulId: trains when 3+ photos uploaded', async () => {
       { id: 'p3', photo_url: 'https://3' },
     ],
     sbPatch: async () => {},
-    higgsfield: { trainSoulCharacter: async () => ({ soul_id: 'soul_abc123' }) },
+    higgsfield: { trainSoulCharacter: async () => ({}) },
+    logger: { warn: () => {}, error: () => {} },
+  };
+  const r = await phases.trainSoulId({ businessId: 'biz-3', deps });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.awaitingInput, true);
+  assert.strictEqual(r.data.uploaded, 3);
+  assert.strictEqual(r.data.required, 5);
+});
+
+test('trainSoulId: trains when 5+ photos uploaded — passes correct contract to Higgsfield', async () => {
+  let capturedArgs = null;
+  const deps = {
+    sbGet: async () => [
+      { id: 'p1', photo_url: 'https://1' },
+      { id: 'p2', photo_url: 'https://2' },
+      { id: 'p3', photo_url: 'https://3' },
+      { id: 'p4', photo_url: 'https://4' },
+      { id: 'p5', photo_url: 'https://5' },
+    ],
+    sbPatch: async () => {},
+    higgsfield: {
+      trainSoulCharacter: async (args) => {
+        capturedArgs = args;
+        return { higgsfield_character_id: 'soul_abc123', model_used: 'soul_2' };
+      },
+    },
     logger: { warn: () => {}, error: () => {} },
   };
   const r = await phases.trainSoulId({ businessId: 'biz-4', deps });
   assert.strictEqual(r.ok, true);
   assert.strictEqual(r.awaitingInput, undefined);
   assert.strictEqual(r.data.soul_id, 'soul_abc123');
+  assert.strictEqual(r.data.model_used, 'soul_2');
+  // Verify we passed the contract Higgsfield expects:
+  assert.strictEqual(capturedArgs.model, 'soul_2');
+  assert.strictEqual(capturedArgs.characterId, 'biz_biz-4');
+  assert.strictEqual(capturedArgs.sourceImageUrls.length, 5);
+  assert.ok(capturedArgs.name.startsWith('business_'));
+});
+
+test('trainSoulId: passes up to 10 photos when more available (better identity lock)', async () => {
+  let capturedArgs = null;
+  const photoRows = [];
+  for (let i = 1; i <= 15; i += 1) photoRows.push({ id: `p${i}`, photo_url: `https://${i}` });
+  const deps = {
+    sbGet: async () => photoRows,
+    sbPatch: async () => {},
+    higgsfield: {
+      trainSoulCharacter: async (args) => {
+        capturedArgs = args;
+        return { higgsfield_character_id: 'soul_xyz', model_used: 'soul_2' };
+      },
+    },
+    logger: { warn: () => {}, error: () => {} },
+  };
+  await phases.trainSoulId({ businessId: 'biz-5', deps });
+  // We cap at 10 for cold-start (research: more refs = better identity lock,
+  // but Higgsfield max is 20 — we leave headroom for premium upgrades).
+  assert.strictEqual(capturedArgs.sourceImageUrls.length, 10);
 });
 
 // ─── Launcher: platform eligibility ──────────────────────────────────────
