@@ -11038,6 +11038,45 @@ app.post('/webhook/social-post-schedule', async (req, res) => {
   }
 });
 
+// ─── Autopilot Brain (Week 12) — daily orchestrator + customer brief ─────
+const autopilotBrainService = require('./services/autopilot-brain');
+
+app.post('/webhook/autopilot-brain-run-all', async (req, res) => {
+  try {
+    const businesses = await sbGet('businesses', 'is_active=eq.true&select=id&limit=1000').catch(() => []);
+    let ran = 0, conflicts = 0;
+    const brainDeps = { sbGet, sbPost, logger, sentry: Sentry };
+    for (const b of businesses) {
+      try {
+        const r = await autopilotBrainService.runDaily({ businessId: b.id, deps: brainDeps });
+        if (r?.ok) {
+          ran += 1;
+          conflicts += r.conflicts_resolved || 0;
+        }
+      } catch (e) {
+        logger?.warn?.('/webhook/autopilot-brain-run-all', b.id, 'run failed', { error: e.message });
+      }
+    }
+    res.json({ ok: true, businesses: businesses.length, ran, conflicts_resolved: conflicts });
+  } catch (e) {
+    apiError(res, 500, 'AUTOPILOT_BRAIN_RUN_ALL_FAILED', e.message);
+  }
+});
+
+app.post('/webhook/autopilot-brain-run', async (req, res) => {
+  const businessId = req.body?.businessId || req.body?.business_id;
+  if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
+  try {
+    const r = await autopilotBrainService.runDaily({
+      businessId,
+      deps: { sbGet, sbPost, logger, sentry: Sentry },
+    });
+    res.json(r);
+  } catch (e) {
+    apiError(res, 500, 'AUTOPILOT_BRAIN_RUN_FAILED', e.message);
+  }
+});
+
 app.get('/webhook/social-platforms', async (req, res) => {
   const businessId = req.query?.businessId || req.query?.business_id;
   if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');

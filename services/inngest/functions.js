@@ -342,6 +342,31 @@ const measurementHealthProbe = inngest.createFunction(
   }
 );
 
+// ─── Autopilot Brain (daily at 08:00 UTC, after measurement-health probe) ─
+// Top-level orchestrator. Pulls signals from all 11 capability pillars,
+// resolves cross-domain conflicts, narrates the daily brief, sends the
+// email. Runs at 08:00 UTC AFTER measurement-health-probe-daily at 07:00
+// so it has fresh trust verdicts to gate scaling decisions on.
+const autopilotBrainDaily = inngest.createFunction(
+  {
+    id: 'autopilot-brain-daily',
+    name: 'Autopilot Brain · daily orchestration + customer brief',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 8 * * *' }],
+  },
+  async ({ step }) => {
+    const result = await step.run('run-all-businesses', async () =>
+      callInternal('/webhook/autopilot-brain-run-all', {})
+    );
+    return {
+      ok: true,
+      ran: result?.ran ?? 0,
+      conflicts_resolved: result?.conflicts_resolved ?? 0,
+    };
+  }
+);
+
 // ─── Email lifecycle processor (every 15 min) ────────────────────────────
 // Walks email_sequence_runs where next_send_at <= now and dispatches
 // the next email step. Idempotent — already-sent steps are tracked in send_log.
@@ -529,6 +554,9 @@ const functions = [
 
   // Email Lifecycle (Week 10)
   emailLifecycleProcess,
+
+  // Autopilot Brain (Week 12 — top-level orchestrator)
+  autopilotBrainDaily,
 
   // Manual triggers (for dashboard testing)
   manualAdAudit,
