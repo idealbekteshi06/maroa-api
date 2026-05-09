@@ -10995,7 +10995,59 @@ const creativeEngineService = require('./services/creative-engine');
 const measurementHealthService = require('./services/measurement-health');
 const competitorWatchService = require('./services/competitor-watch');
 const citationTrackerService = require('./services/citation-tracker');
+const socialMultiService = require('./services/social-multi');
 const { registerCreativeEngineRoutes } = require('./services/creative-engine/registerRoutes');
+
+// Multi-platform social posting endpoints (Week 11)
+app.post('/webhook/social-post-now', async (req, res) => {
+  const businessId = req.body?.businessId || req.body?.business_id;
+  const platforms = req.body?.platforms;
+  const content = req.body?.content || { body: req.body?.body || '' };
+  const mediaUrl = req.body?.mediaUrl || req.body?.media_url;
+  if (!businessId || !Array.isArray(platforms) || platforms.length === 0) {
+    return apiError(res, 400, 'INVALID_REQUEST', 'businessId + platforms required');
+  }
+  try {
+    const r = await socialMultiService.postNow({
+      businessId, platforms, content, mediaUrl,
+      deps: { sbGet, sbPost, logger },
+    });
+    res.json(r);
+  } catch (e) {
+    apiError(res, 500, 'SOCIAL_POST_FAILED', e.message);
+  }
+});
+
+app.post('/webhook/social-post-schedule', async (req, res) => {
+  const businessId = req.body?.businessId || req.body?.business_id;
+  const platforms = req.body?.platforms;
+  const content = req.body?.content || { body: req.body?.body || '' };
+  const mediaUrl = req.body?.mediaUrl || req.body?.media_url;
+  const scheduleAt = req.body?.scheduleAt || req.body?.schedule_at;
+  if (!businessId || !Array.isArray(platforms) || !scheduleAt) {
+    return apiError(res, 400, 'INVALID_REQUEST', 'businessId + platforms + scheduleAt required');
+  }
+  try {
+    const r = await socialMultiService.schedulePost({
+      businessId, platforms, content, mediaUrl, scheduleAt,
+      deps: { sbGet, sbPost, logger },
+    });
+    res.json(r);
+  } catch (e) {
+    apiError(res, 500, 'SOCIAL_SCHEDULE_FAILED', e.message);
+  }
+});
+
+app.get('/webhook/social-platforms', async (req, res) => {
+  const businessId = req.query?.businessId || req.query?.business_id;
+  if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
+  try {
+    const r = await socialMultiService.listConnectedPlatforms({ businessId, deps: { sbGet } });
+    res.json(r);
+  } catch (e) {
+    apiError(res, 500, 'SOCIAL_PLATFORMS_LIST_FAILED', e.message);
+  }
+});
 
 registerCreativeEngineRoutes({
   app,
