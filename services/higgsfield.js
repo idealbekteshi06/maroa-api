@@ -25,7 +25,13 @@ module.exports = function createHiggsfieldService(deps) {
   const clean = (v) => (v || '').replace(/[^\x20-\x7E]/g, '').trim();
   const HIGGSFIELD_API_KEY_ID = clean(process.env.HIGGSFIELD_API_KEY_ID || '');
   const HIGGSFIELD_API_KEY_SECRET = clean(process.env.HIGGSFIELD_API_KEY_SECRET || '');
+  const HIGGSFIELD_BEARER_TOKEN = clean(process.env.HIGGSFIELD_BEARER_TOKEN || '');
   const HIGGSFIELD_API_BASE = clean(process.env.HIGGSFIELD_API_BASE) || 'https://platform.higgsfield.ai';
+  // FNF base — Higgsfield's current production API (verified 2026-05-10 via CLI 0.1.34
+  // dump). Used for /agents/uploads + /agents/custom-references (Soul ID training).
+  // Distinct from HIGGSFIELD_API_BASE (legacy /requests/* endpoints) so we don't
+  // break older code paths that still work.
+  const HIGGSFIELD_FNF_BASE = clean(process.env.HIGGSFIELD_FNF_BASE) || 'https://fnf.higgsfield.ai';
 
   const PATH_SOUL = '/higgsfield-ai/soul/standard';
   const PATH_KLING = '/higgsfield-ai/kling/standard';
@@ -47,9 +53,19 @@ module.exports = function createHiggsfieldService(deps) {
   const PATH_CINEMA = process.env.HIGGSFIELD_PATH_CINEMA || '/higgsfield-ai/cinema-studio/v3-5';
   // Vibe Motion — Remotion code generator for kinetic typography (text never breaks)
   const PATH_VIBE_MOTION = process.env.HIGGSFIELD_PATH_VIBE_MOTION || '/higgsfield-ai/vibe-motion/standard';
-  // Soul ID character training
-  const PATH_CHARACTER_CREATE = process.env.HIGGSFIELD_PATH_CHARACTER_CREATE || '/higgsfield-ai/soul/characters';
-  const PATH_CHARACTER_STATUS = process.env.HIGGSFIELD_PATH_CHARACTER_STATUS || '/higgsfield-ai/soul/characters';
+  // Soul ID character training — verified contract 2026-05-10:
+  // POST https://fnf.higgsfield.ai/agents/custom-references
+  //   { name, type: 'soul_2'|'soul_cinematic',
+  //     input_images: [{ id, type: 'media_input' }, ...] }
+  // The legacy `/higgsfield-ai/soul/characters` path is kept as a fallback
+  // for the env-var override hatch but the FNF endpoint is the live one.
+  const PATH_CHARACTER_CREATE = process.env.HIGGSFIELD_PATH_CHARACTER_CREATE || '/agents/custom-references';
+  const PATH_CHARACTER_STATUS = process.env.HIGGSFIELD_PATH_CHARACTER_STATUS || '/agents/custom-references';
+  // Multipart upload — verified contract:
+  //   POST https://fnf.higgsfield.ai/agents/uploads?type=image
+  //   multipart/form-data with field `file`
+  //   → { id, type: 'image', url, upload_url }
+  const PATH_AGENTS_UPLOAD = process.env.HIGGSFIELD_PATH_UPLOAD || '/agents/uploads';
 
   const PATHS_BY_MODEL = {
     'soul 2.0': PATH_SOUL,
@@ -1085,26 +1101,67 @@ module.exports = function createHiggsfieldService(deps) {
    * Default endpoint can be overridden via HIGGSFIELD_PATH_CHARACTER_CREATE env.
    */
   /**
-   * Upload a buffer to Higgsfield's /upload endpoint. Required before Soul ID
-   * training — the create-character endpoint takes upload IDs, not URLs.
-   * Returns the upload ID per Higgsfield's `higgsfield upload create` contract.
+   * Pick the right Authorization header. Higgsfield's FNF endpoints
+   * (/agents/...) use Bearer; the legacy platform.higgsfield.ai endpoints
+   * still use Key id:secret. We pick by env var presence — Bearer first.
+   */
+  function fnfAuthHeader() {
+    if (HIGGSFIELD_BEARER_TOKEN) return `Bearer ${HIGGSFIELD_BEARER_TOKEN}`;
+    if (HIGGSFIELD_API_KEY_ID && HIGGSFIELD_API_KEY_SECRET) {
+      return `Key ${HIGGSFIELD_API_KEY_ID}:${HIGGSFIELD_API_KEY_SECRET}`;
+    }
+    throw new Error('Higgsfield credentials not configured (need HIGGSFIELD_BEARER_TOKEN or HIGGSFIELD_API_KEY_ID/SECRET)');
+  }
+
+  /**
+   * Detect MIME type from the first few bytes of the buffer. Used by
+   * uploadImageToHiggsfield so we send the right Content-Type per file.
+   */
+  function detectImageMimeType(buf) {
+    if (!buf || buf.length < 12) return 'image/png';
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return 'image/png';
+    // JPEG: FF D8 FF
+    if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'image/jpeg';
+    // WebP: RIFF....WEBP
+    if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+        buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return 'image/webp';
+    // GIF: GIF8
+    if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return 'image/gif';
+    return 'application/octet-stream';
+  }
+
+  /**
+   * Upload a buffer to Higgsfield's /agents/uploads endpoint.
+   *
+   * Verified contract (2026-05-10):
+   *   POST https://fnf.higgsfield.ai/agents/uploads?type=image
+   *   Authorization: Bearer <access_token>
+   *   Content-Type: multipart/form-data; boundary=...
+   *   field: file=<image binary>
+   *
+   * Response:
+   *   { id, type: 'image', url, upload_url }
+   *
+   * Returns the upload id (string) — passed into trainSoulCharacter as
+   * input_images[].id.
    */
   async function uploadImageToHiggsfield(buf, filename = 'reference.png') {
-    if (!HIGGSFIELD_API_KEY_ID || !HIGGSFIELD_API_KEY_SECRET) {
-      throw new Error('Higgsfield credentials not configured');
-    }
+    const auth = fnfAuthHeader();
+    const mimeType = detectImageMimeType(buf);
+
     // multipart/form-data — boundary + part with field name 'file'
     const boundary = `----maroa-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const parts = [];
     parts.push(Buffer.from(`--${boundary}\r\n`));
     parts.push(Buffer.from(`Content-Disposition: form-data; name="file"; filename="${filename.replace(/"/g, '')}"\r\n`));
-    parts.push(Buffer.from(`Content-Type: image/png\r\n\r\n`));
+    parts.push(Buffer.from(`Content-Type: ${mimeType}\r\n\r\n`));
     parts.push(buf);
     parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
     const body = Buffer.concat(parts);
 
-    const url = higgsfieldUrl(process.env.HIGGSFIELD_PATH_UPLOAD || '/upload/create');
-    const u = new URL(url);
+    // FNF upload endpoint — note the required ?type=image query param
+    const u = new URL(`${HIGGSFIELD_FNF_BASE}${PATH_AGENTS_UPLOAD}?type=image`);
     const respBody = await new Promise((resolve, reject) => {
       const req = https.request({
         hostname: u.hostname,
@@ -1112,7 +1169,7 @@ module.exports = function createHiggsfieldService(deps) {
         path: u.pathname + u.search,
         method: 'POST',
         headers: {
-          Authorization: `Key ${HIGGSFIELD_API_KEY_ID}:${HIGGSFIELD_API_KEY_SECRET}`,
+          Authorization: auth,
           'Content-Type': `multipart/form-data; boundary=${boundary}`,
           'Content-Length': body.length,
         },
@@ -1127,7 +1184,7 @@ module.exports = function createHiggsfieldService(deps) {
     });
     if (respBody.status < 200 || respBody.status >= 300) {
       console.error('[higgsfield:uploadImage] HTTP', respBody.status, respBody.body.slice(0, 300));
-      throw new Error(`Higgsfield upload HTTP ${respBody.status}`);
+      throw new Error(`Higgsfield upload HTTP ${respBody.status}: ${respBody.body.slice(0, 200)}`);
     }
     const parsed = parseJsonBody(respBody.body);
     const id = parsed.id || parsed.upload_id || parsed.data?.id || parsed.data?.upload_id;
@@ -1153,54 +1210,120 @@ module.exports = function createHiggsfieldService(deps) {
    * @param {'soul_2'|'soul_cinematic'} [args.model='soul_2']
    * @returns {Promise<{ higgsfield_character_id: string, raw: object }>}
    */
+  /**
+   * Train a Soul ID character. Verified contract 2026-05-10 against live API.
+   *
+   *   POST https://fnf.higgsfield.ai/agents/custom-references
+   *   Authorization: Bearer <access_token>
+   *   Content-Type: application/json
+   *   {
+   *     "name": "...",
+   *     "type": "soul_2" | "soul_cinematic",
+   *     "input_images": [{ "id": "<upload_id>", "type": "media_input" }, ...]
+   *   }
+   *
+   * The CLI (`higgsfield soul-id create`) requires 5+ images; the live API
+   * accepts 1+ but rejects on insufficient credits before image-count is
+   * checked. We keep 5 as the minimum for quality (research: more
+   * references = better identity lock) but the validation can be relaxed
+   * via HIGGSFIELD_SOUL_ID_MIN_IMAGES env var if needed.
+   */
   async function trainSoulCharacter({ characterId, sourceImageUrls, name, model = 'soul_2' }) {
-    if (!Array.isArray(sourceImageUrls) || sourceImageUrls.length < 5 || sourceImageUrls.length > 20) {
-      throw new Error(`Higgsfield Soul ID requires 5–20 reference images (got ${sourceImageUrls?.length || 0})`);
+    const minImages = Number(process.env.HIGGSFIELD_SOUL_ID_MIN_IMAGES) || 5;
+    const maxImages = Number(process.env.HIGGSFIELD_SOUL_ID_MAX_IMAGES) || 20;
+    if (!Array.isArray(sourceImageUrls) || sourceImageUrls.length < minImages || sourceImageUrls.length > maxImages) {
+      throw new Error(`Higgsfield Soul ID requires ${minImages}–${maxImages} reference images (got ${sourceImageUrls?.length || 0})`);
     }
     if (model !== 'soul_2' && model !== 'soul_cinematic') {
       throw new Error(`Higgsfield Soul ID model must be 'soul_2' or 'soul_cinematic' (got '${model}')`);
     }
 
-    // Upload each image to Higgsfield first, collect IDs
-    const imageIds = [];
+    // Upload each image to Higgsfield first, collect upload IDs
+    const uploadIds = [];
     for (let i = 0; i < sourceImageUrls.length; i += 1) {
       const buf = await downloadImageBuffer(sourceImageUrls[i]);
-      const id = await uploadImageToHiggsfield(buf, `ref-${i}.png`);
-      imageIds.push(id);
+      const filename = `ref-${i}.${detectImageMimeType(buf).split('/')[1] || 'png'}`;
+      const id = await uploadImageToHiggsfield(buf, filename);
+      uploadIds.push(id);
     }
 
+    // Verified body shape — input_images is array of { id, type: 'media_input' }
     const payload = {
       name: (name || characterId || 'character').slice(0, 80),
-      image_ids: imageIds,
-      [model]: true,
-      meta: { external_id: characterId || null },
+      type: model,
+      input_images: uploadIds.map((id) => ({ id, type: 'media_input' })),
     };
-    const r = await hfPost(PATH_CHARACTER_CREATE, payload, 180000);
-    if (r.status < 200 || r.status >= 300) {
-      console.error('[higgsfield:trainSoulCharacter] HTTP', r.status, safeStringify(r.body));
-      throw new Error(`Higgsfield character create HTTP ${r.status}`);
+
+    // POST to FNF endpoint with Bearer auth (or Key as fallback)
+    const u = new URL(`${HIGGSFIELD_FNF_BASE}${PATH_CHARACTER_CREATE}`);
+    const bodyStr = JSON.stringify(payload);
+    const respBody = await new Promise((resolve, reject) => {
+      const req = https.request({
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: u.pathname + u.search,
+        method: 'POST',
+        headers: {
+          Authorization: fnfAuthHeader(),
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(bodyStr),
+        },
+      }, (res) => {
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => resolve({ status: res.statusCode, body: data }));
+      });
+      req.on('error', reject);
+      req.write(bodyStr);
+      req.end();
+    });
+
+    if (respBody.status < 200 || respBody.status >= 300) {
+      console.error('[higgsfield:trainSoulCharacter] HTTP', respBody.status, respBody.body.slice(0, 400));
+      throw new Error(`Higgsfield character create HTTP ${respBody.status}: ${respBody.body.slice(0, 300)}`);
     }
-    const body = parseJsonBody(r.body);
-    const hfId = body.character_id || body.id || body.data?.character_id || body.data?.id;
+    const body = parseJsonBody(respBody.body);
+    const hfId = body.id || body.character_id || body.reference_id || body.data?.id || body.data?.character_id;
     if (!hfId) {
       console.error('[higgsfield:trainSoulCharacter] missing character id in response', safeStringify(body));
-      throw new Error('Higgsfield character create did not return a character id');
+      throw new Error(`Higgsfield character create returned no id: ${JSON.stringify(body).slice(0, 200)}`);
     }
-    return { higgsfield_character_id: hfId, raw: body, model_used: model, image_count: imageIds.length };
+    return {
+      higgsfield_character_id: hfId,
+      raw: body,
+      model_used: model,
+      image_count: uploadIds.length,
+      external_id: characterId || null,
+    };
   }
 
   /**
-   * Poll Soul ID training status.
-   * Mirrors the CLI's `higgsfield soul-id wait <soul_id>` semantics.
+   * Poll Soul ID training status. Mirrors `higgsfield soul-id wait`.
+   * Uses the FNF endpoint: GET /agents/custom-references/{id}.
    */
   async function waitForSoulIdTraining(characterId, timeoutMs = 10 * 60 * 1000) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      const r = await hfGet(`${PATH_CHARACTER_STATUS}/${characterId}`);
-      if (r.status >= 200 && r.status < 300) {
-        const body = parseJsonBody(r.body);
-        const status = body.status || body.state || body.data?.status;
-        if (status === 'completed' || status === 'ready' || status === 'trained') return body;
+      const u = new URL(`${HIGGSFIELD_FNF_BASE}${PATH_CHARACTER_STATUS}/${characterId}`);
+      const respBody = await new Promise((resolve, reject) => {
+        const req = https.request({
+          hostname: u.hostname,
+          port: u.port || 443,
+          path: u.pathname + u.search,
+          method: 'GET',
+          headers: { Authorization: fnfAuthHeader() },
+        }, (res) => {
+          let data = '';
+          res.on('data', (c) => (data += c));
+          res.on('end', () => resolve({ status: res.statusCode, body: data }));
+        });
+        req.on('error', reject);
+        req.end();
+      });
+      if (respBody.status >= 200 && respBody.status < 300) {
+        const body = parseJsonBody(respBody.body);
+        const status = body.status || body.state || body.training_status || body.data?.status;
+        if (status === 'completed' || status === 'ready' || status === 'trained' || status === 'succeeded') return body;
         if (status === 'failed' || status === 'error') {
           throw new Error(`Higgsfield Soul ID training failed: ${body.error || body.message || 'unknown'}`);
         }
