@@ -342,6 +342,30 @@ const measurementHealthProbe = inngest.createFunction(
   }
 );
 
+// ─── Competitor War Room (every 4h) ──────────────────────────────────────
+// Scans Meta Ad Library + Google Auction Insights for top-5 competitors per
+// business. Reacts to new ad launches / spend shifts / keyword overlap.
+const competitorWatchRun = inngest.createFunction(
+  {
+    id: 'competitor-watch-every-4h',
+    name: 'Competitor War Room · scan every 4h',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 */4 * * *' }],
+  },
+  async ({ step }) => {
+    const result = await step.run('scan-all-businesses', async () =>
+      callInternal('/webhook/competitor-watch-scan-all', {})
+    );
+    return {
+      ok: true,
+      scanned: result?.scanned ?? 0,
+      alerts: result?.alerts ?? 0,
+      critical: result?.critical ?? 0,
+    };
+  }
+);
+
 // ─── Cold-start onboarding orchestrator ──────────────────────────────────
 // Triggered by `maroa/cold-start.run` event when a new business signs up.
 // Listens for `maroa/cold-start.resume` to wake from awaiting_input states
@@ -447,6 +471,9 @@ const functions = [
   measurementHealthProbe,
   creativeEngineDaily,
   creativeEngineEvaluate,
+
+  // Competitor War Room (Week 8)
+  competitorWatchRun,
 
   // Manual triggers (for dashboard testing)
   manualAdAudit,

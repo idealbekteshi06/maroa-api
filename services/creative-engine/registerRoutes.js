@@ -24,6 +24,7 @@ function registerCreativeEngineRoutes(deps) {
     callClaude, brandVoice, higgsfield,
     creativeEngine, measurementHealth,
     metaInsights, googleAdsDiag, tiktokDiag,
+    competitorWatch, metaAdLibraryApi,
   } = deps;
 
   function buildEngineDeps() {
@@ -148,6 +149,37 @@ function registerCreativeEngineRoutes(deps) {
       res.json(r);
     } catch (e) {
       apiError(res, 500, 'MEASUREMENT_HEALTH_PROBE_FAILED', e.message);
+    }
+  });
+
+  // ─── Competitor War Room cron fanout ────────────────────────────────────
+  app.post('/webhook/competitor-watch-scan-all', async (req, res) => {
+    if (!competitorWatch?.scanForBusiness) {
+      return apiError(res, 503, 'COMPETITOR_WATCH_DISABLED', 'competitor-watch not configured');
+    }
+    try {
+      const businesses = await sbGet('businesses',
+        'is_active=eq.true&select=id&limit=1000'
+      ).catch(() => []);
+      let scanned = 0, alerts = 0, critical = 0;
+      const watchDeps = { sbGet, sbPost, logger, metaAdLibraryApi };
+      for (const b of businesses) {
+        try {
+          const r = await competitorWatch.scanForBusiness({ businessId: b.id, deps: watchDeps });
+          if (r?.ok) {
+            scanned += 1;
+            for (const s of (r.signals || [])) {
+              if (s.severity === 'alert') alerts += 1;
+              else if (s.severity === 'critical') critical += 1;
+            }
+          }
+        } catch (e) {
+          logger?.warn?.('/webhook/competitor-watch-scan-all', b.id, 'scan failed', { error: e.message });
+        }
+      }
+      res.json({ ok: true, businesses: businesses.length, scanned, alerts, critical });
+    } catch (e) {
+      apiError(res, 500, 'COMPETITOR_WATCH_SCAN_ALL_FAILED', e.message);
     }
   });
 }

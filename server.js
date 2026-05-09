@@ -10990,8 +10990,10 @@ registerColdStartRoutes({
 });
 
 // ─── Multi-platform ads + Daily Creative Engine + Measurement Health (Week 5-7)
+//     + Competitor War Room (Week 8)
 const creativeEngineService = require('./services/creative-engine');
 const measurementHealthService = require('./services/measurement-health');
+const competitorWatchService = require('./services/competitor-watch');
 const { registerCreativeEngineRoutes } = require('./services/creative-engine/registerRoutes');
 
 registerCreativeEngineRoutes({
@@ -11005,6 +11007,7 @@ registerCreativeEngineRoutes({
   higgsfield: higgsfieldForColdStart,
   creativeEngine: creativeEngineService,
   measurementHealth: measurementHealthService,
+  competitorWatch: competitorWatchService,
   // Real per-platform diagnostic clients ship behind their own env-gated
   // services in services/meta-ads/, services/google-ads/, services/tiktok-ads/.
   // For now we pass undefined; the probe gracefully returns 'unknown' verdict
@@ -11013,6 +11016,7 @@ registerCreativeEngineRoutes({
   metaInsights: undefined,
   googleAdsDiag: undefined,
   tiktokDiag: undefined,
+  metaAdLibraryApi: undefined,
 });
 
 // ─── Data Deletion Request (public, no auth) ────────────────────────────────
