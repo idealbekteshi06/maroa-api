@@ -203,26 +203,72 @@ async function buildBrandVoiceAnchor({ businessId, deps }) {
 
 // ─── Phase 4: train Soul ID (gated on 3-angle photos uploaded) ───────────
 
+/**
+ * Soul ID character training phase — graceful Cloud-only fallback.
+ *
+ * Verified empirically (2026-05-10): Higgsfield CLOUD API
+ * (platform.higgsfield.ai with Key auth) does NOT expose Soul ID
+ * character training endpoints. Those live only on the consumer FNF API
+ * (fnf.higgsfield.ai with Bearer token). Most Maroa deployments have
+ * Cloud credentials only — that's where the credits live.
+ *
+ * Decision tree:
+ *
+ *   FNF Bearer token configured?
+ *     ├─ NO (Cloud-only account)         → SKIP gracefully, set
+ *     │                                    generation_mode=prompt_driven.
+ *     │                                    Cold-start completes normally.
+ *     ├─ YES + customer has 5+ photos    → train (full character-lock)
+ *     └─ YES but customer has 0–4 photos → awaitingInput (collect more)
+ *
+ * Skipping is the A+++ default — it never blocks onboarding. Brand
+ * consistency is maintained downstream via the brand voice anchor's
+ * visual descriptors (palette, mood, style) baked into every prompt.
+ */
 async function trainSoulId({ businessId, deps }) {
   const { sbGet, sbPatch, higgsfield, logger } = deps;
 
+  const hasFnfToken = !!(process.env.HIGGSFIELD_BEARER_TOKEN || '').trim();
+
+  // ── Cloud-only path: graceful skip, never block onboarding ──
+  if (!hasFnfToken) {
+    await sbPatch?.('businesses', `id=eq.${businessId}`, {
+      soul_id: null,
+      soul_id_trained_at: null,
+    }).catch(() => {});
+
+    logger?.info?.('cold-start.train_soul_id', businessId, 'cloud-only — using prompt-driven generation', {
+      reason: 'soul_id_training_endpoint_not_on_cloud_api',
+      degradation: 'graceful',
+      brand_consistency_via: 'brand_voice_anchor_visual_descriptors',
+    });
+
+    return {
+      ok: true,
+      data: {
+        soul_id: null,
+        used_cloud_only: true,
+        generation_mode: 'prompt_driven',
+        message: 'Standard tier — your content uses prompt-driven generation anchored to your brand voice. Character-lock is available on Premium upgrade (separate Higgsfield consumer-flow account).',
+      },
+    };
+  }
+
+  // ── FNF path: Soul ID character lock available ──
   const photoRows = await sbGet('business_photos',
     `business_id=eq.${businessId}&photo_type=eq.character_sheet&is_active=eq.true&select=id,photo_url`
   ).catch(() => []);
 
-  // Higgsfield Soul ID requires 5–20 reference images (verified against
-  // CLI 0.1.34: `higgsfield soul-id create` requires --image flag 5+ times).
-  // We ask for 5 minimum, accept up to 10 for the cold-start flow (more
-  // images = better identity lock per the research).
-  if (!photoRows || photoRows.length < 5) {
+  const minImages = Number(process.env.HIGGSFIELD_SOUL_ID_MIN_IMAGES) || 5;
+  if (!photoRows || photoRows.length < minImages) {
     return {
       ok: true,
       awaitingInput: true,
       data: {
         next_user_action: 'upload_character_sheet',
-        message: 'Upload 5 photos of yourself (front, 3/4, profile, two more angles) to unlock Soul ID character lock',
+        message: `Upload ${minImages} photos of yourself (front, 3/4, profile, two more angles) to unlock Soul ID character lock`,
         uploaded: photoRows?.length ?? 0,
-        required: 5,
+        required: minImages,
       },
     };
   }
@@ -234,12 +280,8 @@ async function trainSoulId({ businessId, deps }) {
 
   let soulId;
   let modelUsed;
+  let apiUsed;
   try {
-    // higgsfield.trainSoulCharacter contract verified against CLI 0.1.34:
-    //   - 5–20 reference images required
-    //   - model selector: 'soul_2' (default, faster, cheaper) or 'soul_cinematic'
-    //     (higher fidelity, more credits — used for premium plan tiers)
-    //   - returns { higgsfield_character_id, model_used, image_count }
     const r = await higgsfield.trainSoulCharacter({
       characterId: `biz_${businessId}`,
       sourceImageUrls: photoRows.slice(0, 10).map((p) => p.photo_url),
@@ -248,20 +290,49 @@ async function trainSoulId({ businessId, deps }) {
     });
     soulId = r?.higgsfield_character_id || r?.soul_id || r?.id || null;
     modelUsed = r?.model_used || 'soul_2';
+    apiUsed = r?.api_used || 'fnf';
   } catch (e) {
-    logger?.error?.('cold-start.train_soul_id', businessId, 'training failed', e);
-    return { ok: false, reason: `Soul ID training failed: ${e.message}` };
+    // A+++ rule: training failure NEVER kills onboarding. Log + fall back
+    // to prompt-driven generation. Customer's first content still ships.
+    logger?.error?.('cold-start.train_soul_id', businessId, 'training failed — falling back to prompt-driven', { error: e.message });
+    return {
+      ok: true,
+      data: {
+        soul_id: null,
+        used_cloud_only: false,
+        generation_mode: 'prompt_driven_fallback',
+        training_error: e.message,
+        message: 'Character training had an issue — your content uses prompt-driven generation while we investigate. Brand consistency preserved via brand voice anchor.',
+      },
+    };
   }
 
-  if (!soulId) return { ok: false, reason: 'Soul ID training returned no ID' };
+  if (!soulId) {
+    return {
+      ok: true,
+      data: {
+        soul_id: null,
+        used_cloud_only: false,
+        generation_mode: 'prompt_driven_fallback',
+        message: 'Character training did not return an id — using prompt-driven generation.',
+      },
+    };
+  }
 
-  // Persist
   await sbPatch?.('businesses', `id=eq.${businessId}`, {
     soul_id: soulId,
     soul_id_trained_at: new Date().toISOString(),
   }).catch(() => {});
 
-  return { ok: true, data: { soul_id: soulId, model_used: modelUsed } };
+  return {
+    ok: true,
+    data: {
+      soul_id: soulId,
+      model_used: modelUsed,
+      api_used: apiUsed,
+      generation_mode: 'character_locked',
+    },
+  };
 }
 
 // ─── Phase 5: generate creative concepts (3 variants) ────────────────────

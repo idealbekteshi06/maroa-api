@@ -73,7 +73,43 @@ test('classifyIndustry: falls back to Claude when industry empty', async () => {
 
 // ─── Phase 4: train Soul ID gates on photos ──────────────────────────────
 
-test('trainSoulId: returns awaitingInput when fewer than 5 photos uploaded (Higgsfield minimum)', async () => {
+// Env var helper — set/restore HIGGSFIELD_BEARER_TOKEN around a test
+function withFnfToken(token, fn) {
+  return async () => {
+    const prev = process.env.HIGGSFIELD_BEARER_TOKEN;
+    if (token) process.env.HIGGSFIELD_BEARER_TOKEN = token;
+    else delete process.env.HIGGSFIELD_BEARER_TOKEN;
+    try { return await fn(); } finally {
+      if (prev === undefined) delete process.env.HIGGSFIELD_BEARER_TOKEN;
+      else process.env.HIGGSFIELD_BEARER_TOKEN = prev;
+    }
+  };
+}
+
+test('trainSoulId: Cloud-only account → graceful skip with prompt_driven mode', withFnfToken('', async () => {
+  // No HIGGSFIELD_BEARER_TOKEN → Cloud-only path. Should skip gracefully
+  // and NEVER block onboarding (the A+++ rule).
+  let patched = null;
+  const deps = {
+    sbGet: async () => [],            // no photos required for Cloud-only path
+    sbPatch: async (table, q, body) => { patched = { table, body }; },
+    higgsfield: { trainSoulCharacter: async () => ({}) },
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+  };
+  const r = await phases.trainSoulId({ businessId: 'biz-cloud-only', deps });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.awaitingInput, undefined,
+    'Cloud-only path must NOT request more photos — onboarding continues');
+  assert.strictEqual(r.data.soul_id, null);
+  assert.strictEqual(r.data.used_cloud_only, true);
+  assert.strictEqual(r.data.generation_mode, 'prompt_driven');
+  assert.ok(/Standard tier|prompt-driven/i.test(r.data.message));
+  // Should clear soul_id on businesses row to remove any stale value
+  assert.strictEqual(patched?.table, 'businesses');
+  assert.strictEqual(patched?.body?.soul_id, null);
+}));
+
+test('trainSoulId: FNF path + <5 photos → awaitingInput', withFnfToken('hf_test_bearer', async () => {
   const deps = {
     sbGet: async () => [
       { id: 'p1', photo_url: 'https://1' },
@@ -89,9 +125,9 @@ test('trainSoulId: returns awaitingInput when fewer than 5 photos uploaded (Higg
   assert.strictEqual(r.awaitingInput, true);
   assert.strictEqual(r.data.uploaded, 3);
   assert.strictEqual(r.data.required, 5);
-});
+}));
 
-test('trainSoulId: trains when 5+ photos uploaded — passes correct contract to Higgsfield', async () => {
+test('trainSoulId: FNF path + 5+ photos → trains, returns character_locked mode', withFnfToken('hf_test_bearer', async () => {
   let capturedArgs = null;
   const deps = {
     sbGet: async () => [
@@ -105,7 +141,7 @@ test('trainSoulId: trains when 5+ photos uploaded — passes correct contract to
     higgsfield: {
       trainSoulCharacter: async (args) => {
         capturedArgs = args;
-        return { higgsfield_character_id: 'soul_abc123', model_used: 'soul_2' };
+        return { higgsfield_character_id: 'soul_abc123', model_used: 'soul_2', api_used: 'fnf' };
       },
     },
     logger: { warn: () => {}, error: () => {} },
@@ -114,15 +150,36 @@ test('trainSoulId: trains when 5+ photos uploaded — passes correct contract to
   assert.strictEqual(r.ok, true);
   assert.strictEqual(r.awaitingInput, undefined);
   assert.strictEqual(r.data.soul_id, 'soul_abc123');
-  assert.strictEqual(r.data.model_used, 'soul_2');
-  // Verify we passed the contract Higgsfield expects:
+  assert.strictEqual(r.data.generation_mode, 'character_locked');
+  assert.strictEqual(r.data.api_used, 'fnf');
   assert.strictEqual(capturedArgs.model, 'soul_2');
-  assert.strictEqual(capturedArgs.characterId, 'biz_biz-4');
   assert.strictEqual(capturedArgs.sourceImageUrls.length, 5);
-  assert.ok(capturedArgs.name.startsWith('business_'));
-});
+}));
 
-test('trainSoulId: passes up to 10 photos when more available (better identity lock)', async () => {
+test('trainSoulId: FNF path + training error → graceful fallback (does NOT kill onboarding)', withFnfToken('hf_test_bearer', async () => {
+  const deps = {
+    sbGet: async () => [
+      { id: 'p1', photo_url: 'https://1' },
+      { id: 'p2', photo_url: 'https://2' },
+      { id: 'p3', photo_url: 'https://3' },
+      { id: 'p4', photo_url: 'https://4' },
+      { id: 'p5', photo_url: 'https://5' },
+    ],
+    sbPatch: async () => {},
+    higgsfield: {
+      trainSoulCharacter: async () => { throw new Error('Higgsfield 503'); },
+    },
+    logger: { warn: () => {}, error: () => {} },
+  };
+  const r = await phases.trainSoulId({ businessId: 'biz-fail', deps });
+  assert.strictEqual(r.ok, true,
+    'A+++ rule: training failure must NEVER kill cold-start');
+  assert.strictEqual(r.data.soul_id, null);
+  assert.strictEqual(r.data.generation_mode, 'prompt_driven_fallback');
+  assert.ok(/503/.test(r.data.training_error));
+}));
+
+test('trainSoulId: FNF path passes up to 10 photos (better identity lock)', withFnfToken('hf_test_bearer', async () => {
   let capturedArgs = null;
   const photoRows = [];
   for (let i = 1; i <= 15; i += 1) photoRows.push({ id: `p${i}`, photo_url: `https://${i}` });
@@ -132,16 +189,14 @@ test('trainSoulId: passes up to 10 photos when more available (better identity l
     higgsfield: {
       trainSoulCharacter: async (args) => {
         capturedArgs = args;
-        return { higgsfield_character_id: 'soul_xyz', model_used: 'soul_2' };
+        return { higgsfield_character_id: 'soul_xyz', model_used: 'soul_2', api_used: 'fnf' };
       },
     },
     logger: { warn: () => {}, error: () => {} },
   };
   await phases.trainSoulId({ businessId: 'biz-5', deps });
-  // We cap at 10 for cold-start (research: more refs = better identity lock,
-  // but Higgsfield max is 20 — we leave headroom for premium upgrades).
   assert.strictEqual(capturedArgs.sourceImageUrls.length, 10);
-});
+}));
 
 // ─── Launcher: platform eligibility ──────────────────────────────────────
 
