@@ -22,6 +22,7 @@
  */
 
 const industryDefaults = require('./industry-defaults');
+const visualDna = require('./visual-dna');
 const adI18n = require('../ad-optimizer/i18n-market');
 
 const STALE_AFTER_DAYS = 90;
@@ -91,6 +92,12 @@ function buildAnchor({ business, vocAnalysis, manualOverrides }) {
   // Build exemplar paragraph (template-based, deterministic)
   const exemplar = _buildExemplar({ business, defaults, audience });
 
+  // Per-business VISUAL fingerprint — guarantees no two Maroa customers'
+  // generated content looks the same when running without Soul ID. Same
+  // business always produces the same DNA (consistency); different
+  // businesses produce different DNA (uniqueness).
+  const visual_brand_dna = visualDna.buildVisualDna({ business, vocAnalysis });
+
   const anchor = {
     tone_descriptors,
     voice_register: defaults.voice_register,
@@ -106,10 +113,12 @@ function buildAnchor({ business, vocAnalysis, manualOverrides }) {
     audience_addresses_as: addressAs,
     language_primary: primaryLang,
     languages_secondary: business?.secondary_languages || [],
+    visual_brand_dna,
     derived_from: [
       'industry-defaults',
       onboardingTone.length ? 'onboarding' : null,
       vocAnalysis ? `voc-analysis-${vocAnalysis.id || 'latest'}` : null,
+      'visual-dna',
     ].filter(Boolean),
     confidence: _confidenceLevel({ onboardingTone, vocAnalysis }),
     version: SCHEMA_VERSION,
@@ -166,6 +175,10 @@ function formatAnchorForPrompt(anchor) {
     lines.push('');
     lines.push('Sample of how this brand speaks (mimic the rhythm + word choice):');
     lines.push(`"${anchor.exemplar_paragraph}"`);
+  }
+  if (anchor.visual_brand_dna) {
+    lines.push('');
+    lines.push(visualDna.formatForLlm(anchor.visual_brand_dna));
   }
   if (anchor.confidence === 'low' || anchor.confidence === 'minimal') {
     lines.push('');
@@ -259,12 +272,27 @@ function _buildExemplar({ business, defaults, audience }) {
     : `${name} helps ${audience || 'small businesses'} get the job done. No fluff, just results.`;
 }
 
+// Compact prompt suffix for Higgsfield image/video generation. Pass the
+// anchor's visual_brand_dna in. Goes after the primary subject description.
+function formatVisualForHiggsfield(anchor) {
+  return visualDna.formatForHiggsfield(anchor?.visual_brand_dna);
+}
+
+// Human-readable LLM-injectable visual brief. For prompt-driven generators
+// that benefit from prose context.
+function formatVisualForLlm(anchor) {
+  return visualDna.formatForLlm(anchor?.visual_brand_dna);
+}
+
 module.exports = {
   STALE_AFTER_DAYS,
   SCHEMA_VERSION,
   buildAnchor,
   formatAnchorForPrompt,
+  formatVisualForHiggsfield,
+  formatVisualForLlm,
   isStale,
   mergeManualOverrides,
   industryDefaults,
+  visualDna,
 };
