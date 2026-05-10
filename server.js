@@ -11136,6 +11136,117 @@ app.post('/webhook/autopilot-brain-run', async (req, res) => {
   }
 });
 
+// ─── Higgsfield self-test (probes Cloud + FNF endpoints, no real charges) ──
+// Hits the Higgsfield account using the keys already on Railway and reports
+// exactly which API endpoints work for this account. No credits consumed —
+// uses /agents/balance (free) for Cloud probe and a multipart upload (free)
+// for the upload-contract probe. Soul ID character create is sketched only
+// up to the validation boundary (returns body shape we'd send) so we don't
+// burn credits accidentally.
+app.post('/webhook/higgsfield-self-test', async (req, res) => {
+  // Reuse the existing webhook secret auth
+  const provided = String(req.headers['x-webhook-secret'] || '');
+  if (!provided || provided !== N8N_WEBHOOK_SECRET) {
+    return apiError(res, 401, 'UNAUTHORIZED', 'Invalid or missing x-webhook-secret');
+  }
+
+  const out = {
+    started_at: new Date().toISOString(),
+    cloud: { configured: false, balance_probe: null, upload_probe: null },
+    fnf: { configured: false, balance_probe: null, upload_probe: null },
+    verdict: null,
+  };
+
+  const HF_KEY_ID = (process.env.HIGGSFIELD_API_KEY_ID || '').trim();
+  const HF_KEY_SECRET = (process.env.HIGGSFIELD_API_KEY_SECRET || '').trim();
+  const HF_BEARER = (process.env.HIGGSFIELD_BEARER_TOKEN || '').trim();
+  const CLOUD = (process.env.HIGGSFIELD_API_BASE || 'https://platform.higgsfield.ai').trim();
+  const FNF = (process.env.HIGGSFIELD_FNF_BASE || 'https://fnf.higgsfield.ai').trim();
+  out.cloud.configured = !!(HF_KEY_ID && HF_KEY_SECRET);
+  out.fnf.configured = !!HF_BEARER;
+  out.cloud.host = CLOUD;
+  out.fnf.host = FNF;
+
+  // Tiny valid PNG (8x8 white square) — enough bytes to pass image validation
+  const tinyPng = Buffer.concat([
+    Buffer.from('89504e470d0a1a0a', 'hex'),
+    Buffer.from('0000000d49484452000000080000000808060000', 'hex'),
+    Buffer.from('00fcd6720b00000019494441545863fcffff3f0312', 'hex'),
+    Buffer.from('00010c0c0c0c0cb0e1f12121e7e7e7000000ffff03', 'hex'),
+    Buffer.from('00ff00ff00ff00ff', 'hex'),
+    Buffer.from('0000000049454e44ae426082', 'hex'),
+  ]);
+
+  async function probeBalance(host, authHeader) {
+    return new Promise((resolve) => {
+      const u = new URL(`${host}/agents/balance`);
+      const req2 = https.request({
+        hostname: u.hostname, port: 443, path: u.pathname, method: 'GET',
+        headers: { Authorization: authHeader },
+      }, (r) => {
+        let data = '';
+        r.on('data', (c) => (data += c));
+        r.on('end', () => resolve({ status: r.statusCode, body: data.slice(0, 600) }));
+      });
+      req2.on('error', (e) => resolve({ status: 0, error: e.message }));
+      req2.end();
+    });
+  }
+
+  async function probeUpload(host, authHeader) {
+    return new Promise((resolve) => {
+      const boundary = `----probe-${Date.now()}`;
+      const parts = [
+        Buffer.from(`--${boundary}\r\n`),
+        Buffer.from(`Content-Disposition: form-data; name="file"; filename="probe.png"\r\n`),
+        Buffer.from(`Content-Type: image/png\r\n\r\n`),
+        tinyPng,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ];
+      const body = Buffer.concat(parts);
+      const u = new URL(`${host}/agents/uploads?type=image`);
+      const req2 = https.request({
+        hostname: u.hostname, port: 443, path: u.pathname + u.search, method: 'POST',
+        headers: {
+          Authorization: authHeader,
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          'Content-Length': body.length,
+        },
+      }, (r) => {
+        let data = '';
+        r.on('data', (c) => (data += c));
+        r.on('end', () => resolve({ status: r.statusCode, body: data.slice(0, 600) }));
+      });
+      req2.on('error', (e) => resolve({ status: 0, error: e.message }));
+      req2.write(body); req2.end();
+    });
+  }
+
+  // Cloud probes
+  if (out.cloud.configured) {
+    const cloudAuth = `Key ${HF_KEY_ID}:${HF_KEY_SECRET}`;
+    out.cloud.balance_probe = await probeBalance(CLOUD, cloudAuth);
+    out.cloud.upload_probe = await probeUpload(CLOUD, cloudAuth);
+  }
+
+  // FNF probes
+  if (out.fnf.configured) {
+    const fnfAuth = `Bearer ${HF_BEARER}`;
+    out.fnf.balance_probe = await probeBalance(FNF, fnfAuth);
+    out.fnf.upload_probe = await probeUpload(FNF, fnfAuth);
+  }
+
+  // Verdict
+  const cloudUploadOk = out.cloud.upload_probe?.status >= 200 && out.cloud.upload_probe?.status < 300;
+  const fnfUploadOk = out.fnf.upload_probe?.status >= 200 && out.fnf.upload_probe?.status < 300;
+  if (cloudUploadOk) out.verdict = 'cloud_works';
+  else if (fnfUploadOk) out.verdict = 'fnf_works';
+  else out.verdict = 'neither_works';
+  out.completed_at = new Date().toISOString();
+
+  res.json(out);
+});
+
 app.get('/webhook/social-platforms', async (req, res) => {
   const businessId = req.query?.businessId || req.query?.business_id;
   if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
