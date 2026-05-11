@@ -14003,24 +14003,39 @@ app.post('/webhook/ai-chat', async (req, res) => {
 });
 
 // ─── Waitlist Registration ────────────────────────────────────────────────────
-app.post('/api/waitlist/register', validate('waitlist'), async (req, res) => {
-  const { name, email, plan, business_type, country } = req.validatedBody;
+// ─── Waitlist routes (carved into routes/waitlist.js) ────────────────────
+require('./routes/waitlist').register({
+  app,
+  validate,
+  sbGet,
+  sbPost,
+  sendEmail,
+  apiError,
+  safePublicError,
+});
 
-  try {
-    await sbPost('waitlist', {
-      name,
-      email,
-      plan: plan || null,
-      business_type: business_type || null,
-      country: country || null,
-    });
-  } catch (err) {
-    if (err.message && err.message.includes('23505')) return apiError(res, 409, 'CONFLICT', 'Email already registered');
-    return apiError(res, 500, 'INTERNAL_ERROR', safePublicError(err));
-  }
+const _WAITLIST_CARVED = true;
+/* eslint-disable */
+function _legacy_waitlist_unused() {
+  app.post('/api/waitlist/register', validate('waitlist'), async (req, res) => {
+    const { name, email, plan, business_type, country } = req.validatedBody;
 
-  // Confirmation email to user
-  const userHtml = `<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1e293b">
+    try {
+      await sbPost('waitlist', {
+        name,
+        email,
+        plan: plan || null,
+        business_type: business_type || null,
+        country: country || null,
+      });
+    } catch (err) {
+      if (err.message && err.message.includes('23505'))
+        return apiError(res, 409, 'CONFLICT', 'Email already registered');
+      return apiError(res, 500, 'INTERNAL_ERROR', safePublicError(err));
+    }
+
+    // Confirmation email to user
+    const userHtml = `<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1e293b">
 <h2 style="color:#667eea">You're on the maroa.ai waitlist! 🚀</h2>
 <p>Hi ${name},</p>
 <p>You're officially on the maroa.ai early access list!</p>
@@ -14034,26 +14049,28 @@ app.post('/api/waitlist/register', validate('waitlist'), async (req, res) => {
 <p>Your <strong>1 week free trial</strong> starts automatically on launch day.</p>
 <p style="margin-top:20px">See you on April 28! 🚀<br/>— The maroa.ai team</p>
 </div>`;
-  sendEmail(email, "You're on the maroa.ai waitlist! 🚀", userHtml).catch(() => {});
+    sendEmail(email, "You're on the maroa.ai waitlist! 🚀", userHtml).catch(() => {});
 
-  // Notification to admin
-  sendEmail(
-    'idealbekteshi06@gmail.com',
-    `New waitlist signup: ${name} — ${plan || 'no plan'}`,
-    `<p><strong>New waitlist registration</strong></p><p>Name: ${name}<br/>Email: ${email}<br/>Plan: ${plan || 'not selected'}<br/>Business type: ${business_type || 'not specified'}<br/>Country: ${country || 'not specified'}<br/>Time: ${new Date().toISOString()}</p>`
-  ).catch(() => {});
+    // Notification to admin
+    sendEmail(
+      'idealbekteshi06@gmail.com',
+      `New waitlist signup: ${name} — ${plan || 'no plan'}`,
+      `<p><strong>New waitlist registration</strong></p><p>Name: ${name}<br/>Email: ${email}<br/>Plan: ${plan || 'not selected'}<br/>Business type: ${business_type || 'not specified'}<br/>Country: ${country || 'not specified'}<br/>Time: ${new Date().toISOString()}</p>`
+    ).catch(() => {});
 
-  res.json({ success: true, message: 'Welcome to the waitlist!' });
-});
+    res.json({ success: true, message: 'Welcome to the waitlist!' });
+  });
 
-app.get('/api/waitlist/count', async (req, res) => {
-  try {
-    const rows = await sbGet('waitlist', 'select=id');
-    res.json({ count: rows.length });
-  } catch (err) {
-    res.json({ count: 0 });
-  }
-});
+  app.get('/api/waitlist/count', async (req, res) => {
+    try {
+      const rows = await sbGet('waitlist', 'select=id');
+      res.json({ count: rows.length });
+    } catch (err) {
+      res.json({ count: 0 });
+    }
+  });
+} // _legacy_waitlist_unused — see routes/waitlist.js
+/* eslint-enable */
 
 // ─── POST /api/generate — Plan-gated generation with usage tracking ─────────
 const GENERATE_MODELS = {
