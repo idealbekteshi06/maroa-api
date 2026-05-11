@@ -103,21 +103,25 @@ async function callWithAdvisor(opts = {}) {
     ? buildAdvisorOptions({ executor, advisor, existingExtraBetas: extraBetas })
     : { model: executor || DEFAULT_EXECUTOR, extraBetas };
 
-  // Compose extra — keep caller's flags + add advisor metadata
+  // Compose extra in the shape callClaude (server.js:547) expects:
+  //   callClaude(prompt, modelOrTask, maxTokens, { system, extraBetas, ... })
   const composedExtra = {
     ...extra,
+    system,
     extraBetas: opt.extraBetas,
     ...(useAdvisor ? { advisor: opt.advisor } : {}),
     ...(temperature != null ? { temperature } : {}),
+    ...(extra.skill ? { skill: extra.skill } : { skill: task || 'advisor_call' }),
   };
 
-  return callClaude({
-    system,
-    user,
-    model: opt.model,
-    max_tokens,
-    extra: composedExtra,
-  });
+  const result = await callClaude(user, opt.model, max_tokens, composedExtra);
+  // Annotate the return so callers can know whether the advisor was active.
+  // Result is either an object (extractJSON output) or a raw string.
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    result._advisor_invoked = useAdvisor;
+    result._executor_model = opt.model;
+  }
+  return result;
 }
 
 /**

@@ -654,6 +654,31 @@ function selectModel(taskType) {
  * - callClaude(prompt, 'social_post', undefined, { returnRaw: true, system: '...' })
  */
 async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOverride, extra = {}) {
+  // ─── Object-shape support ─────────────────────────────────────────────
+  // Many newer prompt modules (services/prompts/{ad-optimizer, cro, ai-seo,
+  // voc, ...}) invoke callClaude with the shape
+  //   callClaude({ system, user, model, max_tokens, extra })
+  // Without this adapter those calls would stringify the object as the user
+  // message and silently bypass the system prompt + cache + advisor wiring.
+  if (prompt !== null && typeof prompt === 'object' && !Array.isArray(prompt)) {
+    const obj = prompt;
+    prompt = obj.user;
+    if (obj.model) taskTypeOrModel = obj.model;
+    else if (obj.taskType) taskTypeOrModel = obj.taskType;
+    if (obj.max_tokens !== undefined) maxTokensOverride = obj.max_tokens;
+    if (obj.maxTokens   !== undefined) maxTokensOverride = obj.maxTokens;
+    const composed = { ...(obj.extra || {}) };
+    if (obj.system !== undefined && composed.system === undefined) composed.system = obj.system;
+    if (obj.businessId && composed.businessId === undefined) composed.businessId = obj.businessId;
+    if (obj.skill && composed.skill === undefined) composed.skill = obj.skill;
+    // Object-shape callers (services/prompts/*) call extractJSON on the
+    // result themselves, so default returnRaw=true. They can override.
+    if (composed.returnRaw === undefined && composed.returnFullResponse === undefined) {
+      composed.returnRaw = true;
+    }
+    extra = composed;
+  }
+
   if (maxTokensOverride !== undefined && typeof maxTokensOverride === 'object' && maxTokensOverride !== null && !Array.isArray(maxTokensOverride)) {
     extra = maxTokensOverride;
     maxTokensOverride = undefined;
@@ -2446,53 +2471,22 @@ async function generateInstantContent(bizId, emailOverride) {
   // Update learning data after every generation
   setImmediate(() => updateLearning(bizId));
 
-  // ── Performance feedback loop: check engagement after 24 hours ────────
+  // ── Performance feedback loop: check engagement 24h after publish ─────
+  // PRIOR: this used an in-process setTimeout(24h). That callback was lost
+  // on every Railway redeploy — so the feedback loop only fired for posts
+  // published in the last ~24h of a deploy's uptime, silently dropping the
+  // rest. Now we emit an Inngest event and the durable scheduler handles
+  // the 24h sleep + execution, surviving redeploys.
   if (saved?.id && biz.meta_access_token && biz.facebook_page_id) {
-    const contentId = saved.id;
-    const token     = biz.meta_access_token;
-    const pageId    = biz.facebook_page_id;
-    setTimeout(async () => {
-      try {
-        log('feedback-loop', `Checking 24h performance for content ${contentId}`);
-        // Fetch page post insights from Meta Graph API
-        const postsResp = await apiRequest('GET',
-          `https://graph.facebook.com/v19.0/${pageId}/posts?fields=id,message,insights.metric(post_impressions,post_engaged_users)&limit=5&access_token=${token}`, {});
-        const posts = postsResp.body?.data || [];
-        // Find the most recent post (likely the one we published)
-        let totalImpressions = 0, totalEngagement = 0;
-        for (const p of posts) {
-          const metrics = p.insights?.data || [];
-          for (const m of metrics) {
-            if (m.name === 'post_impressions') totalImpressions += (m.values?.[0]?.value || 0);
-            if (m.name === 'post_engaged_users') totalEngagement += (m.values?.[0]?.value || 0);
-          }
-        }
-        const performanceScore = totalImpressions > 0
-          ? Math.min(10, Math.round((totalEngagement / totalImpressions) * 100))
-          : 0;
-        // Update content with performance score + reach
-        await sbPatch('generated_content', `id=eq.${contentId}`, {
-          performance_score: performanceScore,
-          total_reach: totalImpressions
-        });
-        log('feedback-loop', `Content ${contentId}: score=${performanceScore} reach=${totalImpressions} engagement=${totalEngagement}`);
-        // If high performing, store in brand memory
-        if (performanceScore >= 7) {
-          try {
-            const bestText = content.instagram_caption || content.facebook_post || '';
-            if (bestText && OPENAI_API_KEY && PINECONE_API_KEY && PINECONE_HOST) {
-              const vector = await getEmbedding(bestText);
-              await pineconeUpsert([{
-                id: contentId,
-                values: vector,
-                metadata: { businessId: bizId, contentType: 'social_post', text: bestText.slice(0, 1000), score: performanceScore }
-              }]);
-              log('feedback-loop', `✅ High-performing content stored in brand memory: ${contentId}`);
-            }
-          } catch (memErr) { log('feedback-loop', `Brand memory store failed: ${memErr.message}`); }
-        }
-      } catch (err) { log('feedback-loop', `24h check error: ${err.message}`); }
-    }, 24 * 60 * 60 * 1000); // 24 hours
+    try {
+      const { inngest } = require('./services/inngest/client');
+      await inngest.send({
+        name: 'maroa/content.publish.feedback-24h',
+        data: { contentId: saved.id, businessId: bizId },
+      });
+    } catch (err) {
+      log('feedback-loop', `inngest send failed (will retry on next publish): ${err.message}`);
+    }
   }
 
   return { ...content, row_id: saved?.id, quality_score: score, image: imgResult };
@@ -11940,6 +11934,53 @@ app.use((err, req, res, next) => {
   const code = typeof err.code === 'string' && err.code ? err.code : 'INTERNAL_ERROR';
   const msg = process.env.NODE_ENV === 'production' && status >= 500 ? 'Internal server error' : (err.message || 'Internal server error');
   return apiError(res, status, code, msg);
+});
+
+// ─── /webhook/wf-content-performance-feedback (Inngest target) ──────────────
+// Called 24h after publish by the durable Inngest function
+// contentPublishFeedback24h (services/inngest/functions.js). Pulls live
+// Meta post insights, scores the content, and stashes high-performing
+// captions in brand-memory via Pinecone.
+app.post('/webhook/wf-content-performance-feedback', async (req, res) => {
+  const { contentId, businessId } = req.body || {};
+  if (!contentId || !businessId) return apiError(res, 400, 'VALIDATION_ERROR', 'contentId and businessId required');
+
+  try {
+    const bizRows = await sbGet('businesses', `id=eq.${encodeURIComponent(businessId)}&select=meta_access_token,facebook_page_id,meta_access_token_enc`);
+    const biz = bizRows[0];
+    if (!biz) return apiError(res, 404, 'NOT_FOUND', 'business not found');
+
+    // Prefer encrypted token, fall back to plaintext during transition.
+    const oauthCrypto = require('./lib/oauthCrypto');
+    const token = oauthCrypto.readToken(biz, 'meta_access_token');
+    const pageId = biz.facebook_page_id;
+    if (!token || !pageId) {
+      return res.json({ ok: false, reason: 'meta token or page id missing — skipping' });
+    }
+
+    const postsResp = await apiRequest('GET',
+      `https://graph.facebook.com/v19.0/${encodeURIComponent(pageId)}/posts?fields=id,message,insights.metric(post_impressions,post_engaged_users)&limit=5&access_token=${encodeURIComponent(token)}`, {});
+    const posts = postsResp.body?.data || [];
+    let totalImpressions = 0, totalEngagement = 0;
+    for (const p of posts) {
+      const metrics = p.insights?.data || [];
+      for (const m of metrics) {
+        if (m.name === 'post_impressions') totalImpressions += (m.values?.[0]?.value || 0);
+        if (m.name === 'post_engaged_users') totalEngagement += (m.values?.[0]?.value || 0);
+      }
+    }
+    const performanceScore = totalImpressions > 0
+      ? Math.min(10, Math.round((totalEngagement / totalImpressions) * 100))
+      : 0;
+    await sbPatch('generated_content', `id=eq.${encodeURIComponent(contentId)}`, {
+      performance_score: performanceScore,
+      total_reach: totalImpressions,
+    });
+    return res.json({ ok: true, contentId, performance_score: performanceScore, total_reach: totalImpressions });
+  } catch (e) {
+    logger.error('/webhook/wf-content-performance-feedback', businessId, '24h feedback failed', e, { request_id: req.requestId });
+    return apiError(res, 500, 'FEEDBACK_FAILED', e.message);
+  }
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────

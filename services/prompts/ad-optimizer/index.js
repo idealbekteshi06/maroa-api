@@ -166,16 +166,26 @@ async function auditCampaign(opts) {
   // ─── LLM synthesis ─────────────────────────────────────────────────────
   const prompt = buildAuditPrompt(inputs, { business, metrics, decisionHistory, plan });
 
+  // Route through callWithAdvisor — for Growth/Agency plans this layers an
+  // Opus advisor on the Sonnet executor; for Free plans it stays on the
+  // executor only (cost protection). The advisor only fires when the
+  // executor hesitates, so steady-state cost is near executor pricing.
+  const { callWithAdvisor } = require('../advisor-tool');
   let raw;
   try {
-    raw = await callClaude({
+    raw = await callWithAdvisor({
+      callClaude,
       system: prompt.system,
       user: prompt.user,
-      model: prompt.model,
+      executor: prompt.model,
+      task: 'audit',
+      planTier: plan,
       max_tokens: prompt.max_tokens,
       extra: {
         cacheSystem: true,           // prompt-cache the 12k-char system block
         temperature: 0.2,            // low randomness for decisions
+        businessId: business?.id,
+        skill: 'ad_optimizer_audit',
       },
     });
   } catch (e) {

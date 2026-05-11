@@ -111,6 +111,40 @@ const weeklyScorecardAll = inngest.createFunction(
   }
 );
 
+// ─── Content publish · 24h performance feedback ───────────────────────────
+// Replaces the in-process setTimeout(24h) that lived in server.js. The
+// previous in-memory timer was lost on every Railway redeploy — feedback
+// only fired for posts that happened to survive a full 24h of uptime, so
+// most posts silently never got scored.
+//
+// Now: server.js emits `maroa/content.publish.feedback-24h` on publish.
+// This durable function sleeps 24h (Inngest persists the timer), then
+// POSTs to the existing internal feedback endpoint with contentId +
+// businessId. Survives redeploys, retries on failure, observable in the
+// Inngest dashboard.
+const contentPublishFeedback24h = inngest.createFunction(
+  {
+    id: 'content-publish-feedback-24h',
+    name: 'Content publish · 24h performance feedback',
+    retries: 3,
+    // One feedback check per (business, content). Concurrency keyed on
+    // contentId so multiple posts from same business can run in parallel.
+    concurrency: { limit: 1, key: 'event.data.contentId' },
+    triggers: [{ event: 'maroa/content.publish.feedback-24h' }],
+  },
+  async ({ event, step }) => {
+    const { contentId, businessId } = event?.data || {};
+    if (!contentId || !businessId) {
+      return { ok: false, reason: 'missing contentId or businessId' };
+    }
+    await step.sleep('wait-24h', '24h');
+    const result = await step.run('fetch-and-score', async () =>
+      callInternal('/webhook/wf-content-performance-feedback', { contentId, businessId })
+    );
+    return { ok: true, contentId, businessId, ...result };
+  }
+);
+
 // ─── Manual trigger handlers (for testing from Inngest dashboard) ──────────
 // Send event "maroa/manual.ad-audit" to trigger an ad-optimizer run on demand.
 const manualAdAudit = inngest.createFunction(
@@ -562,6 +596,9 @@ const functions = [
 
   // Autopilot Brain (Week 12 — top-level orchestrator)
   autopilotBrainDaily,
+
+  // Durable replacement for setTimeout(24h) in publish path
+  contentPublishFeedback24h,
 
   // Manual triggers (for dashboard testing)
   manualAdAudit,

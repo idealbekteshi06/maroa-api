@@ -42,13 +42,17 @@ async function auditPage(opts) {
   const system = sysPrompt.buildAuditSystemBlock();
   const user = sysPrompt.buildAuditUserMessage({ business, marketProfile, html, text, findings, deterministicScore, plan });
 
+  const { callWithAdvisor } = require('../advisor-tool');
   let raw;
   try {
-    raw = await callClaude({
+    raw = await callWithAdvisor({
+      callClaude,
       system, user,
-      model: sysPrompt.modelForPlan(plan),
+      executor: sysPrompt.modelForPlan(plan),
+      task: 'audit',
+      planTier: plan,
       max_tokens: sysPrompt.maxTokensForPlan(plan, 'audit'),
-      extra: { cacheSystem: true, temperature: 0.2 },
+      extra: { cacheSystem: true, temperature: 0.2, businessId: business?.id, skill: 'cro_audit' },
     });
   } catch (e) {
     logger?.error?.('cro.auditPage', null, 'Claude call failed', e);
@@ -95,13 +99,17 @@ async function rewritePage(opts) {
   const system = sysPrompt.buildRewriteSystemBlock();
   const user = sysPrompt.buildRewriteUserMessage({ business, marketProfile, currentHero, plan });
 
+  const { callWithAdvisor: advisorCall } = require('../advisor-tool');
   let raw;
   try {
-    raw = await callClaude({
+    raw = await advisorCall({
+      callClaude,
       system, user,
-      model: sysPrompt.modelForPlan(plan),
+      executor: sysPrompt.modelForPlan(plan),
+      task: 'rewrite',
+      planTier: plan,
       max_tokens: sysPrompt.maxTokensForPlan(plan, 'rewrite'),
-      extra: { cacheSystem: true, temperature: 0.5 },
+      extra: { cacheSystem: true, temperature: 0.5, businessId: business?.id, skill: 'cro_rewrite' },
     });
   } catch (e) {
     logger?.error?.('cro.rewritePage', null, 'Claude call failed', e);
