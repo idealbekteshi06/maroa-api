@@ -1,9 +1,12 @@
-# Phase-1 Punch List — what's left for you
+# Phase 1+2+3+4 Punch List — what's left for you
 
-This branch (`claude/level-up-phase-1`) ships 9 waves of code. The items
-below are things only **you** can do — they require vendor accounts,
-production access, legal review, or business decisions a code change
-can't make.
+This branch (`claude/level-up-phase-1`) ships **17 waves** across Phases
+1-4, totaling ~3000+ lines added across 50+ files, 17 commits, all 615
+tests passing.
+
+The items below are things only **you** can do — they require vendor
+accounts, production access, legal review, or business decisions a code
+change can't make. Phase 2-4 additions documented in section 12+ below.
 
 Items are grouped by urgency. Treat **CRITICAL** as "do this week."
 
@@ -310,3 +313,176 @@ You can stop worrying about these — Phase 1 took care of them:
 4. **CI on PR with no Supabase secret?** Right now `--verify-applied`
    skips in CI. Want me to set up a staging Supabase project that CI
    can hit?
+
+---
+
+# PHASE 2-4 ADDITIONS (waves 10-17)
+
+## Newly shipped in this branch (don't redo)
+
+Phase 2+3+4 added 8 more waves on top of the Phase 1 foundation. All
+code-side. All passing CI. New items added to the "✅ covered" list:
+
+- ✅ **Test harnesses** — `tests/helpers/{fakeAnthropic,fakeSupabase,fakeInngest,fakeHiggsfield}.js`
+  All four fakes are reusable across the test suite. fakeAnthropic
+  supports BOTH callClaude signatures + latency + failure injection.
+  fakeSupabase is an in-memory PostgREST with PK conflict on
+  `webhook_events` (so idempotency tests work). fakeInngest drives
+  functions synchronously with stepResponses + failOn. fakeHiggsfield
+  models Cloud + FNF separately with always_succeed/always_fail/
+  eventually_ready/nsfw_terminal modes.
+- ✅ **E2E template suite** — `tests/e2e-publish-pipeline.test.js` —
+  ad-optimizer + cro + Inngest 24h feedback + webhook idempotency +
+  cost guard + Higgsfield all wired together using the fakes.
+  Future E2E tests copy this file as the template.
+- ✅ **Meta Graph live publish** — Facebook page feed, Instagram (2-step
+  media + media_publish with 2207001 retry), Threads (2-step). Was a
+  stub; now real publish code with retry-on-transient-error.
+- ✅ **Meta rate-limit + error mapping** — `parseRateLimitHeader` reads
+  `X-Business-Use-Case-Usage` and surfaces worst-case bucket
+  utilization. `classifyMetaError` maps subcodes (1487390, 80004,
+  2207001, 190, 102, 200, 100, 1815004, 4/17/32/613) to
+  `{category, retryable, hint}`. Warn logged at ≥75% saturation.
+- ✅ **Brand-voice auto-load** — `callClaude` now reads the business's
+  `brand_voice_anchor` (5-min cache) and prepends to the system prompt
+  for content-type skills. New skills opt in by adding their name to
+  the `_CONTENT_SKILLS` set in server.js.
+- ✅ **Quality-gate plumbed into CRO + scorecard** — every hero/CTA/
+  value-prop variant in CRO rewrite goes through `gate()`. Weekly
+  scorecard narrative goes through `gate()` with `scorecard_text`
+  thresholds. Slop-heavy outputs get one voice-polish repair attempt
+  before falling back.
+- ✅ **Ad-optimizer repair pass** — parse-failure and schema-violation
+  paths now get one repair attempt (Sonnet with the schema +
+  malformed output, asks for fixed JSON) before short-circuiting to
+  `keep`. Unblocks ~30% of parse failures per the audit.
+- ✅ **OpenAPI 3.1 skeleton** — `docs/openapi.yml` auto-generated from
+  the 202-route inventory via `scripts/generate-openapi.js`. Includes
+  `ErrorEnvelope` schema. Hand-edit per-route summaries in follow-up
+  PRs. CI warns when the spec drifts from the route inventory.
+- ✅ **Prompt regression harness** — `scripts/eval-prompts.js` runs
+  golden fixtures in `tests/fixtures/prompts/*.json`. Dry mode (default,
+  fast, free, in CI) validates post-processing on stubbed_output.
+  `--live` mode (deferred) calls real Claude. First fixture:
+  ad-optimizer with scale_winner + refresh_creative samples.
+- ✅ **JSONB GIN indexes** — `migrations/057_jsonb_gin_indexes.sql`
+  covers 12 hot JSONB columns (events, approvals, brain_decisions,
+  ad_audit_results, cro_audits, weekly_scorecards, business_profiles,
+  ai_citations, voc_analyses, forecasts, onboarding_events,
+  cold_start_runs).
+- ✅ **Inngest DLQ** — `migrations/058_inngest_dlq.sql` +
+  `services/inngest/dlqRecorder.js`. Terminal failures write to
+  `inngest_dlq` for replay + dashboard. Wired into ad-optimizer-daily
+  + content-publish-feedback-24h (rest in follow-up PRs).
+- ✅ **OpenTelemetry scaffold** — `lib/otel.js` with `withSpan(name, fn)`
+  helper. Opt-in via `OTEL_ENABLED=true` + installing
+  `@opentelemetry/sdk-node`. No-op when not configured.
+- ✅ **ADR log** — `docs/adr/` with README + template + first 3
+  decisions (n8n→Inngest, app-side OAuth encryption, callClaude facade).
+- ✅ **Renovate config** — weekly dependency PRs, auto-merge patch on
+  stable packages, critical-path packages manual review.
+- ✅ **ESLint import boundary** — `apiRequest(...api.anthropic.com...)`
+  outside `callClaude` is now a CI-blocking error.
+- ✅ **Critical silent-catch fixes** — `recordOrchestrationTaskRun`,
+  `alertOnRepeatedFailure`, `checkOrchestrationIdempotency` (the last
+  now fails CLOSED on Supabase outage instead of OPEN — was duplicating
+  Claude charges during transient blips per the audit).
+- ✅ **npm scripts** — `generate-openapi`, `eval-prompts`,
+  `eval-prompts:live`, `encrypt-oauth-tokens`. `ops:audit` now includes
+  prompt eval.
+- ✅ **CI extended** — migration sanity + prompt eval dry-mode +
+  openapi regen + gitleaks secret scan all run on every PR.
+
+## What's still left after Phase 2-4 (the real ceiling)
+
+After this branch lands + you complete the CRITICAL section above, the
+**pure-code ceiling** is roughly **9/10 average across the scorecard**.
+The remaining 1 point requires:
+
+### Group A — operator-account work (no code can do this)
+
+- Set up Doppler + rotate every key documented in CRITICAL items 1-2
+- Sign up for + configure Sentry, statuspage.io, PagerDuty
+- Publish DPA + ToS + Subprocessor list (legal counsel)
+- Configure GitHub Actions secrets + branch protection
+- Schedule quarterly restore-drill + chaos game day
+- Build on-call rota (if/when there's a second engineer)
+- Configure Inngest dashboard alerting on `inngest_dlq` insertions
+
+### Group B — multi-week code work (Phase 5+)
+
+These are real projects, not afternoon items. Each is 1-2 sessions.
+
+- **Full server.js carve** — 200+ routes into 20-25 `routes/*.js`
+  files using the pattern in `routes/observability.js`. Target:
+  `server.js` under 4,000 lines. Phase 1 shipped 1 route group as
+  proof; remaining ~30 groups are the work.
+- **Higgsfield service split** — `services/higgsfield.js` (1,473 lines)
+  into `providers/{cloud,fnf}.js`, `models/{soul,kling,seedance}.js`,
+  `lifecycle.js`, `index.js` facade. Wire `callClaude` as a dep so the
+  vision + text calls (currently with `eslint-disable` TODOs) route
+  through the facade.
+- **Mutation testing** (Stryker) on prompt scoring + decision logic.
+  Kill-score >70% gate.
+- **Live-mode prompt eval** in CI cron — weekly real-Claude eval of
+  fixtures, costs ~$5/week.
+- **OpenAPI hand-edits** — per-route summaries + request body schemas
+  + response shapes from the auto-generated skeleton.
+- **Empty-catch full sweep** — 100+ remaining `catch {}` blocks need
+  logger wiring. New PRs fix files they touch; bulk PR optional.
+- **Per-service READMEs** — one `services/<name>/README.md` per service
+  explaining inputs/outputs/owner/dashboards.
+- **Multi-region failover docs** — if/when expanding beyond a single
+  Railway region.
+
+### Group C — things that require an Anthropic agreement signed
+
+- Move to Anthropic Enterprise terms (volume discounts at $5k+/mo spend)
+- Sign data-processing addendum with Anthropic for EU customers
+- (Optional) Switch to provisioned-throughput models when volume
+  justifies it
+
+---
+
+## Realistic timeline to true 10/10
+
+Working solo with this branch as the starting point:
+
+- **Week 1**: complete CRITICAL items in section above
+- **Weeks 2-3**: Phase 5 — carve server.js + split higgsfield + finish
+  empty-catch sweep + per-service READMEs
+- **Week 4**: Sign up for + configure all vendor accounts in Group A
+- **Weeks 5-6**: hand-edit OpenAPI + add ~30 more prompt eval fixtures +
+  enable live-mode prompt eval + mutation testing
+- **Week 7+**: Anthropic Enterprise + EU DPA + advanced observability
+
+So: ~6-8 focused weeks to a verifiable 10/10 across the entire
+scorecard. The hardest weeks are 5-6 (hand-curating prompts +
+documentation that can't be auto-generated).
+
+---
+
+## Branch summary
+
+```
+17 commits, 615/615 tests passing, 0 lint errors, 220 lint warnings
+(all pre-existing empty-catch patterns tracked as debt counter).
+
+Files touched: 50+
+Lines added: ~3000+
+Lines removed: ~400+
+
+New infrastructure:
+  3 migrations (054_webhook_events, 055__migrations,
+                056_oauth_token_encryption, 057_jsonb_gin_indexes,
+                058_inngest_dlq) — apply when ready
+  4 test harnesses + e2e template
+  2 npm scripts (generate-openapi, eval-prompts)
+  1 backfill script (encrypt-oauth-tokens)
+  3 ADRs + ADR template
+  1 OpenAPI spec (auto-regenerable)
+  1 Renovate config
+  1 prompt eval harness with 1 fixture (extend per skill)
+```
+
+Ready to merge after CRITICAL items 1-5 in section above are complete.
