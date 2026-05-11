@@ -3,9 +3,55 @@
 // The AI does everything forever and gets smarter every week.
 
 'use strict';
+
+// ─── Boot-time env validation. Crashes loudly on misconfiguration. ──────────
+// Must run before any module that reads process.env at import time.
+const env = require('./lib/env').parse();
+
 const Sentry = require('@sentry/node');
-if (process.env.SENTRY_DSN) {
-  Sentry.init({ dsn: process.env.SENTRY_DSN, environment: process.env.NODE_ENV || 'production' });
+if (env.SENTRY_DSN) {
+  // PII scrubber — strip auth headers, tokens, secrets, and user emails from
+  // every event before it leaves the process. Saves us from leaking customer
+  // data into Sentry when an error path serializes a full request object.
+  const PII_KEY_PATTERN = /(authorization|auth_token|api_key|apikey|secret|token|password|email|access_token|refresh_token)/i;
+  const scrub = (obj, depth = 0) => {
+    if (!obj || depth > 6) return obj;
+    if (Array.isArray(obj)) return obj.map((v) => scrub(v, depth + 1));
+    if (typeof obj === 'object') {
+      const out = {};
+      for (const [k, v] of Object.entries(obj)) {
+        if (PII_KEY_PATTERN.test(k)) {
+          out[k] = '[redacted]';
+        } else if (typeof v === 'string' && /sk-ant-|sb_secret_|r8_|Bearer\s/i.test(v)) {
+          out[k] = '[redacted]';
+        } else {
+          out[k] = scrub(v, depth + 1);
+        }
+      }
+      return out;
+    }
+    return obj;
+  };
+  Sentry.init({
+    dsn: env.SENTRY_DSN,
+    environment: env.NODE_ENV,
+    release: env.RELEASE || undefined,
+    tracesSampleRate: env.SENTRY_TRACES_SAMPLE_RATE,
+    beforeSend(event) {
+      try {
+        if (event.request) {
+          if (event.request.headers) event.request.headers = scrub(event.request.headers);
+          if (event.request.cookies) event.request.cookies = '[redacted]';
+          if (event.request.data) event.request.data = scrub(event.request.data);
+        }
+        if (event.extra) event.extra = scrub(event.extra);
+        if (event.contexts) event.contexts = scrub(event.contexts);
+      } catch {
+        // Never let scrubbing crash the error path
+      }
+      return event;
+    },
+  });
 }
 const express  = require('express');
 const cors     = require('cors');
@@ -68,6 +114,13 @@ function apiError(res, status, code, message, details = null) {
 }
 
 const app = express();
+
+// ─── Trust proxy ──────────────────────────────────────────────────────────────
+// Required when running behind Railway's TLS terminator (or any reverse proxy).
+// Without this, req.ip resolves to the edge IP and rate-limits collapse all
+// users into one bucket. The "1" value trusts a single hop — never use "true"
+// in production (would let any client forge X-Forwarded-For).
+app.set('trust proxy', 1);
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 const corsOptions = {
@@ -208,10 +261,25 @@ function requireN8nWebhookSecret(req, res, next) {
     return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'N8N_WEBHOOK_SECRET not configured');
   }
   const provided = clean(String(req.headers['x-webhook-secret'] || ''));
-  if (provided !== N8N_WEBHOOK_SECRET) {
+  // Timing-safe equality — prevents secret discovery via timing side-channel.
+  if (!provided || !timingSafeStringEqual(provided, N8N_WEBHOOK_SECRET)) {
     return apiError(res, 401, 'UNAUTHORIZED', 'Invalid or missing x-webhook-secret');
   }
   next();
+}
+
+// Constant-time string compare. Returns false on length mismatch without
+// leaking which side was longer. Use for every secret / signature compare.
+function timingSafeStringEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) {
+    // Compare against self to keep work proportional and avoid early-exit timing.
+    crypto.timingSafeEqual(ab, ab);
+    return false;
+  }
+  return crypto.timingSafeEqual(ab, bb);
 }
 
 const { requireAuthOrWebhookSecret } = require('./middleware/requireAuthOrWebhookSecret');
@@ -274,7 +342,6 @@ app.use('/api/content/repurpose', requireValidUserId);
 app.use('/api/compete/counter', requireValidUserId);
 app.use('/api/reviews/auto-respond', requireValidUserId);
 app.use('/api/referral/setup', requireValidUserId);
-app.use('/api/laun ompts', requireValidUserId);
 app.use('/api/signup-cro/analyze', requireValidUserId);
 
 // Auth guard for routes that use user_id (body), :userId (params), or userId (body)
@@ -344,36 +411,34 @@ app.use('/api/seo-pages', requireAnyUserId);
 app.use('/api/social', requireAnyUserId);
 
 // ─── Config ───────────────────────────────────────────────────────────────────
+// All values come from the validated `env` object (see lib/env.js). No prod-URL
+// defaults — boot fails in lib/env.js if a required var is missing.
 const clean = (v) => (v || '').replace(/[^\x20-\x7E]/g, '').trim();
 
-const SUPABASE_URL        = clean(process.env.SUPABASE_URL)        || 'https://zqhyrbttuqkvmdewiytf.supabase.co';
-const SUPABASE_KEY        = clean(process.env.SUPABASE_KEY)        || '';
-const ANTHROPIC_KEY       = clean(process.env.ANTHROPIC_KEY) || clean(process.env.ANTHROPIC_API_KEY) || '';
-const SERPAPI_KEY         = clean(process.env.SERPAPI_KEY)         || '';
-const REPLICATE_API_KEY   = clean(process.env.REPLICATE_API_KEY)   || '';
-const PEXELS_API_KEY      = clean(process.env.PEXELS_API_KEY)      || '';
-const RESEND_API_KEY      = clean(process.env.RESEND_API_KEY)      || '';
-const FROM_EMAIL          = clean(process.env.FROM_EMAIL)          || 'onboarding@resend.dev';
-const PORT                = process.env.PORT                        || 3000;
-// Sprint 5 — Brand Memory + Reviews
-const OPENAI_API_KEY      = clean(process.env.OPENAI_API_KEY)      || '';
-const PINECONE_API_KEY    = clean(process.env.PINECONE_API_KEY)    || '';
-const PINECONE_HOST       = clean(process.env.PINECONE_HOST)       || ''; // full index host URL
-// Sprint 6 — Video Generation
-const RUNWAY_API_KEY      = clean(process.env.RUNWAY_API_KEY)      || '';
-// Smart Image System
-const GOOGLE_AI_API_KEY   = clean(process.env.GOOGLE_AI_API_KEY)   || '';
-// Twilio WhatsApp
-const TWILIO_ACCOUNT_SID  = clean(process.env.TWILIO_ACCOUNT_SID)  || '';
-const TWILIO_AUTH_TOKEN   = clean(process.env.TWILIO_AUTH_TOKEN)   || '';
-const TWILIO_WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM     || 'whatsapp:+14155238886';
-// Paddle Billing
-const PADDLE_WEBHOOK_SECRET = clean(process.env.PADDLE_WEBHOOK_SECRET) || '';
-const PADDLE_STARTER_PRICE = clean(process.env.PADDLE_STARTER_PRICE_ID) || '';
-const PADDLE_GROWTH_PRICE  = clean(process.env.PADDLE_GROWTH_PRICE_ID) || '';
-const PADDLE_AGENCY_PRICE  = clean(process.env.PADDLE_AGENCY_PRICE_ID) || '';
-const ORCHESTRATOR_SECRET  = clean(process.env.ORCHESTRATOR_SECRET)   || '';
-const N8N_WEBHOOK_SECRET   = clean(process.env.N8N_WEBHOOK_SECRET)    || '';
+const SUPABASE_URL        = env.SUPABASE_URL;
+const SUPABASE_KEY        = env.SUPABASE_KEY;
+const ANTHROPIC_KEY       = env.ANTHROPIC_KEY;
+const SERPAPI_KEY         = env.SERPAPI_KEY || '';
+const REPLICATE_API_KEY   = env.REPLICATE_API_KEY || '';
+const PEXELS_API_KEY      = env.PEXELS_API_KEY || '';
+const RESEND_API_KEY      = env.RESEND_API_KEY || '';
+const FROM_EMAIL          = env.FROM_EMAIL;
+const PORT                = env.PORT;
+const OPENAI_API_KEY      = env.OPENAI_API_KEY || '';
+const PINECONE_API_KEY    = env.PINECONE_API_KEY || '';
+const PINECONE_HOST       = env.PINECONE_HOST || '';
+const RUNWAY_API_KEY      = env.RUNWAY_API_KEY || '';
+const GOOGLE_AI_API_KEY   = env.GOOGLE_AI_API_KEY || '';
+const TWILIO_ACCOUNT_SID  = env.TWILIO_ACCOUNT_SID || '';
+const TWILIO_AUTH_TOKEN   = env.TWILIO_AUTH_TOKEN || '';
+const TWILIO_WHATSAPP_FROM = env.TWILIO_WHATSAPP_FROM;
+const PADDLE_WEBHOOK_SECRET = env.PADDLE_WEBHOOK_SECRET || '';
+const PADDLE_STARTER_PRICE = env.PADDLE_STARTER_PRICE_ID || '';
+const PADDLE_GROWTH_PRICE  = env.PADDLE_GROWTH_PRICE_ID || '';
+const PADDLE_AGENCY_PRICE  = env.PADDLE_AGENCY_PRICE_ID || '';
+const ORCHESTRATOR_SECRET  = env.ORCHESTRATOR_SECRET || '';
+const N8N_WEBHOOK_SECRET   = env.N8N_WEBHOOK_SECRET;
+const EXTERNAL_HTTP_TIMEOUT_MS = env.EXTERNAL_HTTP_TIMEOUT_MS;
 
 // Paddle client initialized in services/paddle.js
 
@@ -392,7 +457,11 @@ function isInternalMaroaWebhookUrl(urlString) {
 }
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
-function apiRequest(method, url, headers = {}, body = null, timeoutMs = 120000) {
+// Default timeout 15s. A 120s default lets one stuck call hold an Express
+// worker hostage for two minutes — under load that turns into request
+// starvation. Callers that legitimately need longer (Anthropic Opus streams,
+// Higgsfield polls) pass an explicit override.
+function apiRequest(method, url, headers = {}, body = null, timeoutMs = EXTERNAL_HTTP_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const u        = new URL(url);
     const bodyStr  = body ? JSON.stringify(body) : null;

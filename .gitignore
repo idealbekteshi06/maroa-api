@@ -3,6 +3,8 @@
 # Secrets & local config
 .env
 .env.*
+# Allow the template — it has no real values
+!.env.example
 setup.sh
 
 # Local scripts
