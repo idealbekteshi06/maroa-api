@@ -286,13 +286,31 @@ function registerGoogleOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logg
     }
   });
 
+  // SECURITY: same fix as Meta /health — requires JWT + ownership.
+  // Without it, anyone with a UUID could extract google_customer_id +
+  // google_oauth_email for any customer.
   app.get('/webhook/oauth/google/health', async (req, res) => {
     const businessId = req.query.businessId || req.query.business_id;
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
+    if (!isUuid(businessId)) return apiError(res, 400, 'INVALID_REQUEST', 'businessId must be a valid UUID');
+    if (typeof verifyUserJwt !== 'function') return apiError(res, 503, 'NOT_CONFIGURED', 'verifyUserJwt not wired');
+
+    const token = readBearer(req);
+    if (!token) return apiError(res, 401, 'UNAUTHORIZED', 'Bearer token or ?token= required');
+    const user = await verifyUserJwt(token).catch(() => null);
+    if (!user?.id) return apiError(res, 401, 'UNAUTHORIZED', 'invalid JWT');
+    const owns = await userOwnsBusiness(user.id, businessId);
+    if (!owns) {
+      logger?.warn?.('/webhook/oauth/google/health', businessId, 'auth user does not own business', {
+        user_id: user.id,
+      });
+      return apiError(res, 403, 'FORBIDDEN', 'authenticated user does not own this business');
+    }
+
     try {
       const rows = await sbGet(
         'businesses',
-        `id=eq.${businessId}&select=google_refresh_token,google_customer_id,google_oauth_email,google_connected_at`
+        `id=eq.${encodeURIComponent(businessId)}&select=google_refresh_token,google_customer_id,google_oauth_email,google_connected_at`
       ).catch(() => []);
       const b = rows?.[0];
       if (!b?.google_refresh_token) return res.json({ connected: false });

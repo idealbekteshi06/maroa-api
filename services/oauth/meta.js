@@ -366,13 +366,35 @@ function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger
   });
 
   // ─── /webhook/oauth/meta/health (status probe for dashboard) ──────────
+  //
+  // SECURITY: this endpoint exposes ad_account_id + facebook_page_id +
+  // instagram_account_id for a given business. Without auth + ownership
+  // verification, anyone with a UUID can extract a customer's Meta IDs.
+  // Flagged by the Antigravity adversarial review on 2026-05-11.
+  //
+  // Now requires the SAME auth model as /start: JWT (Authorization header
+  // OR ?token= query for redirect flows) + ownership check that the JWT
+  // user owns businessId.
   app.get('/webhook/oauth/meta/health', async (req, res) => {
     const businessId = req.query.businessId || req.query.business_id;
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
+    if (!isUuid(businessId)) return apiError(res, 400, 'INVALID_REQUEST', 'businessId must be a valid UUID');
+    if (typeof verifyUserJwt !== 'function') return apiError(res, 503, 'NOT_CONFIGURED', 'verifyUserJwt not wired');
+
+    const token = readBearer(req);
+    if (!token) return apiError(res, 401, 'UNAUTHORIZED', 'Bearer token or ?token= required');
+    const user = await verifyUserJwt(token).catch(() => null);
+    if (!user?.id) return apiError(res, 401, 'UNAUTHORIZED', 'invalid JWT');
+    const owns = await userOwnsBusiness(user.id, businessId);
+    if (!owns) {
+      logger?.warn?.('/webhook/oauth/meta/health', businessId, 'auth user does not own business', { user_id: user.id });
+      return apiError(res, 403, 'FORBIDDEN', 'authenticated user does not own this business');
+    }
+
     try {
       const rows = await sbGet(
         'businesses',
-        `id=eq.${businessId}&select=meta_access_token,meta_token_expires_at,ad_account_id,facebook_page_id,instagram_account_id,meta_connected_at`
+        `id=eq.${encodeURIComponent(businessId)}&select=meta_access_token,meta_token_expires_at,ad_account_id,facebook_page_id,instagram_account_id,meta_connected_at`
       ).catch(() => []);
       const b = rows?.[0];
       if (!b?.meta_access_token) return res.json({ connected: false });

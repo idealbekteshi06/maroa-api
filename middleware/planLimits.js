@@ -35,7 +35,7 @@ function normalizePlan(raw) {
   return 'starter';
 }
 
-function sbRequest(method, path, body) {
+function sbRequest(method, path, body, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(SUPABASE_URL + path);
     const bodyStr = body ? JSON.stringify(body) : null;
@@ -48,6 +48,7 @@ function sbRequest(method, path, body) {
         apikey: SUPABASE_KEY,
         Authorization: `Bearer ${SUPABASE_KEY}`,
         'Content-Type': 'application/json',
+        ...extraHeaders,
       },
     };
     if (bodyStr) opts.headers['Content-Length'] = Buffer.byteLength(bodyStr);
@@ -55,10 +56,14 @@ function sbRequest(method, path, body) {
       let data = '';
       res.on('data', (c) => (data += c));
       res.on('end', () => {
+        // Surface the Content-Range header (PostgREST puts the count
+        // there when Prefer: count=exact is used) so callers can read it
+        // without parsing the body.
+        const contentRange = res.headers?.['content-range'] || res.headers?.['Content-Range'] || null;
         try {
-          resolve({ status: res.statusCode, body: JSON.parse(data) });
+          resolve({ status: res.statusCode, body: JSON.parse(data), contentRange });
         } catch {
-          resolve({ status: res.statusCode, body: data });
+          resolve({ status: res.statusCode, body: data, contentRange });
         }
       });
     });
@@ -67,6 +72,14 @@ function sbRequest(method, path, body) {
     if (bodyStr) req.write(bodyStr);
     req.end();
   });
+}
+
+// Parse PostgREST's Content-Range header. Format: "0-9/47" or "*/0".
+// Returns the integer count, or null if unparseable.
+function parseContentRangeCount(contentRange) {
+  if (!contentRange) return null;
+  const match = /\/(\d+)$/.exec(String(contentRange));
+  return match ? Number(match[1]) : null;
 }
 
 async function checkPlanLimit(req, res, next) {
@@ -109,11 +122,21 @@ async function checkPlanLimit(req, res, next) {
     }
 
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+    // SECURITY/PERFORMANCE: previously this fetched the entire result set
+    // and read `.length` — at 15k rows per agency user per month that's
+    // a 15k-element JSON parse on every API call. Memory DoS vector
+    // flagged by the 2026-05-11 Antigravity adversarial review.
+    //
+    // Now: HEAD request + Prefer: count=exact. PostgREST returns the
+    // count in the Content-Range header without sending any rows.
+    // Same correctness, bounded memory.
     const countRes = await sbRequest(
-      'GET',
-      `/rest/v1/usage_logs?select=id&user_id=eq.${safeUserId}&action=eq.${safeAction}&created_at=gte.${encodeURIComponent(monthStart)}`
+      'HEAD',
+      `/rest/v1/usage_logs?select=id&user_id=eq.${safeUserId}&action=eq.${safeAction}&created_at=gte.${encodeURIComponent(monthStart)}`,
+      null,
+      { Prefer: 'count=exact' }
     );
-    const count = Array.isArray(countRes.body) ? countRes.body.length : 0;
+    const count = parseContentRangeCount(countRes.contentRange) || 0;
 
     const limitKey =
       action === 'generate_image'

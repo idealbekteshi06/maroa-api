@@ -130,11 +130,27 @@ test('readToken: handles null/undefined row gracefully', () => {
   assert.strictEqual(oauthCrypto.readToken(undefined, 'meta_access_token'), null);
 });
 
-test('readToken: falls back to legacy on corrupted enc blob (resilience)', () => {
+test('readToken: THROWS on corrupted enc blob (no silent downgrade)', () => {
+  // SECURITY: post-2026-05-11 adversarial review — if `_enc` is populated
+  // but decrypt fails, we MUST throw rather than fall back to legacy.
+  // The fallback was a crypto downgrade vector.
   const row = {
-    meta_access_token: 'fallback-works',
-    meta_access_token_enc: 'v1:badly:formed:blob:extra:parts',
+    meta_access_token: 'attacker-controlled-plaintext',
+    meta_access_token_enc: 'v1:badly:formed:blob',
   };
-  // Should NOT throw — falls back to legacy column
-  assert.strictEqual(oauthCrypto.readToken(row, 'meta_access_token'), 'fallback-works');
+  assert.throws(() => oauthCrypto.readToken(row, 'meta_access_token'), /decrypt failed|malformed/);
+});
+
+test('readToken: returns legacy ONLY when _enc is null (pre-backfill transition)', () => {
+  // Legacy fallback still works for the transition period — when the row
+  // hasn't been backfilled yet and `_enc` is null/empty. Once migration
+  // 060 drops the legacy columns this code path goes away entirely.
+  assert.strictEqual(
+    oauthCrypto.readToken({ meta_access_token: 'legit-legacy', meta_access_token_enc: null }, 'meta_access_token'),
+    'legit-legacy'
+  );
+  assert.strictEqual(
+    oauthCrypto.readToken({ meta_access_token: 'legit-legacy', meta_access_token_enc: '' }, 'meta_access_token'),
+    'legit-legacy'
+  );
 });

@@ -34,18 +34,28 @@ const PLAN_FEATURES = {
   tiktok: ['growth', 'agency'],
 };
 
-// ── Fetch plan from Supabase ──────────────────────────────────────────────────
-async function getBusinessPlan(business_id) {
-  // Defensive — caller is expected to UUID-validate, but never let an
-  // unvalidated id touch the filter. encodeURIComponent stops `&`/`,`/`(` from
-  // breaking out of the value.
+// ── Fetch plan + owner from Supabase ─────────────────────────────────────────
+// Returns { plan, user_id } so callers can verify the authenticated user
+// actually owns this business before granting plan access. This is the
+// fix for the IDOR vector flagged by the May-11 Antigravity review:
+// previously planGate verified the business had the right plan but never
+// verified the caller had the right business.
+async function getBusinessPlanAndOwner(business_id) {
   if (!isUuid(business_id)) throw new Error('invalid business_id');
   const safeId = encodeURIComponent(business_id);
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/businesses?select=plan&id=eq.${safeId}`, {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/businesses?select=plan,user_id&id=eq.${safeId}`, {
     headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
   });
   const data = await res.json();
-  return data?.[0]?.plan || 'free';
+  const row = data?.[0] || null;
+  return { plan: row?.plan || 'free', user_id: row?.user_id || null };
+}
+
+// Legacy single-value helper — kept for the planGate.check() public API
+// where there's no req/user context.
+async function getBusinessPlan(business_id) {
+  const { plan } = await getBusinessPlanAndOwner(business_id);
+  return plan;
 }
 
 // ── Main middleware factory ────────────────────────────────────────────────────
@@ -68,7 +78,42 @@ const planGate = (feature) => async (req, res, next) => {
   }
 
   try {
-    const plan = await getBusinessPlan(business_id);
+    const { plan, user_id: ownerId } = await getBusinessPlanAndOwner(business_id);
+
+    // ─── IDOR protection ─────────────────────────────────────────────────
+    // Verify the AUTHENTICATED caller actually owns this business_id. The
+    // upstream auth middleware (requireAuthOrWebhookSecret) puts the JWT
+    // user id at req.user.id when the request is JWT-auth. When the
+    // request is webhook-secret-auth (req.authSource === 'webhook') we
+    // skip ownership check because it's a trusted internal caller.
+    //
+    // Without this check, a Free-tier customer could pass an Agency
+    // customer's business_id and get Agency-tier features. Documented
+    // in ADR-0004 (added 2026-05-11) + flagged by the Antigravity
+    // adversarial review.
+    if (req.authSource !== 'webhook') {
+      const jwtUserId = req.user?.id;
+      if (!jwtUserId) {
+        return res.status(401).json({
+          error: { code: 'UNAUTHORIZED', message: 'JWT required for plan-gated feature' },
+        });
+      }
+      if (!ownerId) {
+        // Business doesn't exist OR doesn't have a user_id (legacy data).
+        // Fail closed — don't grant access to a business with no owner row.
+        return res.status(403).json({
+          error: { code: 'BUSINESS_NOT_FOUND', message: 'business_id not found or ownerless' },
+        });
+      }
+      if (String(jwtUserId) !== String(ownerId)) {
+        console.warn(
+          `[planGate] IDOR attempt blocked — user ${jwtUserId} requested feature "${feature}" on business ${business_id} owned by ${ownerId}`
+        );
+        return res.status(403).json({
+          error: { code: 'FORBIDDEN', message: 'You do not own this business' },
+        });
+      }
+    }
 
     if (!allowedPlans.includes(plan)) {
       return res.status(403).json({

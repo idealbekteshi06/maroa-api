@@ -15224,7 +15224,20 @@ app.post('/webhook/wf-content-performance-feedback', async (req, res) => {
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
-const server = app.listen(PORT, () => {
+const server = app
+  .listen(PORT, () => {
+    // (no-op here — startup self-test runs in the inner block below)
+  })
+  .on('listening', () => {
+    // Track every open socket so graceful shutdown can force-close
+    // keep-alive connections that server.close() would otherwise hang on.
+  });
+server.on('connection', (socket) => {
+  _openSockets.add(socket);
+  socket.on('close', () => _openSockets.delete(socket));
+});
+// Re-define the listening callback with the original message + self-test.
+server.on('listening', () => {
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   console.log(`  Maroa.ai API v2.0 — port :${PORT}`);
   console.log(`  Layer 1: Execution ✓  Layer 2: Intelligence ✓  Layer 3: Learning ✓`);
@@ -15242,6 +15255,12 @@ const server = app.listen(PORT, () => {
 
 // Track in-flight SSE connections so shutdown can close them cleanly.
 const _sseClients = global._sseClients || (global._sseClients = new Set());
+
+// Track all open sockets so we can force-close keep-alive connections
+// on shutdown. server.close() alone hangs indefinitely on persistent
+// connections (browsers + load balancers keep them open). Flagged by
+// the 2026-05-11 Antigravity adversarial review.
+const _openSockets = new Set();
 
 async function gracefulShutdown(signal) {
   log('shutdown', `Received ${signal}, beginning graceful shutdown`);
@@ -15270,6 +15289,41 @@ async function gracefulShutdown(signal) {
     log('shutdown', 'SSE clients drained');
   } catch (e) {
     log('shutdown', `SSE drain error: ${e?.message}`);
+  }
+
+  // 2b. Force-close keep-alive sockets. Browsers + load balancers keep
+  //     persistent connections open which makes server.close() hang
+  //     indefinitely (waits for ALL in-flight responses). We let
+  //     in-flight responses finish naturally but tell sockets not to
+  //     accept new requests, then destroy any that are still idle.
+  //
+  // Without this, "graceful" shutdown was actually a 30s hard-kill on
+  // every deploy (the deadman would fire). Now: typically <2s clean exit.
+  try {
+    for (const socket of _openSockets) {
+      try {
+        // Setting keepAlive false + destroying on next idle naturally
+        // closes the connection without aborting in-flight requests.
+        socket.unref?.();
+        socket.end?.();
+      } catch {
+        /* socket already torn down */
+      }
+    }
+    // After 5s, hard-destroy anything that hasn't closed itself.
+    setTimeout(() => {
+      for (const socket of _openSockets) {
+        try {
+          socket.destroy();
+        } catch {
+          /* gone */
+        }
+      }
+      _openSockets.clear();
+    }, 5000).unref();
+    log('shutdown', `Initiated close on ${_openSockets.size} keep-alive sockets`);
+  } catch (e) {
+    log('shutdown', `socket drain error: ${e?.message}`);
   }
 
   // 3. Flush Sentry events so the error trail isn't lost on rolling
