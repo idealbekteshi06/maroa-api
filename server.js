@@ -15107,18 +15107,89 @@ const server = app.listen(PORT, () => {
   console.log(`  Maroa.ai API v2.0 — port :${PORT}`);
   console.log(`  Layer 1: Execution ✓  Layer 2: Intelligence ✓  Layer 3: Learning ✓`);
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
+  // Run the startup self-test asynchronously after the server is up.
+  // Probes Supabase, Anthropic, encryption key, required env vars.
+  // Soft-fail: any probe failure logs a warning but does not crash boot.
+  setImmediate(() => {
+    require('./lib/startupSelfTest')
+      .runStartupSelfTest({ sbGet, logger })
+      .catch((e) => logger.error('startup-self-test', null, 'self-test crashed', e));
+  });
 });
 
-function gracefulShutdown(signal) {
-  log('shutdown', `Received ${signal}, closing server`);
-  server.close(() => {
-    log('shutdown', 'HTTP server closed');
-    process.exit(0);
+// Track in-flight SSE connections so shutdown can close them cleanly.
+const _sseClients = global._sseClients || (global._sseClients = new Set());
+
+async function gracefulShutdown(signal) {
+  log('shutdown', `Received ${signal}, beginning graceful shutdown`);
+  const deadlineMs = 25000;
+  const deadline = Date.now() + deadlineMs;
+
+  // 1. Stop accepting new requests immediately. server.close() lets
+  //    in-flight requests finish before invoking the callback.
+  server.close((err) => {
+    if (err) log('shutdown', `server.close error: ${err.message}`);
+    else log('shutdown', 'HTTP server closed');
   });
+
+  // 2. Close every SSE connection so clients reconnect against the
+  //    next instance instead of hanging until TCP timeout.
+  try {
+    for (const res of _sseClients) {
+      try {
+        res.write('event: shutdown\ndata: server-rolling\n\n');
+        res.end();
+      } catch {
+        /* client gone */
+      }
+    }
+    _sseClients.clear();
+    log('shutdown', 'SSE clients drained');
+  } catch (e) {
+    log('shutdown', `SSE drain error: ${e?.message}`);
+  }
+
+  // 3. Flush Sentry events so the error trail isn't lost on rolling
+  //    deploys. Sentry's `close(timeoutMs)` returns true if drained.
+  try {
+    if (process.env.SENTRY_DSN && typeof Sentry?.close === 'function') {
+      const remaining = Math.max(2000, deadline - Date.now() - 2000);
+      await Promise.race([Sentry.close(remaining), new Promise((r) => setTimeout(r, remaining + 500))]);
+      log('shutdown', 'Sentry flushed');
+    }
+  } catch (e) {
+    log('shutdown', `Sentry flush error: ${e?.message}`);
+  }
+
+  // 4. Allow Inngest in-flight steps to finish — Inngest functions write
+  //    state via step.run() so technically they survive a crash, but
+  //    letting them finish cleanly avoids unnecessary retries on
+  //    every redeploy.
+  const remaining = Math.max(0, deadline - Date.now());
+  if (remaining > 0) {
+    log('shutdown', `Waiting up to ${remaining}ms for in-flight work`);
+    await new Promise((r) => setTimeout(r, Math.min(remaining, 3000)));
+  }
+
+  // 5. OpenTelemetry — flush any pending traces.
+  try {
+    await require('./lib/otel').shutdown();
+  } catch (e) {
+    log('shutdown', `OTel shutdown error: ${e?.message}`);
+  }
+
+  log('shutdown', `Graceful shutdown complete — exiting after ${signal}`);
+  process.exit(0);
+}
+
+// Hard-stop hatch: if anything in gracefulShutdown hangs past 30s,
+// force-exit. Without .unref() this would keep the process alive.
+function armShutdownDeadman() {
   setTimeout(() => {
-    log('shutdown', 'Forced exit after timeout');
+    log('shutdown', 'Forced exit after 30s deadline');
     process.exit(1);
-  }, 10000).unref();
+  }, 30000).unref();
 }
 
 process.on('unhandledRejection', (reason, promise) => {
@@ -15135,5 +15206,11 @@ process.on('uncaughtException', (err) => {
   setTimeout(() => process.exit(1), 2000);
 });
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => {
+  armShutdownDeadman();
+  gracefulShutdown('SIGTERM');
+});
+process.on('SIGINT', () => {
+  armShutdownDeadman();
+  gracefulShutdown('SIGINT');
+});
