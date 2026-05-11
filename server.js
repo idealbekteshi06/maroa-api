@@ -11356,9 +11356,100 @@ async function paddleWebhookHandler(req, res) {
           status: 'success',
         }).catch(() => {});
       }
+    } else if (eventType === 'subscription.paused') {
+      // Customer paused (Paddle's pause feature). Keep their plan tier
+      // but flag billing as paused so the cost guard's plan-tier lookup
+      // can fall back to a stricter cap if desired.
+      const pausedBizId = data.custom_data?.business_id;
+      const bizId =
+        pausedBizId ||
+        (
+          await sbGet('businesses', `paddle_subscription_id=eq.${encodeURIComponent(data.id)}&select=id`).catch(
+            () => []
+          )
+        )[0]?.id;
+      if (bizId) {
+        await sbPatch('businesses', `id=eq.${encodeURIComponent(bizId)}`, {
+          paddle_subscription_status: 'paused',
+        }).catch(() => {});
+        logger.info('/paddle/webhook', bizId, 'subscription paused', { event_type: eventType });
+      }
+    } else if (eventType === 'subscription.resumed') {
+      // Resumed after pause — restore plan tier to whatever's on the
+      // subscription items (Paddle includes price_id in data.items).
+      const resumedBizId = data.custom_data?.business_id;
+      const priceId = data.items?.[0]?.price?.id;
+      const restoredPlan = data.custom_data?.plan || PADDLE_PRICE_TO_PLAN[priceId] || 'starter';
+      const bizId =
+        resumedBizId ||
+        (
+          await sbGet('businesses', `paddle_subscription_id=eq.${encodeURIComponent(data.id)}&select=id`).catch(
+            () => []
+          )
+        )[0]?.id;
+      if (bizId) {
+        await sbPatch('businesses', `id=eq.${encodeURIComponent(bizId)}`, {
+          plan: restoredPlan,
+          paddle_subscription_status: 'active',
+        }).catch(() => {});
+        logger.info('/paddle/webhook', bizId, 'subscription resumed', { event_type: eventType, plan: restoredPlan });
+      }
+    } else if (eventType === 'adjustment.created' || eventType === 'transaction.refunded') {
+      // Refund issued. We log it for accounting + downgrade if a full
+      // refund (action='refund' with no remaining items). Partial refunds
+      // (credit notes) keep the plan but flag the audit log.
+      const refundBizId = data.custom_data?.business_id;
+      const isFullRefund = data.action === 'refund' && !data.items?.some?.((i) => Number(i.totals?.subtotal || 0) > 0);
+      const bizId =
+        refundBizId ||
+        (data.subscription_id
+          ? (
+              await sbGet(
+                'businesses',
+                `paddle_subscription_id=eq.${encodeURIComponent(data.subscription_id)}&select=id`
+              ).catch(() => [])
+            )[0]?.id
+          : null);
+      if (bizId) {
+        await sbPost('usage_logs', {
+          user_id: bizId,
+          action: 'paddle_refund',
+          plan_name: data.custom_data?.plan || 'unknown',
+          model_used: 'paddle',
+          credits_used: 0,
+          status: 'refunded',
+        }).catch(() => {});
+        if (isFullRefund) {
+          await sbPatch('businesses', `id=eq.${encodeURIComponent(bizId)}`, {
+            plan: 'free',
+            plan_price: 0,
+            paddle_subscription_status: 'refunded',
+          }).catch(() => {});
+          logger.warn('/paddle/webhook', bizId, 'full refund — downgraded to free', { event_type: eventType });
+        } else {
+          logger.info('/paddle/webhook', bizId, 'partial refund logged', { event_type: eventType });
+        }
+      }
+    } else if (eventType === 'subscription.trialing') {
+      // Trial activation — same plan grant as activated but flag the
+      // status so we can show "trial ends Mar 18" in the dashboard.
+      const trialBizId = data.custom_data?.business_id;
+      const trialPlan = data.custom_data?.plan || PADDLE_PRICE_TO_PLAN[data.items?.[0]?.price?.id] || 'starter';
+      if (trialBizId) {
+        await sbPatch('businesses', `id=eq.${encodeURIComponent(trialBizId)}`, {
+          plan: trialPlan,
+          paddle_subscription_status: 'trialing',
+          trial_ends_at: data.current_billing_period?.ends_at || null,
+        }).catch(() => {});
+      }
+    } else {
+      // Unhandled event type — log for observability so we know what
+      // Paddle is sending. Add a handler above when we want to act on it.
+      logger.info('/paddle/webhook', null, 'unhandled paddle event type', { event_type: eventType });
     }
   } catch (err) {
     console.error('[paddle-webhook ERROR]', err.message);
+    logger.error('/paddle/webhook', null, 'handler crashed', err);
   }
 }
 
