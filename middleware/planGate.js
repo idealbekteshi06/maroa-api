@@ -4,8 +4,17 @@
 
 'use strict';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://zqhyrbttuqkvmdewiytf.supabase.co';
+const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/[^\x20-\x7E]/g, '').trim();
 const SUPABASE_KEY = (process.env.SUPABASE_KEY || '').replace(/[^\x20-\x7E]/g, '').trim();
+
+// Strict UUID v1-v5. Anything that doesn't match is rejected before it can
+// touch the PostgREST filter — closes the injection vector where a crafted
+// business_id like `00000000-...&select=*,plan_history(*)` would alter the
+// query shape. Doing this client-side is cheaper than a server roundtrip.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function isUuid(v) {
+  return typeof v === 'string' && UUID_RE.test(v);
+}
 
 // ── Feature gates — which plans unlock each feature ──────────────────────────
 const PLAN_FEATURES = {
@@ -27,8 +36,13 @@ const PLAN_FEATURES = {
 
 // ── Fetch plan from Supabase ──────────────────────────────────────────────────
 async function getBusinessPlan(business_id) {
+  // Defensive — caller is expected to UUID-validate, but never let an
+  // unvalidated id touch the filter. encodeURIComponent stops `&`/`,`/`(` from
+  // breaking out of the value.
+  if (!isUuid(business_id)) throw new Error('invalid business_id');
+  const safeId = encodeURIComponent(business_id);
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/businesses?select=plan&id=eq.${business_id}`,
+    `${SUPABASE_URL}/rest/v1/businesses?select=plan&id=eq.${safeId}`,
     { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
   );
   const data = await res.json();
@@ -46,6 +60,9 @@ const planGate = (feature) => async (req, res, next) => {
 
   if (!business_id) {
     return res.status(400).json({ error: 'business_id required', feature });
+  }
+  if (!isUuid(business_id)) {
+    return res.status(400).json({ error: 'business_id must be a valid UUID', feature });
   }
 
   const allowedPlans = PLAN_FEATURES[feature];

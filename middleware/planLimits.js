@@ -1,7 +1,7 @@
 'use strict';
 const https = require('https');
 
-const SUPABASE_URL = (process.env.SUPABASE_URL || 'https://zqhyrbttuqkvmdewiytf.supabase.co').replace(/[^\x20-\x7E]/g, '').trim();
+const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/[^\x20-\x7E]/g, '').trim();
 const SUPABASE_KEY = (process.env.SUPABASE_KEY || '').replace(/[^\x20-\x7E]/g, '').trim();
 
 const PLAN_LIMITS = {
@@ -9,6 +9,24 @@ const PLAN_LIMITS = {
   growth:  { images: 60, kling: 25, sora: 0, scores: 8000, captions: 8000, process_product: 60, video: true },
   agency:  { images: 120, kling: 50, sora: 15, scores: 20000, captions: 20000, process_product: 120, video: true }
 };
+
+// Whitelist of action enums. Anything outside this set is rejected before
+// hitting Supabase — prevents enum injection where a crafted action like
+// `generate_image&order=...` would alter the query.
+const VALID_ACTIONS = new Set([
+  'generate_image',
+  'generate_video',
+  'generate_video_kling',
+  'generate_video_sora',
+  'score_content',
+  'generate_caption',
+  'process_product',
+]);
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function isUuid(v) {
+  return typeof v === 'string' && UUID_RE.test(v);
+}
 
 function normalizePlan(raw) {
   const p = (raw || 'starter').toLowerCase();
@@ -57,7 +75,19 @@ async function checkPlanLimit(req, res, next) {
     if (!user_id) return res.status(400).json({ error: 'missing_user_id', message: 'user_id is required' });
     if (!action)  return res.status(400).json({ error: 'missing_action', message: 'action is required' });
 
-    const subRes = await sbRequest('GET', `/rest/v1/businesses?select=plan&id=eq.${user_id}`);
+    // Strict validation BEFORE interpolating into PostgREST filter. Both
+    // values were previously concatenated raw, allowing query-shape attacks
+    // via crafted user_id/action values.
+    if (!isUuid(user_id)) {
+      return res.status(400).json({ error: 'invalid_user_id', message: 'user_id must be a valid UUID' });
+    }
+    if (!VALID_ACTIONS.has(action)) {
+      return res.status(400).json({ error: 'invalid_action', message: `action must be one of: ${[...VALID_ACTIONS].join(', ')}` });
+    }
+    const safeUserId = encodeURIComponent(user_id);
+    const safeAction = encodeURIComponent(action);
+
+    const subRes = await sbRequest('GET', `/rest/v1/businesses?select=plan&id=eq.${safeUserId}`);
     const rows = Array.isArray(subRes.body) ? subRes.body : [];
     const plan = normalizePlan(rows[0]?.plan);
     const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.starter;
@@ -72,7 +102,7 @@ async function checkPlanLimit(req, res, next) {
 
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
     const countRes = await sbRequest('GET',
-      `/rest/v1/usage_logs?select=id&user_id=eq.${user_id}&action=eq.${action}&created_at=gte.${monthStart}`,
+      `/rest/v1/usage_logs?select=id&user_id=eq.${safeUserId}&action=eq.${safeAction}&created_at=gte.${encodeURIComponent(monthStart)}`,
     );
     const count = Array.isArray(countRes.body) ? countRes.body.length : 0;
 
