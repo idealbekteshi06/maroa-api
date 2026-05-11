@@ -124,9 +124,9 @@ function createFakeClaude(opts = {}) {
 function fakeExtractJSON(text) {
   if (!text) return null;
   if (typeof text === 'object') return text;
-  try { return JSON.parse(text); } catch {}
+  try { return JSON.parse(text); } catch { /* fall through to regex extract */ }
   const m = String(text).match(/{[\s\S]*}/);
-  if (m) { try { return JSON.parse(m[0]); } catch {} }
+  if (m) { try { return JSON.parse(m[0]); } catch { /* malformed JSON inside text */ } }
   return null;
 }
 

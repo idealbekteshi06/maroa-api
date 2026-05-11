@@ -15,7 +15,7 @@
       "varsIgnorePattern": "^_"
     }],
     "no-console": "off",
-    "no-empty": ["warn", { "allowEmptyCatch": false }],
+    "no-empty": ["error", { "allowEmptyCatch": false }],
     "no-prototype-builtins": "off",
     "no-useless-escape": "warn",
     "no-control-regex": "off",

@@ -2314,7 +2314,7 @@ app.post('/webhook/new-user-signup', async (req, res) => {
 
   } catch (err) {
        logger.error('/webhook/new-user-signup', null, 'handler error', err, { request_id: req.requestId });
-    try { await logError(null, 'new-user-signup', err.message, req.body); } catch (_) {}
+    try { await logError(null, 'new-user-signup', err.message, req.body); } catch (_) { /* soft-fail */ }
   }
 });
 
