@@ -125,9 +125,19 @@ app.post('/webhook/paddle-webhook', paddleWebhookRawBody, paddleWebhookHandler);
 
 app.use(express.json({ limit: '10mb' }));
 
+// ─── Distributed-tracing: request-correlation IDs ──────────────────────────
+// Mount EARLY so every downstream handler can read req.requestId. Auto-tags
+// Sentry breadcrumbs + response header (x-request-id) for end-to-end tracing.
+const { requestIdMiddleware } = require('./lib/tracing');
+app.use(requestIdMiddleware);
+
 // ─── Observability — metrics middleware (auto-tracks all HTTP requests) ──
 const observability = require('./services/observability');
 app.use(observability.metricsMiddleware());
+
+// ─── Liveness + readiness probes (load balancers + Inngest hit these) ──────
+const { registerHealthRoutes } = require('./lib/healthCheck');
+registerHealthRoutes({ app, sbGet, logger });
 
 // ─── /metrics endpoint (Prometheus-compatible, no auth — internal use) ──
 // Tools like Datadog / Prometheus / Grafana scrape this.
