@@ -11114,11 +11114,30 @@ registerAnthropicRoutes({
 const { registerMetaOAuthRoutes } = require('./services/oauth/meta');
 const { registerGoogleOAuthRoutes } = require('./services/oauth/google');
 
+// JWT verifier passed to OAuth start handlers. Binds the OAuth state token
+// to the authenticated Supabase user — prevents the account-takeover where
+// an attacker could call /webhook/oauth/.../start?businessId=<victim>.
+const supabaseAdminForOAuth = (() => {
+  try {
+    const { createClient } = require('@supabase/supabase-js');
+    const url = SUPABASE_URL;
+    const key = env.SUPABASE_SERVICE_ROLE_KEY || SUPABASE_KEY;
+    if (!url || !key) return null;
+    return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  } catch { return null; }
+})();
+async function verifyUserJwt(token) {
+  if (!supabaseAdminForOAuth) return null;
+  const { data, error } = await supabaseAdminForOAuth.auth.getUser(token);
+  if (error || !data?.user) return null;
+  return data.user;
+}
+
 registerMetaOAuthRoutes({
-  app, sbGet, sbPatch, sbPost, apiError, logger,
+  app, sbGet, sbPatch, sbPost, apiError, logger, verifyUserJwt,
 });
 registerGoogleOAuthRoutes({
-  app, sbGet, sbPatch, sbPost, apiError, logger,
+  app, sbGet, sbPatch, sbPost, apiError, logger, verifyUserJwt,
 });
 
 // ─── Cold-start onboarding ──────────────────────────────────────────────────
