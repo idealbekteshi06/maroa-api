@@ -463,6 +463,16 @@ documentation that can't be auto-generated).
 
 ---
 
+## Phase 6 additions (waves 26-31) — what shipped on top of v2
+
+- **lib/startupSelfTest.js** — runs once at boot, probes Supabase + Anthropic + OAUTH_TOKEN_ENC_KEY + required env. Logs `Boot self-test 4/4 probes passed` summary. Catches misconfigured envs at boot instead of first real call.
+- **Graceful shutdown rewrite** — now drains SSE clients (sends `event: shutdown`), flushes Sentry events, waits 3s for in-flight Inngest steps, shuts down OpenTelemetry, with a 30s deadman force-exit hatch.
+- **lib/webhookEvents.middleware()** — mountable webhook idempotency for every provider. EVENT_ID_EXTRACTORS covers paddle/stripe/meta/higgsfield/ayrshare/inngest/google. New webhook routes get dedup in one line.
+- **Paddle full lifecycle** — subscription.paused, subscription.resumed, subscription.trialing, transaction.refunded, adjustment.created. Full refunds downgrade to free; partial refunds log to usage_logs. Unhandled types logged so we see them.
+- **routes/meta-compliance.js** — Meta deauthorize + data-deletion + status routes carved into a dedicated reviewable file with timing-safe HMAC verification. (4th route group carved.)
+- **docs/openapi-overrides.json** — 27 hand-curated route summaries that merge into the auto-generated OpenAPI spec on every run. Hand-edits survive regeneration.
+- **lib/abuseDetector.js** — sliding-window anomaly tripwire. Detects credential probing (10+ 401s/min), validation floods (20+ 400s/min), route scanners (15+ 404s/min), business-id enumeration (5+ distinct biz_ids/min), webhook-signature scanners (3+ invalid sigs/min). Logs + Sentry; doesn't block.
+
 ## Branch summary v2 (Phase 1+2+3+4+5)
 
 ```
@@ -510,3 +520,26 @@ ESLint: no-empty promoted to error (debt counter at 0)
 ```
 
 Ready to merge after CRITICAL items 1-5 in section above are complete.
+
+---
+
+## Branch summary v3 (Phase 1-6 — final)
+
+```
+35 commits · 277 files changed · +32378/-8114 · 623/623 tests passing · 0 lint errors
+
+Phase 6 added on top of v2:
+  + lib/startupSelfTest.js          — boot-time dependency probes
+  + Graceful shutdown rewrite       — SSE/Sentry/OTel drain + 30s deadman
+  + lib/webhookEvents.middleware    — universal webhook idempotency
+  + Paddle full lifecycle           — 5 more event handlers (paused/resumed/refunded/trialing/adjustment)
+  + routes/meta-compliance.js       — 4th route group carved
+  + docs/openapi-overrides.json     — 27 hand-curated route summaries
+  + lib/abuseDetector.js            — 5-pattern anomaly tripwire
+```
+
+After Phase 6, the code-side ceiling is around **9.5/10 average**. The
+remaining 0.5 point gap is exclusively operator-action items:
+secret rotation, Doppler/PagerDuty/Statuspage signups, applying
+migrations to prod Supabase, publishing DPA + ToS legal docs.
+**No more code can move those numbers up.**
