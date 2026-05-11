@@ -10,8 +10,10 @@
  * ----------------------------------------------------------------------------
  */
 
+const { limits } = require('../../lib/rateLimiters');
+
 function registerAiSeoRoutes({ app, apiError, engine, logger }) {
-  app.post('/webhook/ai-seo-audit', async (req, res) => {
+  app.post('/webhook/ai-seo-audit', limits.expensive, async (req, res) => {
     const { businessId, html, text, llms_txt_present, llms_full_txt_present } = req.body || {};
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
     try {
@@ -23,7 +25,7 @@ function registerAiSeoRoutes({ app, apiError, engine, logger }) {
     }
   });
 
-  app.post('/webhook/ai-seo-generate', async (req, res) => {
+  app.post('/webhook/ai-seo-generate', limits.expensive, async (req, res) => {
     const { businessId, pages } = req.body || {};
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
     try {

@@ -10,8 +10,10 @@
  * ----------------------------------------------------------------------------
  */
 
+const { limits } = require('../../lib/rateLimiters');
+
 function registerCroRoutes({ app, apiError, engine, logger }) {
-  app.post('/webhook/cro-audit', async (req, res) => {
+  app.post('/webhook/cro-audit', limits.expensive, async (req, res) => {
     const { businessId, html, text } = req.body || {};
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
     try {
@@ -23,7 +25,7 @@ function registerCroRoutes({ app, apiError, engine, logger }) {
     }
   });
 
-  app.post('/webhook/cro-rewrite', async (req, res) => {
+  app.post('/webhook/cro-rewrite', limits.expensive, async (req, res) => {
     const { businessId, currentHero } = req.body || {};
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
     try {

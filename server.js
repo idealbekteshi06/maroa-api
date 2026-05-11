@@ -8928,6 +8928,14 @@ async function paddleWebhookHandler(req, res) {
       const priceId = data.items?.[0]?.price?.id;
       const plan = customData.plan || PADDLE_PRICE_TO_PLAN[priceId] || 'starter';
       if (businessId) {
+        // Check the PRIOR plan so we know if this is "first activation" vs renewal
+        const priorRows = await sbGet('businesses',
+          `id=eq.${businessId}&select=plan,onboarding_state`
+        ).catch(() => []);
+        const priorPlan = priorRows?.[0]?.plan || 'free';
+        const wasOnFreeOrUnpaid = priorPlan === 'free' || priorPlan === 'starter' || !priorPlan;
+        const isNowPaid = plan === 'growth' || plan === 'agency';
+
         await sbPatch('businesses', `id=eq.${businessId}`, {
           plan,
           paddle_customer_id: data.customer_id,
@@ -8937,6 +8945,36 @@ async function paddleWebhookHandler(req, res) {
         if (biz?.email) await sendEmail(biz.email, `Welcome to ${plan} plan! — ${biz.business_name}`, `<h2>You're now on the ${plan} plan!</h2><p>Your AI just unlocked: ${plan === 'agency' ? 'white-label, multi-workspace, priority support' : 'ad campaigns, competitor intel, advanced analytics'}.</p>`).catch(() => {});
         if (biz?.whatsapp_number && biz.whatsapp_enabled) sendWhatsApp(biz.whatsapp_number, `*Upgraded to ${plan}!* Your AI just unlocked new features.`).catch(() => {});
         sendSSE(businessId, 'plan_upgraded', { plan });
+
+        // ─── Auto-trigger cold-start onboarding (FIRST paid activation only) ──
+        // Fires the cold-start orchestrator the moment a customer goes from
+        // free/unpaid → growth/agency. Idempotent — cold-start has its own
+        // (business_id, run_date) unique constraint so duplicate webhooks
+        // don't create duplicate runs.
+        if (wasOnFreeOrUnpaid && isNowPaid) {
+          try {
+            const internalSecret = process.env.N8N_WEBHOOK_SECRET || '';
+            // Fire-and-forget to our own cold-start endpoint over localhost.
+            // Don't await its full chain (some phases take ~minutes) — just
+            // kick off and return.
+            fetch(`http://127.0.0.1:${process.env.PORT || 3000}/webhook/cold-start-trigger`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(internalSecret ? { 'x-webhook-secret': internalSecret } : {}),
+              },
+              body: JSON.stringify({ businessId, source: 'paddle_subscription_activated', plan }),
+            }).catch((e) => logger.warn('/paddle/webhook', businessId, 'cold-start auto-trigger failed', { error: e.message }));
+            logger.info('/paddle/webhook', businessId, 'cold-start auto-triggered on first paid activation', { plan, priorPlan });
+            await sbPost?.('onboarding_events', {
+              business_id: businessId,
+              event_type: 'cold_start_auto_triggered',
+              event_data: { source: 'paddle', plan, prior_plan: priorPlan, subscription_id: data.id },
+            }).catch(() => {});
+          } catch (autoTriggerErr) {
+            logger.warn('/paddle/webhook', businessId, 'cold-start auto-trigger threw', { error: autoTriggerErr.message });
+          }
+        }
       }
     } else if (eventType === 'subscription.canceled') {
       const businessId = data.custom_data?.business_id;
@@ -10952,6 +10990,17 @@ registerAnthropicRoutes({
   callClaude,
 });
 
+// ─── Real OAuth flows — Meta + Google (per-customer token capture) ──────────
+const { registerMetaOAuthRoutes } = require('./services/oauth/meta');
+const { registerGoogleOAuthRoutes } = require('./services/oauth/google');
+
+registerMetaOAuthRoutes({
+  app, sbGet, sbPatch, sbPost, apiError, logger,
+});
+registerGoogleOAuthRoutes({
+  app, sbGet, sbPatch, sbPost, apiError, logger,
+});
+
 // ─── Cold-start onboarding ──────────────────────────────────────────────────
 // Drives a new business through industry-classify → competitor-detect →
 // brand-voice → Soul ID → concepts → campaign launch → content → AI-SEO.
@@ -11222,11 +11271,38 @@ app.post('/webhook/higgsfield-self-test', async (req, res) => {
     });
   }
 
+  // Probe Cloud's actual money path — /higgsfield-ai/soul/standard
+  // We send a malformed body (empty JSON) and expect 422 (validation
+  // error). If we get 422, the endpoint exists + auth works + we know
+  // image generation is reachable. 200 would mean we accidentally got
+  // a result. 401/403 = auth issue. 404 = endpoint moved.
+  async function probeCloudGeneration(host, authHeader) {
+    return new Promise((resolve) => {
+      const u = new URL(`${host}/higgsfield-ai/soul/standard`);
+      const body = JSON.stringify({}); // intentionally missing 'prompt'
+      const req2 = https.request({
+        hostname: u.hostname, port: 443, path: u.pathname, method: 'POST',
+        headers: {
+          Authorization: authHeader,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      }, (r) => {
+        let data = '';
+        r.on('data', (c) => (data += c));
+        r.on('end', () => resolve({ status: r.statusCode, body: data.slice(0, 400) }));
+      });
+      req2.on('error', (e) => resolve({ status: 0, error: e.message }));
+      req2.write(body); req2.end();
+    });
+  }
+
   // Cloud probes
   if (out.cloud.configured) {
     const cloudAuth = `Key ${HF_KEY_ID}:${HF_KEY_SECRET}`;
     out.cloud.balance_probe = await probeBalance(CLOUD, cloudAuth);
     out.cloud.upload_probe = await probeUpload(CLOUD, cloudAuth);
+    out.cloud.generation_probe = await probeCloudGeneration(CLOUD, cloudAuth);
   }
 
   // FNF probes
@@ -11236,10 +11312,17 @@ app.post('/webhook/higgsfield-self-test', async (req, res) => {
     out.fnf.upload_probe = await probeUpload(FNF, fnfAuth);
   }
 
-  // Verdict
+  // Verdict — a 422 on Cloud generation is GOOD (endpoint exists, auth ok,
+  // body validation working). A 200 here would be unexpected (we sent no
+  // prompt). 401/403 = auth issue. 404 = path moved.
+  const gen = out.cloud.generation_probe;
+  const cloudGenOk = gen && (gen.status === 422 || (gen.status >= 200 && gen.status < 300));
   const cloudUploadOk = out.cloud.upload_probe?.status >= 200 && out.cloud.upload_probe?.status < 300;
   const fnfUploadOk = out.fnf.upload_probe?.status >= 200 && out.fnf.upload_probe?.status < 300;
-  if (cloudUploadOk) out.verdict = 'cloud_works';
+
+  if (cloudGenOk && cloudUploadOk) out.verdict = 'cloud_fully_works';
+  else if (cloudGenOk) out.verdict = 'cloud_generation_works_only';   // good enough — main money path
+  else if (cloudUploadOk) out.verdict = 'cloud_works';                  // legacy verdict
   else if (fnfUploadOk) out.verdict = 'fnf_works';
   else out.verdict = 'neither_works';
   out.completed_at = new Date().toISOString();

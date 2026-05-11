@@ -12,9 +12,11 @@
  * ----------------------------------------------------------------------------
  */
 
+const { limits } = require('../../lib/rateLimiters');
+
 function registerAdOptimizerRoutes({ app, apiError, engine, logger }) {
   // ─── POST /webhook/ad-optimizer-daily-audit (cron target, daily 8am) ───
-  app.post('/webhook/ad-optimizer-daily-audit', async (req, res) => {
+  app.post('/webhook/ad-optimizer-daily-audit', limits.crontarget, async (req, res) => {
     const { dryRun, limit } = req.body || {};
     try {
       const result = await engine.auditAllActive({
@@ -29,7 +31,7 @@ function registerAdOptimizerRoutes({ app, apiError, engine, logger }) {
   });
 
   // ─── POST /webhook/ad-optimizer-audit-campaign (dashboard "Audit Now") ─
-  app.post('/webhook/ad-optimizer-audit-campaign', async (req, res) => {
+  app.post('/webhook/ad-optimizer-audit-campaign', limits.expensive, async (req, res) => {
     const { campaignId, businessId, dryRun } = req.body || {};
     if (!campaignId || !businessId) {
       return apiError(res, 400, 'INVALID_REQUEST', 'campaignId + businessId required');

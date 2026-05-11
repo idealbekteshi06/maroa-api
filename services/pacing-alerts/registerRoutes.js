@@ -10,8 +10,10 @@
  * ----------------------------------------------------------------------------
  */
 
+const { limits } = require('../../lib/rateLimiters');
+
 function registerPacingRoutes({ app, apiError, engine, logger }) {
-  app.post('/webhook/pacing-alerts-evaluate-all', async (req, res) => {
+  app.post('/webhook/pacing-alerts-evaluate-all', limits.crontarget, async (req, res) => {
     const { dryRun, limit } = req.body || {};
     try {
       const result = await engine.evaluateAll({ dryRun: !!dryRun, limit: Number(limit || 500) });
@@ -22,7 +24,7 @@ function registerPacingRoutes({ app, apiError, engine, logger }) {
     }
   });
 
-  app.post('/webhook/pacing-alerts-evaluate-one', async (req, res) => {
+  app.post('/webhook/pacing-alerts-evaluate-one', limits.standardMutate, async (req, res) => {
     const { campaignId, businessId, dryRun } = req.body || {};
     if (!campaignId || !businessId) return apiError(res, 400, 'INVALID_REQUEST', 'campaignId + businessId required');
     try {

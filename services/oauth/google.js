@@ -1,0 +1,247 @@
+'use strict';
+
+/**
+ * services/oauth/google.js
+ * ----------------------------------------------------------------------------
+ * Real Google OAuth flow — captures the per-customer refresh_token +
+ * google_customer_id needed by services/google-ads-api/index.js.
+ *
+ * Why refresh_token (not access_token like Meta): Google access tokens
+ * expire after 1 hour. The refresh_token can be exchanged for fresh
+ * access tokens indefinitely, so we store the refresh_token and let
+ * services/google-ads-api/index.js mint short-lived access tokens on
+ * each API call.
+ *
+ * Scopes:
+ *   adwords         — Google Ads API access
+ *   userinfo.email  — identify the user
+ *   userinfo.profile — display name + photo for the dashboard
+ *
+ * Critical OAuth params:
+ *   access_type=offline       — REQUIRED to get a refresh_token
+ *   prompt=consent            — force re-prompt so we always get a refresh_token
+ *                               (Google only returns it once per consent;
+ *                                without prompt=consent, repeat connects
+ *                                fail silently)
+ *
+ * Env required:
+ *   GOOGLE_OAUTH_CLIENT_ID
+ *   GOOGLE_OAUTH_CLIENT_SECRET
+ *   GOOGLE_OAUTH_REDIRECT_URI
+ *   FRONTEND_URL
+ *   N8N_WEBHOOK_SECRET
+ *
+ * Public API:
+ *   registerGoogleOAuthRoutes({ app, sbGet, sbPatch, apiError, logger })
+ * ----------------------------------------------------------------------------
+ */
+
+const crypto = require('crypto');
+
+const GOOGLE_AUTH_HOST = 'accounts.google.com';
+const GOOGLE_TOKEN_HOST = 'oauth2.googleapis.com';
+const GOOGLE_USERINFO_HOST = 'www.googleapis.com';
+const GOOGLE_ADS_HOST = 'googleads.googleapis.com';
+const GOOGLE_ADS_VERSION = 'v18';
+
+const SCOPES = [
+  'https://www.googleapis.com/auth/adwords',
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/userinfo.profile',
+].join(' ');
+
+// ─── State token (same scheme as Meta OAuth) ──────────────────────────────
+
+function signState({ businessId, ts = Date.now(), secret }) {
+  const payload = `${businessId}:${ts}`;
+  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex').slice(0, 32);
+  return Buffer.from(`${payload}:${sig}`).toString('base64url');
+}
+
+function verifyState(stateB64, secret) {
+  if (!stateB64) return null;
+  let raw;
+  try { raw = Buffer.from(stateB64, 'base64url').toString('utf8'); } catch { return null; }
+  const parts = raw.split(':');
+  if (parts.length !== 3) return null;
+  const [businessId, ts, sig] = parts;
+  const expected = crypto.createHmac('sha256', secret).update(`${businessId}:${ts}`).digest('hex').slice(0, 32);
+  if (sig !== expected) return null;
+  if (Date.now() - Number(ts) > 30 * 60 * 1000) return null;
+  return { businessId, ts: Number(ts) };
+}
+
+// ─── Token exchange ───────────────────────────────────────────────────────
+
+async function exchangeCode({ code, clientId, clientSecret, redirectUri }) {
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    code,
+    grant_type: 'authorization_code',
+    redirect_uri: redirectUri,
+  });
+  const res = await fetch(`https://${GOOGLE_TOKEN_HOST}/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, reason: json?.error_description || json?.error || `HTTP ${res.status}` };
+  // refresh_token is only returned on first consent (or when prompt=consent)
+  return {
+    ok: true,
+    access_token: json.access_token,
+    refresh_token: json.refresh_token,
+    expires_in: json.expires_in,
+    id_token: json.id_token,
+  };
+}
+
+async function fetchUserInfo({ accessToken }) {
+  const res = await fetch(`https://${GOOGLE_USERINFO_HOST}/oauth2/v3/userinfo`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) return null;
+  return res.json().catch(() => null);
+}
+
+async function listAccessibleAdsCustomers({ accessToken }) {
+  if (!process.env.GOOGLE_ADS_DEVELOPER_TOKEN) return [];
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    'developer-token': process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
+  };
+  if (process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID) {
+    headers['login-customer-id'] = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID.replace(/-/g, '');
+  }
+  try {
+    const res = await fetch(`https://${GOOGLE_ADS_HOST}/${GOOGLE_ADS_VERSION}/customers:listAccessibleCustomers`, {
+      method: 'GET',
+      headers,
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) return [];
+    // Returns resourceNames like 'customers/1234567890'
+    return (json.resourceNames || []).map((rn) => rn.replace(/^customers\//, ''));
+  } catch {
+    return [];
+  }
+}
+
+// ─── Express routes ───────────────────────────────────────────────────────
+
+function registerGoogleOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger }) {
+  const CLIENT_ID = (process.env.GOOGLE_OAUTH_CLIENT_ID || '').trim();
+  const CLIENT_SECRET = (process.env.GOOGLE_OAUTH_CLIENT_SECRET || '').trim();
+  const REDIRECT_URI = (process.env.GOOGLE_OAUTH_REDIRECT_URI
+    || 'https://maroa-api-production.up.railway.app/webhook/oauth/google/callback').trim();
+  const FRONTEND_URL = (process.env.FRONTEND_URL
+    || 'https://maroa-ai-marketing-automator.lovable.app').trim();
+  const STATE_SECRET = (process.env.N8N_WEBHOOK_SECRET || '').trim();
+
+  app.get('/webhook/oauth/google/start', (req, res) => {
+    const businessId = req.query.businessId || req.query.business_id;
+    if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
+    if (!CLIENT_ID || !CLIENT_SECRET) return apiError(res, 503, 'NOT_CONFIGURED', 'Google OAuth not configured');
+    if (!STATE_SECRET) return apiError(res, 503, 'NOT_CONFIGURED', 'N8N_WEBHOOK_SECRET required');
+
+    const state = signState({ businessId, secret: STATE_SECRET });
+    const params = new URLSearchParams({
+      client_id: CLIENT_ID,
+      redirect_uri: REDIRECT_URI,
+      state,
+      scope: SCOPES,
+      response_type: 'code',
+      access_type: 'offline',          // REQUIRED for refresh_token
+      prompt: 'consent',                // REQUIRED to re-issue refresh_token on reconnect
+      include_granted_scopes: 'true',
+    });
+    return res.redirect(302, `https://${GOOGLE_AUTH_HOST}/o/oauth2/v2/auth?${params.toString()}`);
+  });
+
+  app.get('/webhook/oauth/google/callback', async (req, res) => {
+    const { code, state, error: oauthError } = req.query;
+    if (oauthError) {
+      logger?.warn?.('/webhook/oauth/google/callback', null, 'user denied', { oauthError });
+      return res.redirect(302, `${FRONTEND_URL}/integrations?google=cancelled`);
+    }
+    if (!code) return apiError(res, 400, 'INVALID_REQUEST', 'code required');
+
+    const verified = verifyState(state, STATE_SECRET);
+    if (!verified) return apiError(res, 400, 'INVALID_STATE', 'state token invalid or expired');
+    const businessId = verified.businessId;
+
+    try {
+      const tokenRes = await exchangeCode({ code, clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, redirectUri: REDIRECT_URI });
+      if (!tokenRes.ok) {
+        return res.redirect(302, `${FRONTEND_URL}/integrations?google=error&reason=${encodeURIComponent(tokenRes.reason)}`);
+      }
+      if (!tokenRes.refresh_token) {
+        // This means the user has already granted before AND we didn't pass prompt=consent
+        // (we do pass it, but defensive — could fail if user revoked at Google side first)
+        return res.redirect(302, `${FRONTEND_URL}/integrations?google=error&reason=${encodeURIComponent('No refresh_token returned. Please disconnect at myaccount.google.com/permissions and retry.')}`);
+      }
+
+      // Identify the user (for display + audit)
+      const userInfo = await fetchUserInfo({ accessToken: tokenRes.access_token });
+
+      // List accessible Ads customers (the customer IDs they manage)
+      const accessibleCustomers = await listAccessibleAdsCustomers({ accessToken: tokenRes.access_token });
+      const primaryCustomerId = accessibleCustomers[0] || null;
+
+      const patch = {
+        google_refresh_token: tokenRes.refresh_token,
+        google_customer_id: primaryCustomerId,
+        google_oauth_email: userInfo?.email || null,
+        google_connected_at: new Date().toISOString(),
+      };
+      await sbPatch('businesses', `id=eq.${businessId}`, patch).catch((e) => {
+        logger?.error?.('/webhook/oauth/google/callback', businessId, 'sbPatch failed', { error: e.message });
+      });
+
+      await sbPost?.('onboarding_events', {
+        business_id: businessId,
+        event_type: 'google_oauth_connected',
+        event_data: {
+          accessible_customers_count: accessibleCustomers.length,
+          primary_customer_id: primaryCustomerId,
+          email: userInfo?.email,
+        },
+      }).catch(() => {});
+
+      return res.redirect(302, `${FRONTEND_URL}/integrations?google=connected`);
+    } catch (e) {
+      logger?.error?.('/webhook/oauth/google/callback', businessId, 'callback crashed', { error: e.message });
+      return res.redirect(302, `${FRONTEND_URL}/integrations?google=error&reason=${encodeURIComponent(e.message)}`);
+    }
+  });
+
+  app.get('/webhook/oauth/google/health', async (req, res) => {
+    const businessId = req.query.businessId || req.query.business_id;
+    if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
+    try {
+      const rows = await sbGet('businesses',
+        `id=eq.${businessId}&select=google_refresh_token,google_customer_id,google_oauth_email,google_connected_at`
+      ).catch(() => []);
+      const b = rows?.[0];
+      if (!b?.google_refresh_token) return res.json({ connected: false });
+
+      return res.json({
+        connected: true,
+        customer_id: b.google_customer_id,
+        oauth_email: b.google_oauth_email,
+        connected_at: b.google_connected_at,
+      });
+    } catch (e) {
+      apiError(res, 500, 'GOOGLE_OAUTH_HEALTH_FAILED', e.message);
+    }
+  });
+}
+
+module.exports = {
+  registerGoogleOAuthRoutes,
+  signState,
+  verifyState,
+  SCOPES,
+};

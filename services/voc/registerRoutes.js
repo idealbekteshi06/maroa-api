@@ -6,8 +6,10 @@
  *   POST /webhook/voc-auto           Auto-fetch + synthesize (uses biz tokens)
  */
 
+const { limits } = require('../../lib/rateLimiters');
+
 function registerVocRoutes({ app, apiError, engine, logger }) {
-  app.post('/webhook/voc-synthesize', async (req, res) => {
+  app.post('/webhook/voc-synthesize', limits.expensive, async (req, res) => {
     const { businessId, google, facebook, instagram, email, knownCompetitors } = req.body || {};
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
     try {
@@ -19,7 +21,7 @@ function registerVocRoutes({ app, apiError, engine, logger }) {
     }
   });
 
-  app.post('/webhook/voc-auto', async (req, res) => {
+  app.post('/webhook/voc-auto', limits.veryExpensive, async (req, res) => {
     const { businessId, knownCompetitors, recentPostIds } = req.body || {};
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
     try {
