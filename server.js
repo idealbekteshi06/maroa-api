@@ -997,16 +997,29 @@ async function fetchPerformanceThemesContextBlock(businessId) {
 }
 
 async function checkOrchestrationIdempotency(userId, taskName, windowMs = 3600000) {
+  // Defensive UUID validation — never let an unvalidated userId touch the
+  // PostgREST filter even though this is internally called. encodeURIComponent
+  // closes the injection vector regardless.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!userId || !UUID_RE.test(String(userId))) {
+    // Fail closed on bad input — better to skip a legitimate task than
+    // run a duplicate.
+    return true;
+  }
   try {
     const since = new Date(Date.now() - windowMs).toISOString();
-    const encSince = encodeURIComponent(since);
     const rows = await sbGet(
       'orchestration_logs',
-      `user_id=eq.${userId}&task=eq.${encodeURIComponent(taskName)}&created_at=gte.${encSince}&limit=1&select=id`
+      `user_id=eq.${encodeURIComponent(userId)}&task=eq.${encodeURIComponent(taskName)}&created_at=gte.${encodeURIComponent(since)}&limit=1&select=id`
     );
     return Array.isArray(rows) && rows.length > 0;
-  } catch {
-    return false;
+  } catch (e) {
+    // Critical change vs prior behavior: on Supabase outage, fail CLOSED
+    // (return true = "task ran already, skip") instead of false. The audit
+    // flagged this — false meant duplicate charges/emails fired during
+    // transient Supabase outages.
+    logger.warn('checkOrchestrationIdempotency', userId, 'fail-closed on lookup error', { error: e?.message, task: taskName });
+    return true;
   }
 }
 
@@ -1019,7 +1032,12 @@ async function recordOrchestrationTaskRun(userId, taskName, report = '') {
       tasks_planned: [],
       tasks_executed: []
     });
-  } catch {}
+  } catch (e) {
+    // Audit/billing row insert failed — log so we don't silently lose
+    // orchestration history. If this fires repeatedly, the cost dashboard
+    // will be missing rows and per-business spend will be undercounted.
+    logger.warn('recordOrchestrationTaskRun', userId, 'orchestration_logs insert failed', { error: e?.message, task: taskName });
+  }
 }
 
 async function alertOnRepeatedFailure(userId, endpoint) {
@@ -1042,8 +1060,10 @@ async function alertOnRepeatedFailure(userId, endpoint) {
         subject: `Alert: ${endpoint} failing for ${userId}`,
         html: `<p>Endpoint <strong>${endpoint}</strong> has recorded 3+ errors in 24h for client <code>${userId}</code>. Check Railway logs.</p>`
       }
-    ).catch(() => {});
-  } catch {}
+    ).catch((e) => logger.warn('alertOnRepeatedFailure', userId, 'alert email send failed', { error: e?.message }));
+  } catch (e) {
+    logger.warn('alertOnRepeatedFailure', userId, 'errors-table lookup failed', { error: e?.message });
+  }
 }
 
 // ─── Universal JSON extractor — handles markdown fences, mixed text, arrays ─
