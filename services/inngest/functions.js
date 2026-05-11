@@ -40,8 +40,80 @@ const PORT = process.env.PORT || 3000;
 const INTERNAL_BASE = process.env.INTERNAL_API_BASE || process.env.MAROA_API_INTERNAL_URL || `http://127.0.0.1:${PORT}`;
 const INTERNAL_SECRET = process.env.N8N_WEBHOOK_SECRET || '';
 
+// ─── keep-alive HTTP agent for loopback calls ────────────────────────────
+// Fixes ADR-0004 item #9 (Antigravity adversarial review): without
+// connection pooling, each Inngest invocation opened a fresh TCP socket
+// to localhost:3000. Under nightly cron load (hundreds of jobs) this
+// exhausts ephemeral ports → ECONNRESET. With keep-alive we re-use up
+// to 50 pooled sockets per destination.
+const http = require('http');
+const _loopbackAgent = new http.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 1000,
+  maxSockets: 50,
+  maxFreeSockets: 10,
+  timeout: 60_000,
+});
+
+function _loopbackPost(urlString, body) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(urlString);
+    const bodyStr = JSON.stringify(body || {});
+    const req = http.request(
+      {
+        hostname: u.hostname,
+        port: Number(u.port) || 80,
+        path: u.pathname + u.search,
+        method: 'POST',
+        agent: _loopbackAgent,
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(bodyStr),
+          ...(INTERNAL_SECRET ? { 'x-webhook-secret': INTERNAL_SECRET } : {}),
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => {
+          let json;
+          try {
+            json = data ? JSON.parse(data) : {};
+          } catch {
+            json = { raw: data.slice(0, 500) };
+          }
+          if (res.statusCode >= 200 && res.statusCode < 300) return resolve({ ok: true, status: res.statusCode, json });
+          resolve({ ok: false, status: res.statusCode, json, text: data });
+        });
+      }
+    );
+    req.setTimeout(60_000, () => req.destroy(new Error(`loopback request timeout: ${u.pathname}`)));
+    req.on('error', reject);
+    req.write(bodyStr);
+    req.end();
+  });
+}
+
 async function callInternal(path, body) {
-  const res = await fetch(`${INTERNAL_BASE}${path}`, {
+  const url = `${INTERNAL_BASE}${path}`;
+  const isLoopback = url.startsWith('http://127.0.0.1:') || url.startsWith('http://localhost:');
+
+  // Loopback path uses pooled keep-alive agent; non-loopback (staging
+  // override etc.) falls through to fetch which is fine at lower volumes.
+  if (isLoopback) {
+    const r = await _loopbackPost(url, body);
+    if (!r.ok) {
+      const err = new Error(
+        `internal ${path} ${r.status}: ${r.json?.error?.message || r.json?.error || (r.text || '').slice(0, 200)}`
+      );
+      err.status = r.status;
+      err.body = r.json;
+      throw err;
+    }
+    return r.json;
+  }
+
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

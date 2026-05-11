@@ -654,6 +654,29 @@ async function checkTokenBudgetForBusiness(businessId) {
     const tier = normalizePlanTier(rows[0]?.plan);
     const budget = PLAN_TOKEN_BUDGETS[tier] || PLAN_TOKEN_BUDGETS.starter;
     const logUid = rows[0]?.user_id || businessId;
+
+    // ─── Atomic budget reservation via Upstash Redis ─────────────────────
+    // Fixes the race-condition flagged in ADR-0004 #7. Redis INCR is
+    // atomic — N concurrent requests cannot all slip past the limit.
+    // Returns mode='legacy' when Upstash isn't configured, in which
+    // case we fall through to the original orchestration_logs check.
+    const { reserveBudgetSlot } = require('./lib/budgetCounter');
+    const slot = await reserveBudgetSlot({ businessId: logUid, budget });
+    if (slot.mode === 'atomic' || slot.mode === 'redis_error') {
+      // Authoritative path — Redis told us yes or no. Trust it.
+      if (!slot.allowed) {
+        return {
+          allowed: false,
+          reason: slot.reason || `Daily limit of ${budget.calls_per_day} AI calls reached for ${tier} plan`,
+          maxTokensPerCall: budget.max_tokens_per_call,
+        };
+      }
+      return { allowed: true, maxTokensPerCall: budget.max_tokens_per_call };
+    }
+
+    // mode === 'legacy' — fall back to the racy check-then-act path.
+    // Acceptable when Upstash isn't configured because the dollar-cap
+    // in lib/costGuard still bounds total spend per business.
     const since = new Date(Date.now() - 86400000).toISOString();
     const count = await sbCountExact(
       'orchestration_logs',

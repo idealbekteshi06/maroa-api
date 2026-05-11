@@ -106,52 +106,63 @@ During shutdown, after stopping new connection acceptance, we call
 timer that hard-`socket.destroy()` anything still open. Typical
 shutdown now completes in <2s instead of 30s.
 
-## What we acknowledged but did NOT fix yet
+## What we initially deferred — and then fixed anyway
 
-The review also flagged two issues that remain as documented
-tradeoffs rather than bugs:
+The three items below were originally documented as Phase 8 tradeoffs.
+After re-reading the review with fresh eyes the same evening, we
+decided each had a low-risk fix worth shipping. All three are now
+fixed; the original deferred reasoning is preserved for posterity.
 
-### 7. Token budget race condition
+### 7. Token budget race condition — FIXED
 
-The `checkTokenBudgetForBusiness` function in `server.js` does a
-check-then-act: it reads the daily call count from `orchestration_logs`
-and decides allow/deny, but the log write happens async after the
-call succeeds. Under high concurrency, N parallel requests all see
-the same pre-call count and all proceed.
+**Original concern:** `checkTokenBudgetForBusiness` did a check-then-
+act: read daily call count from `orchestration_logs`, decide allow/
+deny, log async after the call. Under concurrency N parallel requests
+all saw the same pre-call count and all proceeded.
 
-**Why deferred:** The right fix is either a per-business Postgres
-advisory lock (adds DB roundtrip) or a Redis-backed counter (adds a
-new dep). The current `costGuard` middleware (`lib/costGuard.js`)
-already provides hard $-cap enforcement via the
-`llm_cost_logs` table, so this race is mostly cosmetic — a brief
-spike past the call-count limit still gets stopped by the dollar cap
-on the next request.
+**Fix shipped:** `lib/budgetCounter.js` — atomic INCR via Upstash
+Redis. Each (businessId, UTC date) gets a counter key. Per call we
+INCR (returns new value atomically), check vs limit, DECR if over.
+TTL of 25h auto-cleans counters. When Redis isn't configured we fall
+back to the legacy racy check (with `mode='legacy'` flag in the
+return value so callers can log it).
 
-Production data will tell us whether this is worth a Phase 8 fix.
+The `costGuard` $-cap remains as a secondary belt-and-suspenders
+check in case Upstash is misconfigured.
 
-### 8. Idempotency soft-fail magnifies Supabase outages
+### 8. Idempotency soft-fail during Supabase outages — FIXED
 
-When `lib/webhookEvents.markProcessed` can't reach the
-`webhook_events` table, it soft-allows the handler to proceed. The
-review correctly points out that during an outage, webhook providers
-retry aggressively, and every retry will re-run the handler.
+**Original concern:** When `webhookEvents.markProcessed` couldn't
+reach the `webhook_events` table, it soft-allowed the handler. Webhook
+providers retry aggressively during outages → handler runs N times.
 
-**Why deferred:** The alternative (fail-closed) means dropping
-`subscription.activated` events during an outage, which is worse for
-the customer than processing once and possibly twice. The right fix
-is a small in-process LRU of recently-seen event_ids (5-min TTL) that
-short-circuits before hitting Supabase — that gives us idempotency
-even when the DB is unreachable. Phase 8 work.
+**Fix shipped:** `lib/webhookEvents.js` now checks an in-process LRU
+(1000 entries, 5-min TTL) BEFORE the Supabase call. The LRU marks
+events as seen immediately, so even if the Supabase write fails,
+subsequent retries within 5 minutes short-circuit cleanly.
 
-### 9. Loopback HTTP exhaustion in Inngest job runner
+Caveat: each Railway instance has its own LRU. Multi-instance
+deployments still benefit because providers retry within seconds and
+typically hit the same instance (sticky load balancing + same TCP
+connection). For full cross-instance dedup we'd need Redis (an option
+left open in the comment).
 
-Inngest jobs currently invoke local engine functions via
-`fetch('http://127.0.0.1:3000/webhook/...')`. At high concurrency this
-exhausts ephemeral ports.
+### 9. Loopback HTTP exhaustion in Inngest — FIXED
 
-**Why deferred:** Already documented in PUNCHLIST as Phase 5 work
-(invoke engine functions directly). Not yet hit in practice; will be
-addressed when traffic warrants.
+**Original concern:** Inngest functions called local engines via
+`fetch('http://127.0.0.1:3000/...')`. Each call opened a fresh TCP
+socket → port exhaustion under nightly cron load.
+
+**Fix shipped:** `services/inngest/functions.js` now uses a pooled
+keep-alive `http.Agent` for all loopback calls. `_loopbackPost`
+routes loopback URLs through the agent (maxSockets:50,
+maxFreeSockets:10, keepAlive:true). Non-loopback URLs fall through to
+regular fetch.
+
+Result: connection reuse instead of per-call socket creation. Same
+throughput, no port exhaustion. The longer-term refactor (invoke
+engine functions directly without HTTP) is still documented in
+PUNCHLIST but no longer urgent.
 
 ## Consequences
 
