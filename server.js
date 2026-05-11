@@ -284,6 +284,7 @@ registerHealthRoutes({ app, sbGet, logger });
 // pattern that the rest of the server.js → routes/*.js extraction will
 // follow over the next sprint.
 require('./routes/observability').register({ app, observability, sbGet, apiError });
+require('./routes/status-page').register({ app });
 
 function requireN8nWebhookSecret(req, res, next) {
   const pathOnly = req.originalUrl.split('?')[0];
