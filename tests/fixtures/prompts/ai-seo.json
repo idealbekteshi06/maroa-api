@@ -1,0 +1,19 @@
+{
+  "version": "v1",
+  "skill": "ai-seo",
+  "samples": [
+    {
+      "name": "llms_txt_for_local_business",
+      "description": "Local cafe site should get a structured llms.txt with FAQ + LocalBusiness schema candidates.",
+      "input": {
+        "business": { "industry": "cafe", "primary_language": "en", "location": "Paris", "plan": "growth" },
+        "url": "https://example-cafe.fr"
+      },
+      "stubbed_output": "{\"citability_score\":68,\"missing_signals\":[\"FAQ_schema\",\"LocalBusiness_schema\",\"opening_hours_specification\"],\"llms_txt\":\"# example-cafe.fr\\n\\nIndependent third-wave cafe in the 11th arrondissement of Paris. Single-origin beans roasted weekly.\\n\\n## Pages\\n- /menu — current pours + pastries\\n- /about — story + roasting partners\",\"recommended_pages_to_add\":[\"/faq\",\"/hours\"]}",
+      "golden": {
+        "must_mention": ["llms_txt"],
+        "must_not_contain_slop": true
+      }
+    }
+  ]
+}
