@@ -141,6 +141,7 @@ test('narrate: handles LLM skip-with-reason response', async () => {
 // ─── Convenience wrappers ─────────────────────────────────────────────────
 
 test('narrateAdDecision: bridges audit shape to narrate()', async () => {
+  // callClaude positional signature: (prompt, model, maxTokens, extra)
   let userMessageSeen = '';
   const r = await dn.narrateAdDecision(
     {
@@ -155,8 +156,8 @@ test('narrateAdDecision: bridges audit shape to narrate()', async () => {
     { plan: 'agency', business_name: 'X' },
     'agency',
     {
-      callClaude: async (opts) => {
-        userMessageSeen = opts.user;
+      callClaude: async (prompt /* model, max, extra */) => {
+        userMessageSeen = prompt;
         return JSON.stringify({
           what_we_saw: 'ROAS 3.2 over 14d.',
           what_we_considered: 'Hold vs scale.',

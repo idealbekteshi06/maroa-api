@@ -141,7 +141,7 @@ test('costGuard: checkCostCap allows when under cap', async () => {
     if (table === 'llm_cost_logs') return [{ cost_usd: 5 }, { cost_usd: 10 }];
     return [];
   };
-  const r = await costGuard.checkCostCap({ businessId: 'biz-1', sbGet });
+  const r = await costGuard.checkCostCap({ businessId: '11111111-1111-4111-8111-111111111111', sbGet });
   assert.strictEqual(r.allowed, true);
   assert.strictEqual(r.plan, 'growth');
   assert.strictEqual(r.cap_usd, 50);
@@ -155,7 +155,7 @@ test('costGuard: checkCostCap denies when at or over cap', async () => {
     if (table === 'llm_cost_logs') return [{ cost_usd: 30 }, { cost_usd: 25 }];
     return [];
   };
-  const r = await costGuard.checkCostCap({ businessId: 'biz-2', sbGet });
+  const r = await costGuard.checkCostCap({ businessId: '22222222-2222-4222-8222-222222222222', sbGet });
   assert.strictEqual(r.allowed, false);
   assert.strictEqual(r.reason, 'monthly_cap_reached');
 });
@@ -166,7 +166,7 @@ test('costGuard: soft-fails on missing telemetry table (allows call)', async () 
     if (table === 'llm_cost_logs') throw new Error('relation does not exist');
     return [];
   };
-  const r = await costGuard.checkCostCap({ businessId: 'biz-3', sbGet });
+  const r = await costGuard.checkCostCap({ businessId: '33333333-3333-4333-8333-333333333333', sbGet });
   assert.strictEqual(r.allowed, true);
   assert.ok(r.soft_fail || /soft-allow|cost_guard_error/.test(r.reason || ''));
 });
@@ -179,7 +179,7 @@ test('costGuardMiddleware: returns 402 when cap reached', async () => {
   };
   const mw = costGuard.costGuardMiddleware({ sbGet });
   let captured = {};
-  const req = { body: { businessId: 'biz-cap-hit' } };
+  const req = { body: { businessId: '44444444-4444-4444-8444-444444444444' } };
   const res = {
     status: function(c) { captured.status = c; return this; },
     json: function(x) { captured.json = x; return this; },

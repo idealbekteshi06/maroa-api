@@ -240,23 +240,11 @@ app.use(observability.metricsMiddleware());
 const { registerHealthRoutes } = require('./lib/healthCheck');
 registerHealthRoutes({ app, sbGet, logger });
 
-// ─── /metrics endpoint (Prometheus-compatible, no auth — internal use) ──
-// Tools like Datadog / Prometheus / Grafana scrape this.
-app.get('/metrics', (req, res) => {
-  res.setHeader('Content-Type', 'text/plain; version=0.0.4');
-  res.send(observability.metrics.exportPrometheus());
-});
-
-// ─── /api/cost-report endpoint (auth-protected via webhook secret) ──
-app.post('/webhook/cost-report', async (req, res) => {
-  try {
-    const days = Number(req.body?.days) || 7;
-    const r = await observability.costTracker.buildCostReport({ sbGet, days });
-    res.json(r);
-  } catch (e) {
-    apiError(res, 500, 'COST_REPORT_FAILED', e.message);
-  }
-});
+// ─── /metrics + /webhook/cost-report (carved into routes/observability.js) ─
+// First carve-out from server.js. See routes/observability.js for the
+// pattern that the rest of the server.js → routes/*.js extraction will
+// follow over the next sprint.
+require('./routes/observability').register({ app, observability, sbGet, apiError });
 
 function requireN8nWebhookSecret(req, res, next) {
   const pathOnly = req.originalUrl.split('?')[0];

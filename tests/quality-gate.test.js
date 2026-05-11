@@ -192,9 +192,10 @@ test('gate: agency tier slop-heavy → retries via voice-polish', async () => {
     business: { business_name: 'X', industry: 'cafe', primary_language: 'en' },
     contentType: 'caption',
     plan: 'agency',
-    callClaude: async (opts) => {
-      // First call is advisor (returns "needs_fix"), second is polish (returns clean)
-      if (opts.user.includes('quality reviewer')) {
+    callClaude: async (prompt /* model, max, extra */) => {
+      // callClaude positional. First call is the advisor reviewer, second
+      // is the voice-polish rewrite. Distinguish by the user prompt content.
+      if (typeof prompt === 'string' && prompt.includes('quality reviewer')) {
         polishCalled = false;
         return JSON.stringify({ decision: 'needs_fix', issues: ['too much slop'], feedback: 'rewrite needed' });
       }
