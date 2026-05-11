@@ -1,8 +1,8 @@
-# Phase 1+2+3+4 Punch List — what's left for you
+# Phase 1+2+3+4+5 Punch List — what's left for you
 
-This branch (`claude/level-up-phase-1`) ships **17 waves** across Phases
-1-4, totaling ~3000+ lines added across 50+ files, 17 commits, all 615
-tests passing.
+This branch (`claude/level-up-phase-1`) ships **25 waves** across
+Phases 1-5, totaling ~15,700 lines added across 83 files, 26 commits,
+all 623 tests passing, 0 lint errors.
 
 The items below are things only **you** can do — they require vendor
 accounts, production access, legal review, or business decisions a code
@@ -462,27 +462,50 @@ documentation that can't be auto-generated).
 
 ---
 
-## Branch summary
+## Branch summary v2 (Phase 1+2+3+4+5)
 
 ```
-17 commits, 615/615 tests passing, 0 lint errors, 220 lint warnings
-(all pre-existing empty-catch patterns tracked as debt counter).
+26 commits · 83 files changed · +15771/-471 · 623/623 tests passing
+· 0 lint errors · 112 lint warnings (non-blocking quality nudges)
 
-Files touched: 50+
-Lines added: ~3000+
-Lines removed: ~400+
+Migrations (apply in order):
+  054 webhook_events            — provider-event idempotency
+  055 _migrations ledger        — apply-tracking + checksum drift detection
+  056 oauth_token_encryption    — *_enc columns on businesses
+  057 jsonb_gin_indexes         — 12 hot JSONB columns indexed
+  058 inngest_dlq               — failed-job recovery
+  059 business_oauth_credentials — normalized child table (transition)
 
-New infrastructure:
-  3 migrations (054_webhook_events, 055__migrations,
-                056_oauth_token_encryption, 057_jsonb_gin_indexes,
-                058_inngest_dlq) — apply when ready
-  4 test harnesses + e2e template
-  2 npm scripts (generate-openapi, eval-prompts)
-  1 backfill script (encrypt-oauth-tokens)
-  3 ADRs + ADR template
-  1 OpenAPI spec (auto-regenerable)
-  1 Renovate config
-  1 prompt eval harness with 1 fixture (extend per skill)
+Test infra:
+  4 fake harnesses (Anthropic, Supabase, Inngest, Higgsfield)
+  1 e2e template suite
+  6 prompt eval fixtures (ad-optimizer, cro, ai-seo, voc, weekly-scorecard)
+  8 new Google Ads error-mapping tests
+  9 new Meta Graph publish tests
+
+Scripts + tooling:
+  generate-openapi · eval-prompts · eval-prompts:live ·
+  encrypt-oauth-tokens · check-migrations:applied (with ledger diff)
+  Renovate config — weekly automerge
+  Gitleaks secret scan in CI
+
+Routes carved (4 of ~30 route groups):
+  routes/observability.js          — /metrics, /webhook/cost-report
+  routes/linkedin-publishing.js    — 3 routes (OAuth + UGC publish)
+  routes/twitter-publishing.js     — 3 routes (PKCE + tweet/thread)
+  routes/tiktok-publishing.js      — 3 routes (PKCE + script + video init)
+
+Per-service READMEs:
+  ad-optimizer, cro, weekly-scorecard, inngest, observability, oauth,
+  prompts, higgsfield (file map)
+
+ADRs:
+  0001 migrate-off-n8n-to-inngest
+  0002 app-side-oauth-token-encryption
+  0003 cost-discipline-via-callclaude-facade
+
+Inngest: every function now has DLQ recorder via withDLQ() wrapper
+ESLint: no-empty promoted to error (debt counter at 0)
 ```
 
 Ready to merge after CRITICAL items 1-5 in section above are complete.
