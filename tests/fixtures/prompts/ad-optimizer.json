@@ -1,0 +1,39 @@
+{
+  "version": "v1",
+  "skill": "ad-optimizer",
+  "samples": [
+    {
+      "name": "scale_winner_growth_tier",
+      "description": "Growth-tier business with 14 days of strong ROAS — should scale, not refresh.",
+      "input": {
+        "business": { "industry": "cafe", "primary_language": "en", "plan": "growth", "location": "Paris" },
+        "metrics": { "roas": 3.5, "ctr": 3.1, "cpc": 0.42, "frequency": 1.5, "days_active": 14, "conversions_since_edit": 9 },
+        "plan": "growth"
+      },
+      "stubbed_output": "{\"decision\":\"scale\",\"decision_reason\":\"Sustained ROAS 3.5 with frequency 1.5 — well past learning phase, room to scale before audience saturation\",\"audit_score\":86,\"new_daily_budget\":30,\"trend\":\"improving\",\"score_breakdown\":{\"roas\":9,\"ctr\":8,\"frequency\":9},\"critical_issues\":[],\"warnings\":[],\"opportunities\":[\"scale_winner\"],\"citations\":[]}",
+      "golden": {
+        "decision": "scale",
+        "audit_score": { "min": 70, "max": 100 },
+        "must_mention": ["roas", "learning"],
+        "must_not_contain": ["fast-paced", "leverage", "synergy"],
+        "must_not_contain_slop": true
+      }
+    },
+    {
+      "name": "pause_creative_fatigue",
+      "description": "Frequency >2.5 + CTR collapse — should refresh creative.",
+      "input": {
+        "business": { "industry": "ecommerce", "primary_language": "en", "plan": "growth" },
+        "metrics": { "roas": 1.1, "ctr": 0.4, "frequency": 3.2, "days_active": 21 },
+        "plan": "growth"
+      },
+      "stubbed_output": "{\"decision\":\"refresh_creative\",\"decision_reason\":\"Frequency 3.2 with CTR collapsed to 0.4% — audience saturation, creative fatigue. Refresh required before further spend.\",\"audit_score\":42,\"new_daily_budget\":null,\"trend\":\"declining\",\"critical_issues\":[\"audience_saturation\"],\"warnings\":[\"creative_fatigue\"],\"opportunities\":[],\"score_breakdown\":{\"ctr\":2,\"frequency\":2},\"citations\":[]}",
+      "golden": {
+        "decision": "refresh_creative",
+        "audit_score": { "min": 0, "max": 60 },
+        "must_mention": ["frequency", "creative"],
+        "must_not_contain_slop": true
+      }
+    }
+  ]
+}

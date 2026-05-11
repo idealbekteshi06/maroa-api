@@ -19,7 +19,11 @@
     "restore-drill": "bash scripts/restore-drill.sh",
     "check-migrations": "node scripts/check-migrations.js",
     "check-migrations:applied": "node scripts/check-migrations.js --verify-applied",
-    "ops:audit": "npm run check-migrations && npm run lint && npm test && npm audit --audit-level=high"
+    "generate-openapi": "node scripts/generate-openapi.js",
+    "eval-prompts": "node scripts/eval-prompts.js",
+    "eval-prompts:live": "node scripts/eval-prompts.js --live",
+    "encrypt-oauth-tokens": "node scripts/encrypt-oauth-tokens.js",
+    "ops:audit": "npm run check-migrations && npm run lint && npm test && npm audit --audit-level=high && npm run eval-prompts"
   },
   "engines": {
     "node": ">=18.0.0"

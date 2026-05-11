@@ -60,6 +60,18 @@ jobs:
       - name: Migration sanity check
         run: npm run check-migrations
 
+      # ─── 7. Prompt regression (dry mode — uses stubbed_output) ──────────
+      - name: Prompt regression (dry)
+        run: npm run eval-prompts
+
+      # ─── 8. OpenAPI generator runs cleanly (catches route file syntax) ──
+      - name: Regenerate OpenAPI skeleton
+        run: |
+          npm run generate-openapi
+          if ! git diff --quiet docs/openapi.yml; then
+            echo "::warning::docs/openapi.yml out of date — run npm run generate-openapi and commit."
+          fi
+
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
