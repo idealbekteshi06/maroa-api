@@ -47,7 +47,10 @@ const TOKEN_COLUMNS = [
   'google_access_token',
 ];
 
-const selectList = ['id', ...TOKEN_COLUMNS, ...TOKEN_COLUMNS.map((c) => `${c}_enc`)].join(',');
+// Use select=* so columns we reference but don't exist on this database
+// don't cause a 400 from PostgREST. The script iterates over TOKEN_COLUMNS
+// and skips any column not present on the row.
+const selectList = '*';
 
 async function sb(method, path, body) {
   const u = new URL(`${SUPABASE_URL}/rest/v1/${path}`);
