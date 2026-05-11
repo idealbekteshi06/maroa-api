@@ -118,6 +118,9 @@ const manualAdAudit = inngest.createFunction(
     id: 'manual-ad-audit',
     name: 'Manual · ad-optimizer audit',
     retries: 1,
+    // Per-business concurrency — two different customers can trigger manual
+    // audits in parallel, but a single customer can't double-fire.
+    concurrency: { limit: 1, key: 'event.data.businessId' },
     triggers: [{ event: 'maroa/manual.ad-audit' }],
   },
   async ({ event, step }) => {
@@ -134,6 +137,7 @@ const manualPacingRun = inngest.createFunction(
     id: 'manual-pacing-alerts',
     name: 'Manual · pacing alerts',
     retries: 1,
+    concurrency: { limit: 1, key: 'event.data.businessId' },
     triggers: [{ event: 'maroa/manual.pacing-alerts' }],
   },
   async ({ event, step }) => {
@@ -149,6 +153,7 @@ const manualScorecardRun = inngest.createFunction(
     id: 'manual-weekly-scorecard',
     name: 'Manual · weekly scorecard',
     retries: 1,
+    concurrency: { limit: 1, key: 'event.data.businessId' },
     triggers: [{ event: 'maroa/manual.weekly-scorecard' }],
   },
   async ({ event, step }) => {

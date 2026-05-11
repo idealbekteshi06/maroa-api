@@ -17,7 +17,9 @@
     "cost-report": "node scripts/cost-report.js",
     "check-deliverability": "node scripts/check-deliverability.js",
     "restore-drill": "bash scripts/restore-drill.sh",
-    "ops:audit": "npm run lint && npm test && npm audit --audit-level=high"
+    "check-migrations": "node scripts/check-migrations.js",
+    "check-migrations:applied": "node scripts/check-migrations.js --verify-applied",
+    "ops:audit": "npm run check-migrations && npm run lint && npm test && npm audit --audit-level=high"
   },
   "engines": {
     "node": ">=18.0.0"
