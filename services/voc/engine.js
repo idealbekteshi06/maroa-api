@@ -19,14 +19,9 @@
 const voc = require('../prompts/voc');
 
 function createEngine(deps) {
-  const {
-    sbGet, sbPost, sbPatch,
-    callClaude, extractJSON,
-    serpSearch, apiRequest,
-    logger, Sentry,
-  } = deps;
+  const { sbGet, sbPost, sbPatch, callClaude, extractJSON, serpSearch, apiRequest, logger, Sentry } = deps;
   if (!sbGet || !sbPost || !sbPatch) throw new Error('voc engine: sbGet/sbPost/sbPatch required');
-  if (!callClaude || !extractJSON)     throw new Error('voc engine: callClaude + extractJSON required');
+  if (!callClaude || !extractJSON) throw new Error('voc engine: callClaude + extractJSON required');
 
   // ─── Source fetchers (best-effort, may be no-ops if helpers missing) ──
 
@@ -38,17 +33,17 @@ function createEngine(deps) {
       : `${business.business_name} ${business.location || ''} reviews`;
     try {
       const r = await serpSearch({ engine: 'google_maps', q: query, num: 50 });
-      const placeReviews = r?.place_results?.user_reviews
-        || r?.local_results?.[0]?.reviews
-        || [];
+      const placeReviews = r?.place_results?.user_reviews || r?.local_results?.[0]?.reviews || [];
       // Normalize SerpAPI shape
-      return Array.isArray(placeReviews) ? placeReviews.map(rv => ({
-        review_id: rv.review_id || rv.id,
-        snippet: rv.snippet || rv.text || rv.description,
-        rating: rv.rating,
-        iso_date: rv.iso_date || rv.date,
-        user: rv.user,
-      })) : [];
+      return Array.isArray(placeReviews)
+        ? placeReviews.map((rv) => ({
+            review_id: rv.review_id || rv.id,
+            snippet: rv.snippet || rv.text || rv.description,
+            rating: rv.rating,
+            iso_date: rv.iso_date || rv.date,
+            user: rv.user,
+          }))
+        : [];
     } catch (e) {
       logger?.warn?.('voc.fetchGoogleReviews', business.id, e?.message);
       return [];
@@ -104,15 +99,19 @@ function createEngine(deps) {
       const business = { ...(bizRows[0] || {}), ...(profileRows[0] || {}) };
       if (!business?.id && !business?.user_id) throw new Error(`business ${businessId} not found`);
 
-      const competitorList = knownCompetitors
-        || (Array.isArray(business.competitors) ? business.competitors : []);
+      const competitorList = knownCompetitors || (Array.isArray(business.competitors) ? business.competitors : []);
 
       const result = await voc.synthesizeVoc({
         business,
-        google, facebook, instagram, email,
+        google,
+        facebook,
+        instagram,
+        email,
         plan: business.plan || 'free',
         knownCompetitors: competitorList,
-        callClaude, extractJSON, logger,
+        callClaude,
+        extractJSON,
+        logger,
       });
 
       // Persist
@@ -163,7 +162,9 @@ function createEngine(deps) {
 
     return synthesize({
       businessId,
-      google, facebook, instagram,
+      google,
+      facebook,
+      instagram,
       email: [], // gmail integration deferred
       knownCompetitors,
     });

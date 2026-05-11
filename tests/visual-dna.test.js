@@ -28,14 +28,8 @@ test('visual-dna: same business across multiple anchor builds → same DNA', () 
   };
   const anchor1 = brandVoice.buildAnchor({ business });
   const anchor2 = brandVoice.buildAnchor({ business });
-  assert.deepStrictEqual(
-    anchor1.visual_brand_dna.subject_archetype,
-    anchor2.visual_brand_dna.subject_archetype
-  );
-  assert.deepStrictEqual(
-    anchor1.visual_brand_dna.palette,
-    anchor2.visual_brand_dna.palette
-  );
+  assert.deepStrictEqual(anchor1.visual_brand_dna.subject_archetype, anchor2.visual_brand_dna.subject_archetype);
+  assert.deepStrictEqual(anchor1.visual_brand_dna.palette, anchor2.visual_brand_dna.palette);
 });
 
 // ─── Uniqueness — THE CORE GUARANTEE ─────────────────────────────────────
@@ -53,8 +47,10 @@ test('visual-dna: 10 different dental clinics → at least 5 distinct DNAs', () 
     dnas.push(JSON.stringify({ p: dna.palette, s: dna.subject_archetype, m: dna.mood, l: dna.lighting }));
   }
   const distinct = new Set(dnas);
-  assert.ok(distinct.size >= 5,
-    `Expected at least 5 distinct DNAs across 10 same-industry businesses, got ${distinct.size}. This means clients in the same industry would get same-looking content.`);
+  assert.ok(
+    distinct.size >= 5,
+    `Expected at least 5 distinct DNAs across 10 same-industry businesses, got ${distinct.size}. This means clients in the same industry would get same-looking content.`
+  );
 });
 
 test('visual-dna: 100 random businesses → mostly unique combos (prevents same-look)', () => {
@@ -67,15 +63,20 @@ test('visual-dna: 100 random businesses → mostly unique combos (prevents same-
         industry: i % 3 === 0 ? 'cafe' : i % 3 === 1 ? 'plumber' : 'saas b2b',
       },
     });
-    seen.add(JSON.stringify({
-      p: dna.palette, s: dna.subject_archetype, m: dna.mood, l: dna.lighting, c: dna.composition,
-    }));
+    seen.add(
+      JSON.stringify({
+        p: dna.palette,
+        s: dna.subject_archetype,
+        m: dna.mood,
+        l: dna.lighting,
+        c: dna.composition,
+      })
+    );
   }
   // We have 3 industries × 3×3×3×3×3 = 729 possible per industry → with 100 random hashes
   // we'd expect close to 100 unique results. >40 distinct is a hard floor that proves we
   // are not collapsing to a generic look.
-  assert.ok(seen.size >= 40,
-    `Expected ≥40 unique DNAs across 100 businesses, got ${seen.size}. Diversity too low.`);
+  assert.ok(seen.size >= 40, `Expected ≥40 unique DNAs across 100 businesses, got ${seen.size}. Diversity too low.`);
 });
 
 test('visual-dna: dental clinic and cafe in the same template DO NOT overlap', () => {
@@ -128,7 +129,9 @@ test('visual-dna: unknown industry falls back to generic without crashing', () =
 test('visual-dna: warm tone keywords add tone_tilt=warm', () => {
   const dna = visualDna.buildVisualDna({
     business: {
-      id: 'biz-warm', business_name: 'X', industry: 'cafe',
+      id: 'biz-warm',
+      business_name: 'X',
+      industry: 'cafe',
       tone_keywords: ['warm', 'family', 'inviting'],
     },
   });
@@ -138,7 +141,9 @@ test('visual-dna: warm tone keywords add tone_tilt=warm', () => {
 test('visual-dna: cool/modern tone keywords add tone_tilt=cool', () => {
   const dna = visualDna.buildVisualDna({
     business: {
-      id: 'biz-cool', business_name: 'X', industry: 'saas b2b',
+      id: 'biz-cool',
+      business_name: 'X',
+      industry: 'saas b2b',
       tone_keywords: ['modern', 'clean', 'premium'],
     },
   });
@@ -201,6 +206,8 @@ test('brand-voice.formatAnchorForPrompt: now contains visual DNA section', () =>
     business: { id: 'biz-prompt', business_name: 'X', industry: 'restaurant' },
   });
   const block = brandVoice.formatAnchorForPrompt(anchor);
-  assert.ok(/Visual brand DNA/.test(block),
-    'Anchor prompt block should now include visual DNA so every LLM call sees it');
+  assert.ok(
+    /Visual brand DNA/.test(block),
+    'Anchor prompt block should now include visual DNA so every LLM call sees it'
+  );
 });

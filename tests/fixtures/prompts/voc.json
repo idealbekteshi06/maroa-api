@@ -1,0 +1,24 @@
+{
+  "version": "v1",
+  "skill": "voc",
+  "samples": [
+    {
+      "name": "cafe_reviews_extract_phrases",
+      "description": "Mining customer reviews for exact phrases — output should preserve customer language verbatim.",
+      "input": {
+        "business": { "industry": "cafe", "primary_language": "en", "plan": "growth" },
+        "reviews": [
+          "best flat white in the neighborhood, hands down",
+          "barista remembered my name on the second visit",
+          "place gets packed at 8am but the line moves fast"
+        ]
+      },
+      "stubbed_output": "{\"top_phrases\":[\"best flat white in the neighborhood\",\"barista remembered my name\",\"line moves fast\"],\"pain_points\":[],\"jtbd_signals\":[\"daily coffee ritual\",\"local belonging\"],\"persona_refinement\":{\"primary\":\"neighborhood regulars who value being recognized\"}}",
+      "golden": {
+        "must_mention": ["flat white"],
+        "must_not_contain": ["leverage", "in today's fast-paced"],
+        "must_not_contain_slop": true
+      }
+    }
+  ]
+}

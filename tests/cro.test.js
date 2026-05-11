@@ -49,17 +49,24 @@ test('checks: C01 fires when no <h1> present', () => {
     marketProfile: cro.i18nCro.buildCroMarketProfile({}),
     plan: 'agency',
   });
-  assert.ok(f.find(x => x.check_id === 'C01'), 'C01 must fire on no-h1 page');
+  assert.ok(
+    f.find((x) => x.check_id === 'C01'),
+    'C01 must fire on no-h1 page'
+  );
 });
 
 test('checks: C11 fires when no CTA button found', () => {
   const f = cro.checksPage.runChecks({
     html: '<html><body><h1>Welcome</h1><p>Hello</p></body></html>',
-    text: 'Welcome', business: {},
+    text: 'Welcome',
+    business: {},
     marketProfile: cro.i18nCro.buildCroMarketProfile({}),
     plan: 'agency',
   });
-  assert.ok(f.find(x => x.check_id === 'C11'), 'C11 must fire on no-CTA page');
+  assert.ok(
+    f.find((x) => x.check_id === 'C11'),
+    'C11 must fire on no-CTA page'
+  );
 });
 
 test('checks: C26 fires for too many form fields', () => {
@@ -68,19 +75,30 @@ test('checks: C26 fires for too many form fields', () => {
       ${'<input type="text" required>'.repeat(8)}
     </form>`;
   const f = cro.checksPage.runChecks({
-    html, text: '', business: {}, marketProfile: cro.i18nCro.buildCroMarketProfile({}),
+    html,
+    text: '',
+    business: {},
+    marketProfile: cro.i18nCro.buildCroMarketProfile({}),
     plan: 'agency',
   });
-  assert.ok(f.find(x => x.check_id === 'C26'), 'C26 must fire on 8-field form');
+  assert.ok(
+    f.find((x) => x.check_id === 'C26'),
+    'C26 must fire on 8-field form'
+  );
 });
 
 test('checks: C31 fires when no viewport meta tag', () => {
   const f = cro.checksPage.runChecks({
     html: '<html><head></head><body><h1>X</h1><button>Get</button></body></html>',
-    text: 'x', business: {}, marketProfile: cro.i18nCro.buildCroMarketProfile({}),
+    text: 'x',
+    business: {},
+    marketProfile: cro.i18nCro.buildCroMarketProfile({}),
     plan: 'agency',
   });
-  assert.ok(f.find(x => x.check_id === 'C31'), 'C31 must fire when viewport meta missing');
+  assert.ok(
+    f.find((x) => x.check_id === 'C31'),
+    'C31 must fire when viewport meta missing'
+  );
 });
 
 // ─── 8-9. Plan-tier ────────────────────────────────────────────────────────
@@ -98,7 +116,8 @@ test('checks: growth tier has 10+ checks', () => {
 test('checks: each finding has time_to_fix_minutes (SMB-calibrated)', () => {
   const f = cro.checksPage.runChecks({
     html: '<html><body></body></html>',
-    text: '', business: {},
+    text: '',
+    business: {},
     marketProfile: cro.i18nCro.buildCroMarketProfile({}),
     plan: 'agency',
   });
@@ -159,7 +178,10 @@ test('auditPage: short-circuits with no content', async () => {
     html: '',
     text: '',
     plan: 'free',
-    callClaude: async () => { claudeCalled = true; return '{}'; },
+    callClaude: async () => {
+      claudeCalled = true;
+      return '{}';
+    },
     extractJSON: JSON.parse,
   });
   assert.strictEqual(claudeCalled, false);
@@ -173,18 +195,19 @@ test('auditPage: produces baseline + LLM-merged result with content', async () =
     html,
     text: 'Welcome to our site',
     plan: 'agency',
-    callClaude: async () => JSON.stringify({
-      audit_score: 45,
-      dimension_scores: { primary_cta: 20 },
-      critical_issues: [{ id: 'C11', severity: 'critical', fix: 'Add a button', time_to_fix_minutes: 15 }],
-      warnings: [],
-      opportunities: [],
-      primary_language: 'en',
-      country: 'US',
-      current_estimated_conv_rate_band: 'low',
-      expected_lift_band: 'high',
-      citations: [],
-    }),
+    callClaude: async () =>
+      JSON.stringify({
+        audit_score: 45,
+        dimension_scores: { primary_cta: 20 },
+        critical_issues: [{ id: 'C11', severity: 'critical', fix: 'Add a button', time_to_fix_minutes: 15 }],
+        warnings: [],
+        opportunities: [],
+        primary_language: 'en',
+        country: 'US',
+        current_estimated_conv_rate_band: 'low',
+        expected_lift_band: 'high',
+        citations: [],
+      }),
     extractJSON: JSON.parse,
   });
   assert.strictEqual(r.short_circuited, false);
@@ -197,7 +220,10 @@ test('rewritePage: free tier returns deterministic-only template', async () => {
   const r = await cro.rewritePage({
     business: { business_name: 'Cafe Petit', primary_language: 'sq' },
     plan: 'free',
-    callClaude: async () => { claudeCalled = true; return '{}'; },
+    callClaude: async () => {
+      claudeCalled = true;
+      return '{}';
+    },
     extractJSON: JSON.parse,
   });
   assert.strictEqual(claudeCalled, false, 'free tier should NOT call LLM');

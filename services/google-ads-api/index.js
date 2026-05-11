@@ -35,11 +35,7 @@ const VERSION = 'v18';
 const GOOGLE_ADS_LIVE = () => String(process.env.GOOGLE_ADS_LIVE || '').toLowerCase() === 'true';
 
 function isConfigured(business) {
-  return !!(
-    process.env.GOOGLE_ADS_DEVELOPER_TOKEN &&
-    business?.google_refresh_token &&
-    business?.google_customer_id
-  );
+  return !!(process.env.GOOGLE_ADS_DEVELOPER_TOKEN && business?.google_refresh_token && business?.google_customer_id);
 }
 
 async function exchangeRefreshTokenForAccessToken(refreshToken) {
@@ -92,18 +88,125 @@ async function adsCall({ method, path, business, body, query }) {
       body: body ? JSON.stringify(body) : undefined,
     });
     const json = await res.json().catch(() => ({}));
+    const quota = parseGoogleAdsQuota(res, json);
     if (!res.ok) {
+      const cls = classifyGoogleAdsError(json, res.status);
       return {
         ok: false,
         status: res.status,
-        reason: json?.error?.message || `HTTP ${res.status}`,
+        reason: cls.hint,
+        category: cls.category,
+        retryable: cls.retryable,
+        quota,
         raw: json,
       };
     }
-    return { ok: true, status: res.status, raw: json };
+    return { ok: true, status: res.status, raw: json, quota };
   } catch (e) {
     return { ok: false, status: 0, reason: e.message };
   }
+}
+
+/**
+ * Map Google Ads API errors to actionable {category, retryable, hint}.
+ * Reference: https://developers.google.com/google-ads/api/reference/rpc/v18/ErrorCode
+ *
+ * The Google Ads API wraps errors in `error.details[].errors[].errorCode`
+ * with a `request_id` for support tickets. We surface the most-actionable
+ * subcode when available.
+ */
+function classifyGoogleAdsError(json, httpStatus) {
+  const err = json?.error || {};
+  const details = err.details || [];
+  // The "GoogleAdsFailure" detail carries the error_code map.
+  const failure = details.find((d) => d?.['@type']?.includes('GoogleAdsFailure'));
+  const firstError = failure?.errors?.[0];
+  const code = firstError?.errorCode || {};
+  const codeName = Object.keys(code)[0];
+  const codeValue = code[codeName];
+  const requestId = failure?.requestId || err.requestId;
+
+  // Auth / permission
+  if (httpStatus === 401 || codeName === 'authentication_error') {
+    return {
+      category: 'auth_expired',
+      retryable: false,
+      hint: 'access token expired — re-auth required',
+      codeName,
+      codeValue,
+      requestId,
+    };
+  }
+  if (httpStatus === 403 || codeName === 'authorization_error') {
+    return {
+      category: 'permission_denied',
+      retryable: false,
+      hint: 'developer token unapproved or login-customer-id mismatch',
+      codeName,
+      codeValue,
+      requestId,
+    };
+  }
+
+  // Rate limit / quota
+  if (httpStatus === 429 || codeName === 'quota_error') {
+    return {
+      category: 'quota_exceeded',
+      retryable: true,
+      hint: 'Google Ads API quota hit — back off + retry',
+      codeName,
+      codeValue,
+      requestId,
+    };
+  }
+
+  // Validation
+  if (codeName === 'request_error' || codeName === 'query_error') {
+    return {
+      category: 'validation',
+      retryable: false,
+      hint: firstError?.message || 'invalid request',
+      codeName,
+      codeValue,
+      requestId,
+    };
+  }
+
+  // Operational
+  if (httpStatus >= 500) {
+    return {
+      category: 'google_outage',
+      retryable: true,
+      hint: 'Google Ads API 5xx — retry with backoff',
+      codeName,
+      codeValue,
+      requestId,
+    };
+  }
+
+  return {
+    category: 'unknown',
+    retryable: false,
+    hint: err.message || `HTTP ${httpStatus}`,
+    codeName,
+    codeValue,
+    requestId,
+  };
+}
+
+/**
+ * Google Ads doesn't expose a per-call utilization header like Meta does,
+ * but it returns quota-related response headers (`X-Goog-Quota-User`) and
+ * the response body's `searchSettings.requestId` lets us correlate to the
+ * developer console quota dashboard. We surface what we can so ops have a
+ * trail when throttling fires.
+ */
+function parseGoogleAdsQuota(res, json) {
+  return {
+    request_id: json?.searchSettings?.requestId || res.headers?.get?.('x-goog-request-id') || null,
+    quota_user: res.headers?.get?.('x-goog-quota-user') || null,
+    server_timing: res.headers?.get?.('server-timing') || null,
+  };
 }
 
 /**
@@ -217,7 +320,7 @@ async function fetchEnhancedConversionsHealth({ business }) {
   const uploadCount = actions.filter((a) => /UPLOAD/i.test(a.conversionAction?.type || '')).length;
   return {
     enhanced_on: actions.length > 0,
-    match_rate: uploadCount > 0 ? 0.7 : null,    // optimistic if uploads are configured
+    match_rate: uploadCount > 0 ? 0.7 : null, // optimistic if uploads are configured
     conv_action_count: actions.length,
     raw: { active_count: actions.length, upload_count: uploadCount },
   };
@@ -242,13 +345,15 @@ async function createPmaxCampaign({ business, payload }) {
     path: `/customers/${customerId}/campaignBudgets:mutate`,
     business,
     body: {
-      operations: [{
-        create: {
-          name: `${payload.name}_budget`,
-          amount_micros: dailyBudgetMicros,
-          delivery_method: 'STANDARD',
+      operations: [
+        {
+          create: {
+            name: `${payload.name}_budget`,
+            amount_micros: dailyBudgetMicros,
+            delivery_method: 'STANDARD',
+          },
         },
-      }],
+      ],
     },
   });
   if (!budgetRes.ok) return budgetRes;
@@ -260,23 +365,33 @@ async function createPmaxCampaign({ business, payload }) {
     path: `/customers/${customerId}/campaigns:mutate`,
     business,
     body: {
-      operations: [{
-        create: {
-          name: payload.name,
-          status: 'PAUSED',
-          advertising_channel_type: 'PERFORMANCE_MAX',
-          campaign_budget: budgetResource,
-          maximize_conversion_value: { target_roas: payload.target_roas || null },
-          start_date: new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      operations: [
+        {
+          create: {
+            name: payload.name,
+            status: 'PAUSED',
+            advertising_channel_type: 'PERFORMANCE_MAX',
+            campaign_budget: budgetResource,
+            maximize_conversion_value: { target_roas: payload.target_roas || null },
+            start_date: new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+          },
         },
-      }],
+      ],
     },
   });
 }
 
 // ─── Enhanced Conversion upload (server-side conversion send) ──────────
 
-async function uploadEnhancedConversion({ business, conversionAction, gclid, conversion_value, conversion_date_time, currency = 'USD', user_identifiers }) {
+async function uploadEnhancedConversion({
+  business,
+  conversionAction,
+  gclid,
+  conversion_value,
+  conversion_date_time,
+  currency = 'USD',
+  user_identifiers,
+}) {
   if (!isConfigured(business)) return { ok: false, reason: 'not configured' };
   const customerId = business.google_customer_id.replace(/-/g, '');
   return adsCall({
@@ -284,14 +399,16 @@ async function uploadEnhancedConversion({ business, conversionAction, gclid, con
     path: `/customers/${customerId}:uploadClickConversions`,
     business,
     body: {
-      conversions: [{
-        gclid,
-        conversion_action: conversionAction,
-        conversion_date_time, // RFC3339 with timezone
-        conversion_value,
-        currency_code: currency,
-        user_identifiers: user_identifiers || [],
-      }],
+      conversions: [
+        {
+          gclid,
+          conversion_action: conversionAction,
+          conversion_date_time, // RFC3339 with timezone
+          conversion_value,
+          currency_code: currency,
+          user_identifiers: user_identifiers || [],
+        },
+      ],
       partial_failure: true,
     },
   });
@@ -305,4 +422,8 @@ module.exports = {
   fetchEnhancedConversionsHealth,
   createPmaxCampaign,
   uploadEnhancedConversion,
+  // Error classification + quota parsing — exported for tests and per-callsite
+  // surfacing into dashboards / alerts.
+  classifyGoogleAdsError,
+  parseGoogleAdsQuota,
 };

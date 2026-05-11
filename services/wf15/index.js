@@ -34,11 +34,7 @@ const {
 const { buildBrandContext } = require('../wf1/brandContext.js');
 
 function createWf15(deps) {
-  const {
-    sbGet, sbPost, sbPatch,
-    callClaude, streamClaude, extractJSON,
-    logger,
-  } = deps;
+  const { sbGet, sbPost, sbPatch, callClaude, streamClaude, extractJSON, logger } = deps;
 
   async function resolveBrandContext(businessId) {
     const [bizRows, profileRows] = await Promise.all([
@@ -52,8 +48,14 @@ function createWf15(deps) {
   async function buildMemorySnapshot(businessId) {
     // Recent decisions: last 8 brain_decisions rows
     const [decisionsRaw, learningsRaw, memoryRow, approvalsCount, briefRow] = await Promise.all([
-      sbGet('brain_decisions', `business_id=eq.${businessId}&order=created_at.desc&limit=8&select=created_at,reasoning,outcome`).catch(() => []),
-      sbGet('learning_patterns', `business_id=eq.${businessId}&pattern_type=eq.winning&order=lift.desc&limit=5&select=trait,lift,sample_size`).catch(() => []),
+      sbGet(
+        'brain_decisions',
+        `business_id=eq.${businessId}&order=created_at.desc&limit=8&select=created_at,reasoning,outcome`
+      ).catch(() => []),
+      sbGet(
+        'learning_patterns',
+        `business_id=eq.${businessId}&pattern_type=eq.winning&order=lift.desc&limit=5&select=trait,lift,sample_size`
+      ).catch(() => []),
       sbGet('brain_memory', `business_id=eq.${businessId}&select=*`).catch(() => []),
       sbGet('approvals', `business_id=eq.${businessId}&status=eq.pending&select=id`).catch(() => []),
       sbGet('weekly_briefs', `business_id=eq.${businessId}&order=week_start.desc&limit=1&select=id`).catch(() => []),
@@ -63,13 +65,13 @@ function createWf15(deps) {
     const prefs = mem.owner_preferences || {};
 
     return {
-      recentDecisions: (decisionsRaw || []).map(d => ({
+      recentDecisions: (decisionsRaw || []).map((d) => ({
         date: (d.created_at || '').slice(0, 10),
         decision: (d.reasoning || '').slice(0, 140),
         outcome: d.outcome ? JSON.stringify(d.outcome).slice(0, 60) : undefined,
       })),
       activeStrategies: [], // populated from ad_campaigns + content_plans in future
-      recentLearnings: (learningsRaw || []).map(l => ({
+      recentLearnings: (learningsRaw || []).map((l) => ({
         pattern: l.trait,
         lift: Number(l.lift || 0) - 1,
         sampleSize: l.sample_size || 0,
@@ -93,7 +95,7 @@ function createWf15(deps) {
       'brain_conversations',
       `business_id=eq.${businessId}&order=last_message_at.desc.nullslast&limit=50&select=*`
     ).catch(() => []);
-    return rows.map(r => ({
+    return rows.map((r) => ({
       id: r.id,
       title: r.title || 'New conversation',
       lastMessageAt: r.last_message_at || r.created_at,
@@ -104,10 +106,9 @@ function createWf15(deps) {
   async function getConversation({ businessId, conversationId }) {
     const [convRows, msgRows] = await Promise.all([
       sbGet('brain_conversations', `id=eq.${conversationId}&business_id=eq.${businessId}&select=*`).catch(() => []),
-      sbGet(
-        'brain_messages',
-        `conversation_id=eq.${conversationId}&order=created_at.asc&limit=100&select=*`
-      ).catch(() => []),
+      sbGet('brain_messages', `conversation_id=eq.${conversationId}&order=created_at.asc&limit=100&select=*`).catch(
+        () => []
+      ),
     ]);
     const conv = convRows[0];
     if (!conv) throw new Error('Conversation not found');
@@ -118,7 +119,7 @@ function createWf15(deps) {
         lastMessageAt: conv.last_message_at || conv.created_at,
         messageCount: conv.message_count || 0,
       },
-      messages: msgRows.map(m => ({
+      messages: msgRows.map((m) => ({
         id: m.id,
         role: m.role,
         content: m.content,
@@ -148,7 +149,10 @@ function createWf15(deps) {
     const [brandContext, memory, history] = await Promise.all([
       resolveBrandContext(businessId),
       buildMemorySnapshot(businessId),
-      sbGet('brain_messages', `conversation_id=eq.${conversationId}&order=created_at.asc&limit=${WF15_GUARDRAILS.maxContextMessages}&select=role,content`).catch(() => []),
+      sbGet(
+        'brain_messages',
+        `conversation_id=eq.${conversationId}&order=created_at.asc&limit=${WF15_GUARDRAILS.maxContextMessages}&select=role,content`
+      ).catch(() => []),
     ]);
 
     // Persist user message
@@ -181,15 +185,17 @@ function createWf15(deps) {
     // Route model
     const routing = routeModel(content, attachmentIds.length > 0);
     const model =
-      routing.model === 'opus' ? 'claude-opus-4-7' :
-      routing.model === 'sonnet' ? 'claude-sonnet-4-5' :
-      'claude-haiku-4-5';
+      routing.model === 'opus'
+        ? 'claude-opus-4-7'
+        : routing.model === 'sonnet'
+          ? 'claude-sonnet-4-5'
+          : 'claude-haiku-4-5';
 
     // Build prompt
     const system = buildBrainSystemPrompt(brandContext, memory);
     const historyBlock = (history || [])
-      .filter(m => m.role !== 'system')
-      .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+      .filter((m) => m.role !== 'system')
+      .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
       .join('\n\n');
     const userPrompt = `${historyBlock}\n\nUSER: ${content}\n\nASSISTANT:`;
 
@@ -212,7 +218,9 @@ function createWf15(deps) {
       } else {
         // Fallback: one-shot (when streamClaude not available or no res)
         fullText = await callClaude(userPrompt, model, 2500, {
-          system, businessId, returnRaw: true,
+          system,
+          businessId,
+          returnRaw: true,
         });
       }
     } catch (e) {
@@ -232,7 +240,7 @@ function createWf15(deps) {
     await sbPatch('brain_messages', `id=eq.${assistantMsg.id}`, {
       content: fullText,
       model_used: routing.model,
-    }).catch(e => logger?.warn('/wf15', businessId, 'assistant message update failed', { error: e.message }));
+    }).catch((e) => logger?.warn('/wf15', businessId, 'assistant message update failed', { error: e.message }));
 
     // Send done event
     if (res && !res.writableEnded) {
@@ -291,7 +299,9 @@ function createWf15(deps) {
   }
 
   async function explainDecision({ businessId, messageId }) {
-    const rows = await sbGet('brain_messages', `id=eq.${messageId}&business_id=eq.${businessId}&select=*`).catch(() => []);
+    const rows = await sbGet('brain_messages', `id=eq.${messageId}&business_id=eq.${businessId}&select=*`).catch(
+      () => []
+    );
     const msg = rows[0];
     if (!msg) throw new Error('Message not found');
     // Naive explain: ask Claude again with the message content and ask for reasoning extraction
@@ -323,15 +333,19 @@ ${msg.content}`;
     if (before) query += `&created_at=lt.${encodeURIComponent(before)}`;
     const rows = await sbGet('brain_decisions', query).catch(() => []);
     return {
-      items: rows.map(r => ({
+      items: rows.map((r) => ({
         id: r.id,
         createdAt: r.created_at,
         trigger: r.trigger,
         summary: (r.reasoning || '').slice(0, 140),
         workflow: '15_ai_brain',
-        toolsUsed: (r.actions || []).map(a => a.action).filter(Boolean),
+        toolsUsed: (r.actions || []).map((a) => a.action).filter(Boolean),
         outcome: r.outcome?.status || 'success',
-        modelUsed: (r.model_used || 'sonnet').includes('opus') ? 'opus' : (r.model_used || 'sonnet').includes('haiku') ? 'haiku' : 'sonnet',
+        modelUsed: (r.model_used || 'sonnet').includes('opus')
+          ? 'opus'
+          : (r.model_used || 'sonnet').includes('haiku')
+            ? 'haiku'
+            : 'sonnet',
         costUsd: Number(r.cost_usd || 0),
       })),
       nextCursor: rows.length === limit ? rows[rows.length - 1].created_at : null,

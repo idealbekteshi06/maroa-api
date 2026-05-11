@@ -30,9 +30,9 @@
  * ---------------------------------------------------------------------------
  */
 
-const SPEND_INCREASE_ALERT_THRESHOLD = 0.50;        // +50% WoW = alert
-const KEYWORD_OVERLAP_CRITICAL_THRESHOLD = 0.30;    // 30%+ overlap = critical
-const NEW_AD_AGE_HOURS = 6;                         // ad seen for first time within last 6h
+const SPEND_INCREASE_ALERT_THRESHOLD = 0.5; // +50% WoW = alert
+const KEYWORD_OVERLAP_CRITICAL_THRESHOLD = 0.3; // 30%+ overlap = critical
+const NEW_AD_AGE_HOURS = 6; // ad seen for first time within last 6h
 
 // ─── Pure diff: before / after snapshot → list of changes ────────────────
 
@@ -85,7 +85,12 @@ function classifyChange(change, context = {}) {
   if (signal_type === 'spend_increase') {
     const delta = Number(payload?.spend_delta_pct || 0);
     if (delta >= SPEND_INCREASE_ALERT_THRESHOLD) {
-      return { ...change, severity: 'alert', confidence: 0.8, reason: `Competitor spend +${(delta * 100).toFixed(0)}% WoW` };
+      return {
+        ...change,
+        severity: 'alert',
+        confidence: 0.8,
+        reason: `Competitor spend +${(delta * 100).toFixed(0)}% WoW`,
+      };
     }
     return { ...change, severity: 'info', confidence: 0.6, reason: 'Minor competitor spend shift' };
   }
@@ -93,9 +98,19 @@ function classifyChange(change, context = {}) {
   if (signal_type === 'keyword_overlap') {
     const overlap = Number(payload?.overlap_pct || 0);
     if (overlap >= KEYWORD_OVERLAP_CRITICAL_THRESHOLD) {
-      return { ...change, severity: 'critical', confidence: 0.9, reason: `${Math.round(overlap * 100)}% keyword overlap with competitor — direct bid pressure` };
+      return {
+        ...change,
+        severity: 'critical',
+        confidence: 0.9,
+        reason: `${Math.round(overlap * 100)}% keyword overlap with competitor — direct bid pressure`,
+      };
     }
-    return { ...change, severity: 'watch', confidence: 0.7, reason: `${Math.round(overlap * 100)}% keyword overlap — monitor` };
+    return {
+      ...change,
+      severity: 'watch',
+      confidence: 0.7,
+      reason: `${Math.round(overlap * 100)}% keyword overlap — monitor`,
+    };
   }
 
   return { ...change, severity: 'info', confidence: 0.5 };
@@ -151,7 +166,8 @@ async function scanForBusiness({ businessId, deps }) {
     if (!competitorName) continue;
 
     // Fetch the most recent prior snapshot
-    const priorRows = await sbGet('competitor_signals',
+    const priorRows = await sbGet(
+      'competitor_signals',
       `business_id=eq.${businessId}&competitor_name=eq.${encodeURIComponent(competitorName)}&source=eq.meta_ad_library&order=observed_at.desc&limit=1&select=signal_payload`
     ).catch(() => []);
     const priorAds = priorRows?.[0]?.signal_payload?.ads_snapshot || [];
@@ -164,7 +180,7 @@ async function scanForBusiness({ businessId, deps }) {
         business_id: businessId,
         competitor_name: competitorName,
         source: 'meta_ad_library',
-        signal_type: 'new_creative',  // generic snapshot signal
+        signal_type: 'new_creative', // generic snapshot signal
         signal_payload: { ads_snapshot: currentAds.slice(0, 50) },
         severity: 'info',
       }).catch(() => {});
@@ -193,7 +209,8 @@ async function scanForBusiness({ businessId, deps }) {
 async function compileWarRoomBriefing({ businessId, days = 7, deps }) {
   const { sbGet } = deps;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-  const signals = await sbGet('competitor_signals',
+  const signals = await sbGet(
+    'competitor_signals',
     `business_id=eq.${businessId}&observed_at=gte.${since}&order=observed_at.desc&limit=200&select=*`
   ).catch(() => []);
 

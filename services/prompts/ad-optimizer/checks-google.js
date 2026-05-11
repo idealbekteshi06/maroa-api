@@ -39,7 +39,7 @@ const CHECKS = [
       const lost = Number(metrics?.search_lost_top_is_budget);
       if (!Number.isFinite(lost) || lost < 0.3) return null;
       return {
-        fix: `Lost ${(lost*100).toFixed(0)}% of top-of-page IS to budget — increase budget or reduce keywords`,
+        fix: `Lost ${(lost * 100).toFixed(0)}% of top-of-page IS to budget — increase budget or reduce keywords`,
         evidence: { metric: 'search_lost_top_is_budget', value: lost, threshold: 0.3 },
       };
     },
@@ -64,7 +64,9 @@ function runChecks({ metrics, history, market, decisionHistory, plan = 'free' })
           evidence: result.evidence,
         });
       }
-    } catch { /* skip bad data */ }
+    } catch {
+      /* skip bad data */
+    }
   }
   return findings;
 }

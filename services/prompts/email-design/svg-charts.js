@@ -22,7 +22,9 @@ function escapeXml(s) {
     .replace(/'/g, '&apos;');
 }
 
-function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
 
 // ─── Sparkline (trend over time) ───────────────────────────────────────────
 
@@ -47,11 +49,13 @@ function sparkline({ values, color = '#3B82F6', width = 160, height = 40, fillUn
   const padY = 4;
   const innerW = width - padX * 2;
   const innerH = height - padY * 2;
-  const points = valid.map((v, i) => {
-    const x = padX + (i / (valid.length - 1)) * innerW;
-    const y = padY + innerH - ((v - min) / range) * innerH;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
+  const points = valid
+    .map((v, i) => {
+      const x = padX + (i / (valid.length - 1)) * innerW;
+      const y = padY + innerH - ((v - min) / range) * innerH;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
 
   const last = valid[valid.length - 1];
   const lastX = padX + innerW;
@@ -79,7 +83,7 @@ function bar({ items, color = '#3B82F6', valueFormatter, width = 320 }) {
   if (!Array.isArray(items) || !items.length) {
     return `<svg width="${width}" height="40" xmlns="http://www.w3.org/2000/svg"></svg>`;
   }
-  const max = Math.max(...items.map(i => Math.max(0, Number(i.value) || 0)), 0.01);
+  const max = Math.max(...items.map((i) => Math.max(0, Number(i.value) || 0)), 0.01);
   const rowH = 22;
   const rowGap = 4;
   const labelW = 90;
@@ -87,19 +91,22 @@ function bar({ items, color = '#3B82F6', valueFormatter, width = 320 }) {
   const barW = width - labelW - valueW - 8;
   const height = items.length * (rowH + rowGap) + 8;
 
-  const fmt = typeof valueFormatter === 'function'
-    ? valueFormatter
-    : (v) => Number.isFinite(Number(v)) ? Number(v).toFixed(2) : String(v);
+  const fmt =
+    typeof valueFormatter === 'function'
+      ? valueFormatter
+      : (v) => (Number.isFinite(Number(v)) ? Number(v).toFixed(2) : String(v));
 
-  const rows = items.map((it, i) => {
-    const v = Math.max(0, Number(it.value) || 0);
-    const w = (v / max) * barW;
-    const y = 4 + i * (rowH + rowGap);
-    return `<text x="0" y="${y + rowH / 2 + 4}" font-size="11" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" fill="#374151">${escapeXml(it.label).slice(0, 14)}</text>
+  const rows = items
+    .map((it, i) => {
+      const v = Math.max(0, Number(it.value) || 0);
+      const w = (v / max) * barW;
+      const y = 4 + i * (rowH + rowGap);
+      return `<text x="0" y="${y + rowH / 2 + 4}" font-size="11" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" fill="#374151">${escapeXml(it.label).slice(0, 14)}</text>
 <rect x="${labelW}" y="${y}" width="${barW.toFixed(1)}" height="${rowH}" rx="3" fill="#F3F4F6"/>
 <rect x="${labelW}" y="${y}" width="${w.toFixed(1)}" height="${rowH}" rx="3" fill="${color}"/>
 <text x="${labelW + barW + 4}" y="${y + rowH / 2 + 4}" font-size="11" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" fill="#374151">${escapeXml(fmt(it.value))}</text>`;
-  }).join('\n');
+    })
+    .join('\n');
 
   return `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Bar chart">
 ${rows}
@@ -118,7 +125,7 @@ function gauge({ value, label = '', width = 140, color }) {
   const h = Math.round(width * 0.6);
   const cx = width / 2;
   const cy = h - 8;
-  const r = (width / 2) - 12;
+  const r = width / 2 - 12;
   const angleStart = Math.PI;
   const angleEnd = 0;
   const angleValue = angleStart - (v / 100) * Math.PI;
@@ -158,33 +165,37 @@ function donut({ slices, width = 140, centerLabel }) {
   }
   const cx = width / 2;
   const cy = width / 2;
-  const rOuter = (width / 2) - 8;
+  const rOuter = width / 2 - 8;
   const rInner = rOuter * 0.55;
 
   const defaultColors = ['#10B981', '#F59E0B', '#EF4444', '#3B82F6', '#8B5CF6'];
   let cumAngle = -Math.PI / 2;
 
-  const paths = slices.map((s, i) => {
-    const v = Math.max(0, Number(s.value) || 0);
-    if (v === 0) return '';
-    const angleSweep = (v / total) * 2 * Math.PI;
-    const a0 = cumAngle;
-    const a1 = cumAngle + angleSweep;
-    cumAngle = a1;
-    const largeArc = angleSweep > Math.PI ? 1 : 0;
-    const x0o = cx + rOuter * Math.cos(a0);
-    const y0o = cy + rOuter * Math.sin(a0);
-    const x1o = cx + rOuter * Math.cos(a1);
-    const y1o = cy + rOuter * Math.sin(a1);
-    const x0i = cx + rInner * Math.cos(a1);
-    const y0i = cy + rInner * Math.sin(a1);
-    const x1i = cx + rInner * Math.cos(a0);
-    const y1i = cy + rInner * Math.sin(a0);
-    const fill = s.color || defaultColors[i % defaultColors.length];
-    return `<path d="M ${x0o.toFixed(2)} ${y0o.toFixed(2)} A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${x1o.toFixed(2)} ${y1o.toFixed(2)} L ${x0i.toFixed(2)} ${y0i.toFixed(2)} A ${rInner} ${rInner} 0 ${largeArc} 0 ${x1i.toFixed(2)} ${y1i.toFixed(2)} Z" fill="${fill}"/>`;
-  }).join('\n');
+  const paths = slices
+    .map((s, i) => {
+      const v = Math.max(0, Number(s.value) || 0);
+      if (v === 0) return '';
+      const angleSweep = (v / total) * 2 * Math.PI;
+      const a0 = cumAngle;
+      const a1 = cumAngle + angleSweep;
+      cumAngle = a1;
+      const largeArc = angleSweep > Math.PI ? 1 : 0;
+      const x0o = cx + rOuter * Math.cos(a0);
+      const y0o = cy + rOuter * Math.sin(a0);
+      const x1o = cx + rOuter * Math.cos(a1);
+      const y1o = cy + rOuter * Math.sin(a1);
+      const x0i = cx + rInner * Math.cos(a1);
+      const y0i = cy + rInner * Math.sin(a1);
+      const x1i = cx + rInner * Math.cos(a0);
+      const y1i = cy + rInner * Math.sin(a0);
+      const fill = s.color || defaultColors[i % defaultColors.length];
+      return `<path d="M ${x0o.toFixed(2)} ${y0o.toFixed(2)} A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${x1o.toFixed(2)} ${y1o.toFixed(2)} L ${x0i.toFixed(2)} ${y0i.toFixed(2)} A ${rInner} ${rInner} 0 ${largeArc} 0 ${x1i.toFixed(2)} ${y1i.toFixed(2)} Z" fill="${fill}"/>`;
+    })
+    .join('\n');
 
-  const center = centerLabel ? `<text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="14" font-weight="600" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" fill="#111827">${escapeXml(centerLabel)}</text>` : '';
+  const center = centerLabel
+    ? `<text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="14" font-weight="600" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" fill="#111827">${escapeXml(centerLabel)}</text>`
+    : '';
 
   return `<svg width="${width}" height="${width}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Donut chart">
 ${paths}

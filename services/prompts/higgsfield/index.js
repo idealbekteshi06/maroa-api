@@ -14,19 +14,25 @@ function buildImageBrief(input) {
   const system = mcsla.buildImageSystemPrompt(brandDNA, genreName);
   const responseEnvelope = mcsla.buildJsonResponseEnvelope(genreName, 3);
   const userTask = [
-    productImageUrl && hasReferenceImage ? 'Analyze the attached reference image first. Use it as visual ground truth — match its product/character geometry but improve composition, lighting, and surface staging.' : null,
+    productImageUrl && hasReferenceImage
+      ? 'Analyze the attached reference image first. Use it as visual ground truth — match its product/character geometry but improve composition, lighting, and surface staging.'
+      : null,
     `Content theme: ${contentTheme || 'general brand content'}`,
     `Generate three image prompts for aspect ratios 1:1, 9:16, 4:5 (feed, story/reel, IG portrait).`,
-    isI2V ? 'These are I2V prompts — describe ONLY what changes or moves; the reference defines the static elements.' : 'These are still-image prompts.',
-    responseEnvelope
-  ].filter(Boolean).join('\n\n');
+    isI2V
+      ? 'These are I2V prompts — describe ONLY what changes or moves; the reference defines the static elements.'
+      : 'These are still-image prompts.',
+    responseEnvelope,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
 
   return {
     genreName,
     genre,
     model,
     system,
-    userTask
+    userTask,
   };
 }
 
@@ -55,11 +61,15 @@ function buildVideoBrief(input) {
   const userTask = [
     productImageUrl ? 'Analyze the attached reference image first.' : null,
     `Content theme: ${contentTheme || 'general brand content'}`,
-    isI2V ? 'I2V mode — only describe motion and camera. Reference image defines the static state.' : 'Generate a single video prompt.',
+    isI2V
+      ? 'I2V mode — only describe motion and camera. Reference image defines the static state.'
+      : 'Generate a single video prompt.',
     `Target duration: ${dur}s.`,
     durationSec === 15 ? 'Use the 0-3s hook | 3-8s reveal | 8-12s benefits | 12-15s CTA structure.' : null,
-    responseEnvelope
-  ].filter(Boolean).join('\n\n');
+    responseEnvelope,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
 
   return {
     genreName,
@@ -67,7 +77,7 @@ function buildVideoBrief(input) {
     model,
     system,
     userTask,
-    durationSec: dur
+    durationSec: dur,
   };
 }
 
@@ -83,5 +93,5 @@ module.exports = {
   ...vocab,
   ...antiSlop,
   ...negativeConstraints,
-  ...genreRouter
+  ...genreRouter,
 };

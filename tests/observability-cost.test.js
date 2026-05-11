@@ -22,7 +22,9 @@ test('tracing: requestIdMiddleware uses upstream header when valid', () => {
   const req = { headers: { 'x-request-id': 'upstream-abc-123' } };
   const res = { setHeader: () => {} };
   let nextCalled = false;
-  tracing.requestIdMiddleware(req, res, () => { nextCalled = true; });
+  tracing.requestIdMiddleware(req, res, () => {
+    nextCalled = true;
+  });
   assert.strictEqual(req.requestId, 'upstream-abc-123');
   assert.ok(nextCalled);
 });
@@ -30,7 +32,11 @@ test('tracing: requestIdMiddleware uses upstream header when valid', () => {
 test('tracing: requestIdMiddleware mints new ID when no upstream header', () => {
   const req = { headers: {} };
   let setHeaderCalled = null;
-  const res = { setHeader: (k, v) => { setHeaderCalled = { k, v }; } };
+  const res = {
+    setHeader: (k, v) => {
+      setHeaderCalled = { k, v };
+    },
+  };
   tracing.requestIdMiddleware(req, res, () => {});
   assert.ok(req.requestId.length > 10);
   assert.strictEqual(setHeaderCalled.k, 'x-request-id');
@@ -64,7 +70,17 @@ test('tracing: withTracing wraps and propagates errors via Sentry', async () => 
     return res;
   });
   const req = { requestId: 'r1', method: 'POST' };
-  const res = { headersSent: false, status: function(c) { this.statusCode = c; return this; }, json: function(x) { this.body = x; return this; } };
+  const res = {
+    headersSent: false,
+    status: function (c) {
+      this.statusCode = c;
+      return this;
+    },
+    json: function (x) {
+      this.body = x;
+      return this;
+    },
+  };
   await wrapped(req, res);
   assert.ok(handlerRan);
 });
@@ -77,8 +93,14 @@ test('tracing: withTracing returns 500 + request_id when handler throws', async 
   const captured = {};
   const res = {
     headersSent: false,
-    status: function(c) { captured.status = c; return this; },
-    json: function(x) { captured.json = x; return this; },
+    status: function (c) {
+      captured.status = c;
+      return this;
+    },
+    json: function (x) {
+      captured.json = x;
+      return this;
+    },
   };
   await wrapped(req, res);
   assert.strictEqual(captured.status, 500);
@@ -141,7 +163,7 @@ test('costGuard: checkCostCap allows when under cap', async () => {
     if (table === 'llm_cost_logs') return [{ cost_usd: 5 }, { cost_usd: 10 }];
     return [];
   };
-  const r = await costGuard.checkCostCap({ businessId: 'biz-1', sbGet });
+  const r = await costGuard.checkCostCap({ businessId: '11111111-1111-4111-8111-111111111111', sbGet });
   assert.strictEqual(r.allowed, true);
   assert.strictEqual(r.plan, 'growth');
   assert.strictEqual(r.cap_usd, 50);
@@ -155,7 +177,7 @@ test('costGuard: checkCostCap denies when at or over cap', async () => {
     if (table === 'llm_cost_logs') return [{ cost_usd: 30 }, { cost_usd: 25 }];
     return [];
   };
-  const r = await costGuard.checkCostCap({ businessId: 'biz-2', sbGet });
+  const r = await costGuard.checkCostCap({ businessId: '22222222-2222-4222-8222-222222222222', sbGet });
   assert.strictEqual(r.allowed, false);
   assert.strictEqual(r.reason, 'monthly_cap_reached');
 });
@@ -166,7 +188,7 @@ test('costGuard: soft-fails on missing telemetry table (allows call)', async () 
     if (table === 'llm_cost_logs') throw new Error('relation does not exist');
     return [];
   };
-  const r = await costGuard.checkCostCap({ businessId: 'biz-3', sbGet });
+  const r = await costGuard.checkCostCap({ businessId: '33333333-3333-4333-8333-333333333333', sbGet });
   assert.strictEqual(r.allowed, true);
   assert.ok(r.soft_fail || /soft-allow|cost_guard_error/.test(r.reason || ''));
 });
@@ -174,18 +196,26 @@ test('costGuard: soft-fails on missing telemetry table (allows call)', async () 
 test('costGuardMiddleware: returns 402 when cap reached', async () => {
   const sbGet = async (table) => {
     if (table === 'businesses') return [{ plan: 'free' }];
-    if (table === 'llm_cost_logs') return [{ cost_usd: 5 }];  // over $1 cap
+    if (table === 'llm_cost_logs') return [{ cost_usd: 5 }]; // over $1 cap
     return [];
   };
   const mw = costGuard.costGuardMiddleware({ sbGet });
   let captured = {};
-  const req = { body: { businessId: 'biz-cap-hit' } };
+  const req = { body: { businessId: '44444444-4444-4444-8444-444444444444' } };
   const res = {
-    status: function(c) { captured.status = c; return this; },
-    json: function(x) { captured.json = x; return this; },
+    status: function (c) {
+      captured.status = c;
+      return this;
+    },
+    json: function (x) {
+      captured.json = x;
+      return this;
+    },
   };
   let nextCalled = false;
-  await mw(req, res, () => { nextCalled = true; });
+  await mw(req, res, () => {
+    nextCalled = true;
+  });
   assert.strictEqual(captured.status, 402);
   assert.strictEqual(captured.json.error.code, 'COST_CAP_REACHED');
   assert.strictEqual(nextCalled, false);
@@ -195,6 +225,8 @@ test('costGuardMiddleware: passes through when no businessId', async () => {
   const mw = costGuard.costGuardMiddleware({ sbGet: async () => [] });
   const req = { body: {} };
   let nextCalled = false;
-  await mw(req, {}, () => { nextCalled = true; });
+  await mw(req, {}, () => {
+    nextCalled = true;
+  });
   assert.strictEqual(nextCalled, true);
 });

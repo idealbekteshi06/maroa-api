@@ -4,12 +4,12 @@ When something breaks in production, follow this procedure. Goal: customer impac
 
 ## Severity levels
 
-| Level | Definition | Target response | Examples |
-|---|---|---|---|
-| **SEV1** | Service down for >50% of customers | Within 5 min | API returns 5xx, Supabase down, Railway crashed |
-| **SEV2** | Partial degradation, some customers impacted | Within 15 min | Single endpoint fails, cron not firing, costs spike |
-| **SEV3** | Single customer issue | Within 4 hours | One business sees wrong data, email delivery to one user |
-| **SEV4** | Cosmetic / no customer impact | Next business day | Logs noisy, dashboard layout off |
+| Level    | Definition                                   | Target response   | Examples                                                 |
+| -------- | -------------------------------------------- | ----------------- | -------------------------------------------------------- |
+| **SEV1** | Service down for >50% of customers           | Within 5 min      | API returns 5xx, Supabase down, Railway crashed          |
+| **SEV2** | Partial degradation, some customers impacted | Within 15 min     | Single endpoint fails, cron not firing, costs spike      |
+| **SEV3** | Single customer issue                        | Within 4 hours    | One business sees wrong data, email delivery to one user |
+| **SEV4** | Cosmetic / no customer impact                | Next business day | Logs noisy, dashboard layout off                         |
 
 ## Detection sources
 
@@ -46,6 +46,7 @@ T+next-day  Postmortem if customer-impacting
 ## Common scenarios
 
 ### Railway service down
+
 ```
 1. Check railway.app dashboard — is service "Crashed"?
 2. Read latest deploy logs: `railway logs --tail`
@@ -55,6 +56,7 @@ T+next-day  Postmortem if customer-impacting
 ```
 
 ### Anthropic 5xx / 429 rate limit
+
 ```
 1. Sentry will show high error rate on /webhook/ad-optimizer-* etc.
 2. If 429: Anthropic rate limit hit. Solution:
@@ -65,6 +67,7 @@ T+next-day  Postmortem if customer-impacting
 ```
 
 ### Cost spike
+
 ```
 1. cost-report.js fires alert
 2. Identify: which skill / business?
@@ -75,6 +78,7 @@ T+next-day  Postmortem if customer-impacting
 ```
 
 ### Email deliverability drop
+
 ```
 1. Customer reports "Maroa email not arriving"
 2. Run: `node scripts/check-deliverability.js`
@@ -84,6 +88,7 @@ T+next-day  Postmortem if customer-impacting
 ```
 
 ### Supabase migration failed
+
 ```
 1. Customer signups failing, audits 500ing
 2. Check Supabase SQL editor — schema log shows failed migration
@@ -105,15 +110,18 @@ T+next-day  Postmortem if customer-impacting
 
 ```markdown
 # Postmortem: <short title>
+
 **Date:** YYYY-MM-DD
 **Severity:** SEV1/2/3/4
 **Duration:** X minutes
 **Author:** Name
 
 ## Summary
+
 1-2 sentences on what happened.
 
 ## Timeline (UTC)
+
 HH:MM — alert fired
 HH:MM — diagnosed root cause
 HH:MM — mitigated
@@ -121,20 +129,25 @@ HH:MM — confirmed fix
 HH:MM — service fully restored
 
 ## Root cause
+
 What actually broke. Code, config, third party, etc.
 
 ## Impact
+
 N customers affected, X requests failed, $Y in failed cron runs.
 
 ## What went well
+
 - Fast detection
 - Quick mitigation
 
 ## What went poorly
+
 - Took 20 min to find logs
 - No alerting on this scenario
 
 ## Action items
+
 - [ ] Add alert for X (owner, due date)
 - [ ] Improve runbook for Y (owner, due date)
 - [ ] Add test covering Z (owner, due date)

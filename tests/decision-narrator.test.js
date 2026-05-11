@@ -67,7 +67,10 @@ test('narrate: free tier skips (cost protection)', async () => {
     context: { findings: [{ check_id: 'M02' }] },
     business: { plan: 'free' },
     plan: 'free',
-    callClaude: async () => { claudeCalled = true; return '{}'; },
+    callClaude: async () => {
+      claudeCalled = true;
+      return '{}';
+    },
     extractJSON: JSON.parse,
   });
   assert.strictEqual(claudeCalled, false);
@@ -81,7 +84,10 @@ test('narrate: refuses with no evidence (honest skip)', async () => {
     context: {}, // no findings, no metrics, no trend
     business: { plan: 'agency' },
     plan: 'agency',
-    callClaude: async () => { claudeCalled = true; return '{}'; },
+    callClaude: async () => {
+      claudeCalled = true;
+      return '{}';
+    },
     extractJSON: JSON.parse,
   });
   assert.strictEqual(claudeCalled, false, 'no LLM call when no evidence');
@@ -98,15 +104,17 @@ test('narrate: agency tier produces full narrative', async () => {
     },
     business: { business_name: 'Cafe Petit', plan: 'agency', location: 'Tirana' },
     plan: 'agency',
-    callClaude: async () => JSON.stringify({
-      what_we_saw: 'ROAS fell to 1.8 over 14d, frequency climbing.',
-      what_we_considered: 'Pausing vs keeping.',
-      why_we_chose: 'Still in learning phase.',
-      confidence: 'medium',
-      confidence_reason: '14d data, learning gate active.',
-      what_we_expect: 'ROAS stabilizes ≥2.0 in 5 days.',
-      narrative_full: 'ROAS fell to 1.8 over 14d. We considered pausing. Still in learning phase. Keep 5 more days. Re-decide if drops <1.5.',
-    }),
+    callClaude: async () =>
+      JSON.stringify({
+        what_we_saw: 'ROAS fell to 1.8 over 14d, frequency climbing.',
+        what_we_considered: 'Pausing vs keeping.',
+        why_we_chose: 'Still in learning phase.',
+        confidence: 'medium',
+        confidence_reason: '14d data, learning gate active.',
+        what_we_expect: 'ROAS stabilizes ≥2.0 in 5 days.',
+        narrative_full:
+          'ROAS fell to 1.8 over 14d. We considered pausing. Still in learning phase. Keep 5 more days. Re-decide if drops <1.5.',
+      }),
     extractJSON: JSON.parse,
   });
   assert.ok(r);
@@ -121,7 +129,9 @@ test('narrate: returns null on malformed LLM output', async () => {
     business: { plan: 'agency' },
     plan: 'agency',
     callClaude: async () => 'not json',
-    extractJSON: () => { throw new Error('parse'); },
+    extractJSON: () => {
+      throw new Error('parse');
+    },
   });
   assert.strictEqual(r, null);
 });
@@ -141,6 +151,7 @@ test('narrate: handles LLM skip-with-reason response', async () => {
 // ─── Convenience wrappers ─────────────────────────────────────────────────
 
 test('narrateAdDecision: bridges audit shape to narrate()', async () => {
+  // callClaude positional signature: (prompt, model, maxTokens, extra)
   let userMessageSeen = '';
   const r = await dn.narrateAdDecision(
     {
@@ -155,8 +166,8 @@ test('narrateAdDecision: bridges audit shape to narrate()', async () => {
     { plan: 'agency', business_name: 'X' },
     'agency',
     {
-      callClaude: async (opts) => {
-        userMessageSeen = opts.user;
+      callClaude: async (prompt /* model, max, extra */) => {
+        userMessageSeen = prompt;
         return JSON.stringify({
           what_we_saw: 'ROAS 3.2 over 14d.',
           what_we_considered: 'Hold vs scale.',
@@ -189,15 +200,17 @@ test('narrateSeoDecision: passes audit findings as context', async () => {
     { plan: 'growth', business_name: 'X' },
     'growth',
     {
-      callClaude: async () => JSON.stringify({
-        what_we_saw: 'No JSON-LD detected, schema_markup 10/100.',
-        what_we_considered: 'Different fixes ranked.',
-        why_we_chose: 'Add Organization schema first.',
-        confidence: 'high',
-        confidence_reason: 'Findings concrete.',
-        what_we_expect: 'AI-search readiness goes minimal→partial in 1 fix.',
-        narrative_full: 'No JSON-LD found. Schema_markup at 10/100. Highest-ROI fix: Organization schema. Ship in 30min. Re-audit after.',
-      }),
+      callClaude: async () =>
+        JSON.stringify({
+          what_we_saw: 'No JSON-LD detected, schema_markup 10/100.',
+          what_we_considered: 'Different fixes ranked.',
+          why_we_chose: 'Add Organization schema first.',
+          confidence: 'high',
+          confidence_reason: 'Findings concrete.',
+          what_we_expect: 'AI-search readiness goes minimal→partial in 1 fix.',
+          narrative_full:
+            'No JSON-LD found. Schema_markup at 10/100. Highest-ROI fix: Organization schema. Ship in 30min. Re-audit after.',
+        }),
       extractJSON: JSON.parse,
     }
   );
@@ -220,15 +233,17 @@ test('narrateCroDecision: handles CRO audit shape', async () => {
     { plan: 'agency', business_name: 'X' },
     'agency',
     {
-      callClaude: async () => JSON.stringify({
-        what_we_saw: 'No H1, no CTA, primary_cta=20/100.',
-        what_we_considered: 'Quick wins vs deep restructure.',
-        why_we_chose: 'Quick wins first.',
-        confidence: 'high',
-        confidence_reason: 'Critical fundamentals missing.',
-        what_we_expect: 'Conv lift 30%+ once H1 + CTA added.',
-        narrative_full: 'No H1, no CTA. Primary_CTA at 20/100. Add both first. Expected conv lift 30%. Re-audit in 7d.',
-      }),
+      callClaude: async () =>
+        JSON.stringify({
+          what_we_saw: 'No H1, no CTA, primary_cta=20/100.',
+          what_we_considered: 'Quick wins vs deep restructure.',
+          why_we_chose: 'Quick wins first.',
+          confidence: 'high',
+          confidence_reason: 'Critical fundamentals missing.',
+          what_we_expect: 'Conv lift 30%+ once H1 + CTA added.',
+          narrative_full:
+            'No H1, no CTA. Primary_CTA at 20/100. Add both first. Expected conv lift 30%. Re-audit in 7d.',
+        }),
       extractJSON: JSON.parse,
     }
   );
@@ -250,15 +265,17 @@ test('narrateForecastDecision: handles forecast shape with metrics', async () =>
     { plan: 'agency', business_name: 'X' },
     'agency',
     {
-      callClaude: async () => JSON.stringify({
-        what_we_saw: 'ROAS forecast 1.8-3.0 over 60d, 45d data.',
-        what_we_considered: 'Hold budget vs reallocate.',
-        why_we_chose: 'Reallocate +12% lift.',
-        confidence: 'medium',
-        confidence_reason: '45d data, medium R².',
-        what_we_expect: 'Revenue 8k-16k, mid 12k.',
-        narrative_full: 'ROAS forecast 1.8-3.0 over 60d. We considered hold. Reallocation +12%. Revenue 8k-16k. Re-forecast in 30d.',
-      }),
+      callClaude: async () =>
+        JSON.stringify({
+          what_we_saw: 'ROAS forecast 1.8-3.0 over 60d, 45d data.',
+          what_we_considered: 'Hold budget vs reallocate.',
+          why_we_chose: 'Reallocate +12% lift.',
+          confidence: 'medium',
+          confidence_reason: '45d data, medium R².',
+          what_we_expect: 'Revenue 8k-16k, mid 12k.',
+          narrative_full:
+            'ROAS forecast 1.8-3.0 over 60d. We considered hold. Reallocation +12%. Revenue 8k-16k. Re-forecast in 30d.',
+        }),
       extractJSON: JSON.parse,
     }
   );

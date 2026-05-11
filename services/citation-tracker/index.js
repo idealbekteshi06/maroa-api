@@ -28,7 +28,7 @@
  * ---------------------------------------------------------------------------
  */
 
-const PROMPTS_PER_BUSINESS = 18;       // sweet spot for cost vs coverage
+const PROMPTS_PER_BUSINESS = 18; // sweet spot for cost vs coverage
 const DEFAULT_ENGINES = ['chatgpt', 'perplexity', 'google_aio', 'claude'];
 
 // ─── Prompt seed library generator (no LLM needed — rule-based) ─────────
@@ -47,7 +47,10 @@ function buildSeedPrompts({ business }) {
   const industry = String(business.industry || 'business').toLowerCase();
   const location = business.location || null;
   const competitors = Array.isArray(business.competitors)
-    ? business.competitors.map((c) => (typeof c === 'string' ? c : c?.name)).filter(Boolean).slice(0, 3)
+    ? business.competitors
+        .map((c) => (typeof c === 'string' ? c : c?.name))
+        .filter(Boolean)
+        .slice(0, 3)
     : [];
 
   const prompts = [];
@@ -65,7 +68,10 @@ function buildSeedPrompts({ business }) {
   // ── Recommendation ──
   prompts.push({ prompt_text: `who should I hire for ${industry} services`, prompt_intent: 'recommendation' });
   prompts.push({ prompt_text: `recommend a ${industry}`, prompt_intent: 'recommendation' });
-  prompts.push({ prompt_text: `trustworthy ${industry}${location ? ' in ' + location : ''}`, prompt_intent: 'recommendation' });
+  prompts.push({
+    prompt_text: `trustworthy ${industry}${location ? ' in ' + location : ''}`,
+    prompt_intent: 'recommendation',
+  });
 
   // ── Comparison vs competitors ──
   for (const comp of competitors) {
@@ -124,7 +130,9 @@ function parseCitationResult({ responseText, citedUrls, competitorNames, brandNa
   const urls = Array.isArray(citedUrls) ? citedUrls : [];
   const text = String(responseText || '').toLowerCase();
   const brand = String(brandName || '').toLowerCase();
-  const brandHost = brandUrl ? new URL(/^https?:/.test(brandUrl) ? brandUrl : `https://${brandUrl}`).hostname.replace(/^www\./, '') : null;
+  const brandHost = brandUrl
+    ? new URL(/^https?:/.test(brandUrl) ? brandUrl : `https://${brandUrl}`).hostname.replace(/^www\./, '')
+    : null;
 
   // Brand cited? — match by URL host, or by brand name in cited URLs, or by mention in text
   let brandCited = false;
@@ -154,7 +162,10 @@ function parseCitationResult({ responseText, citedUrls, competitorNames, brandNa
 
   // Competitor citations — normalize both sides (strip non-alphanumerics)
   // so "Best Smile" matches "bestsmile.com" and vice versa.
-  const stripNonAlnum = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const stripNonAlnum = (s) =>
+    String(s || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
   const competitor_citations = [];
   for (const cname of competitorNames || []) {
     if (!cname) continue;
@@ -223,9 +234,15 @@ async function queryPerplexity({ prompt, deps }) {
 async function queryDataForSEO({ prompt, engine, deps }) {
   // Prefer the injected client (testable). Fall back to the real services/dataforseo
   // module which uses DATAFORSEO_LOGIN + DATAFORSEO_PASSWORD.
-  const client = deps?.dataforseoClient || (() => {
-    try { return require('../dataforseo'); } catch { return null; }
-  })();
+  const client =
+    deps?.dataforseoClient ||
+    (() => {
+      try {
+        return require('../dataforseo');
+      } catch {
+        return null;
+      }
+    })();
   if (!client?.query) return null;
   return client.query({ prompt, engine });
 }
@@ -235,7 +252,10 @@ async function queryDataForSEO({ prompt, engine, deps }) {
 async function runDailyForBusiness({ businessId, deps }) {
   const { sbGet, sbPost, logger } = deps;
 
-  const businessRows = await sbGet('businesses', `id=eq.${businessId}&select=business_name,website,industry,competitors,plan`).catch(() => []);
+  const businessRows = await sbGet(
+    'businesses',
+    `id=eq.${businessId}&select=business_name,website,industry,competitors,plan`
+  ).catch(() => []);
   const business = businessRows?.[0];
   if (!business) return { ok: false, reason: 'business not found' };
 
@@ -246,18 +266,18 @@ async function runDailyForBusiness({ businessId, deps }) {
   }
 
   // Pull (or generate) the prompt seed library
-  let prompts = await sbGet('ai_citation_prompts',
-    `business_id=eq.${businessId}&is_active=eq.true&select=*`
-  ).catch(() => []);
+  let prompts = await sbGet('ai_citation_prompts', `business_id=eq.${businessId}&is_active=eq.true&select=*`).catch(
+    () => []
+  );
 
   if (!prompts || prompts.length === 0) {
     const generated = buildSeedPrompts({ business });
     for (const p of generated) {
       await sbPost('ai_citation_prompts', { ...p, business_id: businessId, source: 'auto' }).catch(() => {});
     }
-    prompts = await sbGet('ai_citation_prompts',
-      `business_id=eq.${businessId}&is_active=eq.true&select=*`
-    ).catch(() => []);
+    prompts = await sbGet('ai_citation_prompts', `business_id=eq.${businessId}&is_active=eq.true&select=*`).catch(
+      () => []
+    );
   }
 
   const competitorNames = Array.isArray(business.competitors)
@@ -272,7 +292,8 @@ async function runDailyForBusiness({ businessId, deps }) {
     for (const engine of DEFAULT_ENGINES) {
       let result;
       if (engine === 'perplexity') result = await queryPerplexity({ prompt: p.prompt_text, deps });
-      else if (engine === 'google_aio' || engine === 'chatgpt') result = await queryDataForSEO({ prompt: p.prompt_text, engine, deps });
+      else if (engine === 'google_aio' || engine === 'chatgpt')
+        result = await queryDataForSEO({ prompt: p.prompt_text, engine, deps });
       // claude / gemini direct queries land in a follow-up; for now we log
       // skipped engines as 'unknown' to keep the schema honest.
       if (!result) continue;
@@ -320,7 +341,8 @@ async function runDailyForBusiness({ businessId, deps }) {
 async function computeShareOfVoice({ businessId, days = 7, deps }) {
   const { sbGet } = deps;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-  const rows = await sbGet('ai_citations',
+  const rows = await sbGet(
+    'ai_citations',
     `business_id=eq.${businessId}&observed_at=gte.${since}&select=brand_cited,competitor_citations&limit=1000`
   ).catch(() => []);
 
@@ -358,7 +380,8 @@ async function computeShareOfVoice({ businessId, days = 7, deps }) {
 async function detectCitationGaps({ businessId, days = 7, deps }) {
   const { sbGet } = deps;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-  const rows = await sbGet('ai_citations',
+  const rows = await sbGet(
+    'ai_citations',
     `business_id=eq.${businessId}&observed_at=gte.${since}&brand_cited=eq.false&select=prompt_text,engine,competitor_citations,observed_at&limit=200`
   ).catch(() => []);
 

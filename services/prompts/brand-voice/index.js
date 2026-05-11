@@ -74,17 +74,16 @@ function buildAnchor({ business, vocAnalysis, manualOverrides }) {
       }
     }
   }
-  const do_words = [...new Set([
-    ...defaults.do_words,
-    ...vocPhrases.slice(0, 6),
-  ])].slice(0, 12);
+  const do_words = [...new Set([...defaults.do_words, ...vocPhrases.slice(0, 6)])].slice(0, 12);
 
   // Merge in never_do from onboarding
-  const customNeverDo = String(neverDo).toLowerCase().match(/[a-zçëâäöü]+/giu) || [];
-  const do_not_words = [...new Set([
-    ...defaults.do_not_words,
-    ...customNeverDo.filter(w => w.length >= 4).slice(0, 10),
-  ])];
+  const customNeverDo =
+    String(neverDo)
+      .toLowerCase()
+      .match(/[a-zçëâäöü]+/giu) || [];
+  const do_not_words = [
+    ...new Set([...defaults.do_not_words, ...customNeverDo.filter((w) => w.length >= 4).slice(0, 10)]),
+  ];
 
   // Address-as defaults (locale-specific)
   const addressAs = _addressAsForLocale(primaryLang, defaults.formality_level || 5);
@@ -182,7 +181,9 @@ function formatAnchorForPrompt(anchor) {
   }
   if (anchor.confidence === 'low' || anchor.confidence === 'minimal') {
     lines.push('');
-    lines.push('NOTE: voice anchor confidence is LOW (limited onboarding/VOC data). Use industry defaults conservatively.');
+    lines.push(
+      'NOTE: voice anchor confidence is LOW (limited onboarding/VOC data). Use industry defaults conservatively.'
+    );
   }
   return lines.join('\n');
 }
@@ -222,14 +223,22 @@ function _confidenceLevel({ onboardingTone, vocAnalysis }) {
 
 function _addressAsForLocale(lang, formalityLevel) {
   switch (lang) {
-    case 'es': return formalityLevel >= 6 ? 'usted (formal)' : 'tú (informal)';
-    case 'de': return formalityLevel >= 6 ? 'Sie (formal)' : 'du (informal)';
-    case 'fr': return formalityLevel >= 6 ? 'vous (formal)' : 'tu (informal)';
-    case 'it': return formalityLevel >= 6 ? 'Lei (formal)' : 'tu (informal)';
-    case 'pt': return formalityLevel >= 6 ? 'você (formal)' : 'tu (informal)';
-    case 'sq': return formalityLevel >= 6 ? 'ju (formal)' : 'ti (informal)';
-    case 'tr': return formalityLevel >= 6 ? 'siz (formal)' : 'sen (informal)';
-    default:   return formalityLevel >= 6 ? 'you (formal)' : 'you (direct)';
+    case 'es':
+      return formalityLevel >= 6 ? 'usted (formal)' : 'tú (informal)';
+    case 'de':
+      return formalityLevel >= 6 ? 'Sie (formal)' : 'du (informal)';
+    case 'fr':
+      return formalityLevel >= 6 ? 'vous (formal)' : 'tu (informal)';
+    case 'it':
+      return formalityLevel >= 6 ? 'Lei (formal)' : 'tu (informal)';
+    case 'pt':
+      return formalityLevel >= 6 ? 'você (formal)' : 'tu (informal)';
+    case 'sq':
+      return formalityLevel >= 6 ? 'ju (formal)' : 'ti (informal)';
+    case 'tr':
+      return formalityLevel >= 6 ? 'siz (formal)' : 'sen (informal)';
+    default:
+      return formalityLevel >= 6 ? 'you (formal)' : 'you (direct)';
   }
 }
 

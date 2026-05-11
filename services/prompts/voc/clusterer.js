@@ -64,7 +64,9 @@ function normalizeReviews({ google = [], facebook = [], instagram = [], email = 
     out.push({
       id: r.id || `e_${out.length}`,
       source: 'email',
-      text: String(r.body || r.snippet || '').trim().slice(0, 1500),
+      text: String(r.body || r.snippet || '')
+        .trim()
+        .slice(0, 1500),
       rating: null,
       lang: detectLanguage(r.body || r.snippet || ''),
       author: 'anonymized',
@@ -72,7 +74,7 @@ function normalizeReviews({ google = [], facebook = [], instagram = [], email = 
     });
   }
   // Filter out empty
-  return out.filter(r => r.text && r.text.length >= 8);
+  return out.filter((r) => r.text && r.text.length >= 8);
 }
 
 function anonymizeAuthor(name) {
@@ -97,8 +99,10 @@ function sentimentBucket(rating, text) {
   }
   if (!text) return 'neutral';
   const t = text.toLowerCase();
-  const positiveTerms = /\b(love|great|excellent|amazing|recommend|best|perfect|fantastic|wonderful|fast|friendly|quality|delicious|thank|gracias|merci|grazie|danke|faleminderit|shumë mirë|brilliant)\b/i;
-  const negativeTerms = /\b(terrible|awful|worst|hate|disappointed|rude|slow|bad|poor|never again|waste|complaint|refund|nuk|jo mirë|mauvais|malo|schlecht|cattivo)\b/i;
+  const positiveTerms =
+    /\b(love|great|excellent|amazing|recommend|best|perfect|fantastic|wonderful|fast|friendly|quality|delicious|thank|gracias|merci|grazie|danke|faleminderit|shumë mirë|brilliant)\b/i;
+  const negativeTerms =
+    /\b(terrible|awful|worst|hate|disappointed|rude|slow|bad|poor|never again|waste|complaint|refund|nuk|jo mirë|mauvais|malo|schlecht|cattivo)\b/i;
   const pos = (t.match(positiveTerms) || []).length;
   const neg = (t.match(negativeTerms) || []).length;
   if (pos > neg + 1) return 'positive';
@@ -122,10 +126,13 @@ function dedupeQuotes(quotes) {
     if (words.size < 3) continue;
     let isDupe = false;
     for (const seen of seenSets) {
-      const inter = [...words].filter(w => seen.has(w)).length;
+      const inter = [...words].filter((w) => seen.has(w)).length;
       const union = words.size + seen.size - inter;
       const jacc = union === 0 ? 0 : inter / union;
-      if (jacc > 0.7) { isDupe = true; break; }
+      if (jacc > 0.7) {
+        isDupe = true;
+        break;
+      }
     }
     if (!isDupe) {
       out.push(q);
@@ -141,14 +148,114 @@ function dedupeQuotes(quotes) {
  * Used as INPUT to LLM (deterministic, gives LLM real numbers).
  */
 const STOPWORDS = new Set([
-  'the','and','for','that','this','with','was','are','have','had','they','their','from','you','your',
-  'but','not','all','can','will','what','when','where','how','why','our','out','one','its','his','her',
-  'shumë','është','janë','dhe','për','nuk','tek','në','si','që','me','të','jam','ishte','ishin',
-  'que','para','con','este','esto','sus','los','las','una','uno',
-  'che','con','del','dei','sia','suo','suoi','non','molto','grazie',
-  'der','die','das','und','mit','von','sehr','danke','nicht','aber',
-  'que','pour','avec','dans','très','merci','pas','mais','les','des',
-  'a','an','i','it','is','at','as','on','to','of','in','by','be','or','no','my','so','do','if','we','he','she',
+  'the',
+  'and',
+  'for',
+  'that',
+  'this',
+  'with',
+  'was',
+  'are',
+  'have',
+  'had',
+  'they',
+  'their',
+  'from',
+  'you',
+  'your',
+  'but',
+  'not',
+  'all',
+  'can',
+  'will',
+  'what',
+  'when',
+  'where',
+  'how',
+  'why',
+  'our',
+  'out',
+  'one',
+  'its',
+  'his',
+  'her',
+  'shumë',
+  'është',
+  'janë',
+  'dhe',
+  'për',
+  'nuk',
+  'tek',
+  'në',
+  'si',
+  'që',
+  'me',
+  'të',
+  'jam',
+  'ishte',
+  'ishin',
+  'que',
+  'para',
+  'con',
+  'este',
+  'esto',
+  'sus',
+  'los',
+  'las',
+  'una',
+  'uno',
+  'che',
+  'con',
+  'del',
+  'dei',
+  'sia',
+  'suo',
+  'suoi',
+  'non',
+  'molto',
+  'grazie',
+  'der',
+  'die',
+  'das',
+  'und',
+  'mit',
+  'von',
+  'sehr',
+  'danke',
+  'nicht',
+  'aber',
+  'que',
+  'pour',
+  'avec',
+  'dans',
+  'très',
+  'merci',
+  'pas',
+  'mais',
+  'les',
+  'des',
+  'a',
+  'an',
+  'i',
+  'it',
+  'is',
+  'at',
+  'as',
+  'on',
+  'to',
+  'of',
+  'in',
+  'by',
+  'be',
+  'or',
+  'no',
+  'my',
+  'so',
+  'do',
+  'if',
+  'we',
+  'he',
+  'she',
 ]);
 
 function topKeywords(reviews, n = 20) {
@@ -171,15 +278,16 @@ function topKeywords(reviews, n = 20) {
 function trendSentiment(reviews) {
   if (!Array.isArray(reviews) || reviews.length < 5) return null;
   const now = Date.now();
-  const last30  = reviews.filter(r => r.created_at && (now - new Date(r.created_at).getTime()) <= 30 * 86400000);
-  const prior30 = reviews.filter(r => {
+  const last30 = reviews.filter((r) => r.created_at && now - new Date(r.created_at).getTime() <= 30 * 86400000);
+  const prior30 = reviews.filter((r) => {
     if (!r.created_at) return false;
     const age = now - new Date(r.created_at).getTime();
     return age > 30 * 86400000 && age <= 60 * 86400000;
   });
   if (last30.length < 3 || prior30.length < 3) return null;
 
-  const pctPos = (rs) => rs.filter(r => sentimentBucket(r.rating, r.text) === 'positive').length / Math.max(1, rs.length);
+  const pctPos = (rs) =>
+    rs.filter((r) => sentimentBucket(r.rating, r.text) === 'positive').length / Math.max(1, rs.length);
   const lastPos = pctPos(last30);
   const priorPos = pctPos(prior30);
   const delta = lastPos - priorPos;
@@ -204,11 +312,13 @@ function detectCompetitorMentions(reviews, knownCompetitors = []) {
       }
     }
   }
-  return [...mentions.entries()].map(([competitor, list]) => ({
-    competitor,
-    frequency: list.length,
-    contexts: list.slice(0, 3), // up to 3 examples
-  })).sort((a, b) => b.frequency - a.frequency);
+  return [...mentions.entries()]
+    .map(([competitor, list]) => ({
+      competitor,
+      frequency: list.length,
+      contexts: list.slice(0, 3), // up to 3 examples
+    }))
+    .sort((a, b) => b.frequency - a.frequency);
 }
 
 // ─── Sample for LLM consumption (avoids context overflow on big datasets) ──

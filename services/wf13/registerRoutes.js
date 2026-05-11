@@ -34,10 +34,9 @@ function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logge
       ).catch(() => []);
       if (!rows[0]) return res.json(null);
       const brief = rows[0];
-      const actions = await sbGet(
-        'brief_plan_actions',
-        `brief_id=eq.${brief.id}&select=*&order=created_at.asc`
-      ).catch(() => []);
+      const actions = await sbGet('brief_plan_actions', `brief_id=eq.${brief.id}&select=*&order=created_at.asc`).catch(
+        () => []
+      );
       res.json(briefRowToDetail(brief, actions));
     } catch (e) {
       logger?.error('/webhook/wf13-latest-brief', businessId, 'failed', e);
@@ -57,7 +56,7 @@ function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logge
       let query = `business_id=eq.${businessId}&order=week_start.desc&limit=${limit}&select=id,week_start,week_end,status,subject_line,headline,word_count,generated_at,delivered_at`;
       if (before) query += `&week_start=lt.${encodeURIComponent(before)}`;
       const rows = await sbGet('weekly_briefs', query).catch(() => []);
-      const items = rows.map(r => ({
+      const items = rows.map((r) => ({
         id: r.id,
         weekStart: r.week_start,
         weekEnd: r.week_end,
@@ -87,18 +86,28 @@ function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logge
       const brief = briefRows[0];
       if (!brief) return apiError(res, 404, 'NOT_FOUND', 'brief not found');
 
-      let patch = { status: decision === 'reject' ? 'rejected' : 'approved', updated_at: new Date().toISOString(), review_notes: reason || null };
+      let patch = {
+        status: decision === 'reject' ? 'rejected' : 'approved',
+        updated_at: new Date().toISOString(),
+        review_notes: reason || null,
+      };
       if (decision === 'edit' && editedSections && brief.deliverable) {
         const d = brief.deliverable;
-        if (editedSections.executiveSummary) d.fullBrief = { ...(d.fullBrief || {}), executiveSummary: editedSections.executiveSummary };
-        if (editedSections.biggestInsight) d.fullBrief = { ...(d.fullBrief || {}), biggestInsightMarkdown: editedSections.biggestInsight };
-        if (editedSections.strategicQuestion) d.fullBrief = { ...(d.fullBrief || {}), strategicQuestionMarkdown: editedSections.strategicQuestion };
+        if (editedSections.executiveSummary)
+          d.fullBrief = { ...(d.fullBrief || {}), executiveSummary: editedSections.executiveSummary };
+        if (editedSections.biggestInsight)
+          d.fullBrief = { ...(d.fullBrief || {}), biggestInsightMarkdown: editedSections.biggestInsight };
+        if (editedSections.strategicQuestion)
+          d.fullBrief = { ...(d.fullBrief || {}), strategicQuestionMarkdown: editedSections.strategicQuestion };
         patch.deliverable = d;
       }
       await sbPatch('weekly_briefs', `id=eq.${briefId}`, patch);
 
       // Update pending approval row
-      const approvals = await sbGet('approvals', `workflow=eq.13_weekly_brief&entity_id=eq.${briefId}&status=eq.pending&select=id`).catch(() => []);
+      const approvals = await sbGet(
+        'approvals',
+        `workflow=eq.13_weekly_brief&entity_id=eq.${briefId}&status=eq.pending&select=id`
+      ).catch(() => []);
       for (const a of approvals) {
         await sbPatch('approvals', `id=eq.${a.id}`, {
           status: decision === 'approve' || decision === 'edit' ? 'approved' : 'rejected',
@@ -146,7 +155,10 @@ function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logge
         updated_at: new Date().toISOString(),
       };
       // Upsert
-      const existing = await sbGet('brief_delivery_settings', `business_id=eq.${body.businessId}&select=business_id`).catch(() => []);
+      const existing = await sbGet(
+        'brief_delivery_settings',
+        `business_id=eq.${body.businessId}&select=business_id`
+      ).catch(() => []);
       if (existing[0]) {
         await sbPatch('brief_delivery_settings', `business_id=eq.${body.businessId}`, row);
       } else {
@@ -187,7 +199,8 @@ function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logge
   // ─── POST /webhook/wf13-plan-action-decision ──────────────
   app.post('/webhook/wf13-plan-action-decision', limits.standardMutate, async (req, res) => {
     const { businessId, briefId, actionId, decision } = req.body || {};
-    if (!businessId || !briefId || !actionId || !decision) return apiError(res, 400, 'INVALID_REQUEST', 'required fields missing');
+    if (!businessId || !briefId || !actionId || !decision)
+      return apiError(res, 400, 'INVALID_REQUEST', 'required fields missing');
     try {
       await sbPatch('brief_plan_actions', `id=eq.${actionId}&brief_id=eq.${briefId}`, {
         status: decision,
@@ -245,7 +258,7 @@ function briefRowToDetail(brief, actions) {
     whatChanged: s.whatChanged || [],
     marketContext: s.marketContext || [],
     biggestInsight: s.biggestInsight || '',
-    nextWeekPlan: actions.map(a => ({
+    nextWeekPlan: actions.map((a) => ({
       id: a.id,
       action: a.action,
       whyNow: a.why_now,

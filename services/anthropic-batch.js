@@ -31,7 +31,7 @@ const https = require('https');
 
 const ANTHROPIC_API_BASE = 'https://api.anthropic.com';
 const ANTHROPIC_VERSION = '2023-06-01';
-const BATCH_MAX_REQUESTS = 100000;           // Anthropic max
+const BATCH_MAX_REQUESTS = 100000; // Anthropic max
 const EXTENDED_OUTPUT_BETA = 'output-300k-2026-03-24'; // Opus 4.6+/Sonnet 4.6+ extended max_tokens
 
 function rawHttp(method, urlStr, headers, body, timeoutMs = 120000) {
@@ -51,7 +51,11 @@ function rawHttp(method, urlStr, headers, body, timeoutMs = 120000) {
         const txt = Buffer.concat(chunks).toString('utf8');
         let parsed = txt;
         if (res.headers['content-type']?.includes('application/json')) {
-          try { parsed = JSON.parse(txt); } catch { /* keep raw */ }
+          try {
+            parsed = JSON.parse(txt);
+          } catch {
+            /* keep raw */
+          }
         }
         resolve({ status: res.statusCode, body: parsed, raw: txt });
       });
@@ -83,7 +87,17 @@ function createBatchService({ apiKey, logger, sbPost, sbPatch, sbGet }) {
    *   customId: unique within the batch (≤64 chars), used to match results back
    *   params:   the same shape as a Messages create request
    */
-  function buildRequest({ customId, model, system, prompt, maxTokens, fileIds, cacheSystem, citations, extraDocumentBlocks }) {
+  function buildRequest({
+    customId,
+    model,
+    system,
+    prompt,
+    maxTokens,
+    fileIds,
+    cacheSystem,
+    citations,
+    extraDocumentBlocks,
+  }) {
     if (!customId) throw new Error('buildRequest: customId required');
     if (!model) throw new Error('buildRequest: model required');
 
@@ -126,36 +140,42 @@ function createBatchService({ apiKey, logger, sbPost, sbPatch, sbGet }) {
     }
     const purpose = opts.purpose || 'custom';
     const wantsExtended = requests.some((r) => Number(r.params?.max_tokens) > 64000);
-    const extraBetas = wantsExtended ? [EXTENDED_OUTPUT_BETA, ...(opts.extraBetas || [])] : (opts.extraBetas || []);
+    const extraBetas = wantsExtended ? [EXTENDED_OUTPUT_BETA, ...(opts.extraBetas || [])] : opts.extraBetas || [];
 
     // Validate prompt caching beta header is set when any request uses cache_control on system
-    const hasCache = requests.some((r) => Array.isArray(r.params?.system) && r.params.system.some((s) => s?.cache_control));
+    const hasCache = requests.some(
+      (r) => Array.isArray(r.params?.system) && r.params.system.some((s) => s?.cache_control)
+    );
     if (hasCache) extraBetas.push('prompt-caching-2024-07-31');
 
-    const r = await rawHttp(
-      'POST',
-      `${ANTHROPIC_API_BASE}/v1/messages/batches`,
-      headers(extraBetas),
-      { requests }
-    );
+    const r = await rawHttp('POST', `${ANTHROPIC_API_BASE}/v1/messages/batches`, headers(extraBetas), { requests });
     if (r.status < 200 || r.status >= 300) {
-      logger?.warn('anthropic-batch', null, 'submit failed', { status: r.status, body: typeof r.body === 'string' ? r.body.slice(0, 400) : r.body });
-      throw new Error(`Batch submit HTTP ${r.status}: ${typeof r.body === 'string' ? r.body.slice(0, 200) : JSON.stringify(r.body).slice(0, 200)}`);
+      logger?.warn('anthropic-batch', null, 'submit failed', {
+        status: r.status,
+        body: typeof r.body === 'string' ? r.body.slice(0, 400) : r.body,
+      });
+      throw new Error(
+        `Batch submit HTTP ${r.status}: ${typeof r.body === 'string' ? r.body.slice(0, 200) : JSON.stringify(r.body).slice(0, 200)}`
+      );
     }
     const batch = r.body;
-    const internal = opts.persist === false ? null : await sbPost?.('anthropic_batches', {
-      anthropic_batch_id: batch.id,
-      purpose,
-      request_count: requests.length,
-      status: batch.processing_status === 'in_progress' ? 'in_progress' : (batch.processing_status || 'in_progress'),
-      submitted_at: batch.created_at || new Date().toISOString(),
-      expires_at: batch.expires_at || null,
-      request_index: opts.requestIndex || requests.map((req) => ({ custom_id: req.custom_id })),
-      metadata: opts.metadata || {},
-    }).catch((e) => {
-      logger?.warn('anthropic-batch', null, 'persist failed', { error: e.message });
-      return null;
-    });
+    const internal =
+      opts.persist === false
+        ? null
+        : await sbPost?.('anthropic_batches', {
+            anthropic_batch_id: batch.id,
+            purpose,
+            request_count: requests.length,
+            status:
+              batch.processing_status === 'in_progress' ? 'in_progress' : batch.processing_status || 'in_progress',
+            submitted_at: batch.created_at || new Date().toISOString(),
+            expires_at: batch.expires_at || null,
+            request_index: opts.requestIndex || requests.map((req) => ({ custom_id: req.custom_id })),
+            metadata: opts.metadata || {},
+          }).catch((e) => {
+            logger?.warn('anthropic-batch', null, 'persist failed', { error: e.message });
+            return null;
+          });
 
     return {
       anthropicId: batch.id,
@@ -202,7 +222,9 @@ function createBatchService({ apiKey, logger, sbPost, sbPatch, sbGet }) {
     const lines = String(r.raw || '').split('\n');
     for (const line of lines) {
       if (!line.trim()) continue;
-      try { out.push(JSON.parse(line)); } catch (e) {
+      try {
+        out.push(JSON.parse(line));
+      } catch (e) {
         logger?.warn('anthropic-batch', null, 'jsonl parse failed', { error: e.message, snippet: line.slice(0, 100) });
       }
     }
@@ -245,7 +267,11 @@ function createBatchService({ apiKey, logger, sbPost, sbPatch, sbGet }) {
     if (!isEnded) return { polled, applied: 0 };
 
     const results = await fetchResults(anthropicBatchId);
-    const internalRows = sbGet ? await sbGet('anthropic_batches', `anthropic_batch_id=eq.${anthropicBatchId}&select=id,request_index`).catch(() => []) : [];
+    const internalRows = sbGet
+      ? await sbGet('anthropic_batches', `anthropic_batch_id=eq.${anthropicBatchId}&select=id,request_index`).catch(
+          () => []
+        )
+      : [];
     const internalId = internalRows[0]?.id || null;
     const requestIndex = Array.isArray(internalRows[0]?.request_index) ? internalRows[0].request_index : [];
     const indexMap = new Map(requestIndex.map((e) => [e.custom_id, e]));

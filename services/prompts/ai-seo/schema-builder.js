@@ -22,7 +22,9 @@
 
 const i18nSeo = require('./i18n-seo');
 
-function defined(v) { return v !== undefined && v !== null && v !== ''; }
+function defined(v) {
+  return v !== undefined && v !== null && v !== '';
+}
 
 function buildOrganization({ business, sameAs = [] }) {
   const obj = {
@@ -30,9 +32,9 @@ function buildOrganization({ business, sameAs = [] }) {
     '@type': 'Organization',
   };
   if (defined(business?.business_name)) obj.name = business.business_name;
-  if (defined(business?.website))       obj.url  = business.website;
-  if (defined(business?.logo_url))      obj.logo = business.logo_url;
-  if (defined(business?.tagline))       obj.description = business.tagline;
+  if (defined(business?.website)) obj.url = business.website;
+  if (defined(business?.logo_url)) obj.logo = business.logo_url;
+  if (defined(business?.tagline)) obj.description = business.tagline;
   if (Array.isArray(sameAs) && sameAs.length) obj.sameAs = sameAs.filter(Boolean);
   if (defined(business?.email) || defined(business?.phone)) {
     obj.contactPoint = {
@@ -54,10 +56,10 @@ function buildLocalBusiness({ business, marketProfile }) {
     '@type': 'LocalBusiness',
   };
   if (defined(business?.business_name)) obj.name = business.business_name;
-  if (defined(business?.website))       obj.url  = business.website;
-  if (defined(business?.logo_url))      obj.image = business.logo_url;
-  if (defined(business?.phone))         obj.telephone = business.phone;
-  if (defined(business?.email))         obj.email = business.email;
+  if (defined(business?.website)) obj.url = business.website;
+  if (defined(business?.logo_url)) obj.image = business.logo_url;
+  if (defined(business?.phone)) obj.telephone = business.phone;
+  if (defined(business?.email)) obj.email = business.email;
 
   // Build address from whatever fields exist on the business profile.
   // Many SMBs only have a single-line "location" — fallback to that.
@@ -65,11 +67,11 @@ function buildLocalBusiness({ business, marketProfile }) {
     obj.address = {
       '@type': 'PostalAddress',
     };
-    if (defined(business?.address?.streetAddress))   obj.address.streetAddress = business.address.streetAddress;
+    if (defined(business?.address?.streetAddress)) obj.address.streetAddress = business.address.streetAddress;
     if (defined(business?.address?.addressLocality)) obj.address.addressLocality = business.address.addressLocality;
-    if (defined(business?.address?.addressRegion))   obj.address.addressRegion = business.address.addressRegion;
-    if (defined(business?.address?.postalCode))      obj.address.postalCode = business.address.postalCode;
-    if (defined(country))                            obj.address.addressCountry = country;
+    if (defined(business?.address?.addressRegion)) obj.address.addressRegion = business.address.addressRegion;
+    if (defined(business?.address?.postalCode)) obj.address.postalCode = business.address.postalCode;
+    if (defined(country)) obj.address.addressCountry = country;
     // Fallback for SMBs with only a free-text location string.
     if (!obj.address.streetAddress && defined(business?.location)) {
       obj.address.streetAddress = business.location;
@@ -96,9 +98,9 @@ function buildWebSite({ business }) {
     '@context': 'https://schema.org',
     '@type': 'WebSite',
   };
-  if (defined(business?.website))       obj.url = business.website;
+  if (defined(business?.website)) obj.url = business.website;
   if (defined(business?.business_name)) obj.name = business.business_name;
-  if (defined(business?.tagline))       obj.description = business.tagline;
+  if (defined(business?.tagline)) obj.description = business.tagline;
   if (defined(business?.primary_language)) obj.inLanguage = business.primary_language;
   return obj;
 }
@@ -109,10 +111,10 @@ function buildProduct({ product, business }) {
     '@context': 'https://schema.org',
     '@type': 'Product',
   };
-  if (defined(product.name))        obj.name = product.name;
+  if (defined(product.name)) obj.name = product.name;
   if (defined(product.description)) obj.description = product.description;
-  if (defined(product.image))       obj.image = product.image;
-  if (defined(product.sku))         obj.sku = product.sku;
+  if (defined(product.image)) obj.image = product.image;
+  if (defined(product.sku)) obj.sku = product.sku;
   if (defined(business?.business_name)) {
     obj.brand = { '@type': 'Brand', name: business.business_name };
   }
@@ -134,8 +136,8 @@ function buildFaqPage({ qaPairs }) {
     '@context': 'https://schema.org',
     '@type': 'FAQPage',
     mainEntity: qaPairs
-      .filter(qa => defined(qa?.question) && defined(qa?.answer))
-      .map(qa => ({
+      .filter((qa) => defined(qa?.question) && defined(qa?.answer))
+      .map((qa) => ({
         '@type': 'Question',
         name: qa.question,
         acceptedAnswer: { '@type': 'Answer', text: qa.answer },
@@ -150,12 +152,14 @@ function buildHowTo({ name, steps, totalTime, supply, tool }) {
     '@type': 'HowTo',
     name,
     ...(defined(totalTime) ? { totalTime } : {}),
-    ...(Array.isArray(supply) && supply.length ? { supply: supply.map(s => ({ '@type': 'HowToSupply', name: s })) } : {}),
-    ...(Array.isArray(tool) && tool.length ? { tool: tool.map(t => ({ '@type': 'HowToTool', name: t })) } : {}),
+    ...(Array.isArray(supply) && supply.length
+      ? { supply: supply.map((s) => ({ '@type': 'HowToSupply', name: s })) }
+      : {}),
+    ...(Array.isArray(tool) && tool.length ? { tool: tool.map((t) => ({ '@type': 'HowToTool', name: t })) } : {}),
     step: steps.map((s, i) => ({
       '@type': 'HowToStep',
       position: i + 1,
-      name: typeof s === 'string' ? `Step ${i + 1}` : (s.name || `Step ${i + 1}`),
+      name: typeof s === 'string' ? `Step ${i + 1}` : s.name || `Step ${i + 1}`,
       text: typeof s === 'string' ? s : s.text,
     })),
   };
@@ -169,7 +173,7 @@ function buildPerson({ name, jobTitle, image, sameAs = [] }) {
     name,
   };
   if (defined(jobTitle)) obj.jobTitle = jobTitle;
-  if (defined(image))    obj.image = image;
+  if (defined(image)) obj.image = image;
   if (Array.isArray(sameAs) && sameAs.length) obj.sameAs = sameAs;
   return obj;
 }
@@ -190,7 +194,15 @@ function buildBreadcrumbs({ items }) {
 
 function formatHours(hoursObj) {
   // hoursObj: { mon: '9-17', tue: '9-17', ... }  or { mon: { open: '09:00', close: '17:00' }, ...}
-  const dayMap = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
+  const dayMap = {
+    mon: 'Monday',
+    tue: 'Tuesday',
+    wed: 'Wednesday',
+    thu: 'Thursday',
+    fri: 'Friday',
+    sat: 'Saturday',
+    sun: 'Sunday',
+  };
   const out = [];
   for (const [k, v] of Object.entries(hoursObj || {})) {
     const day = dayMap[k.slice(0, 3).toLowerCase()];

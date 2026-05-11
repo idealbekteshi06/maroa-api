@@ -94,14 +94,18 @@ function buildUserMessage({ decision, context, business, marketProfile, plan }) 
     ``,
     `## Business`,
     '```json',
-    JSON.stringify({
-      name: business?.business_name,
-      industry: business?.industry,
-      primary_language: marketProfile?.primary_language,
-      currency: marketProfile?.currency,
-      currency_symbol: marketProfile?.currency_symbol,
-      plan,
-    }, null, 2),
+    JSON.stringify(
+      {
+        name: business?.business_name,
+        industry: business?.industry,
+        primary_language: marketProfile?.primary_language,
+        currency: marketProfile?.currency,
+        currency_symbol: marketProfile?.currency_symbol,
+        plan,
+      },
+      null,
+      2
+    ),
     '```',
     ``,
     `## Decision (already made)`,
@@ -166,15 +170,7 @@ function countSentences(s) {
  * Narrate a decision. Returns null if evidence too thin.
  */
 async function narrate(opts) {
-  const {
-    decision,
-    context,
-    business,
-    plan = 'free',
-    callClaude,
-    extractJSON,
-    logger,
-  } = opts || {};
+  const { decision, context, business, plan = 'free', callClaude, extractJSON, logger } = opts || {};
 
   if (!decision) return null;
   if (typeof callClaude !== 'function') throw new Error('narrate: callClaude required');
@@ -187,10 +183,11 @@ async function narrate(opts) {
   if (planTier === 'free') return null;
 
   // Cheap upfront sanity check — refuse to narrate empty decisions
-  const hasFindings = Array.isArray(context?.findings) && context.findings.length > 0
-                   || Array.isArray(context?.deterministic_findings) && context.deterministic_findings.length > 0
-                   || Array.isArray(context?.critical_issues) && context.critical_issues.length > 0
-                   || Array.isArray(context?.citations) && context.citations.length > 0;
+  const hasFindings =
+    (Array.isArray(context?.findings) && context.findings.length > 0) ||
+    (Array.isArray(context?.deterministic_findings) && context.deterministic_findings.length > 0) ||
+    (Array.isArray(context?.critical_issues) && context.critical_issues.length > 0) ||
+    (Array.isArray(context?.citations) && context.citations.length > 0);
   if (!hasFindings && !context?.metrics && !context?.trend) {
     return null; // honest skip
   }
@@ -215,7 +212,11 @@ async function narrate(opts) {
   }
 
   let parsed;
-  try { parsed = extractJSON(raw); } catch { parsed = null; }
+  try {
+    parsed = extractJSON(raw);
+  } catch {
+    parsed = null;
+  }
   const v = parsed ? validateNarrative(parsed) : { valid: false, errors: ['parse_error'] };
   if (!v.valid) {
     logger?.warn?.('decision-narrator', null, 'invalid output', v.errors);
@@ -245,7 +246,9 @@ async function narrateAdDecision(audit, business, plan, deps) {
       gates: audit.gates,
       citations: audit.citations,
     },
-    business, plan, ...deps,
+    business,
+    plan,
+    ...deps,
   });
 }
 
@@ -263,7 +266,9 @@ async function narrateSeoDecision(audit, business, plan, deps) {
       dimension_scores: audit.dimension_scores,
       citations: audit.citations,
     },
-    business, plan, ...deps,
+    business,
+    plan,
+    ...deps,
   });
 }
 
@@ -281,7 +286,9 @@ async function narrateCroDecision(audit, business, plan, deps) {
       dimension_scores: audit.dimension_scores,
       citations: audit.citations,
     },
-    business, plan, ...deps,
+    business,
+    plan,
+    ...deps,
   });
 }
 
@@ -302,7 +309,9 @@ async function narrateForecastDecision(forecast, business, plan, deps) {
       sample_size_days: forecast.sample_size_days,
       caveats: forecast.caveats,
     },
-    business, plan, ...deps,
+    business,
+    plan,
+    ...deps,
   });
 }
 

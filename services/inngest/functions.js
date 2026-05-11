@@ -24,12 +24,20 @@
  */
 
 const { inngest } = require('./client');
+const { dlqHandler } = require('./dlqRecorder');
+
+// Auto-attach DLQ recorder to every function unless caller already specified
+// one. Keeps the function definitions clean while guaranteeing every
+// terminal failure lands in inngest_dlq for replay + observability.
+function withDLQ(opts) {
+  if (opts.onFailure) return opts;
+  const eventName =
+    opts.triggers?.[0]?.event || (opts.triggers?.[0]?.cron ? `cron:${opts.triggers[0].cron}` : 'unknown');
+  return { ...opts, onFailure: dlqHandler({ functionId: opts.id, eventName }) };
+}
 
 const PORT = process.env.PORT || 3000;
-const INTERNAL_BASE =
-  process.env.INTERNAL_API_BASE ||
-  process.env.MAROA_API_INTERNAL_URL ||
-  `http://127.0.0.1:${PORT}`;
+const INTERNAL_BASE = process.env.INTERNAL_API_BASE || process.env.MAROA_API_INTERNAL_URL || `http://127.0.0.1:${PORT}`;
 const INTERNAL_SECRET = process.env.N8N_WEBHOOK_SECRET || '';
 
 async function callInternal(path, body) {
@@ -67,6 +75,7 @@ const adOptimizerDaily = inngest.createFunction(
     name: 'Ad optimizer · daily audit',
     retries: 3,
     concurrency: { limit: 1 },
+    onFailure: dlqHandler({ functionId: 'ad-optimizer-daily', eventName: 'cron' }),
     triggers: [{ cron: 'TZ=UTC 0 8 * * *' }],
   },
   async ({ step }) => {
@@ -79,13 +88,13 @@ const adOptimizerDaily = inngest.createFunction(
 
 // ─── Pacing alerts (every 4 hours) ─────────────────────────────────────────
 const pacingAlertsRun = inngest.createFunction(
-  {
+  withDLQ({
     id: 'pacing-alerts-every-4h',
     name: 'Pacing alerts · evaluate all',
     retries: 3,
     concurrency: { limit: 1 },
     triggers: [{ cron: 'TZ=UTC 0 */4 * * *' }],
-  },
+  }),
   async ({ step }) => {
     const result = await step.run('evaluate-all-active-campaigns', async () =>
       callInternal('/webhook/pacing-alerts-evaluate-all', { dryRun: false, limit: 500 })
@@ -96,13 +105,13 @@ const pacingAlertsRun = inngest.createFunction(
 
 // ─── Weekly scorecard (Sunday 22:00 UTC) ───────────────────────────────────
 const weeklyScorecardAll = inngest.createFunction(
-  {
+  withDLQ({
     id: 'weekly-scorecard-sun-22-utc',
     name: 'Weekly scorecard · generate for all',
     retries: 3,
     concurrency: { limit: 1 },
     triggers: [{ cron: 'TZ=UTC 0 22 * * 0' }],
-  },
+  }),
   async ({ step }) => {
     const result = await step.run('generate-for-all-businesses', async () =>
       callInternal('/webhook/weekly-scorecard-all', { dryRun: false })
@@ -111,10 +120,48 @@ const weeklyScorecardAll = inngest.createFunction(
   }
 );
 
+// ─── Content publish · 24h performance feedback ───────────────────────────
+// Replaces the in-process setTimeout(24h) that lived in server.js. The
+// previous in-memory timer was lost on every Railway redeploy — feedback
+// only fired for posts that happened to survive a full 24h of uptime, so
+// most posts silently never got scored.
+//
+// Now: server.js emits `maroa/content.publish.feedback-24h` on publish.
+// This durable function sleeps 24h (Inngest persists the timer), then
+// POSTs to the existing internal feedback endpoint with contentId +
+// businessId. Survives redeploys, retries on failure, observable in the
+// Inngest dashboard.
+const contentPublishFeedback24h = inngest.createFunction(
+  {
+    id: 'content-publish-feedback-24h',
+    name: 'Content publish · 24h performance feedback',
+    retries: 3,
+    // One feedback check per (business, content). Concurrency keyed on
+    // contentId so multiple posts from same business can run in parallel.
+    concurrency: { limit: 1, key: 'event.data.contentId' },
+    onFailure: dlqHandler({
+      functionId: 'content-publish-feedback-24h',
+      eventName: 'maroa/content.publish.feedback-24h',
+    }),
+    triggers: [{ event: 'maroa/content.publish.feedback-24h' }],
+  },
+  async ({ event, step }) => {
+    const { contentId, businessId } = event?.data || {};
+    if (!contentId || !businessId) {
+      return { ok: false, reason: 'missing contentId or businessId' };
+    }
+    await step.sleep('wait-24h', '24h');
+    const result = await step.run('fetch-and-score', async () =>
+      callInternal('/webhook/wf-content-performance-feedback', { contentId, businessId })
+    );
+    return { ok: true, contentId, businessId, ...result };
+  }
+);
+
 // ─── Manual trigger handlers (for testing from Inngest dashboard) ──────────
 // Send event "maroa/manual.ad-audit" to trigger an ad-optimizer run on demand.
 const manualAdAudit = inngest.createFunction(
-  {
+  withDLQ({
     id: 'manual-ad-audit',
     name: 'Manual · ad-optimizer audit',
     retries: 1,
@@ -122,24 +169,22 @@ const manualAdAudit = inngest.createFunction(
     // audits in parallel, but a single customer can't double-fire.
     concurrency: { limit: 1, key: 'event.data.businessId' },
     triggers: [{ event: 'maroa/manual.ad-audit' }],
-  },
+  }),
   async ({ event, step }) => {
     const dryRun = !!event?.data?.dryRun;
     const limit = Number(event?.data?.limit || 50);
-    return await step.run('run', async () =>
-      callInternal('/webhook/ad-optimizer-daily-audit', { dryRun, limit })
-    );
+    return await step.run('run', async () => callInternal('/webhook/ad-optimizer-daily-audit', { dryRun, limit }));
   }
 );
 
 const manualPacingRun = inngest.createFunction(
-  {
+  withDLQ({
     id: 'manual-pacing-alerts',
     name: 'Manual · pacing alerts',
     retries: 1,
     concurrency: { limit: 1, key: 'event.data.businessId' },
     triggers: [{ event: 'maroa/manual.pacing-alerts' }],
-  },
+  }),
   async ({ event, step }) => {
     const dryRun = !!event?.data?.dryRun;
     return await step.run('run', async () =>
@@ -149,18 +194,16 @@ const manualPacingRun = inngest.createFunction(
 );
 
 const manualScorecardRun = inngest.createFunction(
-  {
+  withDLQ({
     id: 'manual-weekly-scorecard',
     name: 'Manual · weekly scorecard',
     retries: 1,
     concurrency: { limit: 1, key: 'event.data.businessId' },
     triggers: [{ event: 'maroa/manual.weekly-scorecard' }],
-  },
+  }),
   async ({ event, step }) => {
     const dryRun = !!event?.data?.dryRun;
-    return await step.run('run', async () =>
-      callInternal('/webhook/weekly-scorecard-all', { dryRun })
-    );
+    return await step.run('run', async () => callInternal('/webhook/weekly-scorecard-all', { dryRun }));
   }
 );
 
@@ -169,13 +212,13 @@ const manualScorecardRun = inngest.createFunction(
 // underlying engine (services/wf1/dailyRun) iterates each business and only
 // fires when local clock hits 06:xx — so an hourly cron is correct.
 const wf1DailySweepHourly = inngest.createFunction(
-  {
+  withDLQ({
     id: 'wf1-daily-sweep-hourly',
     name: 'WF1 · daily content sweep',
     retries: 3,
     concurrency: { limit: 1 },
     triggers: [{ cron: 'TZ=UTC 0 * * * *' }],
-  },
+  }),
   async ({ step }) => {
     const result = await step.run('sweep-all-businesses', async () =>
       callInternal('/webhook/wf1-run-daily', { force: false })
@@ -187,13 +230,13 @@ const wf1DailySweepHourly = inngest.createFunction(
 // ─── WF1 measurement + hybrid fallbacks (hourly, staggered :30) ───────────
 // Runs at minute 30 of every hour so it doesn't collide with the sweep at :00.
 const wf1MeasureFallbacksHourly = inngest.createFunction(
-  {
+  withDLQ({
     id: 'wf1-measure-fallbacks-hourly',
     name: 'WF1 · measurement + hybrid fallbacks',
     retries: 3,
     concurrency: { limit: 1 },
     triggers: [{ cron: 'TZ=UTC 30 * * * *' }],
-  },
+  }),
   async ({ step }) => {
     const result = await step.run('measure-and-fallback', async () =>
       callInternal('/webhook/wf1-measure-performance', { limit: 25 })
@@ -211,13 +254,13 @@ const wf1MeasureFallbacksHourly = inngest.createFunction(
 // Anthropic Message Batch — 50% Sonnet cost cut on overnight bulk content.
 // Single-fire — retries: 1 to avoid double-submission.
 const wf1OvernightBatchSubmitNightly = inngest.createFunction(
-  {
+  withDLQ({
     id: 'wf1-overnight-batch-submit-nightly',
     name: 'WF1 · overnight batch submit',
     retries: 1,
     concurrency: { limit: 1 },
     triggers: [{ cron: 'TZ=UTC 0 23 * * *' }],
-  },
+  }),
   async ({ step }) => {
     const result = await step.run('submit-overnight-batch', async () =>
       callInternal('/webhook/wf1-overnight-batch-submit', { dryRun: false })
@@ -234,13 +277,13 @@ const wf1OvernightBatchSubmitNightly = inngest.createFunction(
 // Scans anthropic_batches for in-flight wf1_overnight batches and applies any
 // that have reached `ended`. Safe to run more often than necessary; idempotent.
 const wf1OvernightBatchApplyPoll = inngest.createFunction(
-  {
+  withDLQ({
     id: 'wf1-overnight-batch-apply-poll',
     name: 'WF1 · overnight batch apply (poll)',
     retries: 2,
     concurrency: { limit: 1 },
     triggers: [{ cron: 'TZ=UTC */10 * * * *' }],
-  },
+  }),
   async ({ step }) => {
     const result = await step.run('apply-all-inflight', async () =>
       callInternal('/webhook/wf1-overnight-batch-apply-all', {})
@@ -258,13 +301,13 @@ const wf1OvernightBatchApplyPoll = inngest.createFunction(
 // Reconciles in-flight Anthropic batches that aren't owned by WF1 (those go
 // through their own apply path above). Generic poll for all other batch users.
 const anthropicBatchReconcilePoll = inngest.createFunction(
-  {
+  withDLQ({
     id: 'anthropic-batch-reconcile-poll',
     name: 'Anthropic · non-WF1 batch reconcile (poll)',
     retries: 2,
     concurrency: { limit: 1 },
     triggers: [{ cron: 'TZ=UTC */5 * * * *' }],
-  },
+  }),
   async ({ step }) => {
     const result = await step.run('reconcile-all-inflight', async () =>
       callInternal('/webhook/anthropic-batch-reconcile-all', {})
@@ -282,13 +325,13 @@ const anthropicBatchReconcilePoll = inngest.createFunction(
 // Generates 3-5 new ad variants per business and queues them for testing.
 // Plan-tier-gated: free=0, growth=3, agency=5 variants per day.
 const creativeEngineDaily = inngest.createFunction(
-  {
+  withDLQ({
     id: 'creative-engine-daily',
     name: 'Creative Engine · daily variant generation',
     retries: 2,
     concurrency: { limit: 1 },
     triggers: [{ cron: 'TZ=UTC 0 9 * * *' }],
-  },
+  }),
   async ({ step }) => {
     const result = await step.run('generate-all-businesses', async () =>
       callInternal('/webhook/creative-engine-generate-all', {})
@@ -301,13 +344,13 @@ const creativeEngineDaily = inngest.createFunction(
 // Looks at variants in status='testing' that have been live for ≥72h and
 // promotes/kills based on z-score CTR vs cohort baseline.
 const creativeEngineEvaluate = inngest.createFunction(
-  {
+  withDLQ({
     id: 'creative-engine-evaluate-6h',
     name: 'Creative Engine · evaluate testing variants',
     retries: 2,
     concurrency: { limit: 1 },
     triggers: [{ cron: 'TZ=UTC 0 */6 * * *' }],
-  },
+  }),
   async ({ step }) => {
     const result = await step.run('evaluate-all', async () =>
       callInternal('/webhook/creative-engine-evaluate-all', {})
@@ -326,13 +369,13 @@ const creativeEngineEvaluate = inngest.createFunction(
 // all active businesses. If a business's measurement is broken, the daily
 // ad audit at 08:00 UTC will skip scaling decisions for that platform.
 const measurementHealthProbe = inngest.createFunction(
-  {
+  withDLQ({
     id: 'measurement-health-probe-daily',
     name: 'Measurement Health · daily probe',
     retries: 2,
     concurrency: { limit: 1 },
     triggers: [{ cron: 'TZ=UTC 0 7 * * *' }],
-  },
+  }),
   async ({ step }) => {
     const result = await step.run('probe-all-businesses', async () =>
       callInternal('/webhook/measurement-health-probe-all', {})
@@ -353,13 +396,13 @@ const measurementHealthProbe = inngest.createFunction(
 // email. Runs at 08:00 UTC AFTER measurement-health-probe-daily at 07:00
 // so it has fresh trust verdicts to gate scaling decisions on.
 const autopilotBrainDaily = inngest.createFunction(
-  {
+  withDLQ({
     id: 'autopilot-brain-daily',
     name: 'Autopilot Brain · daily orchestration + customer brief',
     retries: 2,
     concurrency: { limit: 1 },
     triggers: [{ cron: 'TZ=UTC 0 8 * * *' }],
-  },
+  }),
   async ({ step }) => {
     const result = await step.run('run-all-businesses', async () =>
       callInternal('/webhook/autopilot-brain-run-all', {})
@@ -376,17 +419,15 @@ const autopilotBrainDaily = inngest.createFunction(
 // Walks email_sequence_runs where next_send_at <= now and dispatches
 // the next email step. Idempotent — already-sent steps are tracked in send_log.
 const emailLifecycleProcess = inngest.createFunction(
-  {
+  withDLQ({
     id: 'email-lifecycle-process-15m',
     name: 'Email Lifecycle · process due runs',
     retries: 2,
     concurrency: { limit: 1 },
     triggers: [{ cron: 'TZ=UTC */15 * * * *' }],
-  },
+  }),
   async ({ step }) => {
-    const result = await step.run('process-due', async () =>
-      callInternal('/webhook/email-lifecycle-process-due', {})
-    );
+    const result = await step.run('process-due', async () => callInternal('/webhook/email-lifecycle-process-due', {}));
     return {
       ok: true,
       due: result?.due ?? 0,
@@ -401,13 +442,13 @@ const emailLifecycleProcess = inngest.createFunction(
 // Runs the prompt seed library against ChatGPT / Perplexity / Google AI
 // Overviews / Claude for every Growth+ business. Cost: ~$3-5/business/mo.
 const citationTrackerDaily = inngest.createFunction(
-  {
+  withDLQ({
     id: 'citation-tracker-daily',
     name: 'Citation Tracker · daily AI search runs',
     retries: 2,
     concurrency: { limit: 1 },
     triggers: [{ cron: 'TZ=UTC 0 6 * * *' }],
-  },
+  }),
   async ({ step }) => {
     const result = await step.run('run-all-businesses', async () =>
       callInternal('/webhook/citation-tracker-run-all', {})
@@ -425,13 +466,13 @@ const citationTrackerDaily = inngest.createFunction(
 // Scans Meta Ad Library + Google Auction Insights for top-5 competitors per
 // business. Reacts to new ad launches / spend shifts / keyword overlap.
 const competitorWatchRun = inngest.createFunction(
-  {
+  withDLQ({
     id: 'competitor-watch-every-4h',
     name: 'Competitor War Room · scan every 4h',
     retries: 2,
     concurrency: { limit: 1 },
     triggers: [{ cron: 'TZ=UTC 0 */4 * * *' }],
-  },
+  }),
   async ({ step }) => {
     const result = await step.run('scan-all-businesses', async () =>
       callInternal('/webhook/competitor-watch-scan-all', {})
@@ -455,13 +496,13 @@ const competitorWatchRun = inngest.createFunction(
 // ad-optimizer. Keeps the Inngest layer thin and consistent with our other
 // crons. Each step.run() is durable so a flap doesn't lose progress.
 const coldStartRun = inngest.createFunction(
-  {
+  withDLQ({
     id: 'cold-start-run',
     name: 'Cold-start · onboarding orchestrator',
     retries: 3,
     concurrency: { limit: 1, key: 'event.data.businessId' },
     triggers: [{ event: 'maroa/cold-start.run' }],
-  },
+  }),
   async ({ event, step }) => {
     const businessId = event?.data?.businessId;
     if (!businessId) return { ok: false, reason: 'missing businessId' };
@@ -481,19 +522,17 @@ const coldStartRun = inngest.createFunction(
 );
 
 const coldStartResume = inngest.createFunction(
-  {
+  withDLQ({
     id: 'cold-start-resume',
     name: 'Cold-start · resume after customer action',
     retries: 3,
     concurrency: { limit: 1, key: 'event.data.businessId' },
     triggers: [{ event: 'maroa/cold-start.resume' }],
-  },
+  }),
   async ({ event, step }) => {
     const businessId = event?.data?.businessId;
     if (!businessId) return { ok: false, reason: 'missing businessId' };
-    const result = await step.run('resume', async () =>
-      callInternal('/webhook/cold-start-resume', { businessId })
-    );
+    const result = await step.run('resume', async () => callInternal('/webhook/cold-start-resume', { businessId }));
     return {
       ok: !!result?.ok,
       status: result?.status ?? null,
@@ -506,13 +545,13 @@ const coldStartResume = inngest.createFunction(
 // Generates the weekly brief for every active business. Runs early Sunday so
 // briefs are ready when the customer-facing weekly scorecard fires at 22:00.
 const wf13WeeklySynthesis = inngest.createFunction(
-  {
+  withDLQ({
     id: 'wf13-weekly-synthesis',
     name: 'WF13 · weekly synthesis',
     retries: 3,
     concurrency: { limit: 1 },
     triggers: [{ cron: 'TZ=UTC 0 7 * * 0' }],
-  },
+  }),
   async ({ step }) => {
     const result = await step.run('synthesize-all-businesses', async () =>
       callInternal('/webhook/wf13-run-weekly', { force: false })
@@ -562,6 +601,9 @@ const functions = [
 
   // Autopilot Brain (Week 12 — top-level orchestrator)
   autopilotBrainDaily,
+
+  // Durable replacement for setTimeout(24h) in publish path
+  contentPublishFeedback24h,
 
   // Manual triggers (for dashboard testing)
   manualAdAudit,

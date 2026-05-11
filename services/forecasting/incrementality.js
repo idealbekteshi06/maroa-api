@@ -28,10 +28,10 @@
  * ---------------------------------------------------------------------------
  */
 
-const DEFAULT_HOLDOUT_PCT = 0.10;
+const DEFAULT_HOLDOUT_PCT = 0.1;
 const MIN_TEST_DAYS = 14;
-const MIN_CONVERSIONS_PER_ARM = 30;     // statistical floor
-const SIGNIFICANCE_THRESHOLD = 0.05;    // p < 0.05
+const MIN_CONVERSIONS_PER_ARM = 30; // statistical floor
+const SIGNIFICANCE_THRESHOLD = 0.05; // p < 0.05
 
 /**
  * designTest — splits the business's served geos into treatment + control.
@@ -46,7 +46,8 @@ function designTest({ allGeos, holdoutPct = DEFAULT_HOLDOUT_PCT }) {
   }
   // Geos can be strings or { name, weight } objects. If weighted, sort
   // ascending by weight and bucket the smallest until we hit holdout%.
-  const sorted = [...allGeos].map((g) => (typeof g === 'string' ? { name: g, weight: 1 } : g))
+  const sorted = [...allGeos]
+    .map((g) => (typeof g === 'string' ? { name: g, weight: 1 } : g))
     .sort((a, b) => (a.weight || 0) - (b.weight || 0));
   const totalWeight = sorted.reduce((acc, g) => acc + (g.weight || 1), 0);
   const targetControlWeight = totalWeight * holdoutPct;
@@ -95,14 +96,8 @@ function twoProportionZTest({ x1, n1, x2, n2 }) {
 function normalCdf(x) {
   if (x < 0) return 1 - normalCdf(-x);
   const t = 1 / (1 + 0.2316419 * x);
-  const d = 0.3989422804 * Math.exp(-x * x / 2);
-  const prob = d * t * (
-    0.31938153 +
-    t * (-0.356563782 +
-    t * (1.781477937 +
-    t * (-1.821255978 +
-    t * 1.330274429)))
-  );
+  const d = 0.3989422804 * Math.exp((-x * x) / 2);
+  const prob = d * t * (0.31938153 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
   return 1 - prob;
 }
 
@@ -140,11 +135,10 @@ function analyzeResults({ test, observations }) {
   // True incremental ROAS — uses the absolute conversion DELTA
   // scaled to the treatment audience, multiplied by AOV.
   const aov = t.aov || c.aov || 0;
-  const incrementalConversions = (t.conversions || 0) -
-    Math.round((c.conversions || 0) * (t.audience_size || 1) / Math.max(1, c.audience_size || 1));
-  const trueIncrementalRoas = (t.spend || 0) > 0
-    ? (incrementalConversions * aov) / t.spend
-    : null;
+  const incrementalConversions =
+    (t.conversions || 0) -
+    Math.round(((c.conversions || 0) * (t.audience_size || 1)) / Math.max(1, c.audience_size || 1));
+  const trueIncrementalRoas = (t.spend || 0) > 0 ? (incrementalConversions * aov) / t.spend : null;
 
   // Significance test
   const sig = twoProportionZTest({

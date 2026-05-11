@@ -91,10 +91,18 @@ BLENDED CAC: $${snapshot.blendedCac?.toFixed(2) ?? 'n/a'}
 TOTAL SPEND WEEK: $${snapshot.totalSpend?.toFixed(2) ?? '0'}
 
 CAMPAIGNS (top 20 by spend):
-${(snapshot.campaigns || []).slice(0, 20).map(c => `  ${c.platform} | ${c.name} | spend $${Number(c.spend||0).toFixed(2)} | ROAS ${Number(c.roas||0).toFixed(2)}x | CPA $${Number(c.cpa||0).toFixed(2)} | CTR ${(Number(c.ctr||0)*100).toFixed(2)}% | freq ${Number(c.frequency||0).toFixed(2)} | status ${c.status}`).join('\n') || '  (none)'}
+${
+  (snapshot.campaigns || [])
+    .slice(0, 20)
+    .map(
+      (c) =>
+        `  ${c.platform} | ${c.name} | spend $${Number(c.spend || 0).toFixed(2)} | ROAS ${Number(c.roas || 0).toFixed(2)}x | CPA $${Number(c.cpa || 0).toFixed(2)} | CTR ${(Number(c.ctr || 0) * 100).toFixed(2)}% | freq ${Number(c.frequency || 0).toFixed(2)} | status ${c.status}`
+    )
+    .join('\n') || '  (none)'
+}
 
 HISTORICAL TRAJECTORY (last 4 weeks blended):
-${(snapshot.trajectory || []).map(t => `  ${t.weekStart}: spend $${Number(t.spend||0).toFixed(0)}, ROAS ${Number(t.roas||0).toFixed(2)}x, CAC $${Number(t.cac||0).toFixed(0)}`).join('\n') || '  (no history)'}
+${(snapshot.trajectory || []).map((t) => `  ${t.weekStart}: spend $${Number(t.spend || 0).toFixed(0)}, ROAS ${Number(t.roas || 0).toFixed(2)}x, CAC $${Number(t.cac || 0).toFixed(0)}`).join('\n') || '  (no history)'}
 
 GOALS FOR THE WEEK: ${snapshot.goals || 'none specified'}
 BUDGET CEILING: $${snapshot.budgetCeiling || 'unlimited'}

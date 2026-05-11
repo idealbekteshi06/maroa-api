@@ -48,6 +48,10 @@
  */
 
 const crypto = require('crypto');
+const oauthCrypto = require('../../lib/oauthCrypto');
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
 
 const META_GRAPH_VERSION = 'v21.0';
 const META_GRAPH_HOST = 'graph.facebook.com';
@@ -65,26 +69,51 @@ const SCOPES = [
   'read_insights',
 ].join(',');
 
-// ─── State token (signed, prevents CSRF + tampering) ──────────────────────
+// ─── State token (signed, prevents CSRF + tampering + account-takeover) ───
+//
+// State binds:
+//   businessId   — the business the OAuth grant will be attached to
+//   userId       — the Supabase auth user who initiated the flow
+//   nonce        — 16-byte random, prevents replay
+//   ts           — timestamp, 30-min expiry
+//   sig          — HMAC of (businessId|userId|nonce|ts)
+//
+// At /start we verify the JWT user OWNS businessId before signing — so the
+// state can't be forged for someone else's business. At /callback we just
+// re-check the HMAC; if it matches, we know the same authenticated user
+// initiated the flow, so token persistence is safe.
 
-function signState({ businessId, ts = Date.now(), secret }) {
-  const payload = `${businessId}:${ts}`;
-  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex').slice(0, 32);
-  return Buffer.from(`${payload}:${sig}`).toString('base64url');
+function signState({ businessId, userId, ts = Date.now(), nonce, secret }) {
+  const n = nonce || crypto.randomBytes(16).toString('hex');
+  const payload = `${businessId}|${userId}|${n}|${ts}`;
+  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+  return Buffer.from(`${payload}|${sig}`).toString('base64url');
 }
 
 function verifyState(stateB64, secret) {
   if (!stateB64) return null;
   let raw;
-  try { raw = Buffer.from(stateB64, 'base64url').toString('utf8'); } catch { return null; }
-  const parts = raw.split(':');
-  if (parts.length !== 3) return null;
-  const [businessId, ts, sig] = parts;
-  const expected = crypto.createHmac('sha256', secret).update(`${businessId}:${ts}`).digest('hex').slice(0, 32);
-  if (sig !== expected) return null;
-  // 30-minute expiry on state tokens
+  try {
+    raw = Buffer.from(stateB64, 'base64url').toString('utf8');
+  } catch {
+    return null;
+  }
+  const parts = raw.split('|');
+  if (parts.length !== 5) return null;
+  const [businessId, userId, nonce, ts, sig] = parts;
+  const expected = crypto.createHmac('sha256', secret).update(`${businessId}|${userId}|${nonce}|${ts}`).digest('hex');
+  let ok = false;
+  try {
+    const a = Buffer.from(sig, 'hex');
+    const b = Buffer.from(expected, 'hex');
+    ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+  } catch {
+    ok = false;
+  }
+  if (!ok) return null;
+  if (!isUuid(businessId) || !isUuid(userId)) return null;
   if (Date.now() - Number(ts) > 30 * 60 * 1000) return null;
-  return { businessId, ts: Number(ts) };
+  return { businessId, userId, nonce, ts: Number(ts) };
 }
 
 // ─── Graph helper ─────────────────────────────────────────────────────────
@@ -143,11 +172,15 @@ async function fetchAccessibleAssets({ accessToken }) {
   // Three parallel calls — ad accounts, pages, IG accounts
   const [adAccountsRes, pagesRes] = await Promise.all([
     graphCall({ path: '/me/adaccounts', accessToken, query: { fields: 'id,account_id,name,currency,timezone_name' } }),
-    graphCall({ path: '/me/accounts', accessToken, query: { fields: 'id,name,access_token,instagram_business_account{id,username}' } }),
+    graphCall({
+      path: '/me/accounts',
+      accessToken,
+      query: { fields: 'id,name,access_token,instagram_business_account{id,username}' },
+    }),
   ]);
 
-  const adAccounts = adAccountsRes.ok ? (adAccountsRes.raw?.data || []) : [];
-  const pages = pagesRes.ok ? (pagesRes.raw?.data || []) : [];
+  const adAccounts = adAccountsRes.ok ? adAccountsRes.raw?.data || [] : [];
+  const pages = pagesRes.ok ? pagesRes.raw?.data || [] : [];
 
   // First page that has an IG business account attached
   const pageWithIg = pages.find((p) => p.instagram_business_account?.id);
@@ -156,7 +189,7 @@ async function fetchAccessibleAssets({ accessToken }) {
   return {
     ad_accounts: adAccounts,
     pages,
-    primary_ad_account: adAccounts[0] || null,    // Customer can override later
+    primary_ad_account: adAccounts[0] || null, // Customer can override later
     primary_page: pageWithIg || fallbackPage || null,
     instagram_business_account: pageWithIg?.instagram_business_account || null,
   };
@@ -164,25 +197,69 @@ async function fetchAccessibleAssets({ accessToken }) {
 
 // ─── Express routes ───────────────────────────────────────────────────────
 
-function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger }) {
+function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger, verifyUserJwt }) {
   const APP_ID = (process.env.META_APP_ID || '').trim();
   const APP_SECRET = (process.env.META_APP_SECRET || '').trim();
-  const REDIRECT_URI = (process.env.META_OAUTH_REDIRECT_URI
-    || 'https://maroa-api-production.up.railway.app/webhook/oauth/meta/callback').trim();
-  const FRONTEND_URL = (process.env.FRONTEND_URL
-    || 'https://maroa-ai-marketing-automator.lovable.app').trim();
+  const REDIRECT_URI = (
+    process.env.META_OAUTH_REDIRECT_URI || 'https://maroa-api-production.up.railway.app/webhook/oauth/meta/callback'
+  ).trim();
+  const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://maroa-ai-marketing-automator.lovable.app').trim();
   const STATE_SECRET = (process.env.N8N_WEBHOOK_SECRET || '').trim();
 
+  // Best-effort ownership check. Verifies the authenticated user is the
+  // owner of `businessId` in the businesses table. Returns true/false.
+  async function userOwnsBusiness(userId, businessId) {
+    if (!isUuid(userId) || !isUuid(businessId)) return false;
+    try {
+      const rows = await sbGet(
+        'businesses',
+        `id=eq.${encodeURIComponent(businessId)}&user_id=eq.${encodeURIComponent(userId)}&select=id&limit=1`
+      );
+      return Array.isArray(rows) && rows.length === 1;
+    } catch {
+      return false;
+    }
+  }
+
+  // Extract JWT from Authorization header OR ?token= query (browser redirects
+  // can't set headers, so the token query-param is the only way to carry
+  // a JWT through Facebook's auth dialog round-trip).
+  function readBearer(req) {
+    const h = (req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+    if (h) return h[1].trim();
+    if (typeof req.query?.token === 'string' && req.query.token.length > 20) return req.query.token.trim();
+    return null;
+  }
+
   // ─── /webhook/oauth/meta/start ────────────────────────────────────────
-  // Customer clicks "Connect Meta" in the dashboard → frontend hits this →
-  // we redirect to Facebook's OAuth dialog.
-  app.get('/webhook/oauth/meta/start', (req, res) => {
+  // Customer clicks "Connect Meta" in the dashboard → frontend hits this with
+  // their Supabase JWT → we verify they own businessId, then redirect to FB.
+  app.get('/webhook/oauth/meta/start', async (req, res) => {
     const businessId = req.query.businessId || req.query.business_id;
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
+    if (!isUuid(businessId)) return apiError(res, 400, 'INVALID_REQUEST', 'businessId must be a valid UUID');
     if (!APP_ID || !APP_SECRET) return apiError(res, 503, 'NOT_CONFIGURED', 'Meta OAuth not configured');
     if (!STATE_SECRET) return apiError(res, 503, 'NOT_CONFIGURED', 'N8N_WEBHOOK_SECRET required for state signing');
+    if (typeof verifyUserJwt !== 'function') return apiError(res, 503, 'NOT_CONFIGURED', 'verifyUserJwt not wired');
 
-    const state = signState({ businessId, secret: STATE_SECRET });
+    // Auth: require a Supabase JWT identifying the user initiating the flow.
+    // Without this the attacker could call /start?businessId=<victim> and
+    // bind their own Meta tokens to a victim's business row.
+    const token = readBearer(req);
+    if (!token) return apiError(res, 401, 'UNAUTHORIZED', 'Bearer token or ?token= required');
+
+    const user = await verifyUserJwt(token).catch(() => null);
+    if (!user?.id) return apiError(res, 401, 'UNAUTHORIZED', 'invalid JWT');
+
+    // Ownership: the authenticated user must actually own businessId before
+    // we issue a state token for them. Anything else is account-takeover.
+    const owns = await userOwnsBusiness(user.id, businessId);
+    if (!owns) {
+      logger?.warn?.('/webhook/oauth/meta/start', businessId, 'auth user does not own business', { user_id: user.id });
+      return apiError(res, 403, 'FORBIDDEN', 'authenticated user does not own this business');
+    }
+
+    const state = signState({ businessId, userId: user.id, secret: STATE_SECRET });
     const params = new URLSearchParams({
       client_id: APP_ID,
       redirect_uri: REDIRECT_URI,
@@ -210,31 +287,59 @@ function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger
 
     try {
       // 1. Code → short token
-      const shortRes = await exchangeCodeForToken({ code, appId: APP_ID, appSecret: APP_SECRET, redirectUri: REDIRECT_URI });
+      const shortRes = await exchangeCodeForToken({
+        code,
+        appId: APP_ID,
+        appSecret: APP_SECRET,
+        redirectUri: REDIRECT_URI,
+      });
       if (!shortRes.ok) {
-        logger?.error?.('/webhook/oauth/meta/callback', businessId, 'short token exchange failed', { reason: shortRes.reason });
-        return res.redirect(302, `${FRONTEND_URL}/integrations?meta=error&reason=${encodeURIComponent(shortRes.reason)}`);
+        logger?.error?.('/webhook/oauth/meta/callback', businessId, 'short token exchange failed', {
+          reason: shortRes.reason,
+        });
+        return res.redirect(
+          302,
+          `${FRONTEND_URL}/integrations?meta=error&reason=${encodeURIComponent(shortRes.reason)}`
+        );
       }
 
       // 2. Short → long-lived (60 days)
-      const longRes = await exchangeShortForLong({ shortToken: shortRes.access_token, appId: APP_ID, appSecret: APP_SECRET });
+      const longRes = await exchangeShortForLong({
+        shortToken: shortRes.access_token,
+        appId: APP_ID,
+        appSecret: APP_SECRET,
+      });
       if (!longRes.ok) {
-        logger?.error?.('/webhook/oauth/meta/callback', businessId, 'long token exchange failed', { reason: longRes.reason });
-        return res.redirect(302, `${FRONTEND_URL}/integrations?meta=error&reason=${encodeURIComponent(longRes.reason)}`);
+        logger?.error?.('/webhook/oauth/meta/callback', businessId, 'long token exchange failed', {
+          reason: longRes.reason,
+        });
+        return res.redirect(
+          302,
+          `${FRONTEND_URL}/integrations?meta=error&reason=${encodeURIComponent(longRes.reason)}`
+        );
       }
 
       // 3. Fetch accessible ad accounts + pages + IG accounts
       const assets = await fetchAccessibleAssets({ accessToken: longRes.access_token });
 
-      // 4. Persist to businesses row
+      // 4. Persist to businesses row.
+      //
+      // Dual-write: encrypted column (preferred) + legacy plaintext column.
+      // Once scripts/encrypt-oauth-tokens.js has backfilled all rows and
+      // every consuming service reads via oauthCrypto.readToken(), migration
+      // 060 will drop the plaintext columns. Until then, plaintext keeps
+      // the existing read paths working.
       const patch = {
-        meta_access_token: longRes.access_token,
+        meta_access_token: longRes.access_token, // legacy plaintext (dropped in 060)
+        ...oauthCrypto.encryptIfEnabled('meta_access_token', longRes.access_token),
         meta_token_expires_at: longRes.expires_in
           ? new Date(Date.now() + longRes.expires_in * 1000).toISOString()
           : null,
-        ad_account_id: assets.primary_ad_account?.account_id || assets.primary_ad_account?.id?.replace(/^act_/, '') || null,
+        ad_account_id:
+          assets.primary_ad_account?.account_id || assets.primary_ad_account?.id?.replace(/^act_/, '') || null,
         facebook_page_id: assets.primary_page?.id || null,
         facebook_page_access_token: assets.primary_page?.access_token || null,
+        ...oauthCrypto.encryptIfEnabled('facebook_page_access_token', assets.primary_page?.access_token),
         instagram_account_id: assets.instagram_business_account?.id || null,
         meta_connected_at: new Date().toISOString(),
       };
@@ -265,7 +370,8 @@ function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger
     const businessId = req.query.businessId || req.query.business_id;
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
     try {
-      const rows = await sbGet('businesses',
+      const rows = await sbGet(
+        'businesses',
         `id=eq.${businessId}&select=meta_access_token,meta_token_expires_at,ad_account_id,facebook_page_id,instagram_account_id,meta_connected_at`
       ).catch(() => []);
       const b = rows?.[0];
@@ -292,9 +398,7 @@ function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger
         instagram_account_id: b.instagram_account_id,
         meta_connected_at: b.meta_connected_at,
         token_expires_at: b.meta_token_expires_at,
-        granted_permissions: (probe.raw?.data || [])
-          .filter((p) => p.status === 'granted')
-          .map((p) => p.permission),
+        granted_permissions: (probe.raw?.data || []).filter((p) => p.status === 'granted').map((p) => p.permission),
       });
     } catch (e) {
       apiError(res, 500, 'META_OAUTH_HEALTH_FAILED', e.message);

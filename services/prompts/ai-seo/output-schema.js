@@ -8,9 +8,14 @@
  */
 
 const VALID_DIMENSIONS = [
-  'schema_markup', 'extractable_answers', 'entity_associations',
-  'llms_txt_presence', 'citation_worthiness', 'structured_tldrs',
-  'anchor_consistency', 'i18n_hreflang',
+  'schema_markup',
+  'extractable_answers',
+  'entity_associations',
+  'llms_txt_presence',
+  'citation_worthiness',
+  'structured_tldrs',
+  'anchor_consistency',
+  'i18n_hreflang',
 ];
 const VALID_READINESS = ['minimal', 'partial', 'strong'];
 const VALID_POTENTIAL = ['low', 'medium', 'high'];
@@ -70,7 +75,8 @@ function validateGenerateOutput(raw) {
   if (raw.llms_full_txt != null && typeof raw.llms_full_txt !== 'string') errors.push('llms_full_txt must be string');
   if (raw.schema_blocks != null && !Array.isArray(raw.schema_blocks)) errors.push('schema_blocks must be array');
   if (raw.page_rewrites != null && !Array.isArray(raw.page_rewrites)) errors.push('page_rewrites must be array');
-  if (raw.internal_link_suggestions != null && !Array.isArray(raw.internal_link_suggestions)) errors.push('internal_link_suggestions must be array');
+  if (raw.internal_link_suggestions != null && !Array.isArray(raw.internal_link_suggestions))
+    errors.push('internal_link_suggestions must be array');
 
   if (errors.length) return { valid: false, errors };
   return {

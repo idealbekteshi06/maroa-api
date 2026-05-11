@@ -92,38 +92,55 @@ Each recommendation must be ACTIONABLE in <2 hours by a small-business owner. Ex
 Return JSON only.`;
 }
 
-function buildUserMessage({ business, marketProfile, normalized, keywordCluster, sentiment, trend, knownCompetitors, plan }) {
+function buildUserMessage({
+  business,
+  marketProfile,
+  normalized,
+  keywordCluster,
+  sentiment,
+  trend,
+  knownCompetitors,
+  plan,
+}) {
   const sample = cl.sampleForLlm(normalized, plan === 'agency' ? 80 : plan === 'growth' ? 50 : 25);
   return [
     `# VOC ANALYSIS REQUEST`,
     ``,
     `## Business`,
     '```json',
-    JSON.stringify({
-      name: business?.business_name,
-      industry: business?.industry,
-      primary_language: marketProfile?.primary_language,
-      country: marketProfile?.country,
-      plan,
-    }, null, 2),
+    JSON.stringify(
+      {
+        name: business?.business_name,
+        industry: business?.industry,
+        primary_language: marketProfile?.primary_language,
+        country: marketProfile?.country,
+        plan,
+      },
+      null,
+      2
+    ),
     '```',
     ``,
     `## Stats (deterministic — quote these)`,
     '```json',
-    JSON.stringify({
-      total_reviews: normalized.length,
-      sample_size_for_analysis: sample.length,
-      sentiment_breakdown: sentiment,
-      sentiment_trend_30d: trend,
-      languages_detected: [...new Set(normalized.map(r => r.lang).filter(Boolean))],
-      top_keywords: keywordCluster.slice(0, 12),
-      sources: {
-        google: normalized.filter(r => r.source === 'google').length,
-        facebook: normalized.filter(r => r.source === 'facebook').length,
-        instagram: normalized.filter(r => r.source === 'instagram').length,
-        email: normalized.filter(r => r.source === 'email').length,
+    JSON.stringify(
+      {
+        total_reviews: normalized.length,
+        sample_size_for_analysis: sample.length,
+        sentiment_breakdown: sentiment,
+        sentiment_trend_30d: trend,
+        languages_detected: [...new Set(normalized.map((r) => r.lang).filter(Boolean))],
+        top_keywords: keywordCluster.slice(0, 12),
+        sources: {
+          google: normalized.filter((r) => r.source === 'google').length,
+          facebook: normalized.filter((r) => r.source === 'facebook').length,
+          instagram: normalized.filter((r) => r.source === 'instagram').length,
+          email: normalized.filter((r) => r.source === 'email').length,
+        },
       },
-    }, null, 2),
+      null,
+      2
+    ),
     '```',
     ``,
     `## Known competitors (mentioned in business profile)`,
@@ -131,13 +148,17 @@ function buildUserMessage({ business, marketProfile, normalized, keywordCluster,
     ``,
     `## Reviews to analyze`,
     '```json',
-    JSON.stringify(sample.map(r => ({
-      source: r.source,
-      rating: r.rating,
-      lang: r.lang,
-      text: r.text,
-      created_at: r.created_at,
-    })), null, 2),
+    JSON.stringify(
+      sample.map((r) => ({
+        source: r.source,
+        rating: r.rating,
+        lang: r.lang,
+        text: r.text,
+        created_at: r.created_at,
+      })),
+      null,
+      2
+    ),
     '```',
     ``,
     `Produce the JSON in language="${marketProfile?.primary_language || 'en'}". Return ONLY JSON. Quotes stay in original language.`,
@@ -161,7 +182,9 @@ function validateOutput(raw) {
       jtbd_signals: Array.isArray(raw.jtbd_signals) ? raw.jtbd_signals : [],
       persona_refinement: raw.persona_refinement || null,
       competitor_mentions: Array.isArray(raw.competitor_mentions) ? raw.competitor_mentions : [],
-      recommendations_for_marketing: Array.isArray(raw.recommendations_for_marketing) ? raw.recommendations_for_marketing : [],
+      recommendations_for_marketing: Array.isArray(raw.recommendations_for_marketing)
+        ? raw.recommendations_for_marketing
+        : [],
       caveats: Array.isArray(raw.caveats) ? raw.caveats : [],
     },
   };
@@ -172,10 +195,15 @@ function validateOutput(raw) {
 async function synthesizeVoc(opts) {
   const {
     business,
-    google, facebook, instagram, email, // raw source arrays
+    google,
+    facebook,
+    instagram,
+    email, // raw source arrays
     plan = 'free',
     knownCompetitors = [],
-    callClaude, extractJSON, logger,
+    callClaude,
+    extractJSON,
+    logger,
   } = opts || {};
 
   if (typeof callClaude !== 'function') throw new Error('synthesizeVoc: callClaude required');
@@ -197,15 +225,18 @@ async function synthesizeVoc(opts) {
   }
 
   const keywordCluster = cl.topKeywords(normalized, 30);
-  const sentimentCounts = normalized.reduce((acc, r) => {
-    const s = cl.sentimentBucket(r.rating, r.text);
-    acc[s] = (acc[s] || 0) + 1;
-    return acc;
-  }, { positive: 0, neutral: 0, negative: 0 });
+  const sentimentCounts = normalized.reduce(
+    (acc, r) => {
+      const s = cl.sentimentBucket(r.rating, r.text);
+      acc[s] = (acc[s] || 0) + 1;
+      return acc;
+    },
+    { positive: 0, neutral: 0, negative: 0 }
+  );
   const sentimentPcts = {
-    positive_pct: Math.round(100 * sentimentCounts.positive / normalized.length),
-    neutral_pct:  Math.round(100 * sentimentCounts.neutral  / normalized.length),
-    negative_pct: Math.round(100 * sentimentCounts.negative / normalized.length),
+    positive_pct: Math.round((100 * sentimentCounts.positive) / normalized.length),
+    neutral_pct: Math.round((100 * sentimentCounts.neutral) / normalized.length),
+    negative_pct: Math.round((100 * sentimentCounts.negative) / normalized.length),
   };
   const trend = cl.trendSentiment(normalized);
   const competitorMentions = cl.detectCompetitorMentions(normalized, knownCompetitors);
@@ -221,7 +252,7 @@ async function synthesizeVoc(opts) {
   };
 
   // Free tier: only run LLM if data is large enough to justify (cost)
-  const skipLlm = (planTier === 'free' && normalized.length < 20);
+  const skipLlm = planTier === 'free' && normalized.length < 20;
 
   if (!skipLlm) {
     try {
@@ -229,9 +260,14 @@ async function synthesizeVoc(opts) {
         callClaude,
         system: buildSystemPrompt(),
         user: buildUserMessage({
-          business, marketProfile,
-          normalized, keywordCluster, sentiment: sentimentPcts, trend,
-          knownCompetitors, plan: planTier,
+          business,
+          marketProfile,
+          normalized,
+          keywordCluster,
+          sentiment: sentimentPcts,
+          trend,
+          knownCompetitors,
+          plan: planTier,
         }),
         executor: 'claude-sonnet-4-5',
         advisor: 'claude-opus-4-7',
@@ -271,7 +307,7 @@ async function synthesizeVoc(opts) {
     },
     total_reviews_analyzed: normalized.length,
     primary_language: marketProfile.primary_language,
-    review_languages_detected: [...new Set(normalized.map(r => r.lang).filter(Boolean))],
+    review_languages_detected: [...new Set(normalized.map((r) => r.lang).filter(Boolean))],
     pain_points: synth.pain_points,
     jtbd_signals: synth.jtbd_signals,
     persona_refinement: synth.persona_refinement,

@@ -13,6 +13,6 @@ module.exports = {
     'Soul 2.0 named preset (Editorial Street Style) instead of free-form "make it stylish"',
     'Specific clothing materials (fitted oat-colored knit, slim olive-green jeans) — not "casual outfit"',
     'Practical-only lighting cue lets the model use what is naturally there',
-    'Vertical 9:16 explicit — Reel/Story format'
-  ]
+    'Vertical 9:16 explicit — Reel/Story format',
+  ],
 };

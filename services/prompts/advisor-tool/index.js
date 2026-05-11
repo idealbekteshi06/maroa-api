@@ -23,7 +23,7 @@
 const ADVISOR_BETA = 'advisor-tool-2026-03-01';
 
 const DEFAULT_EXECUTOR = 'claude-sonnet-4-5';
-const DEFAULT_ADVISOR  = 'claude-opus-4-7';
+const DEFAULT_ADVISOR = 'claude-opus-4-7';
 
 /**
  * Decide whether to use the advisor for a given (task, budget) pair.
@@ -38,10 +38,10 @@ function shouldUseAdvisor({ task = 'audit', budget = 'standard', planTier = 'gro
 
   // Always-on tasks where Opus-level reasoning matters most:
   const advisorTasks = new Set([
-    'audit',         // ad-optimizer / cro / ai-seo audits
-    'strategy',      // creative-director, weekly-scorecard commentary
-    'rewrite',       // hero/CTA rewrites
-    'forecast',      // forecasting engine
+    'audit', // ad-optimizer / cro / ai-seo audits
+    'strategy', // creative-director, weekly-scorecard commentary
+    'rewrite', // hero/CTA rewrites
+    'forecast', // forecasting engine
     'voc-synthesis', // voice-of-customer extraction
   ]);
   return advisorTasks.has(task);
@@ -64,7 +64,7 @@ function shouldUseAdvisor({ task = 'audit', budget = 'standard', planTier = 'gro
  */
 function buildAdvisorOptions({ executor, advisor, mode = 'auto', existingExtraBetas = [] } = {}) {
   const ex = executor || DEFAULT_EXECUTOR;
-  const ad = advisor  || DEFAULT_ADVISOR;
+  const ad = advisor || DEFAULT_ADVISOR;
   return {
     model: ex,
     extraBetas: [ADVISOR_BETA, ...existingExtraBetas],
@@ -86,8 +86,13 @@ function buildAdvisorOptions({ executor, advisor, mode = 'auto', existingExtraBe
 async function callWithAdvisor(opts = {}) {
   const {
     callClaude,
-    system, user,
-    executor, advisor, task, budget, planTier,
+    system,
+    user,
+    executor,
+    advisor,
+    task,
+    budget,
+    planTier,
     extra = {},
     extraBetas = [],
     max_tokens,
@@ -103,21 +108,25 @@ async function callWithAdvisor(opts = {}) {
     ? buildAdvisorOptions({ executor, advisor, existingExtraBetas: extraBetas })
     : { model: executor || DEFAULT_EXECUTOR, extraBetas };
 
-  // Compose extra — keep caller's flags + add advisor metadata
+  // Compose extra in the shape callClaude (server.js:547) expects:
+  //   callClaude(prompt, modelOrTask, maxTokens, { system, extraBetas, ... })
   const composedExtra = {
     ...extra,
+    system,
     extraBetas: opt.extraBetas,
     ...(useAdvisor ? { advisor: opt.advisor } : {}),
     ...(temperature != null ? { temperature } : {}),
+    ...(extra.skill ? { skill: extra.skill } : { skill: task || 'advisor_call' }),
   };
 
-  return callClaude({
-    system,
-    user,
-    model: opt.model,
-    max_tokens,
-    extra: composedExtra,
-  });
+  const result = await callClaude(user, opt.model, max_tokens, composedExtra);
+  // Annotate the return so callers can know whether the advisor was active.
+  // Result is either an object (extractJSON output) or a raw string.
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    result._advisor_invoked = useAdvisor;
+    result._executor_model = opt.model;
+  }
+  return result;
 }
 
 /**
@@ -126,9 +135,9 @@ async function callWithAdvisor(opts = {}) {
  */
 function modelsFor(planTier) {
   const t = String(planTier || 'free').toLowerCase();
-  if (t === 'agency')  return { executor: 'claude-opus-4-7',   advisor: 'claude-opus-4-7'   };
-  if (t === 'growth')  return { executor: 'claude-sonnet-4-5', advisor: 'claude-opus-4-7'   };
-  return                       { executor: 'claude-sonnet-4-5', advisor: null               }; // free
+  if (t === 'agency') return { executor: 'claude-opus-4-7', advisor: 'claude-opus-4-7' };
+  if (t === 'growth') return { executor: 'claude-sonnet-4-5', advisor: 'claude-opus-4-7' };
+  return { executor: 'claude-sonnet-4-5', advisor: null }; // free
 }
 
 module.exports = {

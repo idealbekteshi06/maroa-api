@@ -82,24 +82,32 @@ function buildRewriteUserMessage({ text, business, slopAnalysis }) {
     ``,
     `## Slop analysis (deterministic)`,
     '```json',
-    JSON.stringify({
-      slop_score: slopAnalysis.slop_score,
-      flagged_phrases: slopAnalysis.flagged_phrases,
-      language: slopAnalysis.language,
-    }, null, 2),
+    JSON.stringify(
+      {
+        slop_score: slopAnalysis.slop_score,
+        flagged_phrases: slopAnalysis.flagged_phrases,
+        language: slopAnalysis.language,
+      },
+      null,
+      2
+    ),
     '```',
     ``,
     `## Brand voice (anchor your rewrite to THIS)`,
     '```json',
-    JSON.stringify({
-      business_name: business?.business_name,
-      industry: business?.industry || business?.business_type,
-      audience_description: business?.audience_description,
-      tone_keywords: business?.tone_keywords || [],
-      never_do: business?.never_do,
-      we_do_better: business?.we_do_better,
-      brand_voice_anchor: business?.brand_voice_anchor || null,
-    }, null, 2),
+    JSON.stringify(
+      {
+        business_name: business?.business_name,
+        industry: business?.industry || business?.business_type,
+        audience_description: business?.audience_description,
+        tone_keywords: business?.tone_keywords || [],
+        never_do: business?.never_do,
+        we_do_better: business?.we_do_better,
+        brand_voice_anchor: business?.brand_voice_anchor || null,
+      },
+      null,
+      2
+    ),
     '```',
     ``,
     `Rewrite in language="${slopAnalysis.language}". Preserve every concrete fact. Same length or shorter. Return ONLY the JSON.`,
@@ -113,7 +121,13 @@ function buildRewriteUserMessage({ text, business, slopAnalysis }) {
  */
 function detect(text, lang) {
   if (!text || typeof text !== 'string') {
-    return { slop_score: 0, flagged_phrases: [], specificity_score: 0, should_rewrite: false, language_detected: lang || 'unknown' };
+    return {
+      slop_score: 0,
+      flagged_phrases: [],
+      specificity_score: 0,
+      should_rewrite: false,
+      language_detected: lang || 'unknown',
+    };
   }
   const a = slop.detectSlop(text, lang);
   const spec = slop.specificityScore(text);
@@ -136,7 +150,8 @@ function detect(text, lang) {
 async function rewrite({ text, business, plan = 'free', callClaude, extractJSON, logger }) {
   if (typeof callClaude !== 'function') throw new Error('rewrite: callClaude required');
   if (typeof extractJSON !== 'function') throw new Error('rewrite: extractJSON required');
-  if (!text || typeof text !== 'string') return { polished: text, slop_score_before: 0, slop_score_after: 0, changes_made: [], retries: 0 };
+  if (!text || typeof text !== 'string')
+    return { polished: text, slop_score_before: 0, slop_score_after: 0, changes_made: [], retries: 0 };
 
   // Free tier: deterministic-only, no LLM rewrite (cost protection)
   if (String(plan).toLowerCase() === 'free') {
@@ -186,7 +201,11 @@ async function rewrite({ text, business, plan = 'free', callClaude, extractJSON,
   }
 
   let parsed;
-  try { parsed = extractJSON(raw); } catch { parsed = null; }
+  try {
+    parsed = extractJSON(raw);
+  } catch {
+    parsed = null;
+  }
   if (!parsed || !parsed.polished || typeof parsed.polished !== 'string') {
     return {
       original: text,
@@ -210,7 +229,9 @@ async function rewrite({ text, business, plan = 'free', callClaude, extractJSON,
     try {
       retries = 1;
       const stricter = await callClaude({
-        system: buildRewriteSystemPrompt() + '\n\nNOTE: Previous rewrite did NOT reduce AI-slop. Be more aggressive — this is a critical quality requirement.',
+        system:
+          buildRewriteSystemPrompt() +
+          '\n\nNOTE: Previous rewrite did NOT reduce AI-slop. Be more aggressive — this is a critical quality requirement.',
         user: buildRewriteUserMessage({ text, business, slopAnalysis: slopBefore }),
         model: 'claude-opus-4-7',
         max_tokens: Math.max(400, Math.min(2000, text.length * 2)),
@@ -224,7 +245,9 @@ async function rewrite({ text, business, plan = 'free', callClaude, extractJSON,
           parsed.changes_made = (parsed.changes_made || []).concat(reparsed.changes_made || []);
         }
       }
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
   }
 
   const finalSlop = detect(parsed.polished);
@@ -265,7 +288,16 @@ async function rewrite({ text, business, plan = 'free', callClaude, extractJSON,
  *
  * Other services call this before shipping any customer-facing content.
  */
-async function polish({ text, business, plan, callClaude, extractJSON, logger, includePsychology = false, funnelStage }) {
+async function polish({
+  text,
+  business,
+  plan,
+  callClaude,
+  extractJSON,
+  logger,
+  includePsychology = false,
+  funnelStage,
+}) {
   const detected = detect(text);
   if (!detected.should_rewrite) {
     return {
@@ -315,8 +347,8 @@ function _quickPsychAudit(text, business, funnelStage = 'consideration') {
   });
   return {
     score,
-    principles_applied: detection.applied.map(a => ({ id: a.id, name: a.name })),
-    top_missing: missingFit.slice(0, 3).map(m => ({ id: m.id, name: m.name, example_after: m.example_after })),
+    principles_applied: detection.applied.map((a) => ({ id: a.id, name: a.name })),
+    top_missing: missingFit.slice(0, 3).map((m) => ({ id: m.id, name: m.name, example_after: m.example_after })),
     manipulation_risk: manipulationRisk,
   };
 }

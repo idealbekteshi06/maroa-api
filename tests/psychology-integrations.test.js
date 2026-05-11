@@ -42,7 +42,7 @@ test('quality-gate: psychology threshold=0 for audit_narrative skips check', asy
 
 test('quality-gate: dental scarcity hits manipulation_risk_high → soft block', async () => {
   const r = await qg.gate({
-    text: 'Only 5 implant slots left this month. Don\'t miss out!',
+    text: "Only 5 implant slots left this month. Don't miss out!",
     business: { industry: 'dental', primary_language: 'en' },
     contentType: 'ad_copy',
     plan: 'free', // no callClaude → soft becomes hard
@@ -104,29 +104,31 @@ test('voice-polish: psychology field includes manipulation_risk', async () => {
 
 test('cro: applyPsychology flag triggers enrichment on agency tier', async () => {
   let psychologyApplyCount = 0;
+  // callClaude positional: (prompt, model, maxTokens, extra) where the
+  // system prompt arrives via extra.system.
+  const fakeClaude = async (prompt, model, max, extra = {}) => {
+    const sys = (extra && extra.system) || '';
+    if (sys.includes('psychology copywriter')) {
+      psychologyApplyCount++;
+      return JSON.stringify({
+        rewritten: 'Trusted by 4,200 businesses just like yours.',
+        changes_made: ['Added social proof'],
+        language_preserved: true,
+        facts_preserved: true,
+      });
+    }
+    return JSON.stringify({
+      hero_headline_variants: [{ text: 'Run your business better.', rationale: 'clear' }],
+      hero_subhead_variants: [],
+      primary_cta_variants: [{ text: 'Get started', style: 'action_imperative' }],
+      value_prop_bullets: [],
+    });
+  };
   const r = await cro.rewritePage({
     business: { business_name: 'X', industry: 'saas', primary_language: 'en' },
     plan: 'agency',
     applyPsychology: true,
-    callClaude: async (opts) => {
-      // First call = CRO rewrite, second/third = psychology apply
-      if (opts.system && opts.system.includes('psychology copywriter')) {
-        psychologyApplyCount++;
-        return JSON.stringify({
-          rewritten: 'Trusted by 4,200 businesses just like yours.',
-          changes_made: ['Added social proof'],
-          language_preserved: true,
-          facts_preserved: true,
-        });
-      }
-      // CRO rewrite call
-      return JSON.stringify({
-        hero_headline_variants: [{ text: 'Run your business better.', rationale: 'clear' }],
-        hero_subhead_variants: [],
-        primary_cta_variants: [{ text: 'Get started', style: 'action_imperative' }],
-        value_prop_bullets: [],
-      });
-    },
+    callClaude: fakeClaude,
     extractJSON: JSON.parse,
   });
   assert.ok(psychologyApplyCount >= 1, 'psychology apply should fire on agency tier with flag');
@@ -264,7 +266,10 @@ test('ad-optimizer: auditAdCopyPsychology free tier deterministic-only (no LLM)'
     adCopy: 'Save 30% this week. Trusted by 1,000+ customers.',
     business: { industry: 'retail', primary_language: 'en' },
     plan: 'free',
-    callClaude: async () => { claudeCalled = true; return '{}'; },
+    callClaude: async () => {
+      claudeCalled = true;
+      return '{}';
+    },
     extractJSON: JSON.parse,
   });
   assert.strictEqual(claudeCalled, false, 'free tier should not call LLM for psychology audit');

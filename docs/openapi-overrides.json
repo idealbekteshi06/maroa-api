@@ -1,0 +1,144 @@
+{
+  "$comment": "Hand-curated OpenAPI metadata per route. Keys are 'METHOD /path'. scripts/generate-openapi.js merges these on top of the auto-generated spec on every run. Edit summaries here, not in docs/openapi.yml — that file is auto-generated and your changes will be overwritten.",
+
+  "GET /healthz": {
+    "summary": "Liveness probe",
+    "description": "Returns 200 if the process is alive. Cheap (no dependency checks). Railway / load balancers hit this every few seconds.",
+    "tags": ["health"]
+  },
+  "GET /readyz": {
+    "summary": "Readiness probe (with dependency checks)",
+    "description": "Returns 200 if the server can accept traffic. Probes Supabase + Anthropic + Inngest with a 1500ms total budget. Returns 503 if any critical dep is unhealthy.",
+    "tags": ["health"]
+  },
+  "GET /metrics": {
+    "summary": "Prometheus metrics",
+    "description": "Returns the current process metrics in Prometheus text format (version 0.0.4). Scraped by Datadog / Grafana / Prometheus. No auth — mount behind reverse-proxy auth if exposing publicly.",
+    "tags": ["health"]
+  },
+
+  "POST /webhook/paddle-webhook": {
+    "summary": "Paddle subscription webhook",
+    "description": "Handles subscription lifecycle: activated, updated, canceled, paused, resumed, past_due, trialing. Also transaction.completed + transaction.refunded. Verifies Paddle HMAC signature with 5-minute timestamp tolerance, then dedupes via webhook_events(provider='paddle', event_id) before any side-effect.",
+    "tags": ["payments"]
+  },
+  "POST /webhook/stripe-webhook": {
+    "summary": "Stripe webhook (legacy)",
+    "description": "Legacy Stripe integration kept for in-flight subscriptions. New customers use Paddle. Verifies Stripe signature + dedupes via webhook_events(provider='stripe', event_id).",
+    "tags": ["payments"]
+  },
+
+  "POST /webhook/instant-content": {
+    "summary": "Generate one full week of content on demand",
+    "description": "Used by the dashboard's 'Generate now' button. Fires the full WF1 pipeline + emails the customer when complete (~90 seconds end-to-end). Rate-limited per business. Costs ~$0.30-0.80 in Claude credits per call.",
+    "tags": ["content"]
+  },
+  "POST /webhook/content-generate": {
+    "summary": "Generate single piece of content",
+    "description": "Single concept → image (Higgsfield) → caption + score → save as draft. Mounted with cost-guard middleware. Per-business rate limit.",
+    "tags": ["content"]
+  },
+  "POST /webhook/content-approved": {
+    "summary": "Customer approves a draft → publish",
+    "description": "Marks generated_content.status='approved' and triggers publish pipeline to connected platforms. Customer triggers this from the approval email link or the dashboard.",
+    "tags": ["content"]
+  },
+
+  "POST /webhook/ad-optimizer-daily-audit": {
+    "summary": "Daily ad audit + decision engine",
+    "description": "Cron-only endpoint hit by Inngest at 08:00 UTC. Audits every active campaign and applies scale/pause/keep/optimize/refresh_creative decisions. dryRun=true returns the audit without applying. See services/ad-optimizer/ and docs/adr/0003.",
+    "tags": ["ads"]
+  },
+  "POST /webhook/pacing-alerts-evaluate-all": {
+    "summary": "Pacing alerts (every 4 hours)",
+    "description": "Evaluates ad-spend pacing per campaign and fires alerts when projected month-end spend deviates >25% from the customer's daily_budget * 30 target.",
+    "tags": ["ads"]
+  },
+
+  "POST /webhook/weekly-scorecard-all": {
+    "summary": "Sunday weekly scorecard",
+    "description": "Generates the weekly scorecard for every active business: HTML email + Claude narrative commentary (Growth/Agency tier) routed through quality-gate. Free tier: plain numbers, no LLM. See services/weekly-scorecard/.",
+    "tags": ["reports"]
+  },
+
+  "GET /webhook/oauth/meta/start": {
+    "summary": "Start Meta OAuth flow",
+    "description": "Requires Supabase JWT (Authorization header OR ?token= for browser redirects). Verifies the authenticated user owns businessId via the businesses table before issuing a signed state token. State binds businessId + userId + nonce + timestamp. Redirects to Facebook consent screen. See ADR-0002.",
+    "tags": ["oauth"]
+  },
+  "GET /webhook/oauth/meta/callback": {
+    "summary": "Meta OAuth callback",
+    "description": "Verifies signed state, exchanges code → short-lived → long-lived 60d token, fetches accessible ad accounts + pages + IG accounts, persists tokens (encrypted at rest via lib/oauthCrypto).",
+    "tags": ["oauth"]
+  },
+  "GET /webhook/oauth/google/start": {
+    "summary": "Start Google OAuth flow",
+    "description": "Same auth model as Meta start. Requests adwords + userinfo scopes with access_type=offline + prompt=consent to guarantee a refresh_token.",
+    "tags": ["oauth"]
+  },
+  "GET /webhook/oauth/google/callback": {
+    "summary": "Google OAuth callback",
+    "description": "Exchanges code → refresh_token (long-lived). Lists accessible Google Ads customer IDs. Persists encrypted token + primary customer ID.",
+    "tags": ["oauth"]
+  },
+
+  "POST /webhook/meta-deauthorize": {
+    "summary": "Meta App revoke callback (required by Meta)",
+    "description": "Meta calls this when a user revokes our App. Verifies signed_request HMAC, logs the event, returns confirmation URL. See routes/meta-compliance.js.",
+    "tags": ["compliance"]
+  },
+  "POST /webhook/meta-data-deletion": {
+    "summary": "GDPR data-deletion request from Meta (required)",
+    "description": "Mandatory per Meta Platform Terms. Verifies HMAC, creates data_deletion_requests row, emails admin (30-day SLA), returns confirmation URL.",
+    "tags": ["compliance"]
+  },
+  "POST /webhook/data-deletion-request": {
+    "summary": "User-initiated GDPR/CCPA data deletion request",
+    "description": "Customer or non-customer can request data deletion. Rate-limited to prevent abuse. Creates pending row in data_deletion_requests, emails admin, emails requester with confirmation.",
+    "tags": ["compliance"]
+  },
+  "GET /api/data-deletion-status": {
+    "summary": "Public status check for a deletion request",
+    "description": "Returns status (pending|complete|not_found) for a confirmation code. No auth — the code itself is the auth.",
+    "tags": ["compliance"]
+  },
+
+  "POST /api/checkout": {
+    "summary": "Create Paddle checkout session",
+    "description": "Creates a Paddle Transaction for the requested plan and returns the checkout_url + transaction_id. Frontend opens checkout_url in a Paddle modal.",
+    "tags": ["billing"]
+  },
+  "GET /api/billing/plans": {
+    "summary": "List available plans + prices",
+    "description": "Returns the plan tier definitions (free / starter / growth / agency) with prices, features, and feature-gate caps. Used by the pricing page + upgrade prompts.",
+    "tags": ["billing"]
+  },
+
+  "POST /api/onboarding/save": {
+    "summary": "Save onboarding profile",
+    "description": "Customer fills the onboarding form → this endpoint upserts business_profiles, syncs core fields to businesses, computes profile_score (0-100), stashes the profile in Pinecone for retrieval. Returns profile_score + missing_fields list.",
+    "tags": ["onboarding"]
+  },
+  "GET /api/onboarding/profile/:userId": {
+    "summary": "Fetch onboarding profile",
+    "description": "Returns the merged businesses + business_profiles row. Used by the dashboard's profile editor.",
+    "tags": ["onboarding"]
+  },
+
+  "POST /webhook/cost-report": {
+    "summary": "Aggregated LLM cost report",
+    "description": "Returns per-business + per-skill + per-model spend totals for the requested window. Auth via x-webhook-secret. See services/observability/cost-tracker.js.",
+    "tags": ["ops"]
+  },
+  "POST /webhook/cold-start-trigger": {
+    "summary": "Cold-start onboarding orchestrator",
+    "description": "Auto-fired on first paid Paddle activation. Walks the customer through industry-classify → competitor-detect → brand-voice → Soul ID → concepts → campaign launch → content → AI-SEO. See services/cold-start/.",
+    "tags": ["onboarding"]
+  },
+
+  "POST /webhook/wf-content-performance-feedback": {
+    "summary": "24h-after-publish performance scorer",
+    "description": "Inngest target — fired 24h after publish by contentPublishFeedback24h. Pulls live Meta post insights, scores the content, and stashes high-performing captions in Pinecone for retrieval. See services/inngest/.",
+    "tags": ["content"]
+  }
+}

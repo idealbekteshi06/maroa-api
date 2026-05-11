@@ -49,7 +49,11 @@ function rawHttp(method, urlStr, headers, body, timeoutMs = 120000) {
       res.on('end', () => {
         const txt = Buffer.concat(chunks).toString('utf8');
         let parsed = txt;
-        try { parsed = JSON.parse(txt); } catch { /* keep raw */ }
+        try {
+          parsed = JSON.parse(txt);
+        } catch {
+          /* keep raw */
+        }
         resolve({ status: res.statusCode, body: parsed, raw: txt });
       });
     });
@@ -93,21 +97,18 @@ function createManagedAgentService({ apiKey, logger, http }) {
       );
       const agents = list.body?.data || list.body?.agents || [];
       if (agents[0]) return agents[0];
-    } catch { /* continue to create */ }
+    } catch {
+      /* continue to create */
+    }
 
-    const r = await _http(
-      'POST',
-      `${ANTHROPIC_API_BASE}${AGENTS_BASE}/agents`,
-      headers(),
-      {
-        external_id: externalId,
-        name: name || externalId,
-        instructions,
-        tools,
-        model,
-        metadata,
-      }
-    );
+    const r = await _http('POST', `${ANTHROPIC_API_BASE}${AGENTS_BASE}/agents`, headers(), {
+      external_id: externalId,
+      name: name || externalId,
+      instructions,
+      tools,
+      model,
+      metadata,
+    });
     if (r.status < 200 || r.status >= 300) {
       logger?.warn('managed-agent', null, 'create agent failed', { status: r.status, body: r.raw?.slice?.(0, 400) });
       throw new Error(`ensureAgent HTTP ${r.status}`);
@@ -139,38 +140,43 @@ function createManagedAgentService({ apiKey, logger, http }) {
     // SSE streaming path
     return new Promise((resolve, reject) => {
       const u = new URL(`${ANTHROPIC_API_BASE}${AGENTS_BASE}/agents/${encodeURIComponent(agentId)}/sessions`);
-      const req = https.request({
-        method: 'POST',
-        hostname: u.hostname,
-        port: u.port || 443,
-        path: u.pathname,
-        headers: { ...headers(), Accept: 'text/event-stream' },
-      }, (res) => {
-        if (res.statusCode < 200 || res.statusCode >= 300) {
-          let errBody = '';
-          res.on('data', (c) => errBody += c.toString('utf8'));
-          res.on('end', () => reject(new Error(`runSession SSE HTTP ${res.statusCode}: ${errBody.slice(0, 200)}`)));
-          return;
-        }
-        let buffer = '';
-        let lastSession = null;
-        res.on('data', (c) => {
-          buffer += c.toString('utf8');
-          const lines = buffer.split('\n\n');
-          buffer = lines.pop() || '';
-          for (const block of lines) {
-            const dataLine = block.split('\n').find((l) => l.startsWith('data: '));
-            if (!dataLine) continue;
-            try {
-              const evt = JSON.parse(dataLine.slice(6));
-              if (evt?.session_id) lastSession = evt;
-              if (typeof onEvent === 'function') onEvent(evt);
-            } catch { /* ignore parse errors */ }
+      const req = https.request(
+        {
+          method: 'POST',
+          hostname: u.hostname,
+          port: u.port || 443,
+          path: u.pathname,
+          headers: { ...headers(), Accept: 'text/event-stream' },
+        },
+        (res) => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            let errBody = '';
+            res.on('data', (c) => (errBody += c.toString('utf8')));
+            res.on('end', () => reject(new Error(`runSession SSE HTTP ${res.statusCode}: ${errBody.slice(0, 200)}`)));
+            return;
           }
-        });
-        res.on('end', () => resolve(lastSession || { stream_complete: true }));
-        res.on('error', reject);
-      });
+          let buffer = '';
+          let lastSession = null;
+          res.on('data', (c) => {
+            buffer += c.toString('utf8');
+            const lines = buffer.split('\n\n');
+            buffer = lines.pop() || '';
+            for (const block of lines) {
+              const dataLine = block.split('\n').find((l) => l.startsWith('data: '));
+              if (!dataLine) continue;
+              try {
+                const evt = JSON.parse(dataLine.slice(6));
+                if (evt?.session_id) lastSession = evt;
+                if (typeof onEvent === 'function') onEvent(evt);
+              } catch {
+                /* ignore parse errors */
+              }
+            }
+          });
+          res.on('end', () => resolve(lastSession || { stream_complete: true }));
+          res.on('error', reject);
+        }
+      );
       req.on('error', reject);
       req.write(JSON.stringify({ ...payload, stream: true }));
       req.end();

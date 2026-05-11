@@ -59,7 +59,7 @@ function resolveMode(plan, override) {
 function sliceFindings(findings, mode) {
   if (!Array.isArray(findings)) return [];
   const m = String(mode || 'standard').toLowerCase();
-  if (m === 'quick')    return findings.slice(0, 3);
+  if (m === 'quick') return findings.slice(0, 3);
   if (m === 'standard') return findings.slice(0, 12);
   return findings.slice();
 }
@@ -71,11 +71,11 @@ function sliceFindings(findings, mode) {
 function tokenBudgetFor(mode, kind = 'audit') {
   const m = String(mode || 'standard').toLowerCase();
   if (kind === 'generate' || kind === 'rewrite') {
-    if (m === 'deep')     return 6000;
+    if (m === 'deep') return 6000;
     if (m === 'standard') return 2500;
     return 1000;
   }
-  if (m === 'deep')     return 4000;
+  if (m === 'deep') return 4000;
   if (m === 'standard') return 2200;
   return 700;
 }
@@ -84,9 +84,7 @@ function tokenBudgetFor(mode, kind = 'audit') {
  * Pick the model for the mode.
  */
 function modelFor(mode) {
-  return String(mode || 'standard').toLowerCase() === 'deep'
-    ? 'claude-opus-4-7'
-    : 'claude-sonnet-4-5';
+  return String(mode || 'standard').toLowerCase() === 'deep' ? 'claude-opus-4-7' : 'claude-sonnet-4-5';
 }
 
 function shouldUseParallelAgents(mode) {
@@ -141,9 +139,9 @@ function buildExecutionConfig({ plan, override, kind = 'audit' }) {
 function isModeAllowedForPlan(plan, requestedMode) {
   const p = String(plan || 'free').toLowerCase();
   const m = String(requestedMode || 'quick').toLowerCase();
-  if (p === 'free'   && m === 'deep')     return false;
-  if (p === 'free'   && m === 'standard') return false;
-  if (p === 'growth' && m === 'deep')     return false;
+  if (p === 'free' && m === 'deep') return false;
+  if (p === 'free' && m === 'standard') return false;
+  if (p === 'growth' && m === 'deep') return false;
   return true;
 }
 

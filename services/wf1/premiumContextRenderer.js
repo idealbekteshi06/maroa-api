@@ -16,10 +16,10 @@
  */
 
 function renderPremiumBrandContext(ctx) {
-  const safe = (v) => (v === undefined || v === null || v === '') ? null : String(v);
-  const safeArr = (v) => Array.isArray(v) && v.length ? v : null;
-  const wrap = (tag, value) => value !== null ? `<${tag}>${value}</${tag}>` : '';
-  const wrapList = (tag, arr) => arr ? `<${tag}>${arr.join(', ')}</${tag}>` : '';
+  const safe = (v) => (v === undefined || v === null || v === '' ? null : String(v));
+  const safeArr = (v) => (Array.isArray(v) && v.length ? v : null);
+  const wrap = (tag, value) => (value !== null ? `<${tag}>${value}</${tag}>` : '');
+  const wrapList = (tag, arr) => (arr ? `<${tag}>${arr.join(', ')}</${tag}>` : '');
 
   const sections = [];
 
@@ -34,7 +34,9 @@ function renderPremiumBrandContext(ctx) {
     wrap('website', safe(ctx.websiteUrl)),
     wrap('marketing_stage', safe(ctx.marketingStage)),
     wrap('narrative_arc', safe(ctx.narrativeArc)),
-  ].filter(Boolean).join('\n  ');
+  ]
+    .filter(Boolean)
+    .join('\n  ');
   if (identityParts) sections.push(`<brand_identity>\n  ${identityParts}\n</brand_identity>`);
 
   // ═══ POSITIONING ═══
@@ -43,7 +45,9 @@ function renderPremiumBrandContext(ctx) {
     wrap('we_do_better_than_competitors', safe(ctx.weDoBetter)),
     wrap('competitors_advantage_over_us', safe(ctx.theyDoBetter)),
     wrap('current_offer', safe(ctx.currentOffer)),
-  ].filter(Boolean).join('\n  ');
+  ]
+    .filter(Boolean)
+    .join('\n  ');
   if (positioningParts) sections.push(`<positioning>\n  ${positioningParts}\n</positioning>`);
 
   // ═══ VOICE ═══
@@ -51,7 +55,9 @@ function renderPremiumBrandContext(ctx) {
     wrap('tone', safe(ctx.brandVoice?.tone)),
     wrapList('preferred_vocabulary', safeArr(ctx.brandVoice?.vocabulary)),
     wrapList('banned_words_strict_never_use', safeArr(ctx.bannedWords)),
-  ].filter(Boolean).join('\n  ');
+  ]
+    .filter(Boolean)
+    .join('\n  ');
   if (voiceParts) sections.push(`<voice>\n  ${voiceParts}\n</voice>`);
 
   // ═══ AUDIENCE ═══
@@ -76,14 +82,18 @@ function renderPremiumBrandContext(ctx) {
   }
   // Personas from the original brandContext
   if (ctx.audience?.personas?.length) {
-    const personaXML = ctx.audience.personas.map(p => {
-      const parts = [
-        `<name>${p.name}</name>`,
-        `<jtbd>${p.jtbd}</jtbd>`,
-        p.painPoints?.length ? `<pain_points>${p.painPoints.join('; ')}</pain_points>` : '',
-      ].filter(Boolean).join(' ');
-      return `  <persona>${parts}</persona>`;
-    }).join('\n');
+    const personaXML = ctx.audience.personas
+      .map((p) => {
+        const parts = [
+          `<name>${p.name}</name>`,
+          `<jtbd>${p.jtbd}</jtbd>`,
+          p.painPoints?.length ? `<pain_points>${p.painPoints.join('; ')}</pain_points>` : '',
+        ]
+          .filter(Boolean)
+          .join(' ');
+        return `  <persona>${parts}</persona>`;
+      })
+      .join('\n');
     audienceParts.push(personaXML);
   }
   if (audienceParts.length) sections.push(`<audience>\n  ${audienceParts.join('\n  ')}\n</audience>`);
@@ -91,14 +101,18 @@ function renderPremiumBrandContext(ctx) {
   // ═══ COMPETITIVE LANDSCAPE ═══
   const compParts = [];
   if (Array.isArray(ctx.competitors) && ctx.competitors.length) {
-    const compXML = ctx.competitors.map(c => {
-      const parts = [
-        c.name ? `<name>${c.name}</name>` : '',
-        c.website ? `<website>${c.website}</website>` : '',
-        c.position ? `<position>${c.position}</position>` : '',
-      ].filter(Boolean).join(' ');
-      return `  <competitor>${parts}</competitor>`;
-    }).join('\n');
+    const compXML = ctx.competitors
+      .map((c) => {
+        const parts = [
+          c.name ? `<name>${c.name}</name>` : '',
+          c.website ? `<website>${c.website}</website>` : '',
+          c.position ? `<position>${c.position}</position>` : '',
+        ]
+          .filter(Boolean)
+          .join(' ');
+        return `  <competitor>${parts}</competitor>`;
+      })
+      .join('\n');
     compParts.push(compXML);
   }
   if (ctx.theyDoBetter) compParts.push(`  <what_they_do_better>${ctx.theyDoBetter}</what_they_do_better>`);
@@ -107,10 +121,13 @@ function renderPremiumBrandContext(ctx) {
 
   // ═══ PRODUCTS & OFFERS ═══
   if (safeArr(ctx.products)) {
-    const prodXML = ctx.products.slice(0, 10).map(p => {
-      if (typeof p === 'string') return `  <product>${p}</product>`;
-      return `  <product><name>${p.name || p.title || 'Product'}</name>${p.price ? ` <price>${p.price}</price>` : ''}${p.description ? ` <description>${String(p.description).slice(0, 200)}</description>` : ''}</product>`;
-    }).join('\n');
+    const prodXML = ctx.products
+      .slice(0, 10)
+      .map((p) => {
+        if (typeof p === 'string') return `  <product>${p}</product>`;
+        return `  <product><name>${p.name || p.title || 'Product'}</name>${p.price ? ` <price>${p.price}</price>` : ''}${p.description ? ` <description>${String(p.description).slice(0, 200)}</description>` : ''}</product>`;
+      })
+      .join('\n');
     sections.push(`<products>\n${prodXML}\n</products>`);
   }
 
@@ -126,25 +143,34 @@ function renderPremiumBrandContext(ctx) {
   // ═══ STRATEGY ═══
   const stratParts = [];
   if (ctx.primaryMarketingGoal) stratParts.push(`<primary_goal>${ctx.primaryMarketingGoal}</primary_goal>`);
-  if (safeArr(ctx.marketingChallenges)) stratParts.push(`<active_challenges>${ctx.marketingChallenges.join('; ')}</active_challenges>`);
+  if (safeArr(ctx.marketingChallenges))
+    stratParts.push(`<active_challenges>${ctx.marketingChallenges.join('; ')}</active_challenges>`);
   if (ctx.adsExperience) stratParts.push(`<ads_experience>${ctx.adsExperience}</ads_experience>`);
-  if (safeArr(ctx.activePlatforms)) stratParts.push(`<active_platforms>${ctx.activePlatforms.join(', ')}</active_platforms>`);
-  if (ctx.postingFrequency && ctx.postingFrequency !== 'auto') stratParts.push(`<posting_preference>${ctx.postingFrequency}</posting_preference>`);
+  if (safeArr(ctx.activePlatforms))
+    stratParts.push(`<active_platforms>${ctx.activePlatforms.join(', ')}</active_platforms>`);
+  if (ctx.postingFrequency && ctx.postingFrequency !== 'auto')
+    stratParts.push(`<posting_preference>${ctx.postingFrequency}</posting_preference>`);
   if (safeArr(ctx.primaryMarkets)) stratParts.push(`<markets>${ctx.primaryMarkets.join(', ')}</markets>`);
   if (safeArr(ctx.primaryLanguages)) stratParts.push(`<languages>${ctx.primaryLanguages.join(', ')}</languages>`);
   if (ctx.seasonal && ctx.seasonal !== 'year_round') {
-    stratParts.push(`<seasonality>${ctx.seasonal}${safeArr(ctx.busyMonths) ? ` (busy: ${ctx.busyMonths.join(', ')})` : ''}</seasonality>`);
+    stratParts.push(
+      `<seasonality>${ctx.seasonal}${safeArr(ctx.busyMonths) ? ` (busy: ${ctx.busyMonths.join(', ')})` : ''}</seasonality>`
+    );
   }
   if (safeArr(ctx.contentPillars)) {
-    stratParts.push(`<content_pillars>${ctx.contentPillars.map(p => `${p.name} (${p.allocation}%)`).join(' | ')}</content_pillars>`);
+    stratParts.push(
+      `<content_pillars>${ctx.contentPillars.map((p) => `${p.name} (${p.allocation}%)`).join(' | ')}</content_pillars>`
+    );
   }
   if (stratParts.length) sections.push(`<strategic_context>\n  ${stratParts.join('\n  ')}\n</strategic_context>`);
 
   // ═══ PERFORMANCE MEMORY ═══
   if (ctx.bestPerformingThemes || ctx.worstPerformingThemes) {
     const perfParts = [];
-    if (safeArr(ctx.bestPerformingThemes)) perfParts.push(`<winning_themes>${ctx.bestPerformingThemes.join(', ')}</winning_themes>`);
-    if (safeArr(ctx.worstPerformingThemes)) perfParts.push(`<anti_themes>${ctx.worstPerformingThemes.join(', ')}</anti_themes>`);
+    if (safeArr(ctx.bestPerformingThemes))
+      perfParts.push(`<winning_themes>${ctx.bestPerformingThemes.join(', ')}</winning_themes>`);
+    if (safeArr(ctx.worstPerformingThemes))
+      perfParts.push(`<anti_themes>${ctx.worstPerformingThemes.join(', ')}</anti_themes>`);
     if (perfParts.length) sections.push(`<performance_memory>\n  ${perfParts.join('\n  ')}\n</performance_memory>`);
   }
 

@@ -60,7 +60,9 @@ Genre lead-with priority: ${genre.leadWith}
 ${genre.note ? `Genre note: ${genre.note}` : ''}
 
 PER-GENRE SIGNATURE for ${genreName} — use these as the genre_fit checklist:
-${genreSignatureFor(genreName).map((s) => `  - ${s}`).join('\n')}
+${genreSignatureFor(genreName)
+  .map((s) => `  - ${s}`)
+  .join('\n')}
 
 EXPECTED JSON OUTPUT:
 {
@@ -96,18 +98,97 @@ EXPECTED JSON OUTPUT:
 
 function genreSignatureFor(genreName) {
   const sigs = {
-    food_beverage: ['Single named light source (window or softbox), side-lit ideal', 'Surface visible (concrete, oak, marble, linen)', 'Macro or close-distance to subject', 'No people OR hand-only', 'Steam / pour / drip / condensation if applicable', 'Clean uncluttered background'],
-    product_ecommerce: ['Product centered or rule-of-thirds', 'Clean named surface', 'Single dominant light source', 'No competing subjects', 'Crop survives all 3 aspects', 'No visible third-party brand'],
-    lifestyle_social: ['Candid moment, not posed', 'Available light or window light', 'Hands / partial subject in frame OK', 'Real environment with depth', 'Vertical-friendly composition', 'Soft genuineness markers (slight imperfection, real texture)'],
-    testimonial_ugc: ['Eye-level, person-forward', 'Face visible, catchlight in eyes', 'Real environment / context behind', 'Available light', 'Slight imperfection (wins, doesn\'t fail)', 'Copy-safe space top-left or top-right'],
-    service_business: ['Subject at work (hands on tools, action mid-flow)', 'Documentary realism (not staged)', 'Practical work-site lighting', 'Tools visible / context legible', 'Trust signals (uniform, branded vehicle, certifications)', 'Hand or technician visible mid-task'],
-    b2b_saas: ['Workspace / desk / screen-on-desk', 'Founder portrait OR product moment (laptop glow at blue hour, dashboard chart visible)', 'Window or overhead practical light', 'Composed, copy-safe space', 'Color palette restrained', 'No clutter'],
-    location_establishing: ['Layered depth (foreground + midground + background)', 'Time-of-day specific (golden / blue hour preferred)', 'Storefront / building / interior recognizable', 'Headroom for sky or copy overlay', 'Leading lines toward primary subject (door, sign)'],
-    fashion_editorial: ['Editorial framing (intentional asymmetry, negative space)', 'Single intentional light source (hard or soft, picked deliberately)', 'Subject styled with intent', 'Restrained color palette OR confident maximal one', 'Pose has confidence'],
-    founder_intro: ['Person eye-level, comfortable posture', 'Real workspace / context behind', 'Window or available light', 'Catchlight in eyes', 'Hands visible (gesturing, holding tool of trade)', 'Slight off-axis to camera (not stiff portrait)'],
-    before_after: ['Both halves controllable for the same camera position', 'Same lighting on both halves', 'Same subject placement', 'Difference is dramatic enough to read at thumbnail', 'Match cut survives in 1:1 and 9:16'],
-    seasonal_holiday: ['Season cue subtle, not gaudy (one named element, not five)', 'Practical light from named source (fairy lights, candles, fireplace)', 'Warm or cool palette consistent with season', 'Subject still primary (the season is texture, not subject)'],
-    commercial_brand: ['Polished hero composition', 'Single dominant motivated light source', 'On-brand palette restraint', 'Copy-safe negative space', 'No clutter', 'Sharp focus on subject']
+    food_beverage: [
+      'Single named light source (window or softbox), side-lit ideal',
+      'Surface visible (concrete, oak, marble, linen)',
+      'Macro or close-distance to subject',
+      'No people OR hand-only',
+      'Steam / pour / drip / condensation if applicable',
+      'Clean uncluttered background',
+    ],
+    product_ecommerce: [
+      'Product centered or rule-of-thirds',
+      'Clean named surface',
+      'Single dominant light source',
+      'No competing subjects',
+      'Crop survives all 3 aspects',
+      'No visible third-party brand',
+    ],
+    lifestyle_social: [
+      'Candid moment, not posed',
+      'Available light or window light',
+      'Hands / partial subject in frame OK',
+      'Real environment with depth',
+      'Vertical-friendly composition',
+      'Soft genuineness markers (slight imperfection, real texture)',
+    ],
+    testimonial_ugc: [
+      'Eye-level, person-forward',
+      'Face visible, catchlight in eyes',
+      'Real environment / context behind',
+      'Available light',
+      "Slight imperfection (wins, doesn't fail)",
+      'Copy-safe space top-left or top-right',
+    ],
+    service_business: [
+      'Subject at work (hands on tools, action mid-flow)',
+      'Documentary realism (not staged)',
+      'Practical work-site lighting',
+      'Tools visible / context legible',
+      'Trust signals (uniform, branded vehicle, certifications)',
+      'Hand or technician visible mid-task',
+    ],
+    b2b_saas: [
+      'Workspace / desk / screen-on-desk',
+      'Founder portrait OR product moment (laptop glow at blue hour, dashboard chart visible)',
+      'Window or overhead practical light',
+      'Composed, copy-safe space',
+      'Color palette restrained',
+      'No clutter',
+    ],
+    location_establishing: [
+      'Layered depth (foreground + midground + background)',
+      'Time-of-day specific (golden / blue hour preferred)',
+      'Storefront / building / interior recognizable',
+      'Headroom for sky or copy overlay',
+      'Leading lines toward primary subject (door, sign)',
+    ],
+    fashion_editorial: [
+      'Editorial framing (intentional asymmetry, negative space)',
+      'Single intentional light source (hard or soft, picked deliberately)',
+      'Subject styled with intent',
+      'Restrained color palette OR confident maximal one',
+      'Pose has confidence',
+    ],
+    founder_intro: [
+      'Person eye-level, comfortable posture',
+      'Real workspace / context behind',
+      'Window or available light',
+      'Catchlight in eyes',
+      'Hands visible (gesturing, holding tool of trade)',
+      'Slight off-axis to camera (not stiff portrait)',
+    ],
+    before_after: [
+      'Both halves controllable for the same camera position',
+      'Same lighting on both halves',
+      'Same subject placement',
+      'Difference is dramatic enough to read at thumbnail',
+      'Match cut survives in 1:1 and 9:16',
+    ],
+    seasonal_holiday: [
+      'Season cue subtle, not gaudy (one named element, not five)',
+      'Practical light from named source (fairy lights, candles, fireplace)',
+      'Warm or cool palette consistent with season',
+      'Subject still primary (the season is texture, not subject)',
+    ],
+    commercial_brand: [
+      'Polished hero composition',
+      'Single dominant motivated light source',
+      'On-brand palette restraint',
+      'Copy-safe negative space',
+      'No clutter',
+      'Sharp focus on subject',
+    ],
   };
   return sigs[genreName] || sigs.product_ecommerce;
 }

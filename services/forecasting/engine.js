@@ -13,7 +13,7 @@ const forecasting = require('../prompts/forecasting');
 function createEngine(deps) {
   const { sbGet, sbPost, sbPatch, callClaude, extractJSON, logger, Sentry } = deps;
   if (!sbGet || !sbPost || !sbPatch) throw new Error('forecasting engine: sbGet/sbPost/sbPatch required');
-  if (!callClaude || !extractJSON)     throw new Error('forecasting engine: callClaude + extractJSON required');
+  if (!callClaude || !extractJSON) throw new Error('forecasting engine: callClaude + extractJSON required');
 
   async function forecast({ businessId, horizonDays }) {
     const tx = Sentry?.startTransaction?.({ name: 'forecasting.forecast' });
@@ -22,19 +22,23 @@ function createEngine(deps) {
       const [bizRows, profileRows, history, orders] = await Promise.all([
         sbGet('businesses', `id=eq.${businessId}&select=*`).catch(() => []),
         sbGet('business_profiles', `user_id=eq.${businessId}&select=*`).catch(() => []),
-        sbGet('ad_performance_logs',
+        sbGet(
+          'ad_performance_logs',
           `business_id=eq.${businessId}&logged_at=gte.${since60}&order=logged_at.asc&select=*`
         ).catch(() => []),
         // Orders table optional — may not exist on all setups
-        sbGet('orders', `business_id=eq.${businessId}&select=customer_id,amount,ordered_at&order=ordered_at.desc&limit=500`).catch(() => []),
+        sbGet(
+          'orders',
+          `business_id=eq.${businessId}&select=customer_id,amount,ordered_at&order=ordered_at.desc&limit=500`
+        ).catch(() => []),
       ]);
       const business = { ...(bizRows[0] || {}), ...(profileRows[0] || {}) };
       if (!business?.id && !business?.user_id) throw new Error(`business ${businessId} not found`);
 
       // Per-channel breakdown (Maroa runs Meta primarily, but architecture is multi-channel ready)
       const channelHistory = {};
-      const metaRows = history.filter(r => !r.platform || r.platform === 'meta' || r.platform === 'facebook');
-      const googleRows = history.filter(r => r.platform === 'google');
+      const metaRows = history.filter((r) => !r.platform || r.platform === 'meta' || r.platform === 'facebook');
+      const googleRows = history.filter((r) => r.platform === 'google');
       if (metaRows.length) channelHistory.meta = metaRows;
       if (googleRows.length) channelHistory.google = googleRows;
 

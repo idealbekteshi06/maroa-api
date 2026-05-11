@@ -78,15 +78,17 @@ function _emit(level, mod, msg, ctx = {}) {
         data: ctx,
       });
     }
-  } catch { /* best-effort */ }
+  } catch {
+    /* best-effort */
+  }
 }
 
 function makeLogger(mod) {
   if (!mod || typeof mod !== 'string') mod = 'unknown';
   return {
     debug: (msg, ctx) => _emit('debug', mod, msg, ctx),
-    info:  (msg, ctx) => _emit('info',  mod, msg, ctx),
-    warn:  (msg, ctx) => _emit('warn',  mod, msg, ctx),
+    info: (msg, ctx) => _emit('info', mod, msg, ctx),
+    warn: (msg, ctx) => _emit('warn', mod, msg, ctx),
     error: (msg, ctx) => _emit('error', mod, msg, ctx),
     /**
      * Track cost of an LLM call. Records cost_usd in metrics + log line.
@@ -113,7 +115,7 @@ function makeLogger(mod) {
      * legacy code that passed positional args.
      */
     legacy: (oldMod, businessId, msg, ctx) => {
-      const realCtx = ctx instanceof Error ? { error: ctx } : (ctx || {});
+      const realCtx = ctx instanceof Error ? { error: ctx } : ctx || {};
       _emit('info', oldMod || mod, msg || '', { businessId, ...realCtx });
     },
   };

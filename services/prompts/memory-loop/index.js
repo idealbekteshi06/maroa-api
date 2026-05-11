@@ -31,7 +31,7 @@
  */
 
 const MAX_FACTS_PER_INJECTION = 25; // keep prompt size reasonable
-const MAX_FACT_AGE_DAYS = 90;       // older facts get pruned out of context
+const MAX_FACT_AGE_DAYS = 90; // older facts get pruned out of context
 
 // ─── Scope helpers ─────────────────────────────────────────────────────────
 
@@ -62,10 +62,14 @@ function extractLearnings({ task, input, output, outcome }) {
       if (outcome?.engagement_pct != null) {
         const isHighEngagement = outcome.engagement_pct > (input?.baseline_engagement_pct || 1.5);
         if (isHighEngagement && output.caption) {
-          facts.push(`High-engagement pattern (${(outcome.engagement_pct * 100).toFixed(1)}%): "${truncate(output.caption, 200)}" — keep using this hook style.`);
+          facts.push(
+            `High-engagement pattern (${(outcome.engagement_pct * 100).toFixed(1)}%): "${truncate(output.caption, 200)}" — keep using this hook style.`
+          );
         }
         if (!isHighEngagement && output.caption && outcome.engagement_pct < 0.5) {
-          facts.push(`Low-engagement pattern (${(outcome.engagement_pct * 100).toFixed(2)}%): "${truncate(output.caption, 200)}" — avoid this hook style.`);
+          facts.push(
+            `Low-engagement pattern (${(outcome.engagement_pct * 100).toFixed(2)}%): "${truncate(output.caption, 200)}" — avoid this hook style.`
+          );
         }
       }
       break;
@@ -94,7 +98,9 @@ function extractLearnings({ task, input, output, outcome }) {
     case 'voc.synthesis':
       // Save the top customer phrase — it'll inform future ad copy
       if (output.pain_points?.[0]?.verbatim_quotes?.[0]) {
-        facts.push(`Top customer phrase: "${truncate(output.pain_points[0].verbatim_quotes[0], 150)}" — use in ad copy + landing page.`);
+        facts.push(
+          `Top customer phrase: "${truncate(output.pain_points[0].verbatim_quotes[0], 150)}" — use in ad copy + landing page.`
+        );
       }
       break;
 
@@ -140,11 +146,11 @@ function freshFactsOnly(facts) {
   const now = Date.now();
   const cutoff = now - MAX_FACT_AGE_DAYS * 86400000;
   return facts
-    .filter(f => {
+    .filter((f) => {
       const ts = new Date(f.created_at || f.timestamp || 0).getTime();
       return !ts || ts >= cutoff;
     })
-    .map(f => typeof f === 'string' ? f : (f.fact || f.text || ''))
+    .map((f) => (typeof f === 'string' ? f : f.fact || f.text || ''))
     .filter(Boolean);
 }
 
@@ -163,14 +169,7 @@ function freshFactsOnly(facts) {
  * Returns { input, output, factsRead, factsWritten, sessionId }.
  */
 async function applyMemoryLoop(opts) {
-  const {
-    memoryService,
-    scope,
-    task,
-    runTask,
-    outcome,
-    logger,
-  } = opts || {};
+  const { memoryService, scope, task, runTask, outcome, logger } = opts || {};
 
   if (typeof runTask !== 'function') throw new Error('applyMemoryLoop: runTask required');
 

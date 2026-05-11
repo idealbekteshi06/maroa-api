@@ -1,6 +1,15 @@
 'use strict';
 
-const { CAMERA, STYLE, COLOR_GRADE, LIGHTING, FILM_STOCK, VIDEO_MODELS, IMAGE_MODELS, SOUL_PRESETS } = require('./vocab');
+const {
+  CAMERA,
+  STYLE,
+  COLOR_GRADE,
+  LIGHTING,
+  FILM_STOCK,
+  VIDEO_MODELS,
+  IMAGE_MODELS,
+  SOUL_PRESETS,
+} = require('./vocab');
 const { SLOP_INSTRUCTION } = require('./anti-slop');
 const { CONSTRAINT_INSTRUCTION, constraintsFor } = require('./negative-constraints');
 const { getGenre } = require('./genre-router');
@@ -30,7 +39,11 @@ function brandText(brandDNA) {
   const businessName = b.business_name || b.businessName;
   const tone = b.tone || b.brand_tone || b.brandTone;
   const audience = b.audience || b.target_audience || b.targetAudience;
-  const competitors = Array.isArray(b.competitors) ? b.competitors : (Array.isArray(b.competitor_list) ? b.competitor_list : null);
+  const competitors = Array.isArray(b.competitors)
+    ? b.competitors
+    : Array.isArray(b.competitor_list)
+      ? b.competitor_list
+      : null;
   const visualPalette = b.visualPalette || b.visual_palette;
   const compositionRules = b.compositionRules || b.composition_rules;
   const motionIdentity = b.motionIdentity || b.motion_identity;
@@ -45,8 +58,10 @@ function brandText(brandDNA) {
     competitors && competitors.length && `Competitors: ${competitors.slice(0, 3).join(', ')}`,
     visualPalette && `Visual palette: ${visualPalette}`,
     compositionRules && `Composition rules: ${compositionRules}`,
-    motionIdentity && `Motion identity: ${motionIdentity}`
-  ].filter(Boolean).join('\n');
+    motionIdentity && `Motion identity: ${motionIdentity}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 function pickImageModel(brandDNA, genre) {
@@ -188,5 +203,5 @@ module.exports = {
   pickVideoModel,
   buildImageSystemPrompt,
   buildVideoSystemPrompt,
-  buildJsonResponseEnvelope
+  buildJsonResponseEnvelope,
 };

@@ -10,33 +10,38 @@ const MEMORY_TYPES = Object.freeze({
   CONTENT_LOSSES: 'content_losses',
   PREFERENCES: 'preferences',
   CAMPAIGN_PATTERNS: 'campaign_patterns',
-  AUDIENCE_BEHAVIOR: 'audience_behavior'
+  AUDIENCE_BEHAVIOR: 'audience_behavior',
 });
 
 function apiRequest(method, url, headers = {}, body = null) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const payload = body ? JSON.stringify(body) : null;
-    const req = https.request({
-      hostname: u.hostname,
-      path: u.pathname + u.search,
-      method,
-      port: 443,
-      headers: {
-        'Content-Type': 'application/json',
-        ...headers
+    const req = https.request(
+      {
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        method,
+        port: 443,
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          try {
+            resolve({ status: res.statusCode, body: JSON.parse(data) });
+          } catch {
+            resolve({ status: res.statusCode, body: data });
+          }
+        });
       }
-    }, res => {
-      let data = '';
-      res.on('data', chunk => { data += chunk; });
-      res.on('end', () => {
-        try {
-          resolve({ status: res.statusCode, body: JSON.parse(data) });
-        } catch {
-          resolve({ status: res.statusCode, body: data });
-        }
-      });
-    });
+    );
     req.on('error', reject);
     if (payload) req.write(payload);
     req.end();
@@ -46,7 +51,7 @@ function apiRequest(method, url, headers = {}, body = null) {
 function sbHeaders() {
   return {
     apikey: SUPABASE_KEY,
-    Authorization: `Bearer ${SUPABASE_KEY}`
+    Authorization: `Bearer ${SUPABASE_KEY}`,
   };
 }
 
@@ -62,7 +67,7 @@ async function storeMemory(userId, type, pattern, context = {}) {
     content_snippet: context.contentSnippet || null,
     learned_pattern: pattern || null,
     metrics: context.metrics || {},
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
   };
 
   const response = await apiRequest(
@@ -87,7 +92,7 @@ async function getMemoryContext(userId) {
     'select=memory_type,learned_pattern,platform,action,created_at',
     `user_id=eq.${encodeURIComponent(userId)}`,
     'order=created_at.desc',
-    'limit=20'
+    'limit=20',
   ].join('&');
 
   const response = await apiRequest('GET', `${SUPABASE_URL}/rest/v1/ai_memory?${query}`, sbHeaders());
@@ -108,5 +113,5 @@ async function getMemoryContext(userId) {
 module.exports = {
   MEMORY_TYPES,
   storeMemory,
-  getMemoryContext
+  getMemoryContext,
 };

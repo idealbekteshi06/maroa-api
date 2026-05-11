@@ -37,6 +37,10 @@
  */
 
 const crypto = require('crypto');
+const oauthCrypto = require('../../lib/oauthCrypto');
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
 
 const GOOGLE_AUTH_HOST = 'accounts.google.com';
 const GOOGLE_TOKEN_HOST = 'oauth2.googleapis.com';
@@ -50,25 +54,41 @@ const SCOPES = [
   'https://www.googleapis.com/auth/userinfo.profile',
 ].join(' ');
 
-// ─── State token (same scheme as Meta OAuth) ──────────────────────────────
+// ─── State token (binds businessId + userId + nonce + ts) ─────────────────
+// See services/oauth/meta.js for full rationale — both flows share the same
+// HMAC scheme so the security properties are identical.
 
-function signState({ businessId, ts = Date.now(), secret }) {
-  const payload = `${businessId}:${ts}`;
-  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex').slice(0, 32);
-  return Buffer.from(`${payload}:${sig}`).toString('base64url');
+function signState({ businessId, userId, ts = Date.now(), nonce, secret }) {
+  const n = nonce || crypto.randomBytes(16).toString('hex');
+  const payload = `${businessId}|${userId}|${n}|${ts}`;
+  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+  return Buffer.from(`${payload}|${sig}`).toString('base64url');
 }
 
 function verifyState(stateB64, secret) {
   if (!stateB64) return null;
   let raw;
-  try { raw = Buffer.from(stateB64, 'base64url').toString('utf8'); } catch { return null; }
-  const parts = raw.split(':');
-  if (parts.length !== 3) return null;
-  const [businessId, ts, sig] = parts;
-  const expected = crypto.createHmac('sha256', secret).update(`${businessId}:${ts}`).digest('hex').slice(0, 32);
-  if (sig !== expected) return null;
+  try {
+    raw = Buffer.from(stateB64, 'base64url').toString('utf8');
+  } catch {
+    return null;
+  }
+  const parts = raw.split('|');
+  if (parts.length !== 5) return null;
+  const [businessId, userId, nonce, ts, sig] = parts;
+  const expected = crypto.createHmac('sha256', secret).update(`${businessId}|${userId}|${nonce}|${ts}`).digest('hex');
+  let ok = false;
+  try {
+    const a = Buffer.from(sig, 'hex');
+    const b = Buffer.from(expected, 'hex');
+    ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+  } catch {
+    ok = false;
+  }
+  if (!ok) return null;
+  if (!isUuid(businessId) || !isUuid(userId)) return null;
   if (Date.now() - Number(ts) > 30 * 60 * 1000) return null;
-  return { businessId, ts: Number(ts) };
+  return { businessId, userId, nonce, ts: Number(ts) };
 }
 
 // ─── Token exchange ───────────────────────────────────────────────────────
@@ -131,30 +151,65 @@ async function listAccessibleAdsCustomers({ accessToken }) {
 
 // ─── Express routes ───────────────────────────────────────────────────────
 
-function registerGoogleOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger }) {
+function registerGoogleOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger, verifyUserJwt }) {
   const CLIENT_ID = (process.env.GOOGLE_OAUTH_CLIENT_ID || '').trim();
   const CLIENT_SECRET = (process.env.GOOGLE_OAUTH_CLIENT_SECRET || '').trim();
-  const REDIRECT_URI = (process.env.GOOGLE_OAUTH_REDIRECT_URI
-    || 'https://maroa-api-production.up.railway.app/webhook/oauth/google/callback').trim();
-  const FRONTEND_URL = (process.env.FRONTEND_URL
-    || 'https://maroa-ai-marketing-automator.lovable.app').trim();
+  const REDIRECT_URI = (
+    process.env.GOOGLE_OAUTH_REDIRECT_URI || 'https://maroa-api-production.up.railway.app/webhook/oauth/google/callback'
+  ).trim();
+  const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://maroa-ai-marketing-automator.lovable.app').trim();
   const STATE_SECRET = (process.env.N8N_WEBHOOK_SECRET || '').trim();
 
-  app.get('/webhook/oauth/google/start', (req, res) => {
+  async function userOwnsBusiness(userId, businessId) {
+    if (!isUuid(userId) || !isUuid(businessId)) return false;
+    try {
+      const rows = await sbGet(
+        'businesses',
+        `id=eq.${encodeURIComponent(businessId)}&user_id=eq.${encodeURIComponent(userId)}&select=id&limit=1`
+      );
+      return Array.isArray(rows) && rows.length === 1;
+    } catch {
+      return false;
+    }
+  }
+  function readBearer(req) {
+    const h = (req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+    if (h) return h[1].trim();
+    if (typeof req.query?.token === 'string' && req.query.token.length > 20) return req.query.token.trim();
+    return null;
+  }
+
+  app.get('/webhook/oauth/google/start', async (req, res) => {
     const businessId = req.query.businessId || req.query.business_id;
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
+    if (!isUuid(businessId)) return apiError(res, 400, 'INVALID_REQUEST', 'businessId must be a valid UUID');
     if (!CLIENT_ID || !CLIENT_SECRET) return apiError(res, 503, 'NOT_CONFIGURED', 'Google OAuth not configured');
     if (!STATE_SECRET) return apiError(res, 503, 'NOT_CONFIGURED', 'N8N_WEBHOOK_SECRET required');
+    if (typeof verifyUserJwt !== 'function') return apiError(res, 503, 'NOT_CONFIGURED', 'verifyUserJwt not wired');
 
-    const state = signState({ businessId, secret: STATE_SECRET });
+    // Same account-takeover prevention as Meta — JWT identifies the caller,
+    // ownership check binds the resulting refresh_token to the right business.
+    const token = readBearer(req);
+    if (!token) return apiError(res, 401, 'UNAUTHORIZED', 'Bearer token or ?token= required');
+    const user = await verifyUserJwt(token).catch(() => null);
+    if (!user?.id) return apiError(res, 401, 'UNAUTHORIZED', 'invalid JWT');
+    const owns = await userOwnsBusiness(user.id, businessId);
+    if (!owns) {
+      logger?.warn?.('/webhook/oauth/google/start', businessId, 'auth user does not own business', {
+        user_id: user.id,
+      });
+      return apiError(res, 403, 'FORBIDDEN', 'authenticated user does not own this business');
+    }
+
+    const state = signState({ businessId, userId: user.id, secret: STATE_SECRET });
     const params = new URLSearchParams({
       client_id: CLIENT_ID,
       redirect_uri: REDIRECT_URI,
       state,
       scope: SCOPES,
       response_type: 'code',
-      access_type: 'offline',          // REQUIRED for refresh_token
-      prompt: 'consent',                // REQUIRED to re-issue refresh_token on reconnect
+      access_type: 'offline', // REQUIRED for refresh_token
+      prompt: 'consent', // REQUIRED to re-issue refresh_token on reconnect
       include_granted_scopes: 'true',
     });
     return res.redirect(302, `https://${GOOGLE_AUTH_HOST}/o/oauth2/v2/auth?${params.toString()}`);
@@ -173,14 +228,25 @@ function registerGoogleOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logg
     const businessId = verified.businessId;
 
     try {
-      const tokenRes = await exchangeCode({ code, clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, redirectUri: REDIRECT_URI });
+      const tokenRes = await exchangeCode({
+        code,
+        clientId: CLIENT_ID,
+        clientSecret: CLIENT_SECRET,
+        redirectUri: REDIRECT_URI,
+      });
       if (!tokenRes.ok) {
-        return res.redirect(302, `${FRONTEND_URL}/integrations?google=error&reason=${encodeURIComponent(tokenRes.reason)}`);
+        return res.redirect(
+          302,
+          `${FRONTEND_URL}/integrations?google=error&reason=${encodeURIComponent(tokenRes.reason)}`
+        );
       }
       if (!tokenRes.refresh_token) {
         // This means the user has already granted before AND we didn't pass prompt=consent
         // (we do pass it, but defensive — could fail if user revoked at Google side first)
-        return res.redirect(302, `${FRONTEND_URL}/integrations?google=error&reason=${encodeURIComponent('No refresh_token returned. Please disconnect at myaccount.google.com/permissions and retry.')}`);
+        return res.redirect(
+          302,
+          `${FRONTEND_URL}/integrations?google=error&reason=${encodeURIComponent('No refresh_token returned. Please disconnect at myaccount.google.com/permissions and retry.')}`
+        );
       }
 
       // Identify the user (for display + audit)
@@ -190,8 +256,11 @@ function registerGoogleOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logg
       const accessibleCustomers = await listAccessibleAdsCustomers({ accessToken: tokenRes.access_token });
       const primaryCustomerId = accessibleCustomers[0] || null;
 
+      // Dual-write: encrypted column (preferred) + legacy plaintext.
+      // See migration 056 and lib/oauthCrypto.js for the encryption scheme.
       const patch = {
-        google_refresh_token: tokenRes.refresh_token,
+        google_refresh_token: tokenRes.refresh_token, // legacy plaintext (dropped in 060)
+        ...oauthCrypto.encryptIfEnabled('google_refresh_token', tokenRes.refresh_token),
         google_customer_id: primaryCustomerId,
         google_oauth_email: userInfo?.email || null,
         google_connected_at: new Date().toISOString(),
@@ -221,7 +290,8 @@ function registerGoogleOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logg
     const businessId = req.query.businessId || req.query.business_id;
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
     try {
-      const rows = await sbGet('businesses',
+      const rows = await sbGet(
+        'businesses',
         `id=eq.${businessId}&select=google_refresh_token,google_customer_id,google_oauth_email,google_connected_at`
       ).catch(() => []);
       const b = rows?.[0];

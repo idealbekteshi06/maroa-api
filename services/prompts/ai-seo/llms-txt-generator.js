@@ -68,7 +68,7 @@ function buildLlmsTxt({ business, pages = [], primaryLanguage = 'en' }) {
   if (Array.isArray(business?.products) && business.products.length) {
     lines.push('## Products / Services');
     for (const p of business.products.slice(0, 10)) {
-      const t = clamp(escapeMd(typeof p === 'string' ? p : (p.name || p.title || '')), 80);
+      const t = clamp(escapeMd(typeof p === 'string' ? p : p.name || p.title || ''), 80);
       if (t) lines.push(`- ${t}`);
     }
     lines.push('');

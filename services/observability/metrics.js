@@ -23,9 +23,9 @@
  */
 
 // In-memory registries
-const counters   = new Map();   // key → number
-const gauges     = new Map();   // key → number
-const histograms = new Map();   // key → { count, sum, buckets:Map<number,number> }
+const counters = new Map(); // key → number
+const gauges = new Map(); // key → number
+const histograms = new Map(); // key → { count, sum, buckets:Map<number,number> }
 
 const DEFAULT_BUCKETS_MS = [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000];
 
@@ -53,7 +53,7 @@ function observeHistogram(name, value, labels = {}) {
   const k = _key(name, labels);
   let h = histograms.get(k);
   if (!h) {
-    h = { count: 0, sum: 0, buckets: new Map(DEFAULT_BUCKETS_MS.map(b => [b, 0])) };
+    h = { count: 0, sum: 0, buckets: new Map(DEFAULT_BUCKETS_MS.map((b) => [b, 0])) };
     histograms.set(k, h);
   }
   h.count++;
@@ -113,12 +113,15 @@ function snapshot() {
     counters: Object.fromEntries(counters),
     gauges: Object.fromEntries(gauges),
     histograms: Object.fromEntries(
-      [...histograms].map(([k, h]) => [k, {
-        count: h.count,
-        sum: h.sum,
-        avg: h.count > 0 ? h.sum / h.count : 0,
-        buckets: Object.fromEntries(h.buckets),
-      }])
+      [...histograms].map(([k, h]) => [
+        k,
+        {
+          count: h.count,
+          sum: h.sum,
+          avg: h.count > 0 ? h.sum / h.count : 0,
+          buckets: Object.fromEntries(h.buckets),
+        },
+      ])
     ),
   };
 }

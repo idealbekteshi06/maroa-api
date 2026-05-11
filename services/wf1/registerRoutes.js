@@ -63,20 +63,18 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
         });
       }
       const plan = planRows[0];
-      const concepts = await sbGet(
-        'content_concepts',
-        `plan_id=eq.${plan.id}&order=created_at.asc&select=*`
-      ).catch(() => []);
+      const concepts = await sbGet('content_concepts', `plan_id=eq.${plan.id}&order=created_at.asc&select=*`).catch(
+        () => []
+      );
 
       // Fetch latest asset per concept
-      const conceptIds = concepts.map(c => c.id);
+      const conceptIds = concepts.map((c) => c.id);
       let assets = [];
       if (conceptIds.length) {
-        const inList = conceptIds.map(id => `"${id}"`).join(',');
-        assets = await sbGet(
-          'content_assets',
-          `concept_id=in.(${inList})&order=generated_at.desc&select=*`
-        ).catch(() => []);
+        const inList = conceptIds.map((id) => `"${id}"`).join(',');
+        assets = await sbGet('content_assets', `concept_id=in.(${inList})&order=generated_at.desc&select=*`).catch(
+          () => []
+        );
       }
       const assetByConcept = {};
       for (const a of assets) {
@@ -87,7 +85,7 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
         date: plan.plan_date,
         status: plan.status,
         analysis: plan.analysis,
-        concepts: concepts.map(c => ({
+        concepts: concepts.map((c) => ({
           id: c.id,
           platform: c.platform,
           format: c.format,
@@ -99,23 +97,22 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
           cta: c.cta,
           framework: c.framework,
           whyThisWhyNow: c.why_this_why_now,
-          predictedEngagementRange: [
-            Number(c.predicted_engagement_low || 0),
-            Number(c.predicted_engagement_high || 0),
-          ],
+          predictedEngagementRange: [Number(c.predicted_engagement_low || 0), Number(c.predicted_engagement_high || 0)],
           riskLevel: c.risk_level,
           qualityScore: c.quality_score != null ? Number(c.quality_score) : null,
           status: c.status,
-          generatedAsset: assetByConcept[c.id] ? {
-            caption: assetByConcept[c.id].caption,
-            hashtags: assetByConcept[c.id].hashtags || [],
-            visualBrief: assetByConcept[c.id].visual_brief,
-            postingTime: {
-              localTime: assetByConcept[c.id].posting_time_local,
-              rationale: assetByConcept[c.id].posting_time_rationale,
-            },
-            predictedQualityScore: Number(assetByConcept[c.id].predicted_quality_score || 0),
-          } : null,
+          generatedAsset: assetByConcept[c.id]
+            ? {
+                caption: assetByConcept[c.id].caption,
+                hashtags: assetByConcept[c.id].hashtags || [],
+                visualBrief: assetByConcept[c.id].visual_brief,
+                postingTime: {
+                  localTime: assetByConcept[c.id].posting_time_local,
+                  rationale: assetByConcept[c.id].posting_time_rationale,
+                },
+                predictedQualityScore: Number(assetByConcept[c.id].predicted_quality_score || 0),
+              }
+            : null,
         })),
       });
     } catch (e) {
@@ -281,11 +278,19 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
   // Body: { dryRun?: boolean, businessIds?: string[] }
   app.post('/webhook/wf1-overnight-batch-submit', async (req, res) => {
     if (!wf1.batchOvernight) {
-      return apiError(res, 503, 'BATCH_OVERNIGHT_DISABLED', 'batchService not configured — overnight batch unavailable');
+      return apiError(
+        res,
+        503,
+        'BATCH_OVERNIGHT_DISABLED',
+        'batchService not configured — overnight batch unavailable'
+      );
     }
     try {
       const { dryRun, businessIds } = req.body || {};
-      const result = await wf1.batchOvernight.submitOvernightBatch({ dryRun: !!dryRun, businessIds: Array.isArray(businessIds) ? businessIds : null });
+      const result = await wf1.batchOvernight.submitOvernightBatch({
+        dryRun: !!dryRun,
+        businessIds: Array.isArray(businessIds) ? businessIds : null,
+      });
       res.json(result);
     } catch (e) {
       logger?.error('/webhook/wf1-overnight-batch-submit', null, 'submit failed', e);
@@ -299,7 +304,12 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
   // Body: { anthropicBatchId: string }
   app.post('/webhook/wf1-overnight-batch-apply', async (req, res) => {
     if (!wf1.batchOvernight) {
-      return apiError(res, 503, 'BATCH_OVERNIGHT_DISABLED', 'batchService not configured — overnight batch unavailable');
+      return apiError(
+        res,
+        503,
+        'BATCH_OVERNIGHT_DISABLED',
+        'batchService not configured — overnight batch unavailable'
+      );
     }
     const { anthropicBatchId } = req.body || {};
     if (!anthropicBatchId) return apiError(res, 400, 'INVALID_REQUEST', 'anthropicBatchId required');
@@ -321,7 +331,8 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
       return apiError(res, 503, 'BATCH_OVERNIGHT_DISABLED', 'batchService not configured');
     }
     try {
-      const inflight = await sbGet('anthropic_batches',
+      const inflight = await sbGet(
+        'anthropic_batches',
         'status=eq.in_progress&purpose=eq.wf1_overnight&select=anthropic_batch_id&limit=50'
       ).catch(() => []);
       const results = [];
@@ -335,7 +346,10 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
         } catch (e) {
           errors += 1;
           results.push({ anthropicBatchId: row.anthropic_batch_id, ok: false, error: e.message });
-          logger?.error('/webhook/wf1-overnight-batch-apply-all', null, 'apply failed', { anthropicBatchId: row.anthropic_batch_id, error: e.message });
+          logger?.error('/webhook/wf1-overnight-batch-apply-all', null, 'apply failed', {
+            anthropicBatchId: row.anthropic_batch_id,
+            error: e.message,
+          });
         }
       }
       res.json({ scanned: inflight.length, applied, errors, results });

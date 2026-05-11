@@ -58,9 +58,7 @@ test('autopilot: allows Meta scale when measurement-health says trust=true', () 
     measurement_health: [{ platform: 'meta', trust_for_scaling: true, health_verdict: 'healthy' }],
     yesterday_decisions: [],
   };
-  const proposed = [
-    { domain: 'ad-optimizer', platform: 'meta', action: 'scale_20pct' },
-  ];
+  const proposed = [{ domain: 'ad-optimizer', platform: 'meta', action: 'scale_20pct' }];
   const r = brain.resolveConflicts({ snapshot, proposed });
   assert.strictEqual(r.final.length, 1);
   assert.strictEqual(r.conflicts.length, 0);
@@ -70,9 +68,7 @@ test('autopilot: blocks re_engagement when post_purchase active yesterday', () =
   const snapshot = {
     yesterday_decisions: [{ domain: 'email-lifecycle', stage: 'post_purchase' }],
   };
-  const proposed = [
-    { domain: 'email-lifecycle', stage: 're_engagement', action: 'enroll' },
-  ];
+  const proposed = [{ domain: 'email-lifecycle', stage: 're_engagement', action: 'enroll' }];
   const r = brain.resolveConflicts({ snapshot, proposed });
   assert.strictEqual(r.final.length, 0);
   assert.strictEqual(r.conflicts.length, 1);
@@ -111,9 +107,7 @@ test('autopilot: brief mentions blocked decisions transparently', () => {
     cold_start: { status: 'completed' },
     citation_run_24h: { total: 0 },
   };
-  const conflicts = [
-    { blocked_by: 'measurement-health', reason: 'EMQ too low' },
-  ];
+  const conflicts = [{ blocked_by: 'measurement-health', reason: 'EMQ too low' }];
   const brief = brain.composeBrief({ snapshot, decisions: [], conflicts });
   assert.ok(/tracking|degraded|holding off/i.test(brief));
 });

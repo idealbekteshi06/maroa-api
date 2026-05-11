@@ -84,7 +84,10 @@ function buildAudienceArchitecture({ business, competitors }) {
       meta: {
         type: 'interest',
         location,
-        interests: (competitors || []).slice(0, 5).map((c) => c.name).filter(Boolean),
+        interests: (competitors || [])
+          .slice(0, 5)
+          .map((c) => c.name)
+          .filter(Boolean),
       },
       google: { type: 'in_market', segments: [] },
       tiktok: { type: 'interest', interests: [] },
@@ -104,9 +107,9 @@ function nameCampaign({ business, audienceLabel, conceptKey, platform, date = ne
   const product = String(business?.business_name || 'biz')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')      // trim leading/trailing dashes
+    .replace(/^-+|-+$/g, '') // trim leading/trailing dashes
     .slice(0, 20)
-    .replace(/-+$/, '');           // trim again after slice in case it ended on a dash
+    .replace(/-+$/, ''); // trim again after slice in case it ended on a dash
   const ymd = date.toISOString().slice(0, 10).replace(/-/g, '');
   return `${product}_${audienceLabel}_${conceptKey}_${platform}_${ymd}`;
 }
@@ -118,11 +121,11 @@ function nameCampaign({ business, audienceLabel, conceptKey, platform, date = ne
 function initialBidStrategy({ industry, dailyBudget }) {
   const cpaTargets = {
     'dental clinic': 80,
-    'plumber': 60,
+    plumber: 60,
     'real estate agent': 120,
     'e-commerce apparel': 25,
     'saas b2b': 150,
-    'restaurant': 15,
+    restaurant: 15,
     'fitness studio': 30,
     'law firm': 200,
   };
@@ -137,10 +140,7 @@ function initialBidStrategy({ industry, dailyBudget }) {
 
 // ─── Main entry ────────────────────────────────────────────────────────
 
-async function coldStartLaunch({
-  businessId, approvedConcept, coldStartRunId,
-  deps = {},
-}) {
+async function coldStartLaunch({ businessId, approvedConcept, coldStartRunId, deps = {} }) {
   const { sbGet, sbPost, logger, sentry } = deps;
   const liveMode = String(process.env.META_AD_LAUNCH_LIVE || '').toLowerCase() === 'true';
 
@@ -214,25 +214,43 @@ async function coldStartLaunch({
       if (liveMode) {
         try {
           if (platform === 'meta') {
-            const metaClient = deps.metaMarketingClient || (() => {
-              try { return require('../meta-marketing'); } catch { return null; }
-            })();
+            const metaClient =
+              deps.metaMarketingClient ||
+              (() => {
+                try {
+                  return require('../meta-marketing');
+                } catch {
+                  return null;
+                }
+              })();
             if (metaClient?.createCampaignWithAdSetsAndAds) {
               const r = await metaClient.createCampaignWithAdSetsAndAds({ business, payload });
               if (!r.ok) errors.push({ platform, audience: audience.label, error: r.reason });
             }
           } else if (platform === 'google') {
-            const googleClient = deps.googleAdsApiClient || (() => {
-              try { return require('../google-ads-api'); } catch { return null; }
-            })();
+            const googleClient =
+              deps.googleAdsApiClient ||
+              (() => {
+                try {
+                  return require('../google-ads-api');
+                } catch {
+                  return null;
+                }
+              })();
             if (googleClient?.createPmaxCampaign) {
               const r = await googleClient.createPmaxCampaign({ business, payload });
               if (!r.ok) errors.push({ platform, audience: audience.label, error: r.reason });
             }
           } else if (platform === 'tiktok') {
-            const tiktokClient = deps.tiktokMarketingClient || (() => {
-              try { return require('../tiktok-marketing'); } catch { return null; }
-            })();
+            const tiktokClient =
+              deps.tiktokMarketingClient ||
+              (() => {
+                try {
+                  return require('../tiktok-marketing');
+                } catch {
+                  return null;
+                }
+              })();
             if (tiktokClient?.createSmartPlusCampaign) {
               const r = await tiktokClient.createSmartPlusCampaign({ business, payload });
               if (!r.ok) errors.push({ platform, audience: audience.label, error: r.reason });
@@ -240,7 +258,9 @@ async function coldStartLaunch({
           }
         } catch (e) {
           errors.push({ platform, audience: audience.label, error: `publish: ${e.message}` });
-          sentry?.captureException?.(e, { tags: { module: 'ad-optimizer.launcher', platform, business_id: businessId } });
+          sentry?.captureException?.(e, {
+            tags: { module: 'ad-optimizer.launcher', platform, business_id: businessId },
+          });
         }
       }
     }
@@ -248,7 +268,7 @@ async function coldStartLaunch({
 
   return {
     launched: launches.length,
-    campaign_ids: [],     // populated when live publish lands per-platform
+    campaign_ids: [], // populated when live publish lands per-platform
     platforms,
     dry_run: !liveMode,
     errors,

@@ -28,13 +28,31 @@ const psychology = require('../marketing-psychology');
 // `psychology_min` — content types that benefit from psychology principles
 // have a minimum overall_score. Set to 0 to skip psychology entirely.
 const DEFAULT_THRESHOLDS = {
-  caption:        { slop_max: 35, specificity_min: 40, psychology_min: 30, allow_retry: true,  use_advisor_growth: false },
-  ad_copy:        { slop_max: 25, specificity_min: 60, psychology_min: 50, allow_retry: true,  use_advisor_growth: true  },
-  audit_narrative:{ slop_max: 30, specificity_min: 70, psychology_min: 0,  allow_retry: false, use_advisor_growth: false },
-  scorecard_text: { slop_max: 30, specificity_min: 60, psychology_min: 0,  allow_retry: true,  use_advisor_growth: false },
-  email_subject:  { slop_max: 40, specificity_min: 30, psychology_min: 35, allow_retry: true,  use_advisor_growth: false },
-  hero_rewrite:   { slop_max: 25, specificity_min: 70, psychology_min: 60, allow_retry: true,  use_advisor_growth: true  },
-  generic:        { slop_max: 35, specificity_min: 50, psychology_min: 0,  allow_retry: true,  use_advisor_growth: false },
+  caption: { slop_max: 35, specificity_min: 40, psychology_min: 30, allow_retry: true, use_advisor_growth: false },
+  ad_copy: { slop_max: 25, specificity_min: 60, psychology_min: 50, allow_retry: true, use_advisor_growth: true },
+  audit_narrative: {
+    slop_max: 30,
+    specificity_min: 70,
+    psychology_min: 0,
+    allow_retry: false,
+    use_advisor_growth: false,
+  },
+  scorecard_text: {
+    slop_max: 30,
+    specificity_min: 60,
+    psychology_min: 0,
+    allow_retry: true,
+    use_advisor_growth: false,
+  },
+  email_subject: {
+    slop_max: 40,
+    specificity_min: 30,
+    psychology_min: 35,
+    allow_retry: true,
+    use_advisor_growth: false,
+  },
+  hero_rewrite: { slop_max: 25, specificity_min: 70, psychology_min: 60, allow_retry: true, use_advisor_growth: true },
+  generic: { slop_max: 35, specificity_min: 50, psychology_min: 0, allow_retry: true, use_advisor_growth: false },
 };
 
 function thresholdsFor(contentType, overrides) {
@@ -47,14 +65,31 @@ function thresholdsFor(contentType, overrides) {
 // they're a reject.
 const UNGROUNDED_CLAIM_PATTERNS = [
   // Allows up to 2 words between "best" and "in/of" — catches "best coffee in the city" etc.
-  { id: 'CL01', pattern: /\bbest\b(?:\s+\w+){0,2}\s+(?:in|of)\s+(?:the\s+)?(?:city|country|region|world|state|town|neighborhood)\b/i, claim: 'superlative-geo' },
-  { id: 'CL02', pattern: /\b(?:most|#1|number\s+one|leading)\s+(?:popular|trusted|loved|chosen)\b/i, claim: 'superlative-popularity' },
-  { id: 'CL03', pattern: /\bguaranteed\s+(?:results|success|outcome|satisfaction|delivery|service|return|refund)\b/i, claim: 'guarantee' },
+  {
+    id: 'CL01',
+    pattern:
+      /\bbest\b(?:\s+\w+){0,2}\s+(?:in|of)\s+(?:the\s+)?(?:city|country|region|world|state|town|neighborhood)\b/i,
+    claim: 'superlative-geo',
+  },
+  {
+    id: 'CL02',
+    pattern: /\b(?:most|#1|number\s+one|leading)\s+(?:popular|trusted|loved|chosen)\b/i,
+    claim: 'superlative-popularity',
+  },
+  {
+    id: 'CL03',
+    pattern: /\bguaranteed\s+(?:results|success|outcome|satisfaction|delivery|service|return|refund)\b/i,
+    claim: 'guarantee',
+  },
   { id: 'CL04', pattern: /\b\d{2,3}\s*%\s+(?:guaranteed|certain|sure)\b/i, claim: 'guarantee-pct' },
   { id: 'CL05', pattern: /\b(?:risk.?free|no.?risk)\b/i, claim: 'risk-free' },
   { id: 'CL06', pattern: /\b(?:award.?winning|certified)\b/i, claim: 'certification' },
   { id: 'CL07', pattern: /\b(?:doctor|expert|professional).?recommended\b/i, claim: 'authority-endorsement' },
-  { id: 'CL08', pattern: /\b(?:fastest|cheapest|safest)\s+(?:in\s+the\s+world|on\s+the\s+market)\b/i, claim: 'superlative-comparative' },
+  {
+    id: 'CL08',
+    pattern: /\b(?:fastest|cheapest|safest)\s+(?:in\s+the\s+world|on\s+the\s+market)\b/i,
+    claim: 'superlative-comparative',
+  },
 ];
 
 // ─── Individual checks ────────────────────────────────────────────────────
@@ -84,7 +119,7 @@ function checkBrandVoiceMatch(text, anchor) {
   const violations = [];
 
   // Check do_not_words
-  for (const w of (anchor.do_not_words || [])) {
+  for (const w of anchor.do_not_words || []) {
     if (!w || w.length < 3) continue;
     const re = new RegExp(`\\b${w.toLowerCase()}\\b`, 'i');
     if (re.test(lowerText)) {
@@ -98,7 +133,11 @@ function checkBrandVoiceMatch(text, anchor) {
   const avgWordsPerSentence = wordCount / sentCount;
   const pref = anchor.sentence_length_preference;
   if (pref === 'short' && avgWordsPerSentence > 18) {
-    violations.push({ type: 'sentence_length', expected: 'short (<18 words)', actual: `${avgWordsPerSentence.toFixed(1)} avg` });
+    violations.push({
+      type: 'sentence_length',
+      expected: 'short (<18 words)',
+      actual: `${avgWordsPerSentence.toFixed(1)} avg`,
+    });
   }
 
   return {
@@ -125,7 +164,7 @@ function checkClaimSubstantiation(text, citations) {
 
   return {
     passed: ungrounded.length === 0,
-    ungrounded_claims: ungrounded.map(u => u.phrase),
+    ungrounded_claims: ungrounded.map((u) => u.phrase),
     has_citations: hasAnyCitations,
   };
 }
@@ -145,7 +184,10 @@ function checkPsychology(text, business, contentType, threshold, funnelStageHint
 
   const detection = psychology.detector.detect(text || '');
   const missingFit = psychology.detector.suggestMissing({
-    text, industry, funnelStage, limit: 5,
+    text,
+    industry,
+    funnelStage,
+    limit: 5,
   });
   const misapplied = psychology.detector.detectMisapplied({ text, industry });
 
@@ -168,15 +210,17 @@ function checkPsychology(text, business, contentType, threshold, funnelStageHint
     passed: score >= threshold && manipulationRisk !== 'high',
     score,
     threshold,
-    principles_applied: detection.applied.map(a => a.id),
+    principles_applied: detection.applied.map((a) => a.id),
     missing_count: missingFit.length,
     misapplied_count: misapplied.length,
     manipulation_risk: manipulationRisk,
-    top_recommendation: missingFit[0] ? {
-      principle_id: missingFit[0].id,
-      name: missingFit[0].name,
-      example_after: missingFit[0].example_after,
-    } : null,
+    top_recommendation: missingFit[0]
+      ? {
+          principle_id: missingFit[0].id,
+          name: missingFit[0].name,
+          example_after: missingFit[0].example_after,
+        }
+      : null,
   };
 }
 
@@ -199,8 +243,11 @@ function checkLanguageMatch(text, expectedLang) {
   const detected = adI18n.detectLanguage(text);
   // English fallback is permissive — if input is short, detector defaults to 'en'.
   // Only fail when both are confident AND mismatched.
-  const passed = !detected || !expectedLang || detected === expectedLang
-    || (detected === 'en' && (text.match(/\S+/g) || []).length < 8); // very short → permissive
+  const passed =
+    !detected ||
+    !expectedLang ||
+    detected === expectedLang ||
+    (detected === 'en' && (text.match(/\S+/g) || []).length < 8); // very short → permissive
 
   return { passed, expected: expectedLang, detected };
 }
@@ -352,7 +399,8 @@ async function gate(opts) {
   if (!checks.claim_substantiation.passed) hardBlockingIssues.push('ungrounded_claim');
 
   const softBlockingIssues = [];
-  if (checks.brand_voice_match.violations.some(v => v.type === 'do_not_word')) softBlockingIssues.push('brand_voice_violation');
+  if (checks.brand_voice_match.violations.some((v) => v.type === 'do_not_word'))
+    softBlockingIssues.push('brand_voice_violation');
   // Psychology score below threshold (only when threshold > 0) — retry-eligible
   if (!checks.psychology.skipped && !checks.psychology.passed && checks.psychology.manipulation_risk !== 'high') {
     softBlockingIssues.push('psychology_below_threshold');
@@ -377,13 +425,15 @@ async function gate(opts) {
   }
 
   // ─── Optional advisor review ──
-  const wantAdvisor = (planTier === 'agency')
-    || (planTier === 'growth' && thr.use_advisor_growth);
+  const wantAdvisor = planTier === 'agency' || (planTier === 'growth' && thr.use_advisor_growth);
   if (wantAdvisor && callClaude && extractJSON) {
     checks.advisor = await checkAdvisor({
-      text, business, contentType,
+      text,
+      business,
+      contentType,
       brandVoiceAnchor: anchor,
-      callClaude, extractJSON,
+      callClaude,
+      extractJSON,
       planTier,
     });
     if (checks.advisor && checks.advisor.decision === 'reject') {
@@ -428,7 +478,8 @@ async function gate(opts) {
       const stillBlocked = [];
       if (!recheck.language_match.passed) stillBlocked.push('language_mismatch');
       if (!recheck.claim_substantiation.passed) stillBlocked.push('ungrounded_claim');
-      if (recheck.brand_voice_match.violations.some(v => v.type === 'do_not_word')) stillBlocked.push('brand_voice_violation');
+      if (recheck.brand_voice_match.violations.some((v) => v.type === 'do_not_word'))
+        stillBlocked.push('brand_voice_violation');
 
       if (stillBlocked.length === 0 && recheck.slop.passed) {
         return {

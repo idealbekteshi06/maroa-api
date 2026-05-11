@@ -30,7 +30,8 @@ function safeSlope(values) {
   const xs = v.map((_, i) => i);
   const meanX = (n - 1) / 2;
   const meanY = v.reduce((a, b) => a + b, 0) / n;
-  let num = 0, den = 0;
+  let num = 0,
+    den = 0;
   for (let i = 0; i < n; i++) {
     num += (xs[i] - meanX) * (v[i] - meanY);
     den += (xs[i] - meanX) ** 2;
@@ -57,42 +58,42 @@ function buildTrendSummary(history) {
     };
   }
 
-  const recent7  = history.slice(-7);
-  const recent3  = history.slice(-3);
+  const recent7 = history.slice(-7);
+  const recent3 = history.slice(-3);
   const previous7 = history.slice(-14, -7);
 
-  const meanRoas7  = safeMean(recent7.map(r => Number(r?.roas)));
-  const meanRoasP  = safeMean(previous7.map(r => Number(r?.roas)));
-  const slopeFreq  = safeSlope(recent7.map(r => Number(r?.frequency)));
-  const slopeCtr   = safeSlope(recent7.map(r => Number(r?.ctr)));
-  const meanFreq3  = safeMean(recent3.map(r => Number(r?.frequency)));
-  const sumSpend   = recent7.map(r => Number(r?.spend) || 0).reduce((a, b) => a + b, 0);
-  const meanBudget = safeMean(recent7.map(r => Number(r?.daily_budget)));
+  const meanRoas7 = safeMean(recent7.map((r) => Number(r?.roas)));
+  const meanRoasP = safeMean(previous7.map((r) => Number(r?.roas)));
+  const slopeFreq = safeSlope(recent7.map((r) => Number(r?.frequency)));
+  const slopeCtr = safeSlope(recent7.map((r) => Number(r?.ctr)));
+  const meanFreq3 = safeMean(recent3.map((r) => Number(r?.frequency)));
+  const sumSpend = recent7.map((r) => Number(r?.spend) || 0).reduce((a, b) => a + b, 0);
+  const meanBudget = safeMean(recent7.map((r) => Number(r?.daily_budget)));
 
   const roas7d =
-    meanRoas7 == null || meanRoasP == null ? 'stable'
-    : (meanRoas7 - meanRoasP) / Math.max(0.01, meanRoasP) > 0.10 ? 'improving'
-    : (meanRoas7 - meanRoasP) / Math.max(0.01, meanRoasP) < -0.10 ? 'declining'
-    : 'stable';
+    meanRoas7 == null || meanRoasP == null
+      ? 'stable'
+      : (meanRoas7 - meanRoasP) / Math.max(0.01, meanRoasP) > 0.1
+        ? 'improving'
+        : (meanRoas7 - meanRoasP) / Math.max(0.01, meanRoasP) < -0.1
+          ? 'declining'
+          : 'stable';
 
   const frequencyTrajectory =
-    slopeFreq == null ? 'stable'
-    : slopeFreq > 0.15 ? 'escalating'
-    : slopeFreq > 0.05 ? 'climbing'
-    : 'stable';
+    slopeFreq == null ? 'stable' : slopeFreq > 0.15 ? 'escalating' : slopeFreq > 0.05 ? 'climbing' : 'stable';
 
   const ctrTrajectory =
-    slopeCtr == null ? 'stable'
-    : slopeCtr > 0 ? 'rising'
-    : slopeCtr < -0.0005 ? 'declining'
-    : 'stable';
+    slopeCtr == null ? 'stable' : slopeCtr > 0 ? 'rising' : slopeCtr < -0.0005 ? 'declining' : 'stable';
 
   const expectedSpend = (meanBudget || 0) * 7;
   const spendVelocity =
-    meanBudget == null ? 'on_pace'
-    : sumSpend < expectedSpend * 0.7 ? 'under'
-    : sumSpend > expectedSpend * 1.05 ? 'over'
-    : 'on_pace';
+    meanBudget == null
+      ? 'on_pace'
+      : sumSpend < expectedSpend * 0.7
+        ? 'under'
+        : sumSpend > expectedSpend * 1.05
+          ? 'over'
+          : 'on_pace';
 
   return {
     sample_size: history.length,
@@ -116,12 +117,12 @@ function buildTrendSummary(history) {
  */
 function estimateCreativeFatigueEta(history) {
   if (!Array.isArray(history) || history.length < 5) return null;
-  const freq = history.map(r => Number(r?.frequency)).filter(Number.isFinite);
-  const ctr  = history.map(r => Number(r?.ctr)).filter(Number.isFinite);
+  const freq = history.map((r) => Number(r?.frequency)).filter(Number.isFinite);
+  const ctr = history.map((r) => Number(r?.ctr)).filter(Number.isFinite);
   if (freq.length < 5 || ctr.length < 5) return null;
   const slopeFreq = safeSlope(freq);
-  const slopeCtr  = safeSlope(ctr);
-  const lastFreq  = freq[freq.length - 1];
+  const slopeCtr = safeSlope(ctr);
+  const lastFreq = freq[freq.length - 1];
   if (slopeFreq == null || slopeFreq <= 0) return null;
   if (slopeCtr == null || slopeCtr >= 0) return null; // CTR still healthy
   // Fatigue threshold ~= freq 5.0 (avg). Estimate days to reach.
@@ -139,22 +140,22 @@ function detectThrashing(decisionHistory) {
   if (!Array.isArray(decisionHistory) || decisionHistory.length === 0) {
     return { thrashing: false, pattern: null };
   }
-  const sorted = [...decisionHistory].sort((a, b) =>
-    new Date(b.decided_at || b.created_at || 0) - new Date(a.decided_at || a.created_at || 0)
+  const sorted = [...decisionHistory].sort(
+    (a, b) => new Date(b.decided_at || b.created_at || 0) - new Date(a.decided_at || a.created_at || 0)
   );
-  const recent = sorted.slice(0, 7).map(d => String(d.decision || '').toLowerCase());
+  const recent = sorted.slice(0, 7).map((d) => String(d.decision || '').toLowerCase());
 
   // Pattern: pause → unpause → pause within 14d
-  const pauses = recent.filter(d => d === 'pause').length;
-  const scales = recent.filter(d => d === 'scale').length;
+  const pauses = recent.filter((d) => d === 'pause').length;
+  const scales = recent.filter((d) => d === 'scale').length;
   const flips = recent.reduce((acc, d, i) => {
     if (i === 0) return 0;
     const prev = recent[i - 1];
     return acc + ((prev === 'pause' && d !== 'pause') || (prev !== 'pause' && d === 'pause') ? 1 : 0);
   }, 0);
 
-  const lastPause = sorted.find(d => String(d.decision).toLowerCase() === 'pause');
-  const lastScale = sorted.find(d => String(d.decision).toLowerCase() === 'scale');
+  const lastPause = sorted.find((d) => String(d.decision).toLowerCase() === 'pause');
+  const lastScale = sorted.find((d) => String(d.decision).toLowerCase() === 'scale');
 
   let pattern = null;
   let thrashing = false;

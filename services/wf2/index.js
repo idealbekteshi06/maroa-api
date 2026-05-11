@@ -22,12 +22,7 @@ const {
 const { buildBrandContext } = require('../wf1/brandContext.js');
 
 function createWf2(deps) {
-  const {
-    sbGet, sbPost, sbPatch,
-    callClaude, extractJSON,
-    logger,
-    sendEmail,
-  } = deps;
+  const { sbGet, sbPost, sbPatch, callClaude, extractJSON, logger, sendEmail } = deps;
 
   async function resolveBrandContext(businessId) {
     const [bizRows, profileRows] = await Promise.all([
@@ -162,7 +157,9 @@ function createWf2(deps) {
     const score = scoreLead(payload);
 
     // Upsert to lead_scores
-    const existing = await sbGet('lead_scores', `business_id=eq.${businessId}&lead_id=eq.${leadId}&select=id`).catch(() => []);
+    const existing = await sbGet('lead_scores', `business_id=eq.${businessId}&lead_id=eq.${leadId}&select=id`).catch(
+      () => []
+    );
     const row = {
       business_id: businessId,
       lead_id: leadId,
@@ -286,7 +283,7 @@ function createWf2(deps) {
       const t = r.lead_tier || 'cool';
       if (countByTier[t] != null) countByTier[t]++;
     }
-    const items = rows.map(r => ({
+    const items = rows.map((r) => ({
       id: r.id,
       email: r.email,
       firstName: r.first_name,
@@ -314,7 +311,10 @@ function createWf2(deps) {
     const [contactRows, scoreRows, responseRows] = await Promise.all([
       sbGet('contacts', `id=eq.${leadId}&business_id=eq.${businessId}&select=*`),
       sbGet('lead_scores', `business_id=eq.${businessId}&lead_id=eq.${leadId}&select=*`),
-      sbGet('lead_responses', `business_id=eq.${businessId}&lead_id=eq.${leadId}&order=generated_at.desc&limit=1&select=*`),
+      sbGet(
+        'lead_responses',
+        `business_id=eq.${businessId}&lead_id=eq.${leadId}&order=generated_at.desc&limit=1&select=*`
+      ),
     ]);
     const contact = contactRows[0];
     if (!contact) throw new Error('Lead not found');
@@ -361,16 +361,23 @@ function createWf2(deps) {
     if (tier) patch.lead_tier = tier;
     if (status) patch.status = status;
     if (ownerId !== undefined) patch.owner_id = ownerId;
-    if (tagAsJunk) { patch.lead_tier = 'junk'; patch.status = 'junk'; }
-    if (unjunk) { patch.status = 'new'; }
+    if (tagAsJunk) {
+      patch.lead_tier = 'junk';
+      patch.status = 'junk';
+    }
+    if (unjunk) {
+      patch.status = 'new';
+    }
     await sbPatch('contacts', `id=eq.${leadId}&business_id=eq.${businessId}`, patch);
     return { ok: true };
   }
 
   async function getRoutingRules(businessId) {
-    const rows = await sbGet('routing_rules', `business_id=eq.${businessId}&order=priority.desc&select=*`).catch(() => []);
+    const rows = await sbGet('routing_rules', `business_id=eq.${businessId}&order=priority.desc&select=*`).catch(
+      () => []
+    );
     return {
-      rules: rows.map(r => ({
+      rules: rows.map((r) => ({
         id: r.id,
         kind: r.kind,
         priority: r.priority,
@@ -400,7 +407,7 @@ function createWf2(deps) {
       'lead_scores',
       `business_id=eq.${businessId}&scored_at=gte.${encodeURIComponent(new Date(Date.now() - 30 * 86400000).toISOString())}&select=tier,total`
     ).catch(() => []);
-    const hotCount = rows.filter(r => r.tier === 'hot').length;
+    const hotCount = rows.filter((r) => r.tier === 'hot').length;
     const totalCount = rows.length;
     return {
       last30DaysAccuracy: totalCount ? hotCount / totalCount : 0,

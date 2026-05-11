@@ -230,7 +230,9 @@ test('mcp-server: roundtrip — initialize + tools/list returns correct schema',
   });
 
   let stdoutBuf = '';
-  child.stdout.on('data', (c) => { stdoutBuf += c.toString('utf8'); });
+  child.stdout.on('data', (c) => {
+    stdoutBuf += c.toString('utf8');
+  });
 
   function readNextLine() {
     return new Promise((resolve, reject) => {
@@ -244,7 +246,10 @@ test('mcp-server: roundtrip — initialize + tools/list returns correct schema',
         setTimeout(tryRead, 20);
       };
       const timer = setTimeout(() => reject(new Error('readNextLine timeout')), 3000);
-      const wrap = () => { clearTimeout(timer); tryRead(); };
+      const wrap = () => {
+        clearTimeout(timer);
+        tryRead();
+      };
       wrap();
     });
   }
@@ -267,7 +272,14 @@ test('mcp-server: roundtrip — initialize + tools/list returns correct schema',
     assert.ok(Array.isArray(resp2.result.tools));
     assert.equal(resp2.result.tools.length, 6);
     const names = resp2.result.tools.map((t) => t.name);
-    for (const expected of ['get_business_profile', 'get_content_history', 'get_performance_metrics', 'list_creative_concepts', 'list_recent_events', 'list_characters']) {
+    for (const expected of [
+      'get_business_profile',
+      'get_content_history',
+      'get_performance_metrics',
+      'list_creative_concepts',
+      'list_recent_events',
+      'list_characters',
+    ]) {
       assert.ok(names.includes(expected), `tools/list should include ${expected}`);
     }
 

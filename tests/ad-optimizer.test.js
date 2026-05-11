@@ -108,7 +108,11 @@ test('budget: evaluateLearningPhase blocks pause when state=learning', () => {
 });
 
 test('budget: safeBudgetChange respects learning + tier caps', () => {
-  const learning = ao.budget.safeBudgetChange({ daily_budget_usd: 50, direction: 'up', learning_phase_state: 'learning' });
+  const learning = ao.budget.safeBudgetChange({
+    daily_budget_usd: 50,
+    direction: 'up',
+    learning_phase_state: 'learning',
+  });
   assert.ok(Math.abs(learning.pct_change) <= 20, 'learning phase caps change at ≤20%');
 
   const normal = ao.budget.safeBudgetChange({ daily_budget_usd: 50, direction: 'up' });
@@ -124,7 +128,7 @@ test('anti-slop: validateAuditResponse catches "ROAS dropped" without sample siz
     citations: [],
   });
   assert.ok(violations.length > 0, 'should catch unqualified ROAS-drop claim');
-  assert.ok(violations.some(v => v.rule_id === 'roas_drop_unqualified'));
+  assert.ok(violations.some((v) => v.rule_id === 'roas_drop_unqualified'));
 });
 
 test('anti-slop: validateAuditResponse passes when citations present', () => {
@@ -187,8 +191,8 @@ test('checks: M02 frequency alarm fires only above market threshold (US vs Alban
     market: alMarket,
     plan: 'agency',
   });
-  const usAlarm = usFindings.find(f => f.check_id === 'M02');
-  const alAlarm = alFindings.find(f => f.check_id === 'M02');
+  const usAlarm = usFindings.find((f) => f.check_id === 'M02');
+  const alAlarm = alFindings.find((f) => f.check_id === 'M02');
   assert.ok(usAlarm, 'US should fire M02 frequency alarm at 4.0');
   assert.strictEqual(alAlarm, undefined, 'Albania should NOT fire M02 frequency alarm at 4.0');
 });
@@ -202,7 +206,7 @@ test('checks: M11 CTR check uses regional benchmark not US default', () => {
     market: alMarket,
     plan: 'agency',
   });
-  const m11 = findings.find(f => f.check_id === 'M11');
+  const m11 = findings.find((f) => f.check_id === 'M11');
   assert.ok(m11, 'should fire M11 CTR check below regional benchmark');
   assert.ok(m11.evidence.regional_benchmark, 'evidence must include regional_benchmark');
   assert.strictEqual(m11.evidence.market_tier, 'ULTRA_LOW');
@@ -238,7 +242,7 @@ test('schema: validateAuditOutput rejects bad decision values', () => {
     audit_score: 50,
   });
   assert.strictEqual(r.valid, false);
-  assert.ok(r.errors.some(e => e.includes('decision')));
+  assert.ok(r.errors.some((e) => e.includes('decision')));
 });
 
 test('schema: validateAuditOutput accepts valid + normalizes', () => {
@@ -268,7 +272,10 @@ test('auditCampaign: short-circuits to "keep" on insufficient data (no LLM call)
     history: [],
     decisionHistory: [],
     plan: 'free',
-    callClaude: async () => { claudeCalled = true; return '{}'; },
+    callClaude: async () => {
+      claudeCalled = true;
+      return '{}';
+    },
     extractJSON: JSON.parse,
     logger: null,
   });
@@ -286,7 +293,10 @@ test('auditCampaign: short-circuits to "pause" on critical compliance finding', 
     history: [],
     decisionHistory: [],
     plan: 'agency',
-    callClaude: async () => { claudeCalled = true; return '{}'; },
+    callClaude: async () => {
+      claudeCalled = true;
+      return '{}';
+    },
     extractJSON: JSON.parse,
     logger: null,
   });
@@ -298,27 +308,34 @@ test('auditCampaign: short-circuits to "pause" on critical compliance finding', 
 test('auditCampaign: anti-thrashing overrides LLM "pause" within 48h of last pause', async () => {
   const r = await ao.auditCampaign({
     business: { location: 'New York', plan: 'agency' },
-    metrics: { spend: 200, clicks: 1500, impressions: 20000, daily_budget: 50, roas: 0.6, frequency: 2, conversions: 8 },
+    metrics: {
+      spend: 200,
+      clicks: 1500,
+      impressions: 20000,
+      daily_budget: 50,
+      roas: 0.6,
+      frequency: 2,
+      conversions: 8,
+    },
     history: [
       { roas: 0.7, frequency: 1.8, ctr: 0.008, spend: 50 },
       { roas: 0.65, frequency: 1.9, ctr: 0.0085, spend: 50 },
       { roas: 0.6, frequency: 2.0, ctr: 0.009, spend: 50 },
     ],
-    decisionHistory: [
-      { decision: 'pause', decided_at: new Date(Date.now() - 24 * 36e5).toISOString() },
-    ],
+    decisionHistory: [{ decision: 'pause', decided_at: new Date(Date.now() - 24 * 36e5).toISOString() }],
     plan: 'agency',
-    callClaude: async () => JSON.stringify({
-      decision: 'pause',
-      decision_reason: 'ROAS at 0.6 below break-even, sustained over 3 days',
-      new_daily_budget: null,
-      audit_score: 35,
-      critical_issues: [],
-      warnings: [],
-      opportunities: [],
-      trend: { roas_7d: 'declining', frequency_trajectory: 'climbing', spend_velocity: 'on_pace' },
-      citations: [{ check_id: 'M42', metric: 'roas', value: 0.6, sample_size: 3, comparison_period: '3d' }],
-    }),
+    callClaude: async () =>
+      JSON.stringify({
+        decision: 'pause',
+        decision_reason: 'ROAS at 0.6 below break-even, sustained over 3 days',
+        new_daily_budget: null,
+        audit_score: 35,
+        critical_issues: [],
+        warnings: [],
+        opportunities: [],
+        trend: { roas_7d: 'declining', frequency_trajectory: 'climbing', spend_velocity: 'on_pace' },
+        citations: [{ check_id: 'M42', metric: 'roas', value: 0.6, sample_size: 3, comparison_period: '3d' }],
+      }),
     extractJSON: JSON.parse,
     logger: null,
   });

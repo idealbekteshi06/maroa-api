@@ -19,23 +19,32 @@
  * ----------------------------------------------------------------------------
  */
 
-const i18n         = require('./i18n-market');
-const budget       = require('./budget-calibration');
-const checksMeta   = require('./checks-meta');
+const i18n = require('./i18n-market');
+const budget = require('./budget-calibration');
+const checksMeta = require('./checks-meta');
 const checksGoogle = require('./checks-google');
-const trendMod     = require('./trend-analysis');
-const scoring      = require('./scoring');
-const schema       = require('./output-schema');
-const antiSlop     = require('./anti-slop');
-const sysPrompt    = require('./system-prompt');
+const trendMod = require('./trend-analysis');
+const scoring = require('./scoring');
+const schema = require('./output-schema');
+const antiSlop = require('./anti-slop');
+const sysPrompt = require('./system-prompt');
 
 /**
  * Phase 1 — Build audit inputs from raw data.
  * All deterministic; runs in <10ms.
  */
-function buildAuditInputs({ business, metrics, history = [], decisionHistory = [], plan, platform = 'meta', liveRates = {} }) {
+function buildAuditInputs({
+  business,
+  metrics,
+  history = [],
+  decisionHistory = [],
+  plan,
+  platform = 'meta',
+  liveRates = {},
+}) {
   const marketProfile = i18n.buildMarketProfile(business, { liveRates });
-  const dailyBudgetUsd = i18n.toUsd(metrics?.daily_budget, marketProfile.currency, liveRates) ?? metrics?.daily_budget ?? 0;
+  const dailyBudgetUsd =
+    i18n.toUsd(metrics?.daily_budget, marketProfile.currency, liveRates) ?? metrics?.daily_budget ?? 0;
   const spendUsd = i18n.toUsd(metrics?.spend, marketProfile.currency, liveRates) ?? metrics?.spend ?? 0;
   const budgetTier = budget.tierForDailyBudgetUsd(dailyBudgetUsd);
   const trend = trendMod.buildTrendSummary(history);
@@ -65,7 +74,13 @@ function buildAuditInputs({ business, metrics, history = [], decisionHistory = [
   // Run deterministic checks for the platform
   const checkRunner = platform === 'google' ? checksGoogle.runChecks : checksMeta.runChecks;
   const findings = checkRunner({
-    metrics: { ...metrics, spend_usd: spendUsd, daily_budget_usd: dailyBudgetUsd, cpm_usd: i18n.toUsd(metrics?.cpm, marketProfile.currency, liveRates), cpc_usd: i18n.toUsd(metrics?.cpc, marketProfile.currency, liveRates) },
+    metrics: {
+      ...metrics,
+      spend_usd: spendUsd,
+      daily_budget_usd: dailyBudgetUsd,
+      cpm_usd: i18n.toUsd(metrics?.cpm, marketProfile.currency, liveRates),
+      cpc_usd: i18n.toUsd(metrics?.cpc, marketProfile.currency, liveRates),
+    },
     history,
     market: marketProfile,
     decisionHistory,
@@ -122,9 +137,16 @@ function buildAuditPrompt(inputs, { business, metrics, decisionHistory, plan }) 
  */
 async function auditCampaign(opts) {
   const {
-    business, metrics, history = [], decisionHistory = [], plan = 'free',
-    platform = 'meta', liveRates = {},
-    callClaude, extractJSON, logger,
+    business,
+    metrics,
+    history = [],
+    decisionHistory = [],
+    plan = 'free',
+    platform = 'meta',
+    liveRates = {},
+    callClaude,
+    extractJSON,
+    logger,
   } = opts || {};
 
   if (typeof callClaude !== 'function') throw new Error('auditCampaign: callClaude required');
@@ -153,7 +175,7 @@ async function auditCampaign(opts) {
   }
 
   // Critical compliance findings → immediate pause regardless of plan
-  const policyHit = inputs.findings.find(f => f.category === 'compliance' && f.severity === 'critical');
+  const policyHit = inputs.findings.find((f) => f.category === 'compliance' && f.severity === 'critical');
   if (policyHit) {
     return _shortCircuit({
       decision: 'pause',
@@ -166,16 +188,26 @@ async function auditCampaign(opts) {
   // ─── LLM synthesis ─────────────────────────────────────────────────────
   const prompt = buildAuditPrompt(inputs, { business, metrics, decisionHistory, plan });
 
+  // Route through callWithAdvisor — for Growth/Agency plans this layers an
+  // Opus advisor on the Sonnet executor; for Free plans it stays on the
+  // executor only (cost protection). The advisor only fires when the
+  // executor hesitates, so steady-state cost is near executor pricing.
+  const { callWithAdvisor } = require('../advisor-tool');
   let raw;
   try {
-    raw = await callClaude({
+    raw = await callWithAdvisor({
+      callClaude,
       system: prompt.system,
       user: prompt.user,
-      model: prompt.model,
+      executor: prompt.model,
+      task: 'audit',
+      planTier: plan,
       max_tokens: prompt.max_tokens,
       extra: {
-        cacheSystem: true,           // prompt-cache the 12k-char system block
-        temperature: 0.2,            // low randomness for decisions
+        cacheSystem: true, // prompt-cache the 12k-char system block
+        temperature: 0.2, // low randomness for decisions
+        businessId: business?.id,
+        skill: 'ad_optimizer_audit',
       },
     });
   } catch (e) {
@@ -189,20 +221,77 @@ async function auditCampaign(opts) {
   }
 
   let parsed;
-  try { parsed = extractJSON(raw); } catch { parsed = null; }
+  try {
+    parsed = extractJSON(raw);
+  } catch {
+    parsed = null;
+  }
+
+  // ─── One repair attempt before falling back ─────────────────────────────
+  // Prior behavior: any parse failure short-circuited to 'keep'. That's a
+  // silent demotion — the customer gets no audit at all because Claude
+  // forgot a closing brace once. Now we re-ask with a corrective system
+  // prompt that ships only the schema + the malformed output, asking for
+  // a fixed JSON object. Cheap (Sonnet w/ small context), unblocks ~30% of
+  // parse failures in the wild.
+  async function tryRepair(badText) {
+    try {
+      const repairPrompt = [
+        'You returned malformed JSON. Reply with a SINGLE valid JSON object',
+        'matching the schema below. No prose, no markdown fences.',
+        '',
+        'Schema:',
+        '{ "decision": "scale|pause|keep|optimize|refresh_creative",',
+        '  "decision_reason": "string",',
+        '  "audit_score": 0-100,',
+        '  "new_daily_budget": number|null,',
+        '  "score_breakdown": object,',
+        '  "critical_issues": [],',
+        '  "warnings": [],',
+        '  "opportunities": [],',
+        '  "trend": "improving|stable|declining",',
+        '  "citations": [] }',
+        '',
+        'Your previous (malformed) reply:',
+        String(badText || '').slice(0, 2000),
+      ].join('\n');
+      const repairedRaw = await callClaude({
+        system: 'You are a strict JSON output repair model. Output JSON only.',
+        user: repairPrompt,
+        model: 'claude-sonnet-4-5',
+        max_tokens: 1200,
+        extra: { temperature: 0.0, returnRaw: true, skill: 'ad_optimizer_repair' },
+      });
+      return extractJSON(repairedRaw);
+    } catch {
+      return null;
+    }
+  }
+
   if (!parsed) {
-    return _shortCircuit({
-      decision: 'keep',
-      reason: 'Audit response unparseable — keeping current state',
-      inputs,
-      reason_key: 'parse_error',
-    });
+    parsed = await tryRepair(raw);
+    if (!parsed) {
+      return _shortCircuit({
+        decision: 'keep',
+        reason: 'Audit response unparseable — keeping current state',
+        inputs,
+        reason_key: 'parse_error',
+      });
+    }
   }
 
   // ─── Post-process: validate + anti-slop ────────────────────────────────
-  const v = schema.validateAuditOutput(parsed);
+  let v = schema.validateAuditOutput(parsed);
   if (!v.valid) {
-    logger?.warn?.('ad-optimizer', null, 'invalid LLM output', v.errors);
+    // One repair attempt on schema violation too — same cheap retry.
+    const repaired = await tryRepair(typeof parsed === 'object' ? JSON.stringify(parsed) : String(parsed));
+    if (repaired) {
+      parsed = repaired;
+      v = schema.validateAuditOutput(parsed);
+    }
+  }
+  if (!v.valid) {
+    logger?.warn?.('ad-optimizer', null, 'invalid LLM output (after repair attempt)', v.errors);
     return _shortCircuit({
       decision: 'keep',
       reason: 'Audit response invalid — keeping current state',
@@ -220,7 +309,9 @@ async function auditCampaign(opts) {
   return {
     ...v.normalized,
     decision: finalDecision.decision,
-    decision_reason: finalDecision.changed ? `${v.normalized.decision_reason} (anti-thrash: ${finalDecision.reason})` : v.normalized.decision_reason,
+    decision_reason: finalDecision.changed
+      ? `${v.normalized.decision_reason} (anti-thrash: ${finalDecision.reason})`
+      : v.normalized.decision_reason,
     audit_score: inputs.auditScore.score,
     score_breakdown: inputs.auditScore.dimensions,
     market_tier: inputs.marketProfile.tier_name,
@@ -267,8 +358,8 @@ function _shortCircuit({ decision, reason, inputs, reason_key, schema_errors }) 
 function _wouldRecommendPause(inputs) {
   // If any critical-severity finding exists in budget/conversion category,
   // a pause would be expected. Used to gate learning-phase protection.
-  return inputs.findings.some(f =>
-    (f.category === 'budget' || f.category === 'conversion') && f.severity === 'critical'
+  return inputs.findings.some(
+    (f) => (f.category === 'budget' || f.category === 'conversion') && f.severity === 'critical'
   );
 }
 
@@ -303,7 +394,9 @@ async function auditAdCopyPsychology({ adCopy, business, plan, callClaude, extra
     business,
     funnelStage: 'consideration',
     plan: plan || 'free',
-    callClaude, extractJSON, logger,
+    callClaude,
+    extractJSON,
+    logger,
   });
 }
 

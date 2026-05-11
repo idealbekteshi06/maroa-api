@@ -17,7 +17,7 @@ const VALID_DECISIONS = ['scale', 'pause', 'keep', 'optimize', 'refresh_creative
 const VALID_SEVERITIES = ['critical', 'warning', 'info'];
 const VALID_TRENDS_ROAS = ['improving', 'stable', 'declining'];
 const VALID_TRENDS_FREQ = ['stable', 'climbing', 'escalating'];
-const VALID_TRENDS_VEL  = ['under', 'on_pace', 'over'];
+const VALID_TRENDS_VEL = ['under', 'on_pace', 'over'];
 
 function validateAuditOutput(raw) {
   const errors = [];
@@ -96,13 +96,17 @@ function validateAuditOutput(raw) {
     critical_issues: Array.isArray(raw.critical_issues) ? raw.critical_issues : [],
     warnings: Array.isArray(raw.warnings) ? raw.warnings : [],
     opportunities: Array.isArray(raw.opportunities) ? raw.opportunities : [],
-    trend: raw.trend && typeof raw.trend === 'object' ? {
-      roas_7d: raw.trend.roas_7d || null,
-      frequency_trajectory: raw.trend.frequency_trajectory || null,
-      spend_velocity: raw.trend.spend_velocity || null,
-      creative_fatigue_eta_days: Number.isFinite(Number(raw.trend.creative_fatigue_eta_days))
-        ? Number(raw.trend.creative_fatigue_eta_days) : null,
-    } : null,
+    trend:
+      raw.trend && typeof raw.trend === 'object'
+        ? {
+            roas_7d: raw.trend.roas_7d || null,
+            frequency_trajectory: raw.trend.frequency_trajectory || null,
+            spend_velocity: raw.trend.spend_velocity || null,
+            creative_fatigue_eta_days: Number.isFinite(Number(raw.trend.creative_fatigue_eta_days))
+              ? Number(raw.trend.creative_fatigue_eta_days)
+              : null,
+          }
+        : null,
     citations: Array.isArray(raw.citations) ? raw.citations : [],
   };
 

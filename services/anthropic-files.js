@@ -34,7 +34,7 @@ const ANTHROPIC_API_BASE = 'https://api.anthropic.com';
 const ANTHROPIC_VERSION = '2023-06-01';
 const FILES_BETA = 'files-api-2025-04-14';
 
-const MAX_FILE_BYTES = 500 * 1024 * 1024;  // 500 MB
+const MAX_FILE_BYTES = 500 * 1024 * 1024; // 500 MB
 const MAX_ORG_BYTES = 500 * 1024 * 1024 * 1024; // 500 GB (informational)
 
 function ensureBuffer(b) {
@@ -47,8 +47,8 @@ function makeMultipart(filename, mimeType, buffer) {
   const boundary = '----maroaUpload' + Math.random().toString(16).slice(2);
   const head = Buffer.from(
     `--${boundary}\r\n` +
-    `Content-Disposition: form-data; name="file"; filename="${filename.replace(/"/g, '')}"\r\n` +
-    `Content-Type: ${mimeType || 'application/octet-stream'}\r\n\r\n`
+      `Content-Disposition: form-data; name="file"; filename="${filename.replace(/"/g, '')}"\r\n` +
+      `Content-Type: ${mimeType || 'application/octet-stream'}\r\n\r\n`
   );
   const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
   const body = Buffer.concat([head, buffer, tail]);
@@ -71,7 +71,11 @@ function rawHttp(method, urlStr, headers, body, timeoutMs = 60000) {
       res.on('end', () => {
         const txt = Buffer.concat(chunks).toString('utf8');
         let parsed = null;
-        try { parsed = JSON.parse(txt); } catch { parsed = txt; }
+        try {
+          parsed = JSON.parse(txt);
+        } catch {
+          parsed = txt;
+        }
         resolve({ status: res.statusCode, body: parsed, raw: txt });
       });
     });
@@ -106,7 +110,10 @@ function createFilesService({ apiKey, logger }) {
     };
     const r = await rawHttp('POST', `${ANTHROPIC_API_BASE}/v1/files`, headers, body, 120000);
     if (r.status < 200 || r.status >= 300) {
-      logger?.warn('anthropic-files', null, 'upload failed', { status: r.status, body: typeof r.body === 'string' ? r.body.slice(0, 400) : r.body });
+      logger?.warn('anthropic-files', null, 'upload failed', {
+        status: r.status,
+        body: typeof r.body === 'string' ? r.body.slice(0, 400) : r.body,
+      });
       const e = new Error(`Files upload HTTP ${r.status}`);
       e.status = r.status;
       e.body = r.body;
@@ -154,7 +161,7 @@ function createFilesService({ apiKey, logger }) {
       null,
       30000
     );
-    if (r.status < 200 || r.status >= 300 && r.status !== 404) {
+    if (r.status < 200 || (r.status >= 300 && r.status !== 404)) {
       throw new Error(`Files delete HTTP ${r.status}`);
     }
     return { ok: true };

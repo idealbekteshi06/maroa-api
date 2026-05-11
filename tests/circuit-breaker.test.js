@@ -16,7 +16,13 @@ test('breaker: starts in CLOSED state', () => {
 test('breaker: trips to OPEN after threshold failures', async () => {
   const b = new CircuitBreaker({ name: 't1', threshold: 3, windowMs: 10000 });
   for (let i = 0; i < 3; i += 1) {
-    await assert.rejects(() => b.fire(async () => { throw new Error('boom'); }), /boom/);
+    await assert.rejects(
+      () =>
+        b.fire(async () => {
+          throw new Error('boom');
+        }),
+      /boom/
+    );
   }
   assert.strictEqual(b.state, 'open');
   assert.strictEqual(b.failureCount, 3);
@@ -24,12 +30,22 @@ test('breaker: trips to OPEN after threshold failures', async () => {
 
 test('breaker: OPEN state fast-fails with CircuitOpenError', async () => {
   const b = new CircuitBreaker({ name: 't2', threshold: 1, openDurationMs: 10000 });
-  await assert.rejects(() => b.fire(async () => { throw new Error('first'); }), /first/);
+  await assert.rejects(
+    () =>
+      b.fire(async () => {
+        throw new Error('first');
+      }),
+    /first/
+  );
   assert.strictEqual(b.state, 'open');
 
   let called = false;
   await assert.rejects(
-    () => b.fire(async () => { called = true; return 'should not run'; }),
+    () =>
+      b.fire(async () => {
+        called = true;
+        return 'should not run';
+      }),
     (err) => err instanceof CircuitOpenError
   );
   assert.strictEqual(called, false, 'OPEN breaker must NOT invoke fn');
@@ -37,7 +53,11 @@ test('breaker: OPEN state fast-fails with CircuitOpenError', async () => {
 
 test('breaker: transitions to HALF_OPEN after cooldown', async () => {
   const b = new CircuitBreaker({ name: 't3', threshold: 1, openDurationMs: 10 });
-  await assert.rejects(() => b.fire(async () => { throw new Error('x'); }));
+  await assert.rejects(() =>
+    b.fire(async () => {
+      throw new Error('x');
+    })
+  );
   assert.strictEqual(b.state, 'open');
   await new Promise((r) => setTimeout(r, 20));
   // Next fire triggers half-open evaluation
@@ -47,16 +67,32 @@ test('breaker: transitions to HALF_OPEN after cooldown', async () => {
 
 test('breaker: HALF_OPEN failure re-trips to OPEN', async () => {
   const b = new CircuitBreaker({ name: 't4', threshold: 1, openDurationMs: 10 });
-  await assert.rejects(() => b.fire(async () => { throw new Error('e1'); }));
+  await assert.rejects(() =>
+    b.fire(async () => {
+      throw new Error('e1');
+    })
+  );
   await new Promise((r) => setTimeout(r, 20));
-  await assert.rejects(() => b.fire(async () => { throw new Error('e2'); }));
+  await assert.rejects(() =>
+    b.fire(async () => {
+      throw new Error('e2');
+    })
+  );
   assert.strictEqual(b.state, 'open');
 });
 
 test('breaker: success resets in CLOSED state (failures decay by time window)', async () => {
   const b = new CircuitBreaker({ name: 't5', threshold: 5, windowMs: 50 });
-  await assert.rejects(() => b.fire(async () => { throw new Error('a'); }));
-  await assert.rejects(() => b.fire(async () => { throw new Error('b'); }));
+  await assert.rejects(() =>
+    b.fire(async () => {
+      throw new Error('a');
+    })
+  );
+  await assert.rejects(() =>
+    b.fire(async () => {
+      throw new Error('b');
+    })
+  );
   assert.strictEqual(b.failureCount, 2);
   await new Promise((r) => setTimeout(r, 70)); // window expires
   assert.strictEqual(b.failureCount, 0);
@@ -81,7 +117,11 @@ test('breaker: onStateChange callback fires on transitions', async () => {
     openDurationMs: 10,
     onStateChange: ({ state }) => transitions.push(state),
   });
-  await assert.rejects(() => b.fire(async () => { throw new Error('x'); }));
+  await assert.rejects(() =>
+    b.fire(async () => {
+      throw new Error('x');
+    })
+  );
   await new Promise((r) => setTimeout(r, 20));
   await b.fire(async () => 'ok');
   assert.deepStrictEqual(transitions, ['open', 'half_open', 'closed']);
@@ -114,7 +154,11 @@ test('registry: allBreakers returns snapshots of every registered breaker', () =
 
 test('CircuitOpenError: carries breaker name + cooldown', async () => {
   const b = new CircuitBreaker({ name: 'err-detail', threshold: 1, openDurationMs: 5000 });
-  await assert.rejects(() => b.fire(async () => { throw new Error('x'); }));
+  await assert.rejects(() =>
+    b.fire(async () => {
+      throw new Error('x');
+    })
+  );
   try {
     await b.fire(async () => 'never');
     assert.fail('Expected CircuitOpenError');

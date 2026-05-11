@@ -42,11 +42,11 @@ test('bar: empty input returns minimal SVG', () => {
 
 test('gauge: color reflects score band', () => {
   const high = ed.gauge({ value: 85 });
-  const mid  = ed.gauge({ value: 55 });
-  const low  = ed.gauge({ value: 25 });
+  const mid = ed.gauge({ value: 55 });
+  const low = ed.gauge({ value: 25 });
   assert.match(high, /#10B981/); // green
-  assert.match(mid,  /#F59E0B/); // amber
-  assert.match(low,  /#EF4444/); // red
+  assert.match(mid, /#F59E0B/); // amber
+  assert.match(low, /#EF4444/); // red
 });
 
 test('gauge: clamps out-of-range values', () => {
@@ -58,7 +58,12 @@ test('gauge: clamps out-of-range values', () => {
 });
 
 test('donut: zero total returns empty SVG', () => {
-  const svg = ed.donut({ slices: [{ label: 'A', value: 0 }, { label: 'B', value: 0 }] });
+  const svg = ed.donut({
+    slices: [
+      { label: 'A', value: 0 },
+      { label: 'B', value: 0 },
+    ],
+  });
   assert.match(svg, /<svg[^>]*><\/svg>/);
 });
 
@@ -66,7 +71,7 @@ test('donut: produces path per slice', () => {
   const svg = ed.donut({
     slices: [
       { label: 'positive', value: 70, color: '#10B981' },
-      { label: 'neutral',  value: 20 },
+      { label: 'neutral', value: 20 },
       { label: 'negative', value: 10 },
     ],
     centerLabel: '70%',
@@ -101,7 +106,7 @@ test('scorecard: produces valid HTML + plain-text + subject + preview', () => {
     marketProfile: { primary_language: 'sq', currency: 'ALL', locale: 'sq-AL' },
     scorecardData: {
       week: { spend: 350, conversions: 28, roas: 2.4 },
-      deltas: { spend_pct: 0.15, conversions_pct: 0.20, roas_pct: 0.05 },
+      deltas: { spend_pct: 0.15, conversions_pct: 0.2, roas_pct: 0.05 },
       campaigns_ranked: [{ campaign_name: 'Summer Promo', roas_avg: 3.0 }],
       roas_daily_7d: [2.1, 2.3, 2.4, 2.2, 2.5, 2.4, 2.4],
     },
@@ -168,7 +173,8 @@ test('adAuditSummary: produces HTML with decision badge + gauge', () => {
       audit_score: 35,
     },
     narrative: {
-      narrative_full: 'ROAS at 0.7. We considered keeping. Trend declining 5 days. Pausing now. Re-test with new creative.',
+      narrative_full:
+        'ROAS at 0.7. We considered keeping. Trend declining 5 days. Pausing now. Re-test with new creative.',
     },
   });
   assert.match(r.html, /pause/);

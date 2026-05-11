@@ -5,6 +5,7 @@ How to wire Maroa's metrics into a real dashboard tool.
 ## What you get out-of-the-box (no external service needed)
 
 The `services/observability/` module exports:
+
 - **Structured JSON logs** — every flow logs as parseable JSON
 - **Prometheus-format /metrics endpoint** — at `https://maroa-api-production.up.railway.app/metrics`
 - **Cost tracker** — every LLM call recorded to `llm_cost_logs` table
@@ -32,11 +33,13 @@ This is enough for log-grep + manual SQL. To get DASHBOARDS, plug into Datadog o
 5. Datadog auto-discovers `/metrics` endpoint and starts scraping
 
 ### Dashboards to create
+
 - **Overview**: requests/sec, error rate, p95 latency, active businesses
 - **Cost**: spend per skill per day, spend per business per day, model mix
 - **Skills health**: ad-optimizer success rate, voice-polish slop reduction, quality-gate ship/retry/reject ratio
 
 ### Alerts to create
+
 - p95 latency > 5s for 5 min → SEV2
 - Error rate > 2% for 5 min → SEV2
 - Cost per hour > $5 → SEV2
@@ -50,6 +53,7 @@ This is enough for log-grep + manual SQL. To get DASHBOARDS, plug into Datadog o
 PostHog is product-analytics first; observability is secondary. Good for tracking customer behavior + funnel conversion, OK for system metrics.
 
 ### Setup
+
 1. Sign up at posthog.com
 2. `npm install posthog-node`
 3. Add to server.js:
@@ -61,11 +65,13 @@ PostHog is product-analytics first; observability is secondary. Good for trackin
 4. Build funnels in PostHog UI
 
 ### Best for
+
 - Tracking which features customers use
 - Funnel: signup → first content → first ad → conversion
 - Retention cohorts
 
 ### Worst for
+
 - Real-time SLO tracking (latency, errors)
 - Cost tracking
 - Infrastructure monitoring
@@ -77,6 +83,7 @@ PostHog is product-analytics first; observability is secondary. Good for trackin
 Minimal but covers the most important customer-facing thing: "is it up?"
 
 ### Setup
+
 1. betteruptime.com → New Monitor → HTTP/HTTPS
 2. URL: `https://maroa-api-production.up.railway.app/health`
 3. Frequency: 30s
@@ -92,6 +99,7 @@ Minimal but covers the most important customer-facing thing: "is it up?"
 ## Self-hosted alternative
 
 If you don't want to pay for SaaS observability, run:
+
 - Grafana + Prometheus + Loki self-hosted on Railway (~$10/mo)
 - Plumber tools (cstate, statping) for status page
 
@@ -100,6 +108,7 @@ This is more work to set up but cheaper at scale. Most startups don't bother —
 ## What metrics matter for Maroa
 
 Top 5 to watch daily:
+
 1. **Cost per business per day** (target: < $0.30)
 2. **Active businesses** (gauge)
 3. **Cron success rate per day** (target: > 99%)

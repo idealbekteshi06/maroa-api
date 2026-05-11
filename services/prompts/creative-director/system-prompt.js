@@ -156,5 +156,5 @@ module.exports = {
   POLLARD_LEVELS,
   ANTI_PITFALL,
   INSIGHT_FORMAT,
-  buildCreativeDirectorSystemPrompt
+  buildCreativeDirectorSystemPrompt,
 };

@@ -26,7 +26,7 @@ function _sumAndAvg(rows, fields) {
     out[f] = rows.reduce((a, r) => a + Number(r?.[f] || 0), 0);
   }
   for (const f of fields.avg || []) {
-    const vals = rows.map(r => Number(r?.[f])).filter(Number.isFinite);
+    const vals = rows.map((r) => Number(r?.[f])).filter(Number.isFinite);
     out[f] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
   }
   return out;
@@ -59,19 +59,23 @@ function buildScorecardData({ thisWeekRows = [], prevWeekRows = [], campaigns = 
   const byCampaign = new Map();
   for (const r of thisWeekRows) {
     const id = r.campaign_id;
-    if (!byCampaign.has(id)) byCampaign.set(id, { campaign_id: id, spend: 0, clicks: 0, conversions: 0, roas_sum: 0, roas_n: 0 });
+    if (!byCampaign.has(id))
+      byCampaign.set(id, { campaign_id: id, spend: 0, clicks: 0, conversions: 0, roas_sum: 0, roas_n: 0 });
     const e = byCampaign.get(id);
     e.spend += Number(r.spend || 0);
     e.clicks += Number(r.clicks || 0);
     e.conversions += Number(r.conversions || 0);
-    if (Number.isFinite(Number(r.roas))) { e.roas_sum += Number(r.roas); e.roas_n++; }
+    if (Number.isFinite(Number(r.roas))) {
+      e.roas_sum += Number(r.roas);
+      e.roas_n++;
+    }
   }
 
   const campaignsRanked = [...byCampaign.values()]
-    .map(c => ({
+    .map((c) => ({
       ...c,
       roas_avg: c.roas_n ? c.roas_sum / c.roas_n : null,
-      campaign_name: campaigns.find(x => x.id === c.campaign_id)?.business_name || 'Unknown',
+      campaign_name: campaigns.find((x) => x.id === c.campaign_id)?.business_name || 'Unknown',
     }))
     .sort((a, b) => (b.roas_avg || 0) - (a.roas_avg || 0));
 
@@ -98,20 +102,25 @@ function buildScorecardData({ thisWeekRows = [], prevWeekRows = [], campaigns = 
       roas_pct: _pctChange(thisAgg.roas, prevAgg.roas),
       ctr_pct: _pctChange(thisAgg.ctr, prevAgg.ctr),
     },
-    best_campaign: best ? {
-      campaign_id: best.campaign_id,
-      campaign_name: best.campaign_name,
-      spend: best.spend,
-      conversions: best.conversions,
-      roas: best.roas_avg,
-    } : null,
-    worst_campaign: worst && worst.campaign_id !== best?.campaign_id ? {
-      campaign_id: worst.campaign_id,
-      campaign_name: worst.campaign_name,
-      spend: worst.spend,
-      conversions: worst.conversions,
-      roas: worst.roas_avg,
-    } : null,
+    best_campaign: best
+      ? {
+          campaign_id: best.campaign_id,
+          campaign_name: best.campaign_name,
+          spend: best.spend,
+          conversions: best.conversions,
+          roas: best.roas_avg,
+        }
+      : null,
+    worst_campaign:
+      worst && worst.campaign_id !== best?.campaign_id
+        ? {
+            campaign_id: worst.campaign_id,
+            campaign_name: worst.campaign_name,
+            spend: worst.spend,
+            conversions: worst.conversions,
+            roas: worst.roas_avg,
+          }
+        : null,
     campaigns_ranked: campaignsRanked,
     sample_quality: thisWeekRows.length >= 5 ? 'good' : thisWeekRows.length >= 2 ? 'limited' : 'insufficient',
   };
@@ -167,14 +176,18 @@ function buildUserMessage({ business, marketProfile, scorecardData, plan }) {
     ``,
     `## Business`,
     '```json',
-    JSON.stringify({
-      name: business?.business_name,
-      industry: business?.industry,
-      plan,
-      primary_language: marketProfile?.primary_language,
-      currency: marketProfile?.currency,
-      currency_symbol: marketProfile?.currency_symbol,
-    }, null, 2),
+    JSON.stringify(
+      {
+        name: business?.business_name,
+        industry: business?.industry,
+        plan,
+        primary_language: marketProfile?.primary_language,
+        currency: marketProfile?.currency,
+        currency_symbol: marketProfile?.currency_symbol,
+      },
+      null,
+      2
+    ),
     '```',
     ``,
     `## Numbers (deterministic — quote these, never invent)`,
@@ -216,7 +229,7 @@ function buildEmailHtml({ business, marketProfile, scorecardData, commentary }) 
   return `
 <div style="font-family:system-ui,-apple-system,sans-serif;max-width:600px;margin:auto;color:#222">
   <h1 style="font-size:20px;margin-bottom:8px">${business?.business_name || 'Your business'} — Weekly Scorecard</h1>
-  <p style="color:#666;margin-top:0">Week of ${new Date().toISOString().slice(0,10)}</p>
+  <p style="color:#666;margin-top:0">Week of ${new Date().toISOString().slice(0, 10)}</p>
 
   <h2 style="font-size:16px;margin-top:24px">Top numbers</h2>
   <table style="width:100%;border-collapse:collapse">
@@ -225,20 +238,36 @@ function buildEmailHtml({ business, marketProfile, scorecardData, commentary }) 
     <tr><td>Average ROAS</td><td style="text-align:right">${w.roas != null ? Number(w.roas).toFixed(2) : '—'} ${d.roas_pct != null ? `(${pct(d.roas_pct)})` : ''}</td></tr>
   </table>
 
-  ${commentary?.trend_interpretation ? `
+  ${
+    commentary?.trend_interpretation
+      ? `
   <h2 style="font-size:16px;margin-top:24px">What this means</h2>
-  <p>${commentary.trend_interpretation}</p>` : ''}
+  <p>${commentary.trend_interpretation}</p>`
+      : ''
+  }
 
-  ${scorecardData.best_campaign ? `
+  ${
+    scorecardData.best_campaign
+      ? `
   <h2 style="font-size:16px;margin-top:24px">Best campaign</h2>
-  <p>${scorecardData.best_campaign.campaign_name} — ROAS ${Number(scorecardData.best_campaign.roas || 0).toFixed(2)}, ${scorecardData.best_campaign.conversions} conversions on ${fmt(scorecardData.best_campaign.spend)} spend.</p>` : ''}
+  <p>${scorecardData.best_campaign.campaign_name} — ROAS ${Number(scorecardData.best_campaign.roas || 0).toFixed(2)}, ${scorecardData.best_campaign.conversions} conversions on ${fmt(scorecardData.best_campaign.spend)} spend.</p>`
+      : ''
+  }
 
-  ${commentary?.top_actions?.length ? `
+  ${
+    commentary?.top_actions?.length
+      ? `
   <h2 style="font-size:16px;margin-top:24px">Top actions for next week</h2>
-  <ol>${commentary.top_actions.map(a => `<li>${a.action} <span style="color:#999;font-size:12px">(~${a.time_to_ship_minutes}min)</span></li>`).join('')}</ol>` : ''}
+  <ol>${commentary.top_actions.map((a) => `<li>${a.action} <span style="color:#999;font-size:12px">(~${a.time_to_ship_minutes}min)</span></li>`).join('')}</ol>`
+      : ''
+  }
 
-  ${commentary?.win_of_the_week ? `
-  <p style="margin-top:24px;padding:12px;background:#f0fdf4;border-radius:8px">${commentary.win_of_the_week}</p>` : ''}
+  ${
+    commentary?.win_of_the_week
+      ? `
+  <p style="margin-top:24px;padding:12px;background:#f0fdf4;border-radius:8px">${commentary.win_of_the_week}</p>`
+      : ''
+  }
 </div>`.trim();
 }
 

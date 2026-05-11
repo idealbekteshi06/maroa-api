@@ -28,9 +28,17 @@ function mkDeps(overrides = {}) {
     logger: { warn: () => {}, info: () => {}, error: () => {} },
     extractJSON: (s) => {
       if (!s) return null;
-      try { return JSON.parse(s); } catch {
+      try {
+        return JSON.parse(s);
+      } catch {
         const m = s.match(/\{[\s\S]*\}/);
-        if (m) { try { return JSON.parse(m[0]); } catch { return null; } }
+        if (m) {
+          try {
+            return JSON.parse(m[0]);
+          } catch {
+            return null;
+          }
+        }
         return null;
       }
     },
@@ -84,14 +92,15 @@ test('creative-director: methods triplet rotates by category to prevent tunnel v
   const t1 = cd.pickMethodTriplet(1);
   assert.equal(t0.length, 3, 'triplet has 3 methods');
   // Different rotations should produce at least one different method
-  const namesA = t0.map(m => m.name);
-  const namesB = t1.map(m => m.name);
+  const namesA = t0.map((m) => m.name);
+  const namesB = t1.map((m) => m.name);
   assert.notDeepEqual(namesA, namesB, 'rotation produces different triplet');
 });
 
 test('creative-director: convertConceptToMcslaInputs locks subject + camera from concept', () => {
   const concept = {
-    insight: 'people drink water automatically, but choosing this water makes them feel they took care of themselves today, because consistency in tiny self-care is rarer than they think',
+    insight:
+      'people drink water automatically, but choosing this water makes them feel they took care of themselves today, because consistency in tiny self-care is rarer than they think',
     top_concept: {
       name: 'A Quieter Kind of Care',
       one_sentence: 'placeholder',
@@ -104,8 +113,8 @@ test('creative-director: convertConceptToMcslaInputs locks subject + camera from
         look: 'Cinematic commercial, warm neutral',
         platform_native_aspect: '1:1',
         audio_cue: null,
-      }
-    }
+      },
+    },
   };
   const inputs = cd.convertConceptToMcslaInputs(concept, SAMPLE_BRAND);
   assert.equal(inputs.creativeContext.camera, 'Macro Dolly In');
@@ -120,9 +129,9 @@ test('creative-director: developCreativeConcept routes through callClaude (cache
       callClaudeSpyArgs = { prompt, model, maxTokens, extra };
       return JSON.stringify({
         insight: 'test insight',
-        top_concept: { name: 'Test Concept', pattern: 'P05', scores: { weighted: 8.5 } }
+        top_concept: { name: 'Test Concept', pattern: 'P05', scores: { weighted: 8.5 } },
       });
-    }
+    },
   });
   const svc = createHiggsfieldService(deps);
   const concept = await svc.developCreativeConcept(SAMPLE_BRAND, 'goal', 'theme');
@@ -136,7 +145,16 @@ test('creative-director: developCreativeConcept routes through callClaude (cache
 
 test('image-vetter: hard gate forces reject when safety <= 4', () => {
   const out = decision.decide(
-    { technical: 9, composition: 9, lighting: 9, brand_alignment: 9, genre_fit: 9, marketing_suitability: 9, safety: 3, genuineness: 7 },
+    {
+      technical: 9,
+      composition: 9,
+      lighting: 9,
+      brand_alignment: 9,
+      genre_fit: 9,
+      marketing_suitability: 9,
+      safety: 3,
+      genuineness: 7,
+    },
     'food_beverage',
     {}
   );
@@ -146,7 +164,16 @@ test('image-vetter: hard gate forces reject when safety <= 4', () => {
 
 test('image-vetter: third-party flag forces reject regardless of scores', () => {
   const out = decision.decide(
-    { technical: 9, composition: 9, lighting: 9, brand_alignment: 9, genre_fit: 9, marketing_suitability: 9, safety: 9, genuineness: 9 },
+    {
+      technical: 9,
+      composition: 9,
+      lighting: 9,
+      brand_alignment: 9,
+      genre_fit: 9,
+      marketing_suitability: 9,
+      safety: 9,
+      genuineness: 9,
+    },
     'food_beverage',
     { flagThirdParty: true }
   );
@@ -155,7 +182,16 @@ test('image-vetter: third-party flag forces reject regardless of scores', () => 
 
 test('image-vetter: smallest dim < 800 forces regenerate (resolution gate)', () => {
   const out = decision.decide(
-    { technical: 8, composition: 8, lighting: 8, brand_alignment: 8, genre_fit: 8, marketing_suitability: 8, safety: 10, genuineness: 8 },
+    {
+      technical: 8,
+      composition: 8,
+      lighting: 8,
+      brand_alignment: 8,
+      genre_fit: 8,
+      marketing_suitability: 8,
+      safety: 10,
+      genuineness: 8,
+    },
     'food_beverage',
     { smallestDimensionPx: 600, subjectCorrect: true }
   );
@@ -164,7 +200,16 @@ test('image-vetter: smallest dim < 800 forces regenerate (resolution gate)', () 
 
 test('image-vetter: brand_alignment<=2 forces regenerate (brand contradiction)', () => {
   const out = decision.decide(
-    { technical: 9, composition: 9, lighting: 9, brand_alignment: 2, genre_fit: 5, marketing_suitability: 7, safety: 10, genuineness: 5 },
+    {
+      technical: 9,
+      composition: 9,
+      lighting: 9,
+      brand_alignment: 2,
+      genre_fit: 5,
+      marketing_suitability: 7,
+      safety: 10,
+      genuineness: 5,
+    },
     'food_beverage',
     { subjectCorrect: true }
   );
@@ -173,7 +218,16 @@ test('image-vetter: brand_alignment<=2 forces regenerate (brand contradiction)',
 
 test('image-vetter: stock-photo aesthetic on UGC genre forces regenerate (Soul I2I cant fake authentic)', () => {
   const out = decision.decide(
-    { technical: 10, composition: 9, lighting: 9, brand_alignment: 6, genre_fit: 5, marketing_suitability: 8, safety: 10, genuineness: 2 },
+    {
+      technical: 10,
+      composition: 9,
+      lighting: 9,
+      brand_alignment: 6,
+      genre_fit: 5,
+      marketing_suitability: 8,
+      safety: 10,
+      genuineness: 2,
+    },
     'lifestyle_social',
     { subjectCorrect: true, smallestDimensionPx: 2000 }
   );
@@ -182,7 +236,16 @@ test('image-vetter: stock-photo aesthetic on UGC genre forces regenerate (Soul I
 
 test('image-vetter: borderline flag fires within 3 points of band boundary', () => {
   const out = decision.decide(
-    { technical: 7, composition: 5, lighting: 4, brand_alignment: 5, genre_fit: 3.5, marketing_suitability: 5, safety: 10, genuineness: 9 },
+    {
+      technical: 7,
+      composition: 5,
+      lighting: 4,
+      brand_alignment: 5,
+      genre_fit: 3.5,
+      marketing_suitability: 5,
+      safety: 10,
+      genuineness: 9,
+    },
     'food_beverage',
     { subjectCorrect: true, smallestDimensionPx: 1440 }
   );
@@ -196,17 +259,32 @@ test('image-vetter: enhance-brief generates 3 aspect ratios with subject lock', 
     vetterOutput: {
       subject_phrase: 'the matte aluminum bottle',
       i2i_fixes_targeting: ['lighting', 'composition'],
-    }
+    },
   });
   assert.equal(brief.i2i_prompts.length, 3, 'three aspect variants');
-  assert.deepEqual(brief.i2i_prompts.map(p => p.aspect_ratio), ['1:1', '9:16', '4:5']);
-  assert.ok(brief.i2i_prompts.every(p => p.prompt.includes('the matte aluminum bottle')), 'subject locked in every variant');
+  assert.deepEqual(
+    brief.i2i_prompts.map((p) => p.aspect_ratio),
+    ['1:1', '9:16', '4:5']
+  );
+  assert.ok(
+    brief.i2i_prompts.every((p) => p.prompt.includes('the matte aluminum bottle')),
+    'subject locked in every variant'
+  );
 });
 
 test('image-vetter: synthesizeVerdict returns next_action with i2i_prompts when verdict=enhance', () => {
   const result = v.synthesizeVerdict({
     rawVetterOutput: {
-      scores: { technical: 7, composition: 5.5, lighting: 5, brand_alignment: 7, genre_fit: 7, marketing_suitability: 6, safety: 10, genuineness: 9 },
+      scores: {
+        technical: 7,
+        composition: 5.5,
+        lighting: 5,
+        brand_alignment: 7,
+        genre_fit: 7,
+        marketing_suitability: 6,
+        safety: 10,
+        genuineness: 9,
+      },
       subject_correct: true,
       smallest_dimension_px: 1440,
       subject_phrase: 'the matte bottle',
@@ -241,11 +319,21 @@ test('A/B: variant distribution is roughly 50/50 across 1000 unique seeds', () =
 test('higgsfield service factory exposes 15 functions including new ones', () => {
   const svc = createHiggsfieldService(mkDeps());
   const expected = [
-    'generateProductImage', 'generateProductVideo', 'generateHeroAd', 'scoreContent',
-    'vetCustomerAsset', 'vetCustomerAssetBatch', 'smartProcessAsset',
-    'developCreativeConcept', 'generateStrategicProductImage',
-    'trainSoulCharacter', 'generateWithModel', 'pathForModel',
-    'generateCaption', 'processProductCatalog', 'cancelRequest',
+    'generateProductImage',
+    'generateProductVideo',
+    'generateHeroAd',
+    'scoreContent',
+    'vetCustomerAsset',
+    'vetCustomerAssetBatch',
+    'smartProcessAsset',
+    'developCreativeConcept',
+    'generateStrategicProductImage',
+    'trainSoulCharacter',
+    'generateWithModel',
+    'pathForModel',
+    'generateCaption',
+    'processProductCatalog',
+    'cancelRequest',
   ];
   for (const fn of expected) {
     assert.equal(typeof svc[fn], 'function', `${fn} should be exported`);

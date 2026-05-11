@@ -40,7 +40,9 @@ test('measurement-health: Meta verdict broken when dedup<0.7', () => {
 
 test('measurement-health: Google verdict broken when EC off', () => {
   const v = measurementHealth.deriveGoogleVerdict({
-    enhancedOn: false, matchRate: 0.8, convActionCount: 1,
+    enhancedOn: false,
+    matchRate: 0.8,
+    convActionCount: 1,
   });
   assert.strictEqual(v.verdict, 'broken');
   assert.ok(v.reasons.some((r) => /Enhanced Conversions OFF/.test(r)));
@@ -48,7 +50,9 @@ test('measurement-health: Google verdict broken when EC off', () => {
 
 test('measurement-health: Google verdict healthy when EC on + match rate >=0.7', () => {
   const v = measurementHealth.deriveGoogleVerdict({
-    enhancedOn: true, matchRate: 0.8, convActionCount: 1,
+    enhancedOn: true,
+    matchRate: 0.8,
+    convActionCount: 1,
   });
   assert.strictEqual(v.verdict, 'healthy');
   assert.strictEqual(v.trust, true);
@@ -56,7 +60,8 @@ test('measurement-health: Google verdict healthy when EC on + match rate >=0.7',
 
 test('measurement-health: TikTok verdict broken when 0 events in 24h', () => {
   const v = measurementHealth.deriveTikTokVerdict({
-    eventsApiHealth: 'ok', events24h: 0,
+    eventsApiHealth: 'ok',
+    events24h: 0,
   });
   assert.strictEqual(v.verdict, 'broken');
 });
@@ -74,7 +79,7 @@ test('creative-engine: meanStd handles edge cases', () => {
 test('creative-engine: meanStd produces correct stats', () => {
   const r = creativeEngine.meanStd([1, 2, 3, 4, 5]);
   assert.strictEqual(r.mean, 3);
-  assert.ok(Math.abs(r.std - 1.5811) < 0.01);  // sample std
+  assert.ok(Math.abs(r.std - 1.5811) < 0.01); // sample std
   assert.strictEqual(r.n, 5);
 });
 
@@ -84,7 +89,7 @@ test('creative-engine: zScore returns 0 on degenerate input', () => {
 });
 
 test('creative-engine: zScore computes correctly', () => {
-  assert.strictEqual(creativeEngine.zScore(7, 5, 1), 2);  // 2 std above
+  assert.strictEqual(creativeEngine.zScore(7, 5, 1), 2); // 2 std above
   assert.strictEqual(creativeEngine.zScore(3, 5, 1), -2); // 2 std below
 });
 
@@ -107,9 +112,9 @@ test('creative-engine: VARIANTS_PER_DAY enforces plan tier', () => {
 
 test('google-ads: recommendAllocation defaults to Power Pack with no data', () => {
   const r = googleAds.recommendAllocation({});
-  assert.strictEqual(r.allocation.pmax, 0.70);
-  assert.strictEqual(r.allocation.ai_max_search, 0.20);
-  assert.strictEqual(r.allocation.demand_gen, 0.10);
+  assert.strictEqual(r.allocation.pmax, 0.7);
+  assert.strictEqual(r.allocation.ai_max_search, 0.2);
+  assert.strictEqual(r.allocation.demand_gen, 0.1);
 });
 
 test('google-ads: recommendAllocation shifts toward over-performer', () => {
@@ -117,7 +122,7 @@ test('google-ads: recommendAllocation shifts toward over-performer', () => {
     currentSplit: { pmax: 0.7, ai_max_search: 0.2, demand_gen: 0.1 },
     roasByType: { pmax: 5.0, ai_max_search: 1.0, demand_gen: 1.0 }, // PMax 5× others
   });
-  assert.ok(r.allocation.pmax > 0.70, `Expected PMax to grow, got ${r.allocation.pmax}`);
+  assert.ok(r.allocation.pmax > 0.7, `Expected PMax to grow, got ${r.allocation.pmax}`);
   assert.ok(r.reasons.some((reason) => /pmax/.test(reason)));
 });
 
@@ -125,29 +130,21 @@ test('google-ads: recommendAllocation respects learning-phase types', () => {
   const r = googleAds.recommendAllocation({
     currentSplit: { pmax: 0.7, ai_max_search: 0.2, demand_gen: 0.1 },
     roasByType: { pmax: 5.0, ai_max_search: 0.1, demand_gen: 1.0 },
-    learningPhaseTypes: ['ai_max_search'],  // can't drain from learning campaigns
+    learningPhaseTypes: ['ai_max_search'], // can't drain from learning campaigns
   });
   // ai_max_search ROAS is in the data but excluded from movable list.
   // PMax should still grow (we should detect over-performance among movables).
-  assert.ok(r.allocation.demand_gen <= 0.10, 'demand_gen should not grow');
+  assert.ok(r.allocation.demand_gen <= 0.1, 'demand_gen should not grow');
 });
 
 test('google-ads: scoreAssetCoverage flags <60% video coverage', () => {
-  const r = googleAds.scoreAssetCoverage([
-    { videos: [{ id: 'v1' }] },
-    { videos: [] },
-    { videos: [] },
-  ]);
+  const r = googleAds.scoreAssetCoverage([{ videos: [{ id: 'v1' }] }, { videos: [] }, { videos: [] }]);
   assert.ok(r.score < 60, `Expected score < 60 with only 1/3 having video, got ${r.score}`);
   assert.ok(r.recommendations.some((rec) => /Video coverage/.test(rec)));
 });
 
 test('google-ads: scoreAssetCoverage clean when ≥60% coverage', () => {
-  const r = googleAds.scoreAssetCoverage([
-    { videos: [{ id: 'v1' }] },
-    { videos: [{ id: 'v2' }] },
-    { videos: [] },
-  ]);
+  const r = googleAds.scoreAssetCoverage([{ videos: [{ id: 'v1' }] }, { videos: [{ id: 'v2' }] }, { videos: [] }]);
   assert.ok(r.score >= 60);
   assert.strictEqual(r.recommendations.length, 0);
 });
@@ -203,14 +200,16 @@ test('tiktok-ads: eligibilityVerdict explains rejection', () => {
 
 test('tiktok-ads: decideForTikTokCampaign holds during learning', () => {
   const r = tiktokAds.decideForTikTokCampaign({
-    camp: { id: 't1', in_learning: true, roas: 5.0 }, trust: true,
+    camp: { id: 't1', in_learning: true, roas: 5.0 },
+    trust: true,
   });
   assert.strictEqual(r.decision, 'hold');
 });
 
 test('tiktok-ads: decideForTikTokCampaign requests refresh on low ROAS', () => {
   const r = tiktokAds.decideForTikTokCampaign({
-    camp: { id: 't1', in_learning: false, roas: 0.5, conversions_30d: 20 }, trust: true,
+    camp: { id: 't1', in_learning: false, roas: 0.5, conversions_30d: 20 },
+    trust: true,
   });
   assert.strictEqual(r.decision, 'refresh_creative');
 });
@@ -223,18 +222,18 @@ test('interlock: caps budget changes during learning phase', () => {
     proposedDelta: 0.5, // +50%
   });
   assert.strictEqual(r.allowed, true);
-  assert.strictEqual(r.capped_to, 0.20);
+  assert.strictEqual(r.capped_to, 0.2);
   assert.ok(/learning phase/.test(r.reason));
 });
 
 test('interlock: caps budget changes during 72h cooldown', () => {
-  const recent = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();  // 24h ago
+  const recent = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // 24h ago
   const r = interlock.canAdjustBudget({
     adSet: { in_learning_phase: false, exited_learning_at: recent, daily_budget: 50 },
-    proposedDelta: 0.30,
+    proposedDelta: 0.3,
   });
   assert.strictEqual(r.allowed, true);
-  assert.strictEqual(r.capped_to, 0.20);
+  assert.strictEqual(r.capped_to, 0.2);
   assert.ok(/cooldown/.test(r.reason));
 });
 
@@ -242,7 +241,7 @@ test('interlock: full scaling allowed past 72h cooldown', () => {
   const old = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(); // 4 days ago
   const r = interlock.canAdjustBudget({
     adSet: { in_learning_phase: false, exited_learning_at: old, daily_budget: 50 },
-    proposedDelta: 0.50,
+    proposedDelta: 0.5,
   });
   assert.strictEqual(r.allowed, true);
   assert.strictEqual(r.capped_to, undefined);

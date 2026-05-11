@@ -1,0 +1,41 @@
+{
+  "version": "v1",
+  "skill": "weekly-scorecard",
+  "samples": [
+    {
+      "name": "improving_week_growth_tier",
+      "description": "Week-over-week ROAS up 18%, CTR up 12% — narrative should call out the trend and recommend modest scale.",
+      "input": {
+        "business": { "industry": "ecommerce", "primary_language": "en", "plan": "growth" },
+        "scorecardData": {
+          "week": { "roas": 3.2, "ctr": 2.8, "spend": 180, "conversions": 24 },
+          "previous_week": { "roas": 2.7, "ctr": 2.5, "spend": 175, "conversions": 19 },
+          "deltas": { "roas_pct": 18.5, "ctr_pct": 12.0, "spend_pct": 2.8, "conversions_pct": 26.3 }
+        }
+      },
+      "stubbed_output": "{\"headline\":\"ROAS up 18%, conversions up 26% — recommend small scale\",\"summary\":\"Three of four metrics improved over last week. ROAS climbed to 3.2 from 2.7 on flat spend, and conversion count grew faster than spend (26% vs 3%), indicating real audience receptivity rather than budget effect.\",\"recommendation\":\"Increase daily budget by 15% on the top-performing campaign. Re-check in 7 days; if frequency stays under 2.0 the room to scale is there.\",\"confidence\":\"high\"}",
+      "golden": {
+        "must_mention": ["roas", "conversion"],
+        "must_not_contain": ["fast-paced", "leverage", "synergy", "in today's"],
+        "must_not_contain_slop": true
+      }
+    },
+    {
+      "name": "declining_week_recommend_pause",
+      "description": "ROAS down 35%, frequency creeping over 2.5 — narrative should flag creative fatigue + recommend refresh.",
+      "input": {
+        "business": { "industry": "saas", "primary_language": "en", "plan": "agency" },
+        "scorecardData": {
+          "week": { "roas": 1.1, "ctr": 0.6, "spend": 220, "conversions": 4, "frequency": 2.8 },
+          "previous_week": { "roas": 1.7, "ctr": 1.0, "spend": 215, "conversions": 7, "frequency": 2.1 },
+          "deltas": { "roas_pct": -35.3, "ctr_pct": -40, "frequency_pct": 33 }
+        }
+      },
+      "stubbed_output": "{\"headline\":\"ROAS down 35%, creative fatigue showing\",\"summary\":\"CTR dropped from 1.0% to 0.6% over the same audience as frequency climbed from 2.1 to 2.8 — classic audience saturation pattern. Spend stayed flat but conversion count fell 43%, so the audience isn\\u2019t responding to the current creative.\",\"recommendation\":\"Refresh the top two creatives this week. Don\\u2019t scale until CTR recovers above 1.0% and frequency drops below 2.0.\",\"confidence\":\"high\"}",
+      "golden": {
+        "must_mention": ["creative", "frequency"],
+        "must_not_contain_slop": true
+      }
+    }
+  ]
+}

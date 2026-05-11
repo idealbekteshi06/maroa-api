@@ -18,7 +18,7 @@ const aiSeo = require('../prompts/ai-seo');
 function createEngine(deps) {
   const { sbGet, sbPost, sbPatch, callClaude, extractJSON, logger, Sentry } = deps;
   if (!sbGet || !sbPost || !sbPatch) throw new Error('ai-seo engine: sbGet/sbPost/sbPatch required');
-  if (!callClaude || !extractJSON)     throw new Error('ai-seo engine: callClaude + extractJSON required');
+  if (!callClaude || !extractJSON) throw new Error('ai-seo engine: callClaude + extractJSON required');
 
   async function auditOne({ businessId, html, text, llms_txt_present, llms_full_txt_present }) {
     const tx = Sentry?.startTransaction?.({ name: 'ai-seo.auditOne' });
@@ -33,11 +33,14 @@ function createEngine(deps) {
 
       const audit = await aiSeo.auditSite({
         business,
-        html, text,
+        html,
+        text,
         llms_txt_present,
         llms_full_txt_present,
         plan: business.plan || 'free',
-        callClaude, extractJSON, logger,
+        callClaude,
+        extractJSON,
+        logger,
       });
 
       // Persist
@@ -76,9 +79,12 @@ function createEngine(deps) {
     if (!business?.id && !business?.user_id) throw new Error(`business ${businessId} not found`);
 
     const result = await aiSeo.generateArtifacts({
-      business, pages,
+      business,
+      pages,
       plan: business.plan || 'free',
-      callClaude, extractJSON, logger,
+      callClaude,
+      extractJSON,
+      logger,
     });
 
     await sbPost('ai_seo_artifacts', {

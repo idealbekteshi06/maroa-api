@@ -20,7 +20,9 @@ function registerWf2Routes({ app, wf2, apiError, logger }) {
         q: req.body?.q || req.query?.q,
       });
       res.json(r);
-    } catch (e) { apiError(res, 500, 'WF2_LIST_FAILED', e.message); }
+    } catch (e) {
+      apiError(res, 500, 'WF2_LIST_FAILED', e.message);
+    }
   }
   app.get('/webhook/wf2-leads-list', listHandler);
   app.post('/webhook/wf2-leads-list', listHandler);
@@ -32,7 +34,9 @@ function registerWf2Routes({ app, wf2, apiError, logger }) {
     try {
       const r = await wf2.getLead({ businessId, leadId });
       res.json(r);
-    } catch (e) { apiError(res, 500, 'WF2_GET_FAILED', e.message); }
+    } catch (e) {
+      apiError(res, 500, 'WF2_GET_FAILED', e.message);
+    }
   }
   app.get('/webhook/wf2-lead-get', getHandler);
   app.post('/webhook/wf2-lead-get', getHandler);
@@ -43,7 +47,9 @@ function registerWf2Routes({ app, wf2, apiError, logger }) {
     try {
       const r = await wf2.rescoreLead({ businessId, leadId });
       res.json(r);
-    } catch (e) { apiError(res, 500, 'WF2_RESCORE_FAILED', e.message); }
+    } catch (e) {
+      apiError(res, 500, 'WF2_RESCORE_FAILED', e.message);
+    }
   });
 
   app.post('/webhook/wf2-generate-response', async (req, res) => {
@@ -52,7 +58,9 @@ function registerWf2Routes({ app, wf2, apiError, logger }) {
     try {
       const r = await wf2.generateResponse({ businessId, leadId });
       res.json(r);
-    } catch (e) { apiError(res, 500, 'WF2_GEN_FAILED', e.message); }
+    } catch (e) {
+      apiError(res, 500, 'WF2_GEN_FAILED', e.message);
+    }
   });
 
   app.post('/webhook/wf2-send-response', async (req, res) => {
@@ -61,7 +69,9 @@ function registerWf2Routes({ app, wf2, apiError, logger }) {
     try {
       const r = await wf2.sendResponse({ businessId, leadId, subject, body, force });
       res.json(r);
-    } catch (e) { apiError(res, 500, 'WF2_SEND_FAILED', e.message); }
+    } catch (e) {
+      apiError(res, 500, 'WF2_SEND_FAILED', e.message);
+    }
   });
 
   app.post('/webhook/wf2-lead-update', async (req, res) => {
@@ -70,7 +80,9 @@ function registerWf2Routes({ app, wf2, apiError, logger }) {
     try {
       const r = await wf2.updateLead({ businessId, leadId, tier, status, ownerId, tagAsJunk, unjunk });
       res.json(r);
-    } catch (e) { apiError(res, 500, 'WF2_UPDATE_FAILED', e.message); }
+    } catch (e) {
+      apiError(res, 500, 'WF2_UPDATE_FAILED', e.message);
+    }
   });
 
   async function routingGetHandler(req, res) {
@@ -78,7 +90,9 @@ function registerWf2Routes({ app, wf2, apiError, logger }) {
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'business_id required');
     try {
       res.json(await wf2.getRoutingRules(businessId));
-    } catch (e) { apiError(res, 500, 'WF2_ROUTING_GET_FAILED', e.message); }
+    } catch (e) {
+      apiError(res, 500, 'WF2_ROUTING_GET_FAILED', e.message);
+    }
   }
   app.get('/webhook/wf2-routing-rules-get', routingGetHandler);
   app.post('/webhook/wf2-routing-rules-get', routingGetHandler);
@@ -88,7 +102,9 @@ function registerWf2Routes({ app, wf2, apiError, logger }) {
     if (!businessId || !Array.isArray(rules)) return apiError(res, 400, 'INVALID_REQUEST', 'required');
     try {
       res.json(await wf2.saveRoutingRules({ businessId, rules }));
-    } catch (e) { apiError(res, 500, 'WF2_ROUTING_SAVE_FAILED', e.message); }
+    } catch (e) {
+      apiError(res, 500, 'WF2_ROUTING_SAVE_FAILED', e.message);
+    }
   });
 
   async function calibrationHandler(req, res) {
@@ -96,7 +112,9 @@ function registerWf2Routes({ app, wf2, apiError, logger }) {
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'business_id required');
     try {
       res.json(await wf2.getCalibration(businessId));
-    } catch (e) { apiError(res, 500, 'WF2_CAL_FAILED', e.message); }
+    } catch (e) {
+      apiError(res, 500, 'WF2_CAL_FAILED', e.message);
+    }
   }
   app.get('/webhook/wf2-calibration', calibrationHandler);
   app.post('/webhook/wf2-calibration', calibrationHandler);
@@ -106,7 +124,9 @@ function registerWf2Routes({ app, wf2, apiError, logger }) {
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'business_id required');
     try {
       res.json(await wf2.getIcp(businessId));
-    } catch (e) { apiError(res, 500, 'WF2_ICP_GET_FAILED', e.message); }
+    } catch (e) {
+      apiError(res, 500, 'WF2_ICP_GET_FAILED', e.message);
+    }
   }
   app.get('/webhook/wf2-icp-get', icpGetHandler);
   app.post('/webhook/wf2-icp-get', icpGetHandler);
@@ -116,7 +136,9 @@ function registerWf2Routes({ app, wf2, apiError, logger }) {
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
     try {
       res.json(await wf2.saveIcp({ businessId, ...rest }));
-    } catch (e) { apiError(res, 500, 'WF2_ICP_SAVE_FAILED', e.message); }
+    } catch (e) {
+      apiError(res, 500, 'WF2_ICP_SAVE_FAILED', e.message);
+    }
   });
 }
 

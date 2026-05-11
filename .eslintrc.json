@@ -10,19 +10,33 @@
   },
   "extends": ["eslint:recommended"],
   "rules": {
-    "no-unused-vars": ["warn", {
-      "argsIgnorePattern": "^_",
-      "varsIgnorePattern": "^_"
-    }],
+    "no-unused-vars": [
+      "warn",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_"
+      }
+    ],
     "no-console": "off",
-    "no-empty": ["warn", { "allowEmptyCatch": true }],
+    "no-empty": ["error", { "allowEmptyCatch": false }],
     "no-prototype-builtins": "off",
     "no-useless-escape": "warn",
     "no-control-regex": "off",
     "no-misleading-character-class": "warn",
     "no-async-promise-executor": "warn",
     "require-atomic-updates": "off",
-    "no-inner-declarations": "off"
+    "no-inner-declarations": "off",
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "CallExpression[callee.property.name='use'][arguments.0.type='Literal'][arguments.0.value=/\\s/]",
+        "message": "Route path contains whitespace — typo. Use kebab-case like /api/launch-prompts."
+      },
+      {
+        "selector": "CallExpression[callee.name='apiRequest'][arguments.1.type='Literal'][arguments.1.value=/api\\.anthropic\\.com/]",
+        "message": "Don't call api.anthropic.com directly — route through callClaude() so cost tracking, retries, prompt caching, and budget enforcement all apply. See docs/adr/0003-cost-discipline-via-callclaude-facade.md"
+      }
+    ]
   },
   "ignorePatterns": [
     "node_modules/",

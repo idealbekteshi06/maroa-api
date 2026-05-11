@@ -82,9 +82,16 @@ function deriveGoogleVerdict({ enhancedOn, matchRate, convActionCount }) {
   let verdict = 'unknown';
   let trust = false;
   if (enhancedOn === true && typeof matchRate === 'number') {
-    if (matchRate >= 0.7) { verdict = 'healthy'; trust = true; }
-    else if (matchRate >= HEALTH_THRESHOLDS.google.match_rate_min) { verdict = 'degraded'; trust = true; }
-    else { verdict = 'broken'; trust = false; }
+    if (matchRate >= 0.7) {
+      verdict = 'healthy';
+      trust = true;
+    } else if (matchRate >= HEALTH_THRESHOLDS.google.match_rate_min) {
+      verdict = 'degraded';
+      trust = true;
+    } else {
+      verdict = 'broken';
+      trust = false;
+    }
   } else if (enhancedOn === false) {
     verdict = 'broken';
   }
@@ -102,9 +109,16 @@ function deriveTikTokVerdict({ eventsApiHealth, events24h }) {
   let verdict = 'unknown';
   let trust = false;
   if (typeof events24h === 'number') {
-    if (events24h >= 100) { verdict = 'healthy'; trust = true; }
-    else if (events24h >= 1) { verdict = 'degraded'; trust = true; }
-    else { verdict = 'broken'; trust = false; }
+    if (events24h >= 100) {
+      verdict = 'healthy';
+      trust = true;
+    } else if (events24h >= 1) {
+      verdict = 'degraded';
+      trust = true;
+    } else {
+      verdict = 'broken';
+      trust = false;
+    }
   }
   return { verdict, trust, reasons };
 }
@@ -142,7 +156,9 @@ async function probe({ businessId, platform, deps }) {
         raw = r.raw || {};
       }
       const v = deriveMetaVerdict({ emq: metaEmq, dedup: metaDedup });
-      verdict = v.verdict; trust = v.trust; reasons = v.reasons;
+      verdict = v.verdict;
+      trust = v.trust;
+      reasons = v.reasons;
     } else if (platform === 'google') {
       const r = await deps.googleAdsDiag?.({ businessId }).catch(() => null);
       if (r) {
@@ -156,7 +172,9 @@ async function probe({ businessId, platform, deps }) {
         matchRate: googleMatchRate,
         convActionCount: googleConvActionCount,
       });
-      verdict = v.verdict; trust = v.trust; reasons = v.reasons;
+      verdict = v.verdict;
+      trust = v.trust;
+      reasons = v.reasons;
     } else if (platform === 'tiktok') {
       const r = await deps.tiktokDiag?.({ businessId }).catch(() => null);
       if (r) {
@@ -168,7 +186,9 @@ async function probe({ businessId, platform, deps }) {
         eventsApiHealth: tiktokEventsHealth,
         events24h: tiktokEvents24h,
       });
-      verdict = v.verdict; trust = v.trust; reasons = v.reasons;
+      verdict = v.verdict;
+      trust = v.trust;
+      reasons = v.reasons;
     } else {
       return { ok: false, reason: 'unknown platform' };
     }
@@ -200,9 +220,12 @@ async function probe({ businessId, platform, deps }) {
 }
 
 async function getLatest({ businessId, platform, deps }) {
-  const rows = await deps.sbGet?.('measurement_health',
-    `business_id=eq.${businessId}&platform=eq.${platform}&order=recorded_at.desc&limit=1&select=*`
-  ).catch(() => []);
+  const rows = await deps
+    .sbGet?.(
+      'measurement_health',
+      `business_id=eq.${businessId}&platform=eq.${platform}&order=recorded_at.desc&limit=1&select=*`
+    )
+    .catch(() => []);
   return rows?.[0] || null;
 }
 

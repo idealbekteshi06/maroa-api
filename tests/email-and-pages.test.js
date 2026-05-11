@@ -11,7 +11,12 @@ const pageBuilder = require('../services/page-builder');
 test('email-lifecycle: STAGE_DEFAULTS covers all 6 stages', () => {
   const stages = Object.keys(lifecycle.STAGE_DEFAULTS);
   assert.deepStrictEqual(stages.sort(), [
-    'abandoned_cart', 'nurture', 'post_purchase', 're_engagement', 'welcome', 'win_back',
+    'abandoned_cart',
+    'nurture',
+    'post_purchase',
+    're_engagement',
+    'welcome',
+    'win_back',
   ]);
 });
 
@@ -47,10 +52,16 @@ test('email-lifecycle: composeStepEmail attaches the principle for that stage:st
 
 test('email-lifecycle: composeStepEmail templates per-stage subject differs', () => {
   const welcome = lifecycle.composeStepEmail({
-    business: { business_name: 'Acme' }, sequence: { stage: 'welcome' }, step: 0, recipient: {},
+    business: { business_name: 'Acme' },
+    sequence: { stage: 'welcome' },
+    step: 0,
+    recipient: {},
   });
   const cart = lifecycle.composeStepEmail({
-    business: { business_name: 'Acme' }, sequence: { stage: 'abandoned_cart' }, step: 0, recipient: {},
+    business: { business_name: 'Acme' },
+    sequence: { stage: 'abandoned_cart' },
+    step: 0,
+    recipient: {},
   });
   assert.notStrictEqual(welcome.subject, cart.subject);
 });
@@ -59,16 +70,27 @@ test('email-lifecycle: enrollRecipient is idempotent on duplicate emails', async
   let postedCount = 0;
   const deps = {
     sbGet: async (table, q) => {
-      if (table === 'email_sequences') return [{
-        id: 'seq-1', stage: 'welcome', cadence_days: [0, 2, 7], is_active: true,
-      }];
-      if (table === 'email_sequence_runs') return [{ id: 'existing-run' }];  // already enrolled
+      if (table === 'email_sequences')
+        return [
+          {
+            id: 'seq-1',
+            stage: 'welcome',
+            cadence_days: [0, 2, 7],
+            is_active: true,
+          },
+        ];
+      if (table === 'email_sequence_runs') return [{ id: 'existing-run' }]; // already enrolled
       return [];
     },
-    sbPost: async () => { postedCount += 1; },
+    sbPost: async () => {
+      postedCount += 1;
+    },
   };
   const r = await lifecycle.enrollRecipient({
-    businessId: 'b1', stage: 'welcome', email: 'a@a.com', deps,
+    businessId: 'b1',
+    stage: 'welcome',
+    email: 'a@a.com',
+    deps,
   });
   assert.strictEqual(r.ok, true);
   assert.strictEqual(r.alreadyEnrolled, true);
@@ -79,16 +101,28 @@ test('email-lifecycle: enrollRecipient inserts a run when not already enrolled',
   let posted = null;
   const deps = {
     sbGet: async (table) => {
-      if (table === 'email_sequences') return [{
-        id: 'seq-1', stage: 'welcome', cadence_days: [0, 2, 7], is_active: true,
-      }];
+      if (table === 'email_sequences')
+        return [
+          {
+            id: 'seq-1',
+            stage: 'welcome',
+            cadence_days: [0, 2, 7],
+            is_active: true,
+          },
+        ];
       if (table === 'email_sequence_runs') return [];
       return [];
     },
-    sbPost: async (table, row) => { posted = { table, row }; },
+    sbPost: async (table, row) => {
+      posted = { table, row };
+    },
   };
   const r = await lifecycle.enrollRecipient({
-    businessId: 'b1', stage: 'welcome', email: 'new@x.com', name: 'New', deps,
+    businessId: 'b1',
+    stage: 'welcome',
+    email: 'new@x.com',
+    name: 'New',
+    deps,
   });
   assert.strictEqual(r.ok, true);
   assert.strictEqual(posted?.table, 'email_sequence_runs');
@@ -98,8 +132,10 @@ test('email-lifecycle: enrollRecipient inserts a run when not already enrolled',
 test('email-lifecycle: ensureSequencesForBusiness creates only missing stages', async () => {
   const created = [];
   const deps = {
-    sbGet: async () => [{ stage: 'welcome' }],   // welcome already exists
-    sbPost: async (table, row) => { created.push(row.stage); },
+    sbGet: async () => [{ stage: 'welcome' }], // welcome already exists
+    sbPost: async (table, row) => {
+      created.push(row.stage);
+    },
   };
   const r = await lifecycle.ensureSequencesForBusiness({ businessId: 'b1', deps });
   assert.strictEqual(r.ok, true);
@@ -126,7 +162,8 @@ test('page-builder: buildPageSpec produces 6 sections in order', () => {
 test('page-builder: headline clamps to ≤8 words', () => {
   const r = pageBuilder.buildPageSpec({
     business: {
-      business_name: 'X', industry: 'saas',
+      business_name: 'X',
+      industry: 'saas',
       tagline: 'This is a way too long headline that nobody will read on a hero',
     },
   });
@@ -141,8 +178,7 @@ test('page-builder: never invents social proof — empty array if no VOC', () =>
     vocSnapshot: null,
   });
   const sp = r.sections.find((s) => s.type === 'social_proof');
-  assert.deepStrictEqual(sp.quotes, [],
-    'Should never fabricate quotes — empty when VOC is unavailable');
+  assert.deepStrictEqual(sp.quotes, [], 'Should never fabricate quotes — empty when VOC is unavailable');
 });
 
 test('page-builder: SaaS industry gets SaaS value props', () => {
@@ -166,7 +202,9 @@ test('page-builder: e-commerce gets e-commerce value props', () => {
 test('page-builder: auditPageSpec scores high on a complete spec', () => {
   const spec = pageBuilder.buildPageSpec({
     business: {
-      business_name: 'Acme Plumbing', industry: 'plumber', location: 'Austin',
+      business_name: 'Acme Plumbing',
+      industry: 'plumber',
+      location: 'Austin',
       tagline: 'Honest plumbing for Austin homes',
       description: 'We fix leaks fast.',
     },
@@ -185,9 +223,7 @@ test('page-builder: auditPageSpec scores high on a complete spec', () => {
 
 test('page-builder: auditPageSpec penalizes missing hero', () => {
   const audit = pageBuilder.auditPageSpec({
-    sections: [
-      { type: 'value_props', items: [{ title: 'A' }, { title: 'B' }, { title: 'C' }] },
-    ],
+    sections: [{ type: 'value_props', items: [{ title: 'A' }, { title: 'B' }, { title: 'C' }] }],
   });
   assert.ok(audit.score < 80);
   assert.ok(audit.findings.some((f) => /headline/i.test(f) || /CTA/i.test(f)));
@@ -200,7 +236,7 @@ test('page-builder: renderHtml produces valid HTML5 doc', () => {
   });
   const html = pageBuilder.renderHtml(spec);
   assert.ok(html.startsWith('<!doctype html>'));
-  assert.ok(html.includes('<meta name="viewport"'));   // mobile-optimized
+  assert.ok(html.includes('<meta name="viewport"')); // mobile-optimized
   assert.ok(html.includes('Acme'));
   assert.ok(html.includes('class="btn"'));
 });
@@ -212,6 +248,8 @@ test('page-builder: renderHtml escapes HTML in user input', () => {
   });
   const html = pageBuilder.renderHtml(spec);
   assert.ok(!html.includes('<script>alert(1)</script>'), 'Must escape script tags');
-  assert.ok(html.includes('&lt;script&gt;') || html.includes('&amp;'),
-    `Expected HTML entities to be escaped, got: ${html.slice(0, 500)}`);
+  assert.ok(
+    html.includes('&lt;script&gt;') || html.includes('&amp;'),
+    `Expected HTML entities to be escaped, got: ${html.slice(0, 500)}`
+  );
 });

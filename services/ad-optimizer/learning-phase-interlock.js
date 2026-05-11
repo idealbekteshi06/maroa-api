@@ -26,8 +26,8 @@
  */
 
 const COOLDOWN_HOURS_AFTER_LEARNING = 72;
-const MAX_BUDGET_DELTA_PCT_DURING_LEARNING = 0.20;     // ±20% absolute cap
-const MAX_BUDGET_DELTA_PCT_DURING_COOLDOWN = 0.20;
+const MAX_BUDGET_DELTA_PCT_DURING_LEARNING = 0.2; // ±20% absolute cap
+const MAX_BUDGET_DELTA_PCT_DURING_COOLDOWN = 0.2;
 
 function hoursSinceISO(iso) {
   if (!iso) return Infinity;
@@ -50,7 +50,10 @@ function canAdjustBudget({ adSet, proposedDelta }) {
         reason: `In learning phase — capped change to ±${MAX_BUDGET_DELTA_PCT_DURING_LEARNING * 100}% to avoid resetting learning`,
       };
     }
-    return { allowed: true, reason: `In learning phase — ${(proposedDelta * 100).toFixed(0)}% change within ±20% safe band` };
+    return {
+      allowed: true,
+      reason: `In learning phase — ${(proposedDelta * 100).toFixed(0)}% change within ±20% safe band`,
+    };
   }
 
   // ── Cooldown window after exiting learning ──
@@ -74,7 +77,8 @@ function canEditStructure({ adSet }) {
   if (adSet.in_learning_phase) {
     return {
       allowed: false,
-      reason: 'In learning phase — structural edits (audience, placement, optimization goal) reset learning. Wait until ad set exits learning before changing structure.',
+      reason:
+        'In learning phase — structural edits (audience, placement, optimization goal) reset learning. Wait until ad set exits learning before changing structure.',
     };
   }
   const hoursSinceExit = hoursSinceISO(adSet.exited_learning_at);

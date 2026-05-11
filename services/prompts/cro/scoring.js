@@ -8,21 +8,28 @@
  */
 
 const DIMENSIONS = {
-  above_the_fold: 0.20,
-  value_prop:     0.15,
-  primary_cta:    0.20,
-  social_proof:   0.10,
-  trust:          0.15,
-  friction:       0.15,
-  mobile:         0.05,
+  above_the_fold: 0.2,
+  value_prop: 0.15,
+  primary_cta: 0.2,
+  social_proof: 0.1,
+  trust: 0.15,
+  friction: 0.15,
+  mobile: 0.05,
 };
 
-function clamp(n, min = 0, max = 100) { return Math.max(min, Math.min(max, n)); }
+function clamp(n, min = 0, max = 100) {
+  return Math.max(min, Math.min(max, n));
+}
 
 function computeScore({ findings }) {
   const dims = {
-    above_the_fold: 100, value_prop: 100, primary_cta: 100,
-    social_proof: 100, trust: 100, friction: 100, mobile: 100,
+    above_the_fold: 100,
+    value_prop: 100,
+    primary_cta: 100,
+    social_proof: 100,
+    trust: 100,
+    friction: 100,
+    mobile: 100,
   };
   const sevPenalty = { critical: 30, warning: 12, info: 4 };
   for (const f of findings || []) {

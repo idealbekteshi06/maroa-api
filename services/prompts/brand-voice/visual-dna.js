@@ -93,7 +93,11 @@ const INDUSTRY_VISUAL = {
       'a calm dentist in scrubs at the chair side, listening',
     ],
     moods: ['reassuring and modern', 'calm and trustworthy', 'bright and welcoming'],
-    lighting: ['daylight-balanced overhead with soft fill', 'bright window-side natural light', 'clean clinical key-light'],
+    lighting: [
+      'daylight-balanced overhead with soft fill',
+      'bright window-side natural light',
+      'clean clinical key-light',
+    ],
     composition: ['eye-level patient close-up', 'medium two-shot of doctor + patient', 'clean wide of treatment room'],
     settings: ['contemporary clinic with plants', 'warm waiting room with art', 'modern treatment room with daylight'],
   },
@@ -221,7 +225,9 @@ const GENERIC_VISUAL = {
 };
 
 function templateForIndustry(industry) {
-  const norm = String(industry || '').toLowerCase().trim();
+  const norm = String(industry || '')
+    .toLowerCase()
+    .trim();
   if (INDUSTRY_VISUAL[norm]) return INDUSTRY_VISUAL[norm];
   // Loose match (e.g. "dentist" → "dental clinic")
   for (const [key, tpl] of Object.entries(INDUSTRY_VISUAL)) {
@@ -290,9 +296,7 @@ function buildVisualDna({ business, vocAnalysis } = {}) {
     voc_vibe: vocVibe,
     seed_hash: hash,
     derived_from: business.id ? 'business_id' : 'business_name_industry',
-    industry_template: INDUSTRY_VISUAL[String(business.industry || '').toLowerCase()]
-      ? business.industry
-      : 'generic',
+    industry_template: INDUSTRY_VISUAL[String(business.industry || '').toLowerCase()] ? business.industry : 'generic',
   };
 }
 
@@ -347,7 +351,9 @@ function formatForLlm(dna) {
     `  Palette: ${dna.palette.join(', ')}`,
     dna.voc_vibe ? `  Customer-voice vibe: ${dna.voc_vibe}` : null,
     `  IMPORTANT: every visual asset for this business must honor this DNA. Do not regress to generic stock-image aesthetics.`,
-  ].filter(Boolean).join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 module.exports = {

@@ -117,7 +117,10 @@ async function classifyIndustry({ businessId, deps }) {
 
 async function detectCompetitors({ businessId, deps, prevPhaseData }) {
   const { sbGet, sbPatch, logger } = deps;
-  const rows = await sbGet('businesses', `id=eq.${businessId}&select=business_name,location,industry,competitors`).catch(() => []);
+  const rows = await sbGet(
+    'businesses',
+    `id=eq.${businessId}&select=business_name,location,industry,competitors`
+  ).catch(() => []);
   const business = rows?.[0];
   if (!business) return { ok: false, reason: 'business not found' };
 
@@ -180,7 +183,10 @@ async function buildBrandVoiceAnchor({ businessId, deps }) {
 
   // VOC may not exist yet for a brand-new business — that's fine, anchor falls
   // back to industry defaults.
-  const vocRows = await sbGet('voc_analyses', `business_id=eq.${businessId}&order=created_at.desc&limit=1&select=*`).catch(() => []);
+  const vocRows = await sbGet(
+    'voc_analyses',
+    `business_id=eq.${businessId}&order=created_at.desc&limit=1&select=*`
+  ).catch(() => []);
   const vocAnalysis = vocRows?.[0] || null;
 
   let anchor;
@@ -196,7 +202,9 @@ async function buildBrandVoiceAnchor({ businessId, deps }) {
     business_id: businessId,
     anchor,
     source: 'cold_start',
-  }).catch((e) => logger?.warn?.('cold-start.build_brand_voice_anchor', businessId, 'persist failed', { error: e.message }));
+  }).catch((e) =>
+    logger?.warn?.('cold-start.build_brand_voice_anchor', businessId, 'persist failed', { error: e.message })
+  );
 
   return { ok: true, data: { anchor_summary: { tone: anchor.tone_descriptors, audience: anchor.audience_summary } } };
 }
@@ -249,13 +257,15 @@ async function trainSoulId({ businessId, deps }) {
         soul_id: null,
         used_cloud_only: true,
         generation_mode: 'prompt_driven',
-        message: 'Standard tier — your content uses prompt-driven generation anchored to your brand voice. Character-lock is available on Premium upgrade (separate Higgsfield consumer-flow account).',
+        message:
+          'Standard tier — your content uses prompt-driven generation anchored to your brand voice. Character-lock is available on Premium upgrade (separate Higgsfield consumer-flow account).',
       },
     };
   }
 
   // ── FNF path: Soul ID character lock available ──
-  const photoRows = await sbGet('business_photos',
+  const photoRows = await sbGet(
+    'business_photos',
     `business_id=eq.${businessId}&photo_type=eq.character_sheet&is_active=eq.true&select=id,photo_url`
   ).catch(() => []);
 
@@ -294,7 +304,9 @@ async function trainSoulId({ businessId, deps }) {
   } catch (e) {
     // A+++ rule: training failure NEVER kills onboarding. Log + fall back
     // to prompt-driven generation. Customer's first content still ships.
-    logger?.error?.('cold-start.train_soul_id', businessId, 'training failed — falling back to prompt-driven', { error: e.message });
+    logger?.error?.('cold-start.train_soul_id', businessId, 'training failed — falling back to prompt-driven', {
+      error: e.message,
+    });
     return {
       ok: true,
       data: {
@@ -302,7 +314,8 @@ async function trainSoulId({ businessId, deps }) {
         used_cloud_only: false,
         generation_mode: 'prompt_driven_fallback',
         training_error: e.message,
-        message: 'Character training had an issue — your content uses prompt-driven generation while we investigate. Brand consistency preserved via brand voice anchor.',
+        message:
+          'Character training had an issue — your content uses prompt-driven generation while we investigate. Brand consistency preserved via brand voice anchor.',
       },
     };
   }
@@ -341,7 +354,8 @@ async function generateConcepts({ businessId, run, deps }) {
   const { sbGet, sbPost, creativeDirector, callClaude, logger } = deps;
 
   // Skip if concepts already proposed for this run (idempotency).
-  const existing = await sbGet('cold_start_concepts',
+  const existing = await sbGet(
+    'cold_start_concepts',
     `run_id=eq.${run.id}&select=id,variant_index,status&limit=10`
   ).catch(() => []);
   if (existing && existing.length >= 3) {
@@ -361,7 +375,8 @@ async function generateConcepts({ businessId, run, deps }) {
   if (!business) return { ok: false, reason: 'business not found' };
 
   // Pull stored anchor for brandDNA
-  const anchorRows = await sbGet('brand_voice_anchors',
+  const anchorRows = await sbGet(
+    'brand_voice_anchors',
     `business_id=eq.${businessId}&order=created_at.desc&limit=1&select=anchor`
   ).catch(() => []);
   const brandDNA = anchorRows?.[0]?.anchor || {};
@@ -428,7 +443,8 @@ async function generateConcepts({ businessId, run, deps }) {
 
 async function awaitConceptApproval({ businessId, run, deps }) {
   const { sbGet } = deps;
-  const approved = await sbGet('cold_start_concepts',
+  const approved = await sbGet(
+    'cold_start_concepts',
     `run_id=eq.${run.id}&status=eq.approved&select=id,variant_index,concept&limit=1`
   ).catch(() => []);
   if (!approved || approved.length === 0) {

@@ -30,9 +30,9 @@ const SECRET = process.env.MAROA_STAGING_WEBHOOK_SECRET || process.env.N8N_WEBHO
 const CONCURRENCY = Number(process.env.LOAD_CONCURRENCY) || 50;
 const DURATION_S = Number(process.env.LOAD_DURATION_S) || 30;
 const ENDPOINTS = [
-  { method: 'GET',  path: '/health',                              authed: false },
-  { method: 'POST', path: '/webhook/ad-optimizer-daily-audit',    authed: true,  body: { dryRun: true } },
-  { method: 'POST', path: '/webhook/pacing-alerts-evaluate-all',  authed: true,  body: { dryRun: true } },
+  { method: 'GET', path: '/health', authed: false },
+  { method: 'POST', path: '/webhook/ad-optimizer-daily-audit', authed: true, body: { dryRun: true } },
+  { method: 'POST', path: '/webhook/pacing-alerts-evaluate-all', authed: true, body: { dryRun: true } },
 ];
 
 if (!SECRET) {
@@ -56,7 +56,7 @@ const stats = {
   per_endpoint: {},
 };
 
-ENDPOINTS.forEach(e => {
+ENDPOINTS.forEach((e) => {
   stats.per_endpoint[`${e.method} ${e.path}`] = { count: 0, errors: 0, latencies: [] };
 });
 
@@ -124,7 +124,7 @@ async function worker() {
 
   // Compute percentiles
   const sorted = stats.latencies_ms.slice().sort((a, b) => a - b);
-  const pct = (p) => sorted[Math.floor(sorted.length * p / 100)] || 0;
+  const pct = (p) => sorted[Math.floor((sorted.length * p) / 100)] || 0;
 
   const report = {
     ...stats,
@@ -132,7 +132,9 @@ async function worker() {
     p50_ms: pct(50),
     p95_ms: pct(95),
     p99_ms: pct(99),
-    avg_ms: stats.latencies_ms.length ? Math.round(stats.latencies_ms.reduce((a, b) => a + b, 0) / stats.latencies_ms.length) : 0,
+    avg_ms: stats.latencies_ms.length
+      ? Math.round(stats.latencies_ms.reduce((a, b) => a + b, 0) / stats.latencies_ms.length)
+      : 0,
     error_rate: stats.total_requests ? Number((stats.errors / stats.total_requests).toFixed(4)) : 0,
     requests_per_second: Number((stats.total_requests / DURATION_S).toFixed(2)),
   };
@@ -161,9 +163,21 @@ async function worker() {
   console.log('\n══════════════ PASS CRITERIA ══════════════');
 
   let pass = true;
-  if (report.p99_ms > 5000)              { console.log('❌ p99 > 5000ms'); pass = false; } else { console.log('✅ p99 < 5000ms'); }
-  if (report.error_rate > 0.01)          { console.log(`❌ error rate ${(report.error_rate * 100).toFixed(2)}% > 1%`); pass = false; } else { console.log('✅ error rate < 1%'); }
-  if (report.requests_per_second < 5)     { console.log(`⚠️  rps < 5 (${report.requests_per_second})`); }
+  if (report.p99_ms > 5000) {
+    console.log('❌ p99 > 5000ms');
+    pass = false;
+  } else {
+    console.log('✅ p99 < 5000ms');
+  }
+  if (report.error_rate > 0.01) {
+    console.log(`❌ error rate ${(report.error_rate * 100).toFixed(2)}% > 1%`);
+    pass = false;
+  } else {
+    console.log('✅ error rate < 1%');
+  }
+  if (report.requests_per_second < 5) {
+    console.log(`⚠️  rps < 5 (${report.requests_per_second})`);
+  }
 
   if (!pass) {
     console.log('\n💥 LOAD TEST FAILED');

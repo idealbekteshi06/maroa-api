@@ -83,14 +83,18 @@ function buildNarrativeUserMessage({ business, marketProfile, forecast, plan }) 
     ``,
     `## Business`,
     '```json',
-    JSON.stringify({
-      name: business?.business_name,
-      industry: business?.industry,
-      plan,
-      primary_language: marketProfile?.primary_language,
-      currency: marketProfile?.currency,
-      currency_symbol: marketProfile?.currency_symbol,
-    }, null, 2),
+    JSON.stringify(
+      {
+        name: business?.business_name,
+        industry: business?.industry,
+        plan,
+        primary_language: marketProfile?.primary_language,
+        currency: marketProfile?.currency,
+        currency_symbol: marketProfile?.currency_symbol,
+      },
+      null,
+      2
+    ),
     '```',
     ``,
     `## Forecast (deterministic — quote these, never invent)`,
@@ -135,8 +139,7 @@ async function forecastForBusiness(opts) {
   if (typeof extractJSON !== 'function') throw new Error('forecastForBusiness: extractJSON required');
 
   const planTier = String(plan || 'free').toLowerCase();
-  const horizon = horizonDays
-    || (planTier === 'agency' ? 90 : planTier === 'growth' ? 60 : 30);
+  const horizon = horizonDays || (planTier === 'agency' ? 90 : planTier === 'growth' ? 60 : 30);
 
   const marketProfile = adI18n.buildMarketProfile(business);
 
@@ -155,18 +158,18 @@ async function forecastForBusiness(opts) {
     });
   }
 
-  const roasSeries  = history.map(r => Number(r?.roas)).filter(Number.isFinite);
-  const spendSeries = history.map(r => Number(r?.spend)).filter(Number.isFinite);
+  const roasSeries = history.map((r) => Number(r?.roas)).filter(Number.isFinite);
+  const spendSeries = history.map((r) => Number(r?.spend)).filter(Number.isFinite);
 
-  const roasForecast  = reg.linearForecast(roasSeries, horizon);
+  const roasForecast = reg.linearForecast(roasSeries, horizon);
   const spendForecast = reg.linearForecast(spendSeries, horizon);
 
   // Revenue = spend × ROAS, projected
   let revenueForecast = null;
   if (roasForecast && spendForecast) {
     revenueForecast = {
-      low:  spendForecast.low  * roasForecast.low,
-      mid:  spendForecast.mid  * roasForecast.mid,
+      low: spendForecast.low * roasForecast.low,
+      mid: spendForecast.mid * roasForecast.mid,
       high: spendForecast.high * roasForecast.high,
     };
   }
@@ -178,8 +181,8 @@ async function forecastForBusiness(opts) {
   let budgetAllocation = null;
   if (channelHistory && typeof channelHistory === 'object') {
     const channels = Object.entries(channelHistory).map(([name, rows]) => {
-      const spend = (rows || []).map(r => Number(r?.spend) || 0).reduce((a, b) => a + b, 0);
-      const roas = reg.mean((rows || []).map(r => Number(r?.roas)).filter(Number.isFinite));
+      const spend = (rows || []).map((r) => Number(r?.spend) || 0).reduce((a, b) => a + b, 0);
+      const roas = reg.mean((rows || []).map((r) => Number(r?.roas)).filter(Number.isFinite));
       return { name, spend, roas };
     });
     budgetAllocation = reg.recommendBudgetAllocation(channels);
@@ -191,30 +194,38 @@ async function forecastForBusiness(opts) {
   // Build deterministic forecast object
   const forecast = {
     horizon_days: horizon,
-    roas_forecast: roasForecast ? {
-      low: Number(roasForecast.low.toFixed(2)),
-      mid: Number(roasForecast.mid.toFixed(2)),
-      high: Number(roasForecast.high.toFixed(2)),
-      confidence: roasForecast.confidence,
-      r2: Number(roasForecast.r2.toFixed(3)),
-    } : null,
-    spend_forecast: spendForecast ? {
-      low: Number(spendForecast.low.toFixed(2)),
-      mid: Number(spendForecast.mid.toFixed(2)),
-      high: Number(spendForecast.high.toFixed(2)),
-    } : null,
-    revenue_forecast: revenueForecast ? {
-      low: Number(revenueForecast.low.toFixed(2)),
-      mid: Number(revenueForecast.mid.toFixed(2)),
-      high: Number(revenueForecast.high.toFixed(2)),
-    } : null,
-    ltv_forecast: ltv ? {
-      value: Number(ltv.value.toFixed(2)),
-      currency: marketProfile.currency,
-      repeat_rate: Number(ltv.repeat_rate.toFixed(3)),
-      confidence: ltv.confidence,
-      sample_size: ltv.sample_size,
-    } : null,
+    roas_forecast: roasForecast
+      ? {
+          low: Number(roasForecast.low.toFixed(2)),
+          mid: Number(roasForecast.mid.toFixed(2)),
+          high: Number(roasForecast.high.toFixed(2)),
+          confidence: roasForecast.confidence,
+          r2: Number(roasForecast.r2.toFixed(3)),
+        }
+      : null,
+    spend_forecast: spendForecast
+      ? {
+          low: Number(spendForecast.low.toFixed(2)),
+          mid: Number(spendForecast.mid.toFixed(2)),
+          high: Number(spendForecast.high.toFixed(2)),
+        }
+      : null,
+    revenue_forecast: revenueForecast
+      ? {
+          low: Number(revenueForecast.low.toFixed(2)),
+          mid: Number(revenueForecast.mid.toFixed(2)),
+          high: Number(revenueForecast.high.toFixed(2)),
+        }
+      : null,
+    ltv_forecast: ltv
+      ? {
+          value: Number(ltv.value.toFixed(2)),
+          currency: marketProfile.currency,
+          repeat_rate: Number(ltv.repeat_rate.toFixed(3)),
+          confidence: ltv.confidence,
+          sample_size: ltv.sample_size,
+        }
+      : null,
     budget_allocation_recommendation: budgetAllocation,
     data_quality: dataQuality,
     sample_size_days: sampleDays,
@@ -227,8 +238,10 @@ async function forecastForBusiness(opts) {
   // Build caveats
   const caveats = [];
   if (variance === 'high') caveats.push('High variance in historical data — confidence band is wide.');
-  if (sampleDays < 30) caveats.push(`Only ${sampleDays} days of data — narrow confidence will widen with more history.`);
-  if (roasForecast && roasForecast.confidence === 'low') caveats.push('R² is low — trend may not be a reliable predictor here.');
+  if (sampleDays < 30)
+    caveats.push(`Only ${sampleDays} days of data — narrow confidence will widen with more history.`);
+  if (roasForecast && roasForecast.confidence === 'low')
+    caveats.push('R² is low — trend may not be a reliable predictor here.');
   forecast.caveats = caveats;
 
   // ─── LLM narrative (skip on free tier — they get raw numbers) ──────────
@@ -260,7 +273,7 @@ async function forecastForBusiness(opts) {
     if (v.valid) {
       narrative = v.normalized.narrative || '';
       // Merge caveats from LLM (often catches things deterministic logic missed)
-      for (const c of (v.normalized.caveats || [])) {
+      for (const c of v.normalized.caveats || []) {
         if (!forecast.caveats.includes(c)) forecast.caveats.push(c);
       }
     }

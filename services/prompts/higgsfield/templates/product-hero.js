@@ -13,6 +13,6 @@ module.exports = {
     'Single light source named (soft side-light from window) — not "professional lighting"',
     'Camera preset named exactly (Robo Arm) — not "camera moves around"',
     'Three-act rhythm: charge-up (droplet) → burst (hand grabs) → aftermath (wet ring)',
-    'No brand name on the product — appearance only, filter-safe'
-  ]
+    'No brand name on the product — appearance only, filter-safe',
+  ],
 };

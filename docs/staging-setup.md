@@ -7,6 +7,7 @@ How to provision a staging environment for Maroa. Required for A+ production dis
 Today every push goes to production. One bad commit = customers see broken stuff.
 
 After staging exists:
+
 - `main` branch → auto-deploys to **staging**
 - `production` branch → manually promoted from staging after smoke-test
 - Customers only see code that was validated against real-shaped data
@@ -34,6 +35,7 @@ n8n: production cron workflows
 ## One-time setup (~30 min)
 
 ### Step 1 — Provision staging Supabase
+
 1. https://supabase.com/dashboard → New Project → "maroa-staging"
 2. Copy `Project URL` + `service_role` key
 3. Run migrations 000-043: paste each into SQL editor + Run
@@ -41,6 +43,7 @@ n8n: production cron workflows
 5. Save credentials in Railway (next step)
 
 ### Step 2 — Provision staging Railway service
+
 1. Railway dashboard → New Service → Deploy from GitHub `main` branch
 2. Service name: `maroa-api-staging`
 3. Custom domain (optional): `staging-api.maroa.ai`
@@ -55,6 +58,7 @@ n8n: production cron workflows
 5. Deploy → wait ~90s → curl `https://maroa-api-staging.up.railway.app/health` returns 200
 
 ### Step 3 — Configure GitHub Actions
+
 1. GitHub repo → Settings → Secrets and variables → Actions
 2. Add secrets:
    ```
@@ -64,7 +68,9 @@ n8n: production cron workflows
 3. The `.github/workflows/load-test.yml` will use these on Monday morning
 
 ### Step 4 — Promote-to-production workflow
+
 Create `.github/workflows/promote-prod.yml` (manual trigger):
+
 ```yaml
 name: Promote staging → production
 on:
@@ -116,6 +122,7 @@ Worth every cent — prevents customer-facing breakage.
 ## Validation
 
 After setup, run:
+
 ```bash
 # Should both return 200
 curl https://maroa-api-production.up.railway.app/health

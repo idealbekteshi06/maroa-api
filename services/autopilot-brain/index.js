@@ -53,28 +53,34 @@ async function collectSignals({ businessId, deps }) {
     autopilotYesterday,
   ] = await Promise.all([
     sbGet('businesses', `id=eq.${businessId}&select=*`).catch(() => []),
-    sbGet('measurement_health',
+    sbGet(
+      'measurement_health',
       `business_id=eq.${businessId}&recorded_at=gte.${yesterdayISO}&order=recorded_at.desc&select=platform,health_verdict,trust_for_scaling,reasons&limit=10`
     ).catch(() => []),
-    sbGet('ad_campaigns',
+    sbGet(
+      'ad_campaigns',
       `business_id=eq.${businessId}&select=id,status,last_decision,last_decision_reason,last_optimized_at&limit=20`
     ).catch(() => []),
-    sbGet('ad_creative_variants',
+    sbGet(
+      'ad_creative_variants',
       `business_id=eq.${businessId}&created_at=gte.${sevenDaysISO}&select=status&limit=200`
     ).catch(() => []),
-    sbGet('competitor_signals',
+    sbGet(
+      'competitor_signals',
       `business_id=eq.${businessId}&observed_at=gte.${sevenDaysISO}&severity=in.(alert,critical)&select=*&limit=50`
     ).catch(() => []),
-    sbGet('ai_citations',
+    sbGet(
+      'ai_citations',
       `business_id=eq.${businessId}&observed_at=gte.${yesterdayISO}&select=brand_cited&limit=200`
     ).catch(() => []),
-    sbGet('pacing_alerts',
-      `business_id=eq.${businessId}&fired_at=gte.${yesterdayISO}&select=*&limit=20`
-    ).catch(() => []),
-    sbGet('cold_start_runs',
-      `business_id=eq.${businessId}&select=status,current_phase,display_state&limit=1`
-    ).catch(() => []),
-    sbGet('autopilot_runs',
+    sbGet('pacing_alerts', `business_id=eq.${businessId}&fired_at=gte.${yesterdayISO}&select=*&limit=20`).catch(
+      () => []
+    ),
+    sbGet('cold_start_runs', `business_id=eq.${businessId}&select=status,current_phase,display_state&limit=1`).catch(
+      () => []
+    ),
+    sbGet(
+      'autopilot_runs',
       `business_id=eq.${businessId}&order=run_date.desc&limit=1&select=decisions,brief_text`
     ).catch(() => []),
   ]);
@@ -95,7 +101,11 @@ async function collectSignals({ businessId, deps }) {
     pending_campaign_decisions: pendingDecisions || [],
     creative_engine_7d: creativeAgg,
     competitor_alerts_7d: competitorSignals || [],
-    citation_run_24h: { total: citationsTotal, cited: citationsCited, cite_rate: citationsTotal > 0 ? citationsCited / citationsTotal : 0 },
+    citation_run_24h: {
+      total: citationsTotal,
+      cited: citationsCited,
+      cite_rate: citationsTotal > 0 ? citationsCited / citationsTotal : 0,
+    },
     pacing_alerts_24h: pacingAlerts || [],
     cold_start: coldStartRun?.[0] || null,
     yesterday_brief: autopilotYesterday?.[0]?.brief_text || null,
@@ -119,7 +129,12 @@ function resolveConflicts({ snapshot, proposed }) {
   const metaTrust = metaHealth ? metaHealth.trust_for_scaling : null;
 
   for (const d of proposed || []) {
-    if (d.domain === 'ad-optimizer' && d.platform === 'meta' && /scale|increase/i.test(d.action) && metaTrust === false) {
+    if (
+      d.domain === 'ad-optimizer' &&
+      d.platform === 'meta' &&
+      /scale|increase/i.test(d.action) &&
+      metaTrust === false
+    ) {
       conflicts.push({
         domain: d.domain,
         action: d.action,
@@ -134,8 +149,9 @@ function resolveConflicts({ snapshot, proposed }) {
 
   // Block re-engagement email if post_purchase sequence is mid-flight (within
   // 30 days of a post_purchase send)
-  const hasRecentPostPurchase = (snapshot?.yesterday_decisions || [])
-    .some((d) => d.domain === 'email-lifecycle' && d.stage === 'post_purchase');
+  const hasRecentPostPurchase = (snapshot?.yesterday_decisions || []).some(
+    (d) => d.domain === 'email-lifecycle' && d.stage === 'post_purchase'
+  );
   for (let i = final.length - 1; i >= 0; i -= 1) {
     const d = final[i];
     if (d.domain === 'email-lifecycle' && d.stage === 're_engagement' && hasRecentPostPurchase) {
@@ -170,7 +186,7 @@ function composeProposedDecisions({ snapshot }) {
   }
 
   // Pacing alerts (fresh in last 24h)
-  for (const a of (snapshot.pacing_alerts_24h || [])) {
+  for (const a of snapshot.pacing_alerts_24h || []) {
     out.push({
       domain: 'pacing-alerts',
       action: 'address',
@@ -218,7 +234,9 @@ function composeBrief({ snapshot, decisions, conflicts, brandVoice }) {
   if (snapshot?.cold_start && snapshot.cold_start.status !== 'completed') {
     const phase = snapshot.cold_start.current_phase || 'onboarding';
     const pct = snapshot.cold_start.display_state?.pct_complete || 0;
-    lines.push(`This morning, ${businessName} is still in onboarding (${pct}% complete, on the ${phase.replace(/_/g, ' ')} step).`);
+    lines.push(
+      `This morning, ${businessName} is still in onboarding (${pct}% complete, on the ${phase.replace(/_/g, ' ')} step).`
+    );
   } else {
     lines.push(`Here's what we did for ${businessName} yesterday and what we're doing today.`);
   }
@@ -227,7 +245,9 @@ function composeBrief({ snapshot, decisions, conflicts, brandVoice }) {
   const pacing = (snapshot?.pacing_alerts_24h || []).length;
   const critical = (snapshot?.competitor_alerts_7d || []).filter((s) => s.severity === 'critical').length;
   if (pacing > 0) {
-    lines.push(`We caught ${pacing} pacing issue${pacing > 1 ? 's' : ''} on your ad spend overnight and adjusted accordingly.`);
+    lines.push(
+      `We caught ${pacing} pacing issue${pacing > 1 ? 's' : ''} on your ad spend overnight and adjusted accordingly.`
+    );
   }
   if (critical > 0) {
     lines.push(`Two competitors made significant moves — we're matching where it makes sense.`);
@@ -237,7 +257,9 @@ function composeBrief({ snapshot, decisions, conflicts, brandVoice }) {
   if (conflicts && conflicts.length > 0) {
     const measurementBlocks = conflicts.filter((c) => c.blocked_by === 'measurement-health').length;
     if (measurementBlocks > 0) {
-      lines.push(`Heads up: tracking is degraded on one of your ad platforms — we're holding off on scale changes there until it's fixed (we'll keep monitoring).`);
+      lines.push(
+        `Heads up: tracking is degraded on one of your ad platforms — we're holding off on scale changes there until it's fixed (we'll keep monitoring).`
+      );
     }
   }
 
@@ -262,7 +284,8 @@ async function runDaily({ businessId, deps }) {
   const todayDate = today.toISOString().slice(0, 10);
 
   // Idempotency — only one autopilot_runs row per (business, date)
-  const existing = await sbGet('autopilot_runs',
+  const existing = await sbGet(
+    'autopilot_runs',
     `business_id=eq.${businessId}&run_date=eq.${todayDate}&select=id,status&limit=1`
   ).catch(() => []);
   if (existing && existing[0] && existing[0].status === 'completed') {
@@ -279,11 +302,14 @@ async function runDaily({ businessId, deps }) {
   // not generic AI marketing speak)
   let brandVoice = null;
   try {
-    const anchorRows = await sbGet('brand_voice_anchors',
+    const anchorRows = await sbGet(
+      'brand_voice_anchors',
       `business_id=eq.${businessId}&order=created_at.desc&limit=1&select=anchor`
     ).catch(() => []);
     brandVoice = anchorRows?.[0]?.anchor || null;
-  } catch {}
+  } catch (e) {
+    /* soft-fail — see ADR-0003 for empty-catch cleanup plan */
+  }
 
   let brief = composeBrief({ snapshot, decisions, conflicts, brandVoice });
 

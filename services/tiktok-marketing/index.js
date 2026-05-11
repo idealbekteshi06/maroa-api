@@ -106,7 +106,16 @@ async function fetchInsights({ business, since, until }) {
       report_type: 'BASIC',
       data_level: 'AUCTION_CAMPAIGN',
       dimensions: JSON.stringify(['campaign_id']),
-      metrics: JSON.stringify(['spend', 'impressions', 'clicks', 'ctr', 'cpc', 'conversion', 'cost_per_conversion', 'conversion_rate']),
+      metrics: JSON.stringify([
+        'spend',
+        'impressions',
+        'clicks',
+        'ctr',
+        'cpc',
+        'conversion',
+        'cost_per_conversion',
+        'conversion_rate',
+      ]),
       start_date: start,
       end_date: end,
       page_size: '100',
@@ -130,7 +139,7 @@ async function fetchInsights({ business, since, until }) {
       conversions,
       conversions_30d: conversions,
       cpa: Number(m.cost_per_conversion) || null,
-      roas: null,                 // TikTok doesn't return revenue in this endpoint
+      roas: null, // TikTok doesn't return revenue in this endpoint
       in_learning: false,
       target_cpa: null,
     };
@@ -174,7 +183,7 @@ async function createSmartPlusCampaign({ business, payload }) {
       budget: Number(payload.daily_budget || 50),
       budget_mode: 'BUDGET_MODE_DAY',
       // Smart+ uses simplified delivery
-      operation_status: 'DISABLE',     // PAUSED equivalent
+      operation_status: 'DISABLE', // PAUSED equivalent
       app_promotion_type: 'NORMAL',
     },
   });

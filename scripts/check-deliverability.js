@@ -26,7 +26,7 @@ const DOMAIN = process.env.FROM_DOMAIN || 'maroa.ai';
 async function checkSPF(domain) {
   try {
     const records = await dns.resolveTxt(domain);
-    const spf = records.flat().find(r => r.startsWith('v=spf1'));
+    const spf = records.flat().find((r) => r.startsWith('v=spf1'));
     if (!spf) return { passed: false, reason: 'No SPF record found' };
     const includesResend = spf.includes('include:_spf.resend.com') || spf.includes('include:resend.com');
     if (!includesResend) return { passed: false, reason: `SPF missing Resend include: ${spf}` };
@@ -42,7 +42,7 @@ async function checkDKIM(domain) {
   for (const sel of selectors) {
     try {
       const records = await dns.resolveTxt(`${sel}.${domain}`);
-      if (records.flat().some(r => r.includes('v=DKIM1'))) {
+      if (records.flat().some((r) => r.includes('v=DKIM1'))) {
         return { passed: true, selector: sel };
       }
     } catch {
@@ -55,7 +55,7 @@ async function checkDKIM(domain) {
 async function checkDMARC(domain) {
   try {
     const records = await dns.resolveTxt(`_dmarc.${domain}`);
-    const dmarc = records.flat().find(r => r.startsWith('v=DMARC1'));
+    const dmarc = records.flat().find((r) => r.startsWith('v=DMARC1'));
     if (!dmarc) return { passed: false, reason: 'No DMARC record' };
     const policy = dmarc.match(/p=([^;\s]+)/i)?.[1] || 'none';
     if (policy === 'none') {
@@ -71,7 +71,7 @@ async function checkMX(domain) {
   try {
     const records = await dns.resolveMx(domain);
     if (!records.length) return { passed: false, reason: 'No MX records' };
-    return { passed: true, records: records.map(r => `${r.priority} ${r.exchange}`) };
+    return { passed: true, records: records.map((r) => `${r.priority} ${r.exchange}`) };
   } catch (e) {
     return { passed: false, reason: `MX lookup failed: ${e.code || e.message}` };
   }
@@ -83,17 +83,17 @@ async function checkMX(domain) {
   console.log('');
 
   const checks = [
-    { name: 'SPF',   fn: () => checkSPF(DOMAIN) },
-    { name: 'DKIM',  fn: () => checkDKIM(DOMAIN) },
+    { name: 'SPF', fn: () => checkSPF(DOMAIN) },
+    { name: 'DKIM', fn: () => checkDKIM(DOMAIN) },
     { name: 'DMARC', fn: () => checkDMARC(DOMAIN) },
-    { name: 'MX',    fn: () => checkMX(DOMAIN) },
+    { name: 'MX', fn: () => checkMX(DOMAIN) },
   ];
 
   let pass = true;
   for (const c of checks) {
     const r = await c.fn();
     if (r.passed) {
-      console.log(`✅ ${c.name}:  ${r.record || r.policy || (r.records?.[0] || 'OK')}`);
+      console.log(`✅ ${c.name}:  ${r.record || r.policy || r.records?.[0] || 'OK'}`);
     } else {
       console.log(`❌ ${c.name}:  ${r.reason}`);
       pass = false;
@@ -108,7 +108,7 @@ async function checkMX(domain) {
     process.exit(1);
   }
   console.log('🎉 Deliverability config looks good. Maroa emails should land in inbox.');
-})().catch(e => {
+})().catch((e) => {
   console.error('Check failed:', e);
   process.exit(1);
 });

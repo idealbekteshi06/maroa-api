@@ -28,9 +28,15 @@ const path = require('path');
 
 const MIGRATIONS_DIR = path.join(__dirname, '..', 'migrations');
 
-function red(s) { return `\x1b[31m${s}\x1b[0m`; }
-function green(s) { return `\x1b[32m${s}\x1b[0m`; }
-function yellow(s) { return `\x1b[33m${s}\x1b[0m`; }
+function red(s) {
+  return `\x1b[31m${s}\x1b[0m`;
+}
+function green(s) {
+  return `\x1b[32m${s}\x1b[0m`;
+}
+function yellow(s) {
+  return `\x1b[33m${s}\x1b[0m`;
+}
 
 function exit(code, msg) {
   console.log(code === 0 ? green(msg) : red(msg));
@@ -39,7 +45,8 @@ function exit(code, msg) {
 
 function listMigrations() {
   if (!fs.existsSync(MIGRATIONS_DIR)) exit(1, `No migrations/ directory at ${MIGRATIONS_DIR}`);
-  return fs.readdirSync(MIGRATIONS_DIR)
+  return fs
+    .readdirSync(MIGRATIONS_DIR)
     .filter((f) => f.endsWith('.sql'))
     .sort();
 }
@@ -91,35 +98,99 @@ function checkLatestReferenced(parsed) {
   const slug = `${String(latest.number).padStart(3, '0')}_${latest.slug}`;
   const memoryPath = path.join(__dirname, '..', '.claude', 'projects', 'maroa', 'memory', 'MEMORY.md');
 
-  const referencedInMemory = fs.existsSync(memoryPath)
-    && fs.readFileSync(memoryPath, 'utf8').includes(slug);
+  const referencedInMemory = fs.existsSync(memoryPath) && fs.readFileSync(memoryPath, 'utf8').includes(slug);
 
   let referencedInGit = false;
   try {
     const { execSync } = require('child_process');
     const recentLog = execSync('git log -20 --pretty=%B', { encoding: 'utf8' });
     referencedInGit = recentLog.includes(slug) || recentLog.includes(`migration ${latest.number}`);
-  } catch { /* git not available */ }
+  } catch {
+    /* git not available */
+  }
 
   const errors = [];
   if (!referencedInMemory && !referencedInGit) {
     console.log(yellow(`  warn: latest migration ${slug} not referenced in MEMORY.md or recent git commits.`));
-    console.log(yellow(`        (This is a soft warning — could mean you forgot to mention the migration in a commit.)`));
+    console.log(
+      yellow(`        (This is a soft warning — could mean you forgot to mention the migration in a commit.)`)
+    );
   }
   return errors;
 }
 
 async function verifyAppliedAgainstSupabase(parsed) {
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
+  const url = (process.env.SUPABASE_URL || '').trim();
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '').trim();
+  if (!url || !key) {
     console.log(yellow('  --verify-applied: SUPABASE_URL/SUPABASE_KEY not set, skipping live check'));
     return [];
   }
-  // Minimal probe: try to query the table the latest migration creates, by
-  // pattern-matching the SQL. This is a coarse check — for true drift
-  // detection use a tool like Atlas or the Supabase CLI.
-  console.log(yellow('  --verify-applied: live drift check via pg_class would require Supabase service-role key'));
-  console.log(yellow('  Recommendation: run `supabase db diff` for true drift detection.'));
-  return [];
+
+  // Read the _migrations ledger (created by migration 055). If the ledger
+  // itself isn't applied yet, fall back to the legacy soft-check.
+  let applied;
+  try {
+    const res = await fetch(`${url}/rest/v1/_migrations?select=filename,checksum,applied_at`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
+    });
+    if (res.status === 404 || res.status === 400) {
+      console.log(yellow('  --verify-applied: _migrations table not found yet (apply migration 055 first).'));
+      return [];
+    }
+    if (!res.ok) {
+      console.log(yellow(`  --verify-applied: ledger fetch failed (${res.status}). Skipping.`));
+      return [];
+    }
+    applied = await res.json();
+  } catch (e) {
+    console.log(yellow(`  --verify-applied: ledger fetch threw: ${e.message}`));
+    return [];
+  }
+
+  const fs = require('fs');
+  const path = require('path');
+  const cryptoMod = require('crypto');
+  const MIGRATIONS_DIR = path.join(__dirname, '..', 'migrations');
+
+  const appliedByName = new Map(applied.map((r) => [r.filename, r]));
+  const errors = [];
+  const missingFromDb = [];
+  const driftChecksum = [];
+
+  for (const m of parsed) {
+    const filename = m.raw;
+    const fullPath = path.join(MIGRATIONS_DIR, filename);
+    const contents = fs.readFileSync(fullPath, 'utf8');
+    const expected = cryptoMod.createHash('sha256').update(contents).digest('hex');
+    const row = appliedByName.get(filename);
+    if (!row) {
+      missingFromDb.push(filename);
+      continue;
+    }
+    if (row.checksum && row.checksum !== expected) {
+      driftChecksum.push({ filename, expected, applied: row.checksum });
+    }
+  }
+
+  if (missingFromDb.length) {
+    console.log(yellow(`  --verify-applied: ${missingFromDb.length} migration(s) in repo but not in ledger:`));
+    for (const f of missingFromDb) console.log(yellow(`      • ${f}`));
+    errors.push(`${missingFromDb.length} unapplied migrations`);
+  }
+  if (driftChecksum.length) {
+    console.log(red(`  --verify-applied: CHECKSUM MISMATCH — applied migration was edited after apply:`));
+    for (const d of driftChecksum) {
+      console.log(red(`      • ${d.filename}`));
+      console.log(red(`        expected (file): ${d.expected.slice(0, 16)}…`));
+      console.log(red(`        recorded (db):   ${d.applied.slice(0, 16)}…`));
+    }
+    errors.push(`${driftChecksum.length} checksum drift`);
+  }
+  if (!missingFromDb.length && !driftChecksum.length) {
+    console.log(green(`  ✓ All ${parsed.length} migrations present in ledger with matching checksums`));
+  }
+  return errors;
 }
 
 async function main() {
@@ -149,7 +220,8 @@ async function main() {
   console.log(green(`  ✓ Latest migration: ${parsed[parsed.length - 1].raw}`));
 
   if (process.argv.includes('--verify-applied')) {
-    await verifyAppliedAgainstSupabase(parsed);
+    const errs = await verifyAppliedAgainstSupabase(parsed);
+    if (errs.length) exit(1, `\n${errs.length} verify-applied error(s) — fix before deploy`);
   }
 
   exit(0, '\nAll migration sanity checks passed ✓');

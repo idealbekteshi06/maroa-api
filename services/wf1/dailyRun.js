@@ -20,13 +20,19 @@
 
 'use strict';
 
-function createDailyRun({ sbGet, sbPost, sbPatch, logger, engine, publisher, checkOrchestrationIdempotency, recordOrchestrationTaskRun }) {
+function createDailyRun({
+  sbGet,
+  sbPost,
+  sbPatch,
+  logger,
+  engine,
+  publisher,
+  checkOrchestrationIdempotency,
+  recordOrchestrationTaskRun,
+}) {
   async function shouldRunForBusiness(businessId) {
     // Check local time == 06 in business timezone
-    const profileRows = await sbGet(
-      'business_profiles',
-      `user_id=eq.${businessId}&select=timezone`
-    ).catch(() => []);
+    const profileRows = await sbGet('business_profiles', `user_id=eq.${businessId}&select=timezone`).catch(() => []);
     const tz = profileRows[0]?.timezone || 'Europe/Belgrade';
     let localHour;
     try {
@@ -99,10 +105,7 @@ function createDailyRun({ sbGet, sbPost, sbPatch, logger, engine, publisher, che
 
         if (action === 'queue') {
           // Write approval row with SLA
-          const slaAt =
-            mode === 'hybrid'
-              ? new Date(Date.now() + (windowHours || 4) * 3600000).toISOString()
-              : null;
+          const slaAt = mode === 'hybrid' ? new Date(Date.now() + (windowHours || 4) * 3600000).toISOString() : null;
           await sbPost('approvals', {
             business_id: businessId,
             workflow: '1_daily_content',
@@ -119,7 +122,7 @@ function createDailyRun({ sbGet, sbPost, sbPatch, logger, engine, publisher, che
             status: 'pending',
             priority: Math.round(qs),
             sla_at: slaAt,
-          }).catch(e => logger?.warn('/wf1/dailyRun', businessId, 'approval insert failed', { error: e.message }));
+          }).catch((e) => logger?.warn('/wf1/dailyRun', businessId, 'approval insert failed', { error: e.message }));
         }
 
         results.push({
@@ -154,10 +157,7 @@ function createDailyRun({ sbGet, sbPost, sbPatch, logger, engine, publisher, che
 
   async function runForAllBusinesses({ force = false } = {}) {
     // Fetch all active businesses
-    const bizList = await sbGet(
-      'businesses',
-      `is_active=eq.true&select=id,business_name&limit=500`
-    ).catch(() => []);
+    const bizList = await sbGet('businesses', `is_active=eq.true&select=id,business_name&limit=500`).catch(() => []);
 
     const results = [];
     for (const biz of bizList) {
@@ -195,7 +195,9 @@ function createDailyRun({ sbGet, sbPost, sbPatch, logger, engine, publisher, che
             status: pub.ok ? 'approved' : 'rejected',
             decided_at: new Date().toISOString(),
             decision_reason: pub.ok ? 'SLA fallback auto-approved (quality ≥ 90)' : `Publish failed: ${pub.error}`,
-          }).catch(e => logger?.warn('/wf1/dailyRun', approval.business_id, 'approval status patch failed', { error: e.message }));
+          }).catch((e) =>
+            logger?.warn('/wf1/dailyRun', approval.business_id, 'approval status patch failed', { error: e.message })
+          );
           results.push({ approvalId: approval.id, action: 'auto_published', ok: pub.ok });
         } catch (e) {
           results.push({ approvalId: approval.id, action: 'error', error: e.message });
@@ -206,7 +208,9 @@ function createDailyRun({ sbGet, sbPost, sbPatch, logger, engine, publisher, che
           status: 'expired',
           decided_at: new Date().toISOString(),
           decision_reason: `SLA expired, quality ${qs} below fallback threshold 90`,
-        }).catch(e => logger?.warn('/wf1/dailyRun', approval.business_id, 'approval expiry patch failed', { error: e.message }));
+        }).catch((e) =>
+          logger?.warn('/wf1/dailyRun', approval.business_id, 'approval expiry patch failed', { error: e.message })
+        );
         results.push({ approvalId: approval.id, action: 'expired' });
       }
     }

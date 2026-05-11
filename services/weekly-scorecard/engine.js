@@ -32,7 +32,8 @@ function createEngine(deps) {
       const [bizRows, profileRows, allLogs, campaigns] = await Promise.all([
         sbGet('businesses', `id=eq.${businessId}&select=*`).catch(() => []),
         sbGet('business_profiles', `user_id=eq.${businessId}&select=*`).catch(() => []),
-        sbGet('ad_performance_logs',
+        sbGet(
+          'ad_performance_logs',
           `business_id=eq.${businessId}&logged_at=gte.${since}&order=logged_at.asc&select=*`
         ).catch(() => []),
         sbGet('ad_campaigns', `business_id=eq.${businessId}&select=id,business_name`).catch(() => []),
@@ -40,8 +41,8 @@ function createEngine(deps) {
       const business = { ...(bizRows[0] || {}), ...(profileRows[0] || {}) };
       if (!business?.id && !business?.user_id) throw new Error(`business ${businessId} not found`);
 
-      const thisWeekRows = allLogs.filter(r => new Date(r.logged_at) >= new Date(split));
-      const prevWeekRows = allLogs.filter(r => new Date(r.logged_at) < new Date(split));
+      const thisWeekRows = allLogs.filter((r) => new Date(r.logged_at) >= new Date(split));
+      const prevWeekRows = allLogs.filter((r) => new Date(r.logged_at) < new Date(split));
       const scorecardData = scorecard.buildScorecardData({ thisWeekRows, prevWeekRows, campaigns });
 
       const marketProfile = adI18n.buildMarketProfile(business);
@@ -56,9 +57,49 @@ function createEngine(deps) {
             user: scorecard.buildUserMessage({ business, marketProfile, scorecardData, plan }),
             model: scorecard.modelForPlan(plan),
             max_tokens: scorecard.maxTokensForPlan(plan),
-            extra: { cacheSystem: true, temperature: 0.5 },
+            extra: {
+              cacheSystem: true,
+              temperature: 0.5,
+              businessId,
+              skill: 'weekly_scorecard_narrative',
+            },
           });
           commentary = extractJSON(raw);
+
+          // Quality gate on the narrative — prior code shipped commentary
+          // unchecked, so slop-heavy weekly scorecards landed in customer
+          // inboxes verbatim. Now every narrative string goes through gate().
+          try {
+            const qualityGate = require('../prompts/quality-gate');
+            const narrativeText = [commentary?.headline, commentary?.summary, commentary?.recommendation]
+              .filter(Boolean)
+              .join('\n\n');
+            if (narrativeText) {
+              const gr = await qualityGate.gate({
+                text: narrativeText,
+                business,
+                contentType: 'scorecard_text',
+                plan,
+                callClaude,
+                extractJSON,
+                logger,
+              });
+              if (gr.decision !== 'reject' && gr.final_text && gr.final_text !== narrativeText) {
+                // Polish landed — keep the structured fields but rewrite the
+                // joined narrative so the email body benefits. Individual
+                // fields stay as the LLM produced them so downstream JSON
+                // consumers see consistent shape.
+                commentary.polished_summary = gr.final_text;
+              }
+              commentary._quality_gate = {
+                decision: gr.decision,
+                retries: gr.retries,
+                blocking: gr.blocking_issues,
+              };
+            }
+          } catch (gateErr) {
+            logger?.warn?.('weekly-scorecard', businessId, 'quality-gate failed (soft)', { error: gateErr.message });
+          }
         } catch (e) {
           logger?.warn?.('weekly-scorecard', businessId, 'LLM call failed — sending plain scorecard', e?.message);
         }
@@ -70,7 +111,11 @@ function createEngine(deps) {
       let emailResult = null;
       if (!dryRun && sendEmailToOwner && business.email && typeof sendEmail === 'function') {
         try {
-          emailResult = await sendEmail(business.email, `${business.business_name || 'Your business'} — Weekly Scorecard`, html);
+          emailResult = await sendEmail(
+            business.email,
+            `${business.business_name || 'Your business'} — Weekly Scorecard`,
+            html
+          );
         } catch (e) {
           logger?.warn?.('weekly-scorecard', businessId, 'sendEmail failed', e?.message);
         }

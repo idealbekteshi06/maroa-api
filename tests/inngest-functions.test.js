@@ -22,7 +22,7 @@ test('inngest: every function has an id and a handler', () => {
 });
 
 test('inngest: function ids are unique', () => {
-  const ids = functions.map((f) => (f.opts?.id ?? f.id));
+  const ids = functions.map((f) => f.opts?.id ?? f.id);
   const set = new Set(ids);
   assert.strictEqual(set.size, ids.length, 'duplicate function ids detected: ' + ids.join(','));
 });
@@ -85,7 +85,7 @@ test('inngest: cron expressions match expected schedules', () => {
 
 // ─── No accidental Sunday-collision between 22:00 scorecard and 23:00 batch ─
 
-test('inngest: Sunday 22:00 and 23:00 don\'t collide on the same business work', () => {
+test("inngest: Sunday 22:00 and 23:00 don't collide on the same business work", () => {
   // Scorecard at Sun 22:00 reads — batch at daily 23:00 writes.
   // Different reads/writes, but they share Anthropic concurrency.
   // Both have concurrency: { limit: 1 } so they serialize at Inngest level.

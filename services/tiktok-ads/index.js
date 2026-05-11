@@ -28,7 +28,7 @@
 
 const TIKTOK_CAMPAIGN_MIN_DAILY = 50;
 const TIKTOK_AD_GROUP_MIN_DAILY = 20;
-const SPARK_ADS_PERFORMANCE_PERCENTILE = 75;   // boost top-25% organic posts
+const SPARK_ADS_PERFORMANCE_PERCENTILE = 75; // boost top-25% organic posts
 
 function isEligible({ dailyBudget }) {
   return Number(dailyBudget) >= TIKTOK_CAMPAIGN_MIN_DAILY;
@@ -40,7 +40,9 @@ function isEligible({ dailyBudget }) {
 function eligibilityVerdict({ dailyBudget, businessVerified }) {
   const reasons = [];
   if (!isEligible({ dailyBudget })) {
-    reasons.push(`TikTok requires $${TIKTOK_CAMPAIGN_MIN_DAILY}/day minimum spend (you're at $${dailyBudget}/day) — routing to Meta + Google instead`);
+    reasons.push(
+      `TikTok requires $${TIKTOK_CAMPAIGN_MIN_DAILY}/day minimum spend (you're at $${dailyBudget}/day) — routing to Meta + Google instead`
+    );
   }
   if (businessVerified === false) {
     reasons.push('TikTok Business verification not complete — Smart+ campaigns unavailable');
@@ -78,13 +80,15 @@ async function selectSparkAdsPosts({ businessId, deps, limit = 5 }) {
 
   // Score by engagement composite: views × completion_rate × (likes + comments × 3)
   // Comments weighted 3× because they're a stronger affinity signal than likes.
-  const scored = posts.map((p) => ({
-    ...p,
-    _engagement_score:
-      (Number(p.views) || 0) *
-      (Number(p.completion_rate) || 0.1) *
-      ((Number(p.likes) || 0) + (Number(p.comments) || 0) * 3),
-  })).sort((a, b) => b._engagement_score - a._engagement_score);
+  const scored = posts
+    .map((p) => ({
+      ...p,
+      _engagement_score:
+        (Number(p.views) || 0) *
+        (Number(p.completion_rate) || 0.1) *
+        ((Number(p.likes) || 0) + (Number(p.comments) || 0) * 3),
+    }))
+    .sort((a, b) => b._engagement_score - a._engagement_score);
 
   // Top-25th-percentile
   const threshold = Math.max(1, Math.floor(scored.length * (1 - SPARK_ADS_PERFORMANCE_PERCENTILE / 100)));
@@ -107,7 +111,10 @@ async function selectSparkAdsPosts({ businessId, deps, limit = 5 }) {
  */
 async function coldStartLaunch({ businessId, concept, deps }) {
   const { sbGet, sbPost, logger } = deps;
-  const businessRows = await sbGet?.('businesses', `id=eq.${businessId}&select=daily_budget,tiktok_business_verified,industry,business_name`).catch(() => []);
+  const businessRows = await sbGet?.(
+    'businesses',
+    `id=eq.${businessId}&select=daily_budget,tiktok_business_verified,industry,business_name`
+  ).catch(() => []);
   const business = businessRows?.[0];
   if (!business) return { ok: false, reason: 'business not found' };
 
@@ -172,9 +179,13 @@ async function auditCampaigns({ businessId, deps }) {
   const { sbGet, tiktokApi, measurementHealth } = deps;
   if (!tiktokApi?.fetchInsights) return { ok: false, reason: 'tiktokApi.fetchInsights not configured' };
 
-  const trust = await measurementHealth?.trustForScaling?.({
-    businessId, platform: 'tiktok', deps,
-  }).catch(() => false);
+  const trust = await measurementHealth
+    ?.trustForScaling?.({
+      businessId,
+      platform: 'tiktok',
+      deps,
+    })
+    .catch(() => false);
 
   let insights;
   try {
@@ -192,15 +203,27 @@ function decideForTikTokCampaign({ camp, trust }) {
   if (in_learning) return { campaign_id: id, decision: 'hold', reason: 'Smart+ in learning' };
   if (!trust) {
     if (typeof cpa === 'number' && cpa > (camp.target_cpa || 100) * 3) {
-      return { campaign_id: id, decision: 'pause', reason: 'CPA blowout > 3× target (only hard signal honored when Events API untrusted)' };
+      return {
+        campaign_id: id,
+        decision: 'pause',
+        reason: 'CPA blowout > 3× target (only hard signal honored when Events API untrusted)',
+      };
     }
     return { campaign_id: id, decision: 'hold', reason: 'Events API health degraded — measurement untrusted' };
   }
   if (typeof roas === 'number' && roas >= 2.5 && conversions_30d >= 30) {
-    return { campaign_id: id, decision: 'scale_15pct', reason: `ROAS ${roas.toFixed(2)} ≥ 2.5 with ${conversions_30d} conversions` };
+    return {
+      campaign_id: id,
+      decision: 'scale_15pct',
+      reason: `ROAS ${roas.toFixed(2)} ≥ 2.5 with ${conversions_30d} conversions`,
+    };
   }
   if (typeof roas === 'number' && roas < 0.8) {
-    return { campaign_id: id, decision: 'refresh_creative', reason: `ROAS ${roas.toFixed(2)} below 0.8 — likely creative fatigue, request fresh Spark posts` };
+    return {
+      campaign_id: id,
+      decision: 'refresh_creative',
+      reason: `ROAS ${roas.toFixed(2)} below 0.8 — likely creative fatigue, request fresh Spark posts`,
+    };
   }
   return { campaign_id: id, decision: 'hold', reason: 'Within bounds' };
 }

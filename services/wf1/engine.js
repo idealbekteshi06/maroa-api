@@ -55,10 +55,9 @@ function createEngine({
 
   // ── Resolve local date in business timezone ───────────────────────────
   async function resolveLocalDate(businessId) {
-    const profileRows = await sbGet(
-      'business_profiles',
-      `user_id=eq.${businessId}&select=timezone,country`
-    ).catch(() => []);
+    const profileRows = await sbGet('business_profiles', `user_id=eq.${businessId}&select=timezone,country`).catch(
+      () => []
+    );
     const tz = profileRows[0]?.timezone || 'Europe/Belgrade';
     try {
       const d = new Date();
@@ -101,10 +100,7 @@ function createEngine({
         status: existing[0].status,
       });
       // Return the existing plan + concepts
-      const concepts = await sbGet(
-        'content_concepts',
-        `plan_id=eq.${existing[0].id}&select=*`
-      ).catch(() => []);
+      const concepts = await sbGet('content_concepts', `plan_id=eq.${existing[0].id}&select=*`).catch(() => []);
       return {
         runId: existing[0].id,
         planId: existing[0].id,
@@ -125,7 +121,8 @@ function createEngine({
     // Agency tier gets the upstream Cannes-grade creative-director pass FIRST,
     // then folds the chosen concept into the daily-content prompt for richer
     // downstream concepts. Free/Growth tiers go straight to the existing path.
-    const businessRow = (await sbGet('businesses', `id=eq.${businessId}&select=plan,plan_price`).catch(() => []))[0] || {};
+    const businessRow =
+      (await sbGet('businesses', `id=eq.${businessId}&select=plan,plan_price`).catch(() => []))[0] || {};
     const isAgency = String(businessRow.plan || '').toLowerCase() === 'agency';
 
     let creativeConcept = null;
@@ -188,7 +185,9 @@ function createEngine({
           });
         }
       } catch (e) {
-        logger?.warn('/wf1/engine', businessId, 'creative-director pass failed, falling back to standard path', { error: e.message });
+        logger?.warn('/wf1/engine', businessId, 'creative-director pass failed, falling back to standard path', {
+          error: e.message,
+        });
       }
     }
 
@@ -246,7 +245,7 @@ function createEngine({
         cost_estimate_usd: c.costEstimate || 0,
         status: 'pending',
         creative_concept_id: creativeConceptId,
-      }).catch(e => {
+      }).catch((e) => {
         logger?.error('/wf1/engine', businessId, 'concept insert failed', e);
         return null;
       });
@@ -308,7 +307,7 @@ function createEngine({
         status: 'rejected',
         rejection_reason: `Guardrails: ${guardResult.reasons.join('; ')}`,
         updated_at: new Date().toISOString(),
-      }).catch(e => logger?.warn('/wf1/engine', businessId, 'concept rejection patch failed', { error: e.message }));
+      }).catch((e) => logger?.warn('/wf1/engine', businessId, 'concept rejection patch failed', { error: e.message }));
       return { assetId: null, qualityScore: 0, blocked: true, reasons: guardResult.reasons };
     }
 
@@ -339,7 +338,10 @@ function createEngine({
     // upstream visual/audio/camera direction into the Sonnet prompt so the
     // platform-native asset honours the strategic concept.
     if (concept.creative_concept_id) {
-      const ccRows = await sbGet('creative_concepts', `id=eq.${concept.creative_concept_id}&select=top_concept,insight,pattern,comparable_canon`).catch(() => []);
+      const ccRows = await sbGet(
+        'creative_concepts',
+        `id=eq.${concept.creative_concept_id}&select=top_concept,insight,pattern,comparable_canon`
+      ).catch(() => []);
       const cc = ccRows[0];
       const downstream = cc?.top_concept?.downstream_brief_for_higgsfield;
       if (downstream) {
@@ -390,7 +392,7 @@ function createEngine({
       quality_score: qualityResult.score,
       quality_breakdown: qualityResult.breakdown,
       updated_at: new Date().toISOString(),
-    }).catch(e => logger?.warn('/wf1/engine', businessId, 'concept quality patch failed', { error: e.message }));
+    }).catch((e) => logger?.warn('/wf1/engine', businessId, 'concept quality patch failed', { error: e.message }));
 
     // Log event
     await sbPost('events', {
@@ -423,18 +425,14 @@ function createEngine({
     const flags = [];
 
     // ── Banned word check ──
-    const bannedWords = [
-      ...(brandContext.brandVoice?.bannedWords || []),
-      ...(brandContext.bannedWords || []),
-    ].map(w => w.toLowerCase().trim()).filter(Boolean);
+    const bannedWords = [...(brandContext.brandVoice?.bannedWords || []), ...(brandContext.bannedWords || [])]
+      .map((w) => w.toLowerCase().trim())
+      .filter(Boolean);
 
     if (bannedWords.length) {
-      const textToScan = [
-        asset.caption || '',
-        asset.hook || '',
-        asset.cta || '',
-        ...(asset.hashtags || []),
-      ].join(' ').toLowerCase();
+      const textToScan = [asset.caption || '', asset.hook || '', asset.cta || '', ...(asset.hashtags || [])]
+        .join(' ')
+        .toLowerCase();
 
       for (const word of bannedWords) {
         if (textToScan.includes(word)) {
@@ -448,7 +446,11 @@ function createEngine({
     if (videoFormats.includes(concept.platform)) {
       const hasMotionBrief = asset.visualBrief?.shots?.length > 1 || asset.burnedInCaptions;
       if (!hasMotionBrief) {
-        flags.push({ type: 'platform_native', severity: 'warning', detail: `${concept.platform} expects video/motion brief but asset has no multi-shot or burned-in captions` });
+        flags.push({
+          type: 'platform_native',
+          severity: 'warning',
+          detail: `${concept.platform} expects video/motion brief but asset has no multi-shot or burned-in captions`,
+        });
       }
     }
 
@@ -458,25 +460,25 @@ function createEngine({
   async function scoreAsset({ businessId, brandContext, concept, asset }) {
     // ── Pre-screening: fast-fail on banned words ──
     const preFlags = preScreenAsset({ brandContext, concept, asset });
-    const autoFailFlags = preFlags.filter(f => f.severity === 'auto_fail');
+    const autoFailFlags = preFlags.filter((f) => f.severity === 'auto_fail');
 
     if (autoFailFlags.length) {
       logger?.info('/wf1/engine', businessId, 'asset auto-failed pre-screening', {
-        flags: autoFailFlags.map(f => f.detail),
+        flags: autoFailFlags.map((f) => f.detail),
       });
       return {
         score: 0,
         breakdown: { compliance: 0 },
         verdict: 'fail',
-        notes: autoFailFlags.map(f => f.detail).join('; '),
+        notes: autoFailFlags.map((f) => f.detail).join('; '),
         preScreenFlags: preFlags,
       };
     }
 
     // ── Build pre-screening context for Haiku ──
-    const warningFlags = preFlags.filter(f => f.severity === 'warning');
+    const warningFlags = preFlags.filter((f) => f.severity === 'warning');
     const preScreenContext = warningFlags.length
-      ? `\nPRE-SCREENING WARNINGS (factor these into your score):\n${warningFlags.map(f => `  ⚠ ${f.detail}`).join('\n')}\n`
+      ? `\nPRE-SCREENING WARNINGS (factor these into your score):\n${warningFlags.map((f) => `  ⚠ ${f.detail}`).join('\n')}\n`
       : '';
 
     const prompt = `You are the quality gate for a senior-agency content pipeline.

@@ -9,15 +9,31 @@ const cl = voc.clusterer;
 
 test('normalizeReviews: flattens heterogeneous sources to one shape', () => {
   const out = cl.normalizeReviews({
-    google: [{ review_id: 'g1', snippet: 'Great coffee in Tirana!', rating: 5, iso_date: '2026-04-01', user: { name: 'John Doe' } }],
-    facebook: [{ id: 'f1', recommendation_text: 'Best service ever', recommendation_type: 'positive', created_time: '2026-04-02', reviewer: { name: 'Maria S' } }],
+    google: [
+      {
+        review_id: 'g1',
+        snippet: 'Great coffee in Tirana!',
+        rating: 5,
+        iso_date: '2026-04-01',
+        user: { name: 'John Doe' },
+      },
+    ],
+    facebook: [
+      {
+        id: 'f1',
+        recommendation_text: 'Best service ever',
+        recommendation_type: 'positive',
+        created_time: '2026-04-02',
+        reviewer: { name: 'Maria S' },
+      },
+    ],
     instagram: [{ id: 'i1', text: 'Loved the latte!', timestamp: '2026-04-03', username: 'fan_123' }],
     email: [{ id: 'e1', body: 'Thanks for the quick reply', received_at: '2026-04-04' }],
   });
   assert.strictEqual(out.length, 4);
-  assert.ok(out.every(r => r.text && r.text.length > 0));
-  assert.ok(out.every(r => r.lang));
-  assert.ok(out.every(r => r.author === 'anonymized' || /\w/.test(r.author)));
+  assert.ok(out.every((r) => r.text && r.text.length > 0));
+  assert.ok(out.every((r) => r.lang));
+  assert.ok(out.every((r) => r.author === 'anonymized' || /\w/.test(r.author)));
 });
 
 test('normalizeReviews: drops too-short text', () => {
@@ -67,7 +83,7 @@ test('topKeywords: ignores stopwords, returns frequency-sorted', () => {
   assert.strictEqual(k[0].word, 'coffee');
   assert.strictEqual(k[0].freq, 3);
   // Stopwords like 'the', 'and' should not appear
-  assert.ok(!k.find(x => x.word === 'the'));
+  assert.ok(!k.find((x) => x.word === 'the'));
 });
 
 test('detectCompetitorMentions: counts + extracts contexts', () => {
@@ -79,7 +95,7 @@ test('detectCompetitorMentions: counts + extracts contexts', () => {
   ];
   const m = cl.detectCompetitorMentions(reviews, ['Mojo Cafe', 'Latte House']);
   assert.strictEqual(m.length, 2);
-  const mojo = m.find(x => x.competitor === 'Mojo Cafe');
+  const mojo = m.find((x) => x.competitor === 'Mojo Cafe');
   assert.strictEqual(mojo.frequency, 2);
 });
 
@@ -100,7 +116,10 @@ test('synthesizeVoc: refuses on <5 reviews', async () => {
     business: { business_name: 'X', plan: 'agency' },
     google: [{ review_id: 'g1', snippet: 'great place to be honest' }],
     plan: 'agency',
-    callClaude: async () => { claudeCalled = true; return '{}'; },
+    callClaude: async () => {
+      claudeCalled = true;
+      return '{}';
+    },
     extractJSON: JSON.parse,
   });
   assert.strictEqual(claudeCalled, false);
@@ -111,17 +130,22 @@ test('synthesizeVoc: refuses on <5 reviews', async () => {
 test('synthesizeVoc: free tier with <20 reviews skips LLM', async () => {
   let claudeCalled = false;
   const reviews = Array.from({ length: 8 }, (_, i) => ({
-    review_id: `g${i}`, snippet: `Review ${i} about coffee that is great`, rating: 5,
+    review_id: `g${i}`,
+    snippet: `Review ${i} about coffee that is great`,
+    rating: 5,
   }));
   const r = await voc.synthesizeVoc({
     business: { business_name: 'X', plan: 'free' },
     google: reviews,
     plan: 'free',
-    callClaude: async () => { claudeCalled = true; return '{}'; },
+    callClaude: async () => {
+      claudeCalled = true;
+      return '{}';
+    },
     extractJSON: JSON.parse,
   });
   assert.strictEqual(claudeCalled, false, 'free tier <20 reviews skips LLM');
-  assert.ok(r.caveats.some(c => /Free tier/.test(c)));
+  assert.ok(r.caveats.some((c) => /Free tier/.test(c)));
 });
 
 test('synthesizeVoc: agency tier produces full LLM-merged synthesis', async () => {
@@ -136,21 +160,32 @@ test('synthesizeVoc: agency tier produces full LLM-merged synthesis', async () =
     business: { business_name: 'Cafe Petit', plan: 'agency', location: 'Tirana, Albania' },
     google: reviews,
     plan: 'agency',
-    callClaude: async () => JSON.stringify({
-      pain_points: [
-        { theme: 'Parking is hard', frequency: 10, severity: 'medium', verbatim_quotes: ['parking is hard though'], languages: ['en'] },
-      ],
-      jtbd_signals: [{ job: 'Quick coffee fix between meetings', evidence_quotes: ['Best coffee in Tirana'] }],
-      persona_refinement: { demographics_observed: 'Local professionals', common_use_cases: ['Morning espresso'], vocabulary_clusters: ['parking', 'latte', 'espresso'] },
-      competitor_mentions: [],
-      recommendations_for_marketing: ['Use phrase "best coffee in Tirana" in next ad headline.'],
-      caveats: [],
-    }),
+    callClaude: async () =>
+      JSON.stringify({
+        pain_points: [
+          {
+            theme: 'Parking is hard',
+            frequency: 10,
+            severity: 'medium',
+            verbatim_quotes: ['parking is hard though'],
+            languages: ['en'],
+          },
+        ],
+        jtbd_signals: [{ job: 'Quick coffee fix between meetings', evidence_quotes: ['Best coffee in Tirana'] }],
+        persona_refinement: {
+          demographics_observed: 'Local professionals',
+          common_use_cases: ['Morning espresso'],
+          vocabulary_clusters: ['parking', 'latte', 'espresso'],
+        },
+        competitor_mentions: [],
+        recommendations_for_marketing: ['Use phrase "best coffee in Tirana" in next ad headline.'],
+        caveats: [],
+      }),
     extractJSON: JSON.parse,
   });
   assert.strictEqual(r.short_circuited, false);
   assert.strictEqual(r.data_quality, 'limited'); // 30 reviews
-  assert.strictEqual(r.primary_language, 'sq');  // Tirana → Albanian
+  assert.strictEqual(r.primary_language, 'sq'); // Tirana → Albanian
   assert.ok(r.pain_points.length > 0);
   assert.ok(r.recommendations_for_marketing.length > 0);
   assert.ok(r.sentiment);
@@ -158,15 +193,19 @@ test('synthesizeVoc: agency tier produces full LLM-merged synthesis', async () =
 
 test('synthesizeVoc: handles malformed LLM output gracefully', async () => {
   const reviews = Array.from({ length: 25 }, (_, i) => ({
-    review_id: `g${i}`, snippet: 'Coffee is great here in this lovely cafe', rating: 4,
+    review_id: `g${i}`,
+    snippet: 'Coffee is great here in this lovely cafe',
+    rating: 4,
   }));
   const r = await voc.synthesizeVoc({
     business: { business_name: 'X', plan: 'growth' },
     google: reviews,
     plan: 'growth',
     callClaude: async () => 'not valid json at all',
-    extractJSON: (s) => { throw new Error('parse error'); },
+    extractJSON: (s) => {
+      throw new Error('parse error');
+    },
   });
   assert.strictEqual(r.short_circuited, false);
-  assert.ok(r.caveats.some(c => /LLM/i.test(c)));
+  assert.ok(r.caveats.some((c) => /LLM/i.test(c)));
 });

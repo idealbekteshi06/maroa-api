@@ -54,34 +54,47 @@ test('modelsFor: agency=Opus exec, growth=Sonnet exec + Opus advisor, free=Sonne
 });
 
 test('callWithAdvisor: routes through callClaude with advisor extras when enabled', async () => {
-  let capturedOpts = null;
-  const fakeClaude = async (opts) => { capturedOpts = opts; return 'OK'; };
+  // callClaude positional signature: (prompt, modelOrTask, maxTokens, extra)
+  let captured = null;
+  const fakeClaude = async (prompt, model, max, extra) => {
+    captured = { prompt, model, max, extra };
+    // Return a string to match server.js callClaude `returnRaw:true` default
+    return 'OK';
+  };
   const r = await advisor.callWithAdvisor({
     callClaude: fakeClaude,
-    system: 's', user: 'u',
-    task: 'audit', budget: 'standard', planTier: 'growth',
-    executor: 'claude-sonnet-4-5', advisor: 'claude-opus-4-7',
+    system: 's',
+    user: 'u',
+    task: 'audit',
+    budget: 'standard',
+    planTier: 'growth',
+    executor: 'claude-sonnet-4-5',
+    advisor: 'claude-opus-4-7',
   });
   assert.strictEqual(r, 'OK');
-  assert.strictEqual(capturedOpts.model, 'claude-sonnet-4-5');
-  assert.ok(capturedOpts.extra.extraBetas.includes(advisor.ADVISOR_BETA));
-  assert.strictEqual(capturedOpts.extra.advisor.model, 'claude-opus-4-7');
+  assert.strictEqual(captured.prompt, 'u');
+  assert.strictEqual(captured.model, 'claude-sonnet-4-5');
+  assert.ok(captured.extra.extraBetas.includes(advisor.ADVISOR_BETA));
+  assert.strictEqual(captured.extra.advisor.model, 'claude-opus-4-7');
+  assert.strictEqual(captured.extra.system, 's');
 });
 
 test('callWithAdvisor: free tier silently degrades to executor-only (no advisor field)', async () => {
-  let capturedOpts = null;
-  const fakeClaude = async (opts) => { capturedOpts = opts; return 'OK'; };
+  let captured = null;
+  const fakeClaude = async (prompt, model, max, extra) => {
+    captured = { prompt, model, max, extra };
+    return 'OK';
+  };
   await advisor.callWithAdvisor({
     callClaude: fakeClaude,
-    system: 's', user: 'u',
-    task: 'audit', planTier: 'free',
+    system: 's',
+    user: 'u',
+    task: 'audit',
+    planTier: 'free',
   });
-  assert.strictEqual(capturedOpts.extra.advisor, undefined);
+  assert.strictEqual(captured.extra.advisor, undefined);
 });
 
 test('callWithAdvisor: requires callClaude function', async () => {
-  await assert.rejects(
-    () => advisor.callWithAdvisor({ task: 'audit' }),
-    /callClaude required/
-  );
+  await assert.rejects(() => advisor.callWithAdvisor({ task: 'audit' }), /callClaude required/);
 });

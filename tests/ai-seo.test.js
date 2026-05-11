@@ -52,7 +52,10 @@ test('checks: S01 fires when no JSON-LD present', () => {
     marketProfile: {},
     plan: 'agency',
   });
-  assert.ok(f.find(x => x.check_id === 'S01'), 'S01 must fire on no-schema page');
+  assert.ok(
+    f.find((x) => x.check_id === 'S01'),
+    'S01 must fire on no-schema page'
+  );
 });
 
 test('checks: S03 fires for location-based business with no LocalBusiness schema', () => {
@@ -63,17 +66,22 @@ test('checks: S03 fires for location-based business with no LocalBusiness schema
     marketProfile: { country: 'US' },
     plan: 'agency',
   });
-  assert.ok(f.find(x => x.check_id === 'S03'), 'S03 must fire for missing LocalBusiness schema');
+  assert.ok(
+    f.find((x) => x.check_id === 'S03'),
+    'S03 must fire for missing LocalBusiness schema'
+  );
 });
 
 test('checks: S15 fires when llms.txt missing (critical)', () => {
   const f = aiSeo.checks.runChecks({
-    html: '<html></html>', text: 'x',
-    business: {}, marketProfile: {},
+    html: '<html></html>',
+    text: 'x',
+    business: {},
+    marketProfile: {},
     llms_txt_present: false,
     plan: 'agency',
   });
-  const s15 = f.find(x => x.check_id === 'S15');
+  const s15 = f.find((x) => x.check_id === 'S15');
   assert.ok(s15, 'S15 must fire when llms.txt missing');
   assert.strictEqual(s15.severity, 'critical');
 });
@@ -119,7 +127,7 @@ test('schema: Organization includes only fields present in business', () => {
   assert.strictEqual(org['@type'], 'Organization');
   assert.strictEqual(org.name, 'Acme');
   assert.strictEqual(org.url, 'https://acme.com');
-  assert.strictEqual(org.email, undefined);  // not invented
+  assert.strictEqual(org.email, undefined); // not invented
   assert.strictEqual(org.contactPoint, undefined);
 });
 
@@ -137,7 +145,7 @@ test('schema: FAQPage built only with valid Q&A pairs', () => {
   const faq = aiSeo.schemaBuilder.buildFaqPage({
     qaPairs: [
       { question: 'Are you open Sundays?', answer: 'Yes 10-6.' },
-      { question: '', answer: 'orphan' },        // invalid — should drop
+      { question: '', answer: 'orphan' }, // invalid — should drop
       { question: 'Where?', answer: 'Tirana.' },
     ],
   });
@@ -185,13 +193,13 @@ test('rewriter: suggestStandardQuestions varies by industry + locality', () => {
   const cafe = aiSeo.rewriter.suggestStandardQuestions({
     business: { business_name: 'Q', industry: 'cafe', operation_model: 'location_based' },
   });
-  assert.ok(cafe.some(q => /menu/i.test(q)));
-  assert.ok(cafe.some(q => /located/i.test(q)));
+  assert.ok(cafe.some((q) => /menu/i.test(q)));
+  assert.ok(cafe.some((q) => /located/i.test(q)));
 
   const saas = aiSeo.rewriter.suggestStandardQuestions({
     business: { business_name: 'Q', industry: 'saas', operation_model: 'online' },
   });
-  assert.ok(saas.some(q => /trial/i.test(q) || /integration/i.test(q)));
+  assert.ok(saas.some((q) => /trial/i.test(q) || /integration/i.test(q)));
 });
 
 // ─── 19-20. Entity extraction ──────────────────────────────────────────────
@@ -204,9 +212,9 @@ test('entity: buildSameAs extracts canonical platform URLs', () => {
     },
     additionalText: 'Find us on linkedin.com/company/acme',
   });
-  assert.ok(sa.find(u => u.includes('facebook.com/acme')));
-  assert.ok(sa.find(u => u.includes('instagram.com/acme')));
-  assert.ok(sa.find(u => u.includes('linkedin.com/company/acme')));
+  assert.ok(sa.find((u) => u.includes('facebook.com/acme')));
+  assert.ok(sa.find((u) => u.includes('instagram.com/acme')));
+  assert.ok(sa.find((u) => u.includes('linkedin.com/company/acme')));
 });
 
 test('entity: detectEntityGaps lists missing canonical platforms', () => {
@@ -220,7 +228,7 @@ test('entity: detectEntityGaps lists missing canonical platforms', () => {
 test('schema-validate: rejects audit_score out of range', () => {
   const r = aiSeo.schema.validateAuditOutput({ audit_score: 150, dimension_scores: {} });
   assert.strictEqual(r.valid, false);
-  assert.ok(r.errors.some(e => /audit_score/.test(e)));
+  assert.ok(r.errors.some((e) => /audit_score/.test(e)));
 });
 
 test('schema-validate: accepts valid audit + normalizes', () => {
@@ -245,7 +253,10 @@ test('auditSite: short-circuits with no content + returns deterministic baseline
     html: '',
     text: '',
     plan: 'free',
-    callClaude: async () => { claudeCalled = true; return '{}'; },
+    callClaude: async () => {
+      claudeCalled = true;
+      return '{}';
+    },
     extractJSON: JSON.parse,
   });
   assert.strictEqual(claudeCalled, false);
@@ -257,17 +268,26 @@ test('auditSite: short-circuits with no content + returns deterministic baseline
 test('generateArtifacts: free tier returns deterministic-only output (no LLM call)', async () => {
   let claudeCalled = false;
   const r = await aiSeo.generateArtifacts({
-    business: { business_name: 'Tirana Cafe', operation_model: 'location_based', location: 'Tirana, Albania', primary_language: 'sq', website: 'https://tiranacafe.al' },
+    business: {
+      business_name: 'Tirana Cafe',
+      operation_model: 'location_based',
+      location: 'Tirana, Albania',
+      primary_language: 'sq',
+      website: 'https://tiranacafe.al',
+    },
     pages: [{ title: 'Home', url: 'https://tiranacafe.al/', summary: 'Welcome' }],
     plan: 'free',
-    callClaude: async () => { claudeCalled = true; return '{}'; },
+    callClaude: async () => {
+      claudeCalled = true;
+      return '{}';
+    },
     extractJSON: JSON.parse,
   });
   assert.strictEqual(claudeCalled, false, 'free tier should NOT call LLM');
   assert.strictEqual(r.llm_used, false);
   assert.ok(r.llms_txt.length > 0);
   // Should include Organization + WebSite + LocalBusiness (location_based)
-  const types = r.schema_blocks.map(b => b.type);
+  const types = r.schema_blocks.map((b) => b.type);
   assert.ok(types.includes('Organization'));
   assert.ok(types.includes('WebSite'));
   assert.ok(types.includes('LocalBusiness'));

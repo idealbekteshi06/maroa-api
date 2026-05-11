@@ -250,7 +250,7 @@ function defaultsForIndustry(industry) {
   };
 
   for (const [canonical, aliasList] of Object.entries(aliases)) {
-    if (aliasList.some(a => key.includes(a))) {
+    if (aliasList.some((a) => key.includes(a))) {
       return INDUSTRY_DEFAULTS[canonical];
     }
   }

@@ -64,7 +64,7 @@ CURRENT STATE
   Monthly cap: $${state.monthlyCap || 'unlimited'}
 
 PER CHANNEL (last 30d):
-${(state.channels || []).map(c => `  ${c.channel}: spend=$${c.spend}, roas=${c.roas}x, conversions=${c.conversions}, trend=${c.trend || 'flat'}`).join('\n') || '  (none)'}
+${(state.channels || []).map((c) => `  ${c.channel}: spend=$${c.spend}, roas=${c.roas}x, conversions=${c.conversions}, trend=${c.trend || 'flat'}`).join('\n') || '  (none)'}
 `.trim();
 
   return { system: buildSystemPrompt(ctx, addendum), user };

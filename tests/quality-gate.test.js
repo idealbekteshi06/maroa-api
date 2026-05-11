@@ -62,12 +62,13 @@ test('checkBrandVoiceMatch: no anchor → skip pass', () => {
 });
 
 test('checkBrandVoiceMatch: long sentence flagged when pref is short', () => {
-  const longText = 'This is one extremely long sentence with way more than eighteen words inside it just to break the short-preference soft check decisively.';
+  const longText =
+    'This is one extremely long sentence with way more than eighteen words inside it just to break the short-preference soft check decisively.';
   const r = qg.checkBrandVoiceMatch(longText, {
     do_not_words: [],
     sentence_length_preference: 'short',
   });
-  assert.ok(r.violations.find(v => v.type === 'sentence_length'));
+  assert.ok(r.violations.find((v) => v.type === 'sentence_length'));
 });
 
 test('checkClaimSubstantiation: catches "best in city"', () => {
@@ -98,7 +99,10 @@ test('checkLanguageMatch: short text gets permissive pass', () => {
 });
 
 test('checkLanguageMatch: fails confident mismatch on longer text', () => {
-  const r = qg.checkLanguageMatch('Hallo, in der heutigen Welt brauchen Sie unbedingt unsere innovative Lösung für Ihr Problem.', 'sq');
+  const r = qg.checkLanguageMatch(
+    'Hallo, in der heutigen Welt brauchen Sie unbedingt unsere innovative Lösung für Ihr Problem.',
+    'sq'
+  );
   assert.strictEqual(r.passed, false);
   assert.strictEqual(r.detected, 'de');
 });
@@ -192,9 +196,10 @@ test('gate: agency tier slop-heavy → retries via voice-polish', async () => {
     business: { business_name: 'X', industry: 'cafe', primary_language: 'en' },
     contentType: 'caption',
     plan: 'agency',
-    callClaude: async (opts) => {
-      // First call is advisor (returns "needs_fix"), second is polish (returns clean)
-      if (opts.user.includes('quality reviewer')) {
+    callClaude: async (prompt /* model, max, extra */) => {
+      // callClaude positional. First call is the advisor reviewer, second
+      // is the voice-polish rewrite. Distinguish by the user prompt content.
+      if (typeof prompt === 'string' && prompt.includes('quality reviewer')) {
         polishCalled = false;
         return JSON.stringify({ decision: 'needs_fix', issues: ['too much slop'], feedback: 'rewrite needed' });
       }
@@ -208,7 +213,10 @@ test('gate: agency tier slop-heavy → retries via voice-polish', async () => {
     extractJSON: JSON.parse,
   });
   assert.strictEqual(r.retries, 1);
-  assert.notStrictEqual(r.final_text, "In today's fast-paced world, leverage cutting-edge solutions to elevate your business and unlock the power of synergy.");
+  assert.notStrictEqual(
+    r.final_text,
+    "In today's fast-paced world, leverage cutting-edge solutions to elevate your business and unlock the power of synergy."
+  );
 });
 
 test('gate: blocks even when caller passes citations if claim still ungrounded', async () => {
