@@ -110,16 +110,77 @@ function checkLatestReferenced(parsed) {
 }
 
 async function verifyAppliedAgainstSupabase(parsed) {
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
+  const url = (process.env.SUPABASE_URL || '').trim();
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '').trim();
+  if (!url || !key) {
     console.log(yellow('  --verify-applied: SUPABASE_URL/SUPABASE_KEY not set, skipping live check'));
     return [];
   }
-  // Minimal probe: try to query the table the latest migration creates, by
-  // pattern-matching the SQL. This is a coarse check — for true drift
-  // detection use a tool like Atlas or the Supabase CLI.
-  console.log(yellow('  --verify-applied: live drift check via pg_class would require Supabase service-role key'));
-  console.log(yellow('  Recommendation: run `supabase db diff` for true drift detection.'));
-  return [];
+
+  // Read the _migrations ledger (created by migration 055). If the ledger
+  // itself isn't applied yet, fall back to the legacy soft-check.
+  let applied;
+  try {
+    const res = await fetch(`${url}/rest/v1/_migrations?select=filename,checksum,applied_at`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
+    });
+    if (res.status === 404 || res.status === 400) {
+      console.log(yellow('  --verify-applied: _migrations table not found yet (apply migration 055 first).'));
+      return [];
+    }
+    if (!res.ok) {
+      console.log(yellow(`  --verify-applied: ledger fetch failed (${res.status}). Skipping.`));
+      return [];
+    }
+    applied = await res.json();
+  } catch (e) {
+    console.log(yellow(`  --verify-applied: ledger fetch threw: ${e.message}`));
+    return [];
+  }
+
+  const fs = require('fs');
+  const path = require('path');
+  const cryptoMod = require('crypto');
+  const MIGRATIONS_DIR = path.join(__dirname, '..', 'migrations');
+
+  const appliedByName = new Map(applied.map((r) => [r.filename, r]));
+  const errors = [];
+  const missingFromDb = [];
+  const driftChecksum = [];
+
+  for (const m of parsed) {
+    const filename = m.raw;
+    const fullPath = path.join(MIGRATIONS_DIR, filename);
+    const contents = fs.readFileSync(fullPath, 'utf8');
+    const expected = cryptoMod.createHash('sha256').update(contents).digest('hex');
+    const row = appliedByName.get(filename);
+    if (!row) {
+      missingFromDb.push(filename);
+      continue;
+    }
+    if (row.checksum && row.checksum !== expected) {
+      driftChecksum.push({ filename, expected, applied: row.checksum });
+    }
+  }
+
+  if (missingFromDb.length) {
+    console.log(yellow(`  --verify-applied: ${missingFromDb.length} migration(s) in repo but not in ledger:`));
+    for (const f of missingFromDb) console.log(yellow(`      • ${f}`));
+    errors.push(`${missingFromDb.length} unapplied migrations`);
+  }
+  if (driftChecksum.length) {
+    console.log(red(`  --verify-applied: CHECKSUM MISMATCH — applied migration was edited after apply:`));
+    for (const d of driftChecksum) {
+      console.log(red(`      • ${d.filename}`));
+      console.log(red(`        expected (file): ${d.expected.slice(0, 16)}…`));
+      console.log(red(`        recorded (db):   ${d.applied.slice(0, 16)}…`));
+    }
+    errors.push(`${driftChecksum.length} checksum drift`);
+  }
+  if (!missingFromDb.length && !driftChecksum.length) {
+    console.log(green(`  ✓ All ${parsed.length} migrations present in ledger with matching checksums`));
+  }
+  return errors;
 }
 
 async function main() {
@@ -149,7 +210,8 @@ async function main() {
   console.log(green(`  ✓ Latest migration: ${parsed[parsed.length - 1].raw}`));
 
   if (process.argv.includes('--verify-applied')) {
-    await verifyAppliedAgainstSupabase(parsed);
+    const errs = await verifyAppliedAgainstSupabase(parsed);
+    if (errs.length) exit(1, `\n${errs.length} verify-applied error(s) — fix before deploy`);
   }
 
   exit(0, '\nAll migration sanity checks passed ✓');

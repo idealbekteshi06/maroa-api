@@ -37,6 +37,7 @@
  */
 
 const crypto = require('crypto');
+const oauthCrypto = require('../../lib/oauthCrypto');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
@@ -231,8 +232,11 @@ function registerGoogleOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logg
       const accessibleCustomers = await listAccessibleAdsCustomers({ accessToken: tokenRes.access_token });
       const primaryCustomerId = accessibleCustomers[0] || null;
 
+      // Dual-write: encrypted column (preferred) + legacy plaintext.
+      // See migration 056 and lib/oauthCrypto.js for the encryption scheme.
       const patch = {
-        google_refresh_token: tokenRes.refresh_token,
+        google_refresh_token: tokenRes.refresh_token,                                   // legacy plaintext (dropped in 060)
+        ...oauthCrypto.encryptIfEnabled('google_refresh_token', tokenRes.refresh_token),
         google_customer_id: primaryCustomerId,
         google_oauth_email: userInfo?.email || null,
         google_connected_at: new Date().toISOString(),

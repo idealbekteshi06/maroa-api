@@ -48,6 +48,7 @@
  */
 
 const crypto = require('crypto');
+const oauthCrypto = require('../../lib/oauthCrypto');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
@@ -287,15 +288,23 @@ function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger
       // 3. Fetch accessible ad accounts + pages + IG accounts
       const assets = await fetchAccessibleAssets({ accessToken: longRes.access_token });
 
-      // 4. Persist to businesses row
+      // 4. Persist to businesses row.
+      //
+      // Dual-write: encrypted column (preferred) + legacy plaintext column.
+      // Once scripts/encrypt-oauth-tokens.js has backfilled all rows and
+      // every consuming service reads via oauthCrypto.readToken(), migration
+      // 060 will drop the plaintext columns. Until then, plaintext keeps
+      // the existing read paths working.
       const patch = {
-        meta_access_token: longRes.access_token,
+        meta_access_token: longRes.access_token,                              // legacy plaintext (dropped in 060)
+        ...oauthCrypto.encryptIfEnabled('meta_access_token', longRes.access_token),
         meta_token_expires_at: longRes.expires_in
           ? new Date(Date.now() + longRes.expires_in * 1000).toISOString()
           : null,
         ad_account_id: assets.primary_ad_account?.account_id || assets.primary_ad_account?.id?.replace(/^act_/, '') || null,
         facebook_page_id: assets.primary_page?.id || null,
         facebook_page_access_token: assets.primary_page?.access_token || null,
+        ...oauthCrypto.encryptIfEnabled('facebook_page_access_token', assets.primary_page?.access_token),
         instagram_account_id: assets.instagram_business_account?.id || null,
         meta_connected_at: new Date().toISOString(),
       };
