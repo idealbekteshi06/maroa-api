@@ -308,12 +308,17 @@ function registerGoogleOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logg
     }
 
     try {
+      // SELECT both legacy AND encrypted columns so oauthCrypto.readToken
+      // can prefer the encrypted value. Migration 060 will drop the
+      // legacy column; this query already works for both states.
+      // (Same fix the Antigravity review proposed for Meta /health.)
       const rows = await sbGet(
         'businesses',
-        `id=eq.${encodeURIComponent(businessId)}&select=google_refresh_token,google_customer_id,google_oauth_email,google_connected_at`
+        `id=eq.${encodeURIComponent(businessId)}&select=google_refresh_token,google_refresh_token_enc,google_customer_id,google_oauth_email,google_connected_at`
       ).catch(() => []);
       const b = rows?.[0];
-      if (!b?.google_refresh_token) return res.json({ connected: false });
+      const tokenToUse = oauthCrypto.readToken(b, 'google_refresh_token');
+      if (!tokenToUse) return res.json({ connected: false });
 
       return res.json({
         connected: true,
