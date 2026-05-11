@@ -635,11 +635,67 @@ function selectModel(taskType) {
   return { model: 'claude-sonnet-4-5', max_tokens: 2000 };
 }
 
+// ─── Brand-voice auto-load support ──────────────────────────────────────────
+// Skills marked as "content" trigger automatic brand-voice anchor injection
+// into the Claude system prompt. Everything else (audits, classification,
+// internal scoring) stays voice-neutral so we don't confuse the model.
+const _CONTENT_SKILLS = new Set([
+  'social_post', 'caption', 'long_form', 'blog', 'email', 'email_subject',
+  'instagram_caption', 'facebook_post', 'linkedin_post', 'twitter_post',
+  'tiktok_video_script', 'youtube_short_caption', 'pinterest_pin',
+  'ad_copy', 'hero_rewrite', 'cta', 'value_prop',
+  'cro_rewrite', 'creative_concept', 'creative_brief',
+  'monthly_review', 'weekly_scorecard_narrative', 'scorecard_text',
+  'voc_synthesis', 'ai_seo_page',
+]);
+function _isContentSkill(skill) {
+  if (!skill) return false;
+  return _CONTENT_SKILLS.has(String(skill));
+}
+
+const _brandVoiceCache = new Map();   // businessId → { block, expiresAt }
+const _BRAND_VOICE_TTL_MS = 5 * 60 * 1000;
+async function _loadBrandVoiceBlock(businessId) {
+  const cached = _brandVoiceCache.get(businessId);
+  if (cached && cached.expiresAt > Date.now()) return cached.block;
+
+  const rows = await sbGet('business_profiles',
+    `user_id=eq.${encodeURIComponent(businessId)}&select=brand_voice_anchor`
+  ).catch(() => []);
+  let anchor = rows?.[0]?.brand_voice_anchor || null;
+  if (!anchor) {
+    // Fall back to building one synchronously from the businesses row
+    const bizRows = await sbGet('businesses',
+      `id=eq.${encodeURIComponent(businessId)}&select=*`
+    ).catch(() => []);
+    const business = bizRows?.[0];
+    if (business) {
+      try {
+        anchor = require('./services/prompts/brand-voice').buildAnchor({ business });
+      } catch { /* brand-voice module not loadable in this env */ }
+    }
+  }
+  let block = '';
+  if (anchor) {
+    try {
+      block = require('./services/prompts/brand-voice').formatAnchorForPrompt(anchor);
+    } catch {}
+  }
+  _brandVoiceCache.set(businessId, { block, expiresAt: Date.now() + _BRAND_VOICE_TTL_MS });
+  return block;
+}
+
 /**
  * Call Claude. Backward compatible:
  * - callClaude(prompt, 'claude-opus-4-7', 3000) — explicit model
  * - callClaude(prompt, 'strategy', 1500) — taskType + optional max override
  * - callClaude(prompt, 'social_post', undefined, { returnRaw: true, system: '...' })
+ *
+ * Auto-features when extra.businessId is provided:
+ *   - cost tracking via observability.costTracker.track()
+ *   - per-business token budget (extra.skipBudget to opt out)
+ *   - brand-voice anchor auto-injection for content-type skills
+ *     (extra.skipBrandVoice to opt out)
  */
 async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOverride, extra = {}) {
   // ─── Object-shape support ─────────────────────────────────────────────
@@ -691,6 +747,25 @@ async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOver
       throw e;
     }
     maxTokens = Math.min(maxTokens, b.maxTokensPerCall || maxTokens);
+  }
+
+  // ─── Brand-voice auto-load ────────────────────────────────────────────
+  // For any call with a businessId AND a customer-facing skill, prepend the
+  // brand_voice_anchor (cached 5 min) to the system prompt. Customers
+  // previously needed every caller to remember to apply brand voice manually;
+  // now it's automatic for content-type skills.
+  //
+  // Opt-out: pass extra.skipBrandVoice = true (e.g. internal classification
+  // calls that shouldn't be voice-locked).
+  if (extra.businessId && !extra.skipBrandVoice && _isContentSkill(extra.skill)) {
+    try {
+      const anchorBlock = await _loadBrandVoiceBlock(extra.businessId);
+      if (anchorBlock) {
+        extra = { ...extra, system: anchorBlock + '\n\n' + (extra.system || '') };
+      }
+    } catch {
+      // Brand voice is a nice-to-have — never block a Claude call on its absence.
+    }
   }
 
   // Build user message content. Default = single text block from `prompt`.

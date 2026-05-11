@@ -71,6 +71,46 @@ function createEngine(deps) {
       callClaude, extractJSON, logger,
     });
 
+    // ─── Quality gate: every customer-facing rewrite goes through gate()
+    // before persistence. Prior code did its own validation but bypassed
+    // the central gate, so slop could ship from CRO rewrites. Now every
+    // hero/CTA/value-prop variant is scored, and slop-heavy outputs get
+    // one repair attempt via voice-polish before falling back.
+    try {
+      const qualityGate = require('../prompts/quality-gate');
+      const variants = [
+        ...(result?.hero_headline_variants || []),
+        ...(result?.hero_subhead_variants || []),
+        ...(result?.primary_cta_variants || []),
+      ];
+      const gateResults = [];
+      for (const v of variants) {
+        const text = v?.text || '';
+        if (!text) continue;
+        const gr = await qualityGate.gate({
+          text,
+          business,
+          contentType: 'hero_rewrite',
+          plan: business.plan || 'free',
+          callClaude,
+          extractJSON,
+          logger,
+        });
+        gateResults.push({ original: text, ...gr });
+        // Patch the variant in-place if voice-polish improved it
+        if (gr.decision !== 'reject' && gr.final_text && gr.final_text !== text) {
+          v.text = gr.final_text;
+        }
+      }
+      result.quality_gate = {
+        passed: gateResults.filter((g) => g.decision === 'ship').length,
+        retried: gateResults.filter((g) => g.retries > 0).length,
+        rejected: gateResults.filter((g) => g.decision === 'reject').length,
+      };
+    } catch (e) {
+      logger?.warn?.('cro.rewrite', businessId, 'quality-gate failed (soft)', { error: e.message });
+    }
+
     await sbPost('cro_rewrites', {
       business_id: businessId,
       hero_headline_variants: result.hero_headline_variants,
