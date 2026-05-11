@@ -37,9 +37,20 @@ function createWf5(deps) {
     try {
       if (serpSearch) {
         const hits = await serpSearch(`${Object.keys(competitors).slice(0, 3).join(' ')} marketing`, 3);
-        newsCycle = hits.map(h => ({ headline: h.title, source: (() => { try { return new URL(h.link).hostname; } catch { return 'news'; } })() }));
+        newsCycle = hits.map((h) => ({
+          headline: h.title,
+          source: (() => {
+            try {
+              return new URL(h.link).hostname;
+            } catch {
+              return 'news';
+            }
+          })(),
+        }));
       }
-    } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
+    } catch (e) {
+      /* soft-fail — see ADR-0003 for empty-catch cleanup plan */
+    }
 
     return {
       competitors: Object.values(competitors),
@@ -60,7 +71,10 @@ function createWf5(deps) {
     const weekStartStr = weekStart.toISOString().slice(0, 10);
     const weekEnd = new Date(weekStart.getTime() + 6 * 86400000).toISOString().slice(0, 10);
 
-    const existing = await sbGet('competitor_briefs', `business_id=eq.${businessId}&week_start=eq.${weekStartStr}&select=id`).catch(() => []);
+    const existing = await sbGet(
+      'competitor_briefs',
+      `business_id=eq.${businessId}&week_start=eq.${weekStartStr}&select=id`
+    ).catch(() => []);
     if (existing[0] && !force) return { briefId: existing[0].id, reused: true };
 
     const bundle = await gatherBundle(businessId);
@@ -85,7 +99,12 @@ function createWf5(deps) {
       business_id: businessId,
       kind: 'wf5.brief.generated',
       workflow: '5_competitor_intelligence',
-      payload: { brief_id: row.id, threat_count: (parsed.competitors || []).filter(c => c.threat_level === 'high' || c.threat_level === 'critical').length },
+      payload: {
+        brief_id: row.id,
+        threat_count: (parsed.competitors || []).filter(
+          (c) => c.threat_level === 'high' || c.threat_level === 'critical'
+        ).length,
+      },
       severity: 'info',
     }).catch(() => {});
 
@@ -93,7 +112,10 @@ function createWf5(deps) {
   }
 
   async function getLatest(businessId) {
-    const rows = await sbGet('competitor_briefs', `business_id=eq.${businessId}&order=week_start.desc&limit=1&select=*`).catch(() => []);
+    const rows = await sbGet(
+      'competitor_briefs',
+      `business_id=eq.${businessId}&order=week_start.desc&limit=1&select=*`
+    ).catch(() => []);
     return rows[0] || null;
   }
 

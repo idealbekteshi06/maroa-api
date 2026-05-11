@@ -54,7 +54,7 @@ function createEngine(deps) {
     try {
       const [campaignRows, businessRows, recent6h, prev24h] = await Promise.all([
         sbGet('ad_campaigns', `id=eq.${campaignId}&select=*`).catch(() => []),
-        sbGet('businesses',   `id=eq.${businessId}&select=*`).catch(() => []),
+        sbGet('businesses', `id=eq.${businessId}&select=*`).catch(() => []),
         _aggregateWindow(campaignId, 6),
         _aggregateWindow(campaignId, 24),
       ]);
@@ -101,7 +101,7 @@ function createEngine(deps) {
       if (!alerts.length) return { alerts: [], reason: 'no_pacing_issues' };
 
       const marketProfile = adI18n.buildMarketProfile(business);
-      const humanized = alerts.map(a => pacing.humanizeAlert({ alert: a, business, marketProfile }));
+      const humanized = alerts.map((a) => pacing.humanizeAlert({ alert: a, business, marketProfile }));
 
       if (!dryRun) {
         // Dedupe: skip alerts already raised in last 12h on (campaign_id, rule_id)
@@ -110,9 +110,9 @@ function createEngine(deps) {
           'pacing_alerts',
           `campaign_id=eq.${campaignId}&fired_at=gte.${since}&select=rule_id`
         ).catch(() => []);
-        const recentRuleIds = new Set(recentRows.map(r => r.rule_id));
+        const recentRuleIds = new Set(recentRows.map((r) => r.rule_id));
 
-        const fresh = humanized.filter(a => !recentRuleIds.has(a.rule_id));
+        const fresh = humanized.filter((a) => !recentRuleIds.has(a.rule_id));
         for (const a of fresh) {
           await sbPost('pacing_alerts', {
             business_id: businessId,
@@ -147,10 +147,9 @@ function createEngine(deps) {
   }
 
   async function evaluateAll({ dryRun = false, limit = 500 } = {}) {
-    const campaigns = await sbGet(
-      'ad_campaigns',
-      `status=eq.ACTIVE&limit=${limit}&select=id,business_id`
-    ).catch(() => []);
+    const campaigns = await sbGet('ad_campaigns', `status=eq.ACTIVE&limit=${limit}&select=id,business_id`).catch(
+      () => []
+    );
 
     const results = { total: campaigns.length, evaluated: 0, alerts_fired: 0, errors: 0 };
     for (const c of campaigns) {

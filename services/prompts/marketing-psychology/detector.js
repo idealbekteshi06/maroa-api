@@ -71,7 +71,7 @@ function detect(text) {
  */
 function suggestMissing({ text, industry, funnelStage, manipulationRiskCap = 7, limit = 5 }) {
   const detection = detect(text);
-  const appliedIds = new Set(detection.applied.map(a => a.id));
+  const appliedIds = new Set(detection.applied.map((a) => a.id));
   const indLower = String(industry || '').toLowerCase();
   const stage = String(funnelStage || 'consideration').toLowerCase();
 
@@ -81,10 +81,8 @@ function suggestMissing({ text, industry, funnelStage, manipulationRiskCap = 7, 
     if (p.ethical_risk > manipulationRiskCap) continue;
 
     // Industry fit
-    const highFit = (p.industries_high_fit || []).some(f =>
-      indLower.includes(f) || f === 'all'
-    );
-    const lowFit = (p.industries_low_fit || []).some(f => indLower.includes(f));
+    const highFit = (p.industries_high_fit || []).some((f) => indLower.includes(f) || f === 'all');
+    const lowFit = (p.industries_low_fit || []).some((f) => indLower.includes(f));
     if (lowFit) continue;
 
     // Funnel stage match
@@ -121,10 +119,10 @@ function detectMisapplied({ text, industry }) {
   const indLower = String(industry || '').toLowerCase();
   const misapplied = [];
   for (const a of detection.applied) {
-    const p = PRINCIPLES.find(x => x.id === a.id);
+    const p = PRINCIPLES.find((x) => x.id === a.id);
     if (!p) continue;
     // Industry low-fit = warn
-    const lowFit = (p.industries_low_fit || []).some(f => indLower.includes(f));
+    const lowFit = (p.industries_low_fit || []).some((f) => indLower.includes(f));
     if (lowFit) {
       misapplied.push({
         id: p.id,

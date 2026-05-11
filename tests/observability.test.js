@@ -92,12 +92,14 @@ test('metrics: expressMiddleware tracks http requests', (t, done) => {
   const res = {
     statusCode: 200,
     listeners: {},
-    on: function (e, cb) { this.listeners[e] = cb; },
+    on: function (e, cb) {
+      this.listeners[e] = cb;
+    },
   };
   middleware(req, res, () => {});
   res.listeners['finish']();
   const snap = metrics.snapshot();
-  assert.ok(Object.keys(snap.counters).some(k => k.startsWith('http_requests_total')));
+  assert.ok(Object.keys(snap.counters).some((k) => k.startsWith('http_requests_total')));
   done();
 });
 
@@ -106,10 +108,7 @@ test('metrics: expressMiddleware tracks http requests', (t, done) => {
 test('cost-tracker: calcCost — Sonnet input/output', () => {
   // Sonnet: $3/MTok input, $15/MTok output
   // 1000 input + 500 output = (1000/1e6 * 3) + (500/1e6 * 15) = 0.003 + 0.0075 = 0.0105
-  const cost = costTracker.calcCost(
-    { input_tokens: 1000, output_tokens: 500 },
-    'claude-sonnet-4-5'
-  );
+  const cost = costTracker.calcCost({ input_tokens: 1000, output_tokens: 500 }, 'claude-sonnet-4-5');
   assert.ok(cost > 0.01 && cost < 0.012, `expected ~0.0105, got ${cost}`);
 });
 
@@ -123,10 +122,7 @@ test('cost-tracker: calcCost — Opus more expensive than Sonnet', () => {
 test('cost-tracker: calcCost — cache discount applied (input-heavy, realistic)', () => {
   // Use input-heavy tokens (typical of prompt caching scenarios where the
   // long system prompt is cached). Output stays small.
-  const noCache = costTracker.calcCost(
-    { input_tokens: 10000, output_tokens: 100 },
-    'claude-sonnet-4-5'
-  );
+  const noCache = costTracker.calcCost({ input_tokens: 10000, output_tokens: 100 }, 'claude-sonnet-4-5');
   const withCache = costTracker.calcCost(
     { input_tokens: 10000, output_tokens: 100, cache_read_input_tokens: 9000 },
     'claude-sonnet-4-5'
@@ -146,8 +142,8 @@ test('cost-tracker: track records metrics + returns cost', async () => {
   });
   assert.ok(cost > 0);
   const snap = metrics.snapshot();
-  assert.ok(Object.keys(snap.counters).some(k => k.includes('llm_calls_total')));
-  assert.ok(Object.keys(snap.counters).some(k => k.includes('llm_tokens_input_total')));
+  assert.ok(Object.keys(snap.counters).some((k) => k.includes('llm_calls_total')));
+  assert.ok(Object.keys(snap.counters).some((k) => k.includes('llm_tokens_input_total')));
 });
 
 test('cost-tracker: track persists to DB when sbPost provided', async () => {
@@ -157,7 +153,9 @@ test('cost-tracker: track persists to DB when sbPost provided', async () => {
     skill: 'voice-polish',
     model: 'claude-sonnet-4-5',
     usage: { input_tokens: 100, output_tokens: 50 },
-    sbPost: async (table, row) => { inserted = { table, row }; },
+    sbPost: async (table, row) => {
+      inserted = { table, row };
+    },
   });
   assert.ok(inserted);
   assert.strictEqual(inserted.table, 'llm_cost_logs');
@@ -174,7 +172,9 @@ test('cost-tracker: track gracefully handles sbPost failure', async () => {
     skill: 'cro',
     model: 'claude-sonnet-4-5',
     usage: { input_tokens: 100, output_tokens: 50 },
-    sbPost: async () => { throw new Error('DB down'); },
+    sbPost: async () => {
+      throw new Error('DB down');
+    },
     logger: { warn: () => {} },
   });
   assert.ok(cost > 0);
@@ -182,15 +182,15 @@ test('cost-tracker: track gracefully handles sbPost failure', async () => {
 
 test('cost-tracker: buildCostReport aggregates correctly', async () => {
   const fakeRows = [
-    { business_id: 'b1', skill: 'ad-optimizer', model: 'claude-sonnet-4-5', cost_usd: 0.10, created_at: '2026-05-07' },
-    { business_id: 'b1', skill: 'ad-optimizer', model: 'claude-sonnet-4-5', cost_usd: 0.20, created_at: '2026-05-07' },
-    { business_id: 'b2', skill: 'cro',          model: 'claude-opus-4-7',   cost_usd: 0.50, created_at: '2026-05-07' },
+    { business_id: 'b1', skill: 'ad-optimizer', model: 'claude-sonnet-4-5', cost_usd: 0.1, created_at: '2026-05-07' },
+    { business_id: 'b1', skill: 'ad-optimizer', model: 'claude-sonnet-4-5', cost_usd: 0.2, created_at: '2026-05-07' },
+    { business_id: 'b2', skill: 'cro', model: 'claude-opus-4-7', cost_usd: 0.5, created_at: '2026-05-07' },
   ];
   const sbGet = async () => fakeRows;
   const r = await costTracker.buildCostReport({ sbGet, days: 7 });
   assert.strictEqual(r.total_calls, 3);
-  assert.strictEqual(r.total_cost_usd, 0.80);
+  assert.strictEqual(r.total_cost_usd, 0.8);
   assert.strictEqual(r.top_businesses[0].business_id, 'b2');
-  assert.strictEqual(r.by_skill['cro'], 0.50);
-  assert.strictEqual(r.by_skill['ad-optimizer'], 0.30);
+  assert.strictEqual(r.by_skill['cro'], 0.5);
+  assert.strictEqual(r.by_skill['ad-optimizer'], 0.3);
 });

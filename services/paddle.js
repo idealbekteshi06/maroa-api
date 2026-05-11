@@ -4,9 +4,7 @@ const https = require('https');
 
 const PADDLE_API_KEY = (process.env.PADDLE_API_KEY || '').replace(/[^\x20-\x7E]/g, '').trim();
 const PADDLE_ENV = (process.env.PADDLE_ENV || 'sandbox').trim(); // 'sandbox' or 'production'
-const PADDLE_BASE = PADDLE_ENV === 'production'
-  ? 'https://api.paddle.com'
-  : 'https://sandbox-api.paddle.com';
+const PADDLE_BASE = PADDLE_ENV === 'production' ? 'https://api.paddle.com' : 'https://sandbox-api.paddle.com';
 
 function paddleRequest(method, path, body) {
   return new Promise((resolve, reject) => {
@@ -18,17 +16,20 @@ function paddleRequest(method, path, body) {
       path: u.pathname + u.search,
       method,
       headers: {
-        'Authorization': `Bearer ${PADDLE_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
+        Authorization: `Bearer ${PADDLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
     };
     if (bodyStr) opts.headers['Content-Length'] = Buffer.byteLength(bodyStr);
-    const req = https.request(opts, res => {
+    const req = https.request(opts, (res) => {
       let data = '';
-      res.on('data', c => data += c);
+      res.on('data', (c) => (data += c));
       res.on('end', () => {
-        try   { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
-        catch { resolve({ status: res.statusCode, body: data }); }
+        try {
+          resolve({ status: res.statusCode, body: JSON.parse(data) });
+        } catch {
+          resolve({ status: res.statusCode, body: data });
+        }
       });
     });
     req.setTimeout(15000, () => req.destroy(new Error('Paddle request timeout')));
@@ -45,7 +46,7 @@ async function createCheckoutSession({ priceId, businessId, plan, customerEmail,
     checkout: {
       url: successUrl || 'https://maroa-ai-marketing-automator.vercel.app/dashboard?upgraded=true',
     },
-    ...(customerEmail ? { customer: { email: customerEmail } } : {})
+    ...(customerEmail ? { customer: { email: customerEmail } } : {}),
   });
   if (r.status !== 200 && r.status !== 201) {
     throw new Error(`Paddle create transaction failed: ${r.status} ${JSON.stringify(r.body).slice(0, 300)}`);
@@ -53,7 +54,7 @@ async function createCheckoutSession({ priceId, businessId, plan, customerEmail,
   const txn = r.body?.data;
   return {
     transaction_id: txn?.id,
-    checkout_url: txn?.checkout?.url || null
+    checkout_url: txn?.checkout?.url || null,
   };
 }
 
@@ -67,7 +68,7 @@ async function getSubscription(subscriptionId) {
 
 async function cancelSubscription(subscriptionId, effectiveFrom = 'next_billing_period') {
   const r = await paddleRequest('POST', `/subscriptions/${subscriptionId}/cancel`, {
-    effective_from: effectiveFrom
+    effective_from: effectiveFrom,
   });
   if (r.status !== 200) {
     throw new Error(`Paddle cancel subscription failed: ${r.status}`);
@@ -85,8 +86,8 @@ function verifyWebhookSignature(rawBody, signature, secret, now = Date.now()) {
   if (!signature || !secret) return false;
   // Paddle sends ts;h1=hash format
   const parts = signature.split(';');
-  const tsStr = parts.find(p => p.startsWith('ts='));
-  const h1Str = parts.find(p => p.startsWith('h1='));
+  const tsStr = parts.find((p) => p.startsWith('ts='));
+  const h1Str = parts.find((p) => p.startsWith('h1='));
   if (!tsStr || !h1Str) return false;
   const tsRaw = tsStr.replace('ts=', '').trim();
   const h1 = h1Str.replace('h1=', '').trim();
@@ -110,5 +111,5 @@ module.exports = {
   getSubscription,
   cancelSubscription,
   verifyWebhookSignature,
-  PADDLE_API_KEY
+  PADDLE_API_KEY,
 };

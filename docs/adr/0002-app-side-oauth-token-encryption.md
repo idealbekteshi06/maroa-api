@@ -27,16 +27,17 @@ follow-up migration (060) drops them once backfill is verified.
 
 ## Alternatives considered
 
-| Option | Why we didn't pick it |
-|---|---|
-| `pgp_sym_encrypt` (pgcrypto) | Requires the symmetric key inside SQL function calls or `current_setting()`. Supabase doesn't let us set custom GUCs from outside, and embedding the key as a literal in PATCH bodies puts it on the wire in cleartext from the app to Supabase. App-side encryption keeps the key in the app container only. |
-| AWS KMS / Google Cloud KMS | Adds a third-party vendor + IAM setup + per-decryption cost. AES-256-GCM with a single rotated key is the same security property for a single-region SaaS. |
-| HashiCorp Vault | More moving parts than we need at our scale; Doppler covers our secret-rotation use case. |
-| Don't encrypt — rely on Supabase RLS | RLS doesn't help against service-role-key compromise, which is the threat we're modeling. |
+| Option                               | Why we didn't pick it                                                                                                                                                                                                                                                                                         |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pgp_sym_encrypt` (pgcrypto)         | Requires the symmetric key inside SQL function calls or `current_setting()`. Supabase doesn't let us set custom GUCs from outside, and embedding the key as a literal in PATCH bodies puts it on the wire in cleartext from the app to Supabase. App-side encryption keeps the key in the app container only. |
+| AWS KMS / Google Cloud KMS           | Adds a third-party vendor + IAM setup + per-decryption cost. AES-256-GCM with a single rotated key is the same security property for a single-region SaaS.                                                                                                                                                    |
+| HashiCorp Vault                      | More moving parts than we need at our scale; Doppler covers our secret-rotation use case.                                                                                                                                                                                                                     |
+| Don't encrypt — rely on Supabase RLS | RLS doesn't help against service-role-key compromise, which is the threat we're modeling.                                                                                                                                                                                                                     |
 
 ## Consequences
 
 **Positive:**
+
 - Trust boundary moves from "Supabase doesn't leak" to
   "the encryption key doesn't leak." The key lives in one place
   (Doppler/Railway env), not 50K rows in a database.
@@ -45,6 +46,7 @@ follow-up migration (060) drops them once backfill is verified.
 - Zero new runtime deps (uses node:crypto).
 
 **Negative:**
+
 - App must hold the key. Lose it → lose decryptability of every token.
   Mitigation: documented in PUNCHLIST that the operator must save the
   generated key in 1Password the first time it's set.

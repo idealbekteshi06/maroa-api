@@ -150,11 +150,12 @@ test('higgsfield: HIGGSFIELD_PATH_CINEMA env override is respected', () => {
 test('trainSoulCharacter: rejects fewer than 5 reference images (Higgsfield minimum)', async () => {
   const svc = makeService();
   await assert.rejects(
-    () => svc.trainSoulCharacter({
-      characterId: 'x',
-      sourceImageUrls: ['https://1', 'https://2', 'https://3'],
-      name: 'test',
-    }),
+    () =>
+      svc.trainSoulCharacter({
+        characterId: 'x',
+        sourceImageUrls: ['https://1', 'https://2', 'https://3'],
+        name: 'test',
+      }),
     /5.20 reference images/i
   );
 });
@@ -173,12 +174,13 @@ test('trainSoulCharacter: rejects unknown model selector', async () => {
   const svc = makeService();
   const five = ['https://1', 'https://2', 'https://3', 'https://4', 'https://5'];
   await assert.rejects(
-    () => svc.trainSoulCharacter({
-      characterId: 'x',
-      sourceImageUrls: five,
-      name: 'test',
-      model: 'soul_3',  // doesn't exist
-    }),
+    () =>
+      svc.trainSoulCharacter({
+        characterId: 'x',
+        sourceImageUrls: five,
+        name: 'test',
+        model: 'soul_3', // doesn't exist
+      }),
     /soul_2.*soul_cinematic/i
   );
 });

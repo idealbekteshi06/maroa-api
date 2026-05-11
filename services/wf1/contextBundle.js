@@ -38,19 +38,14 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
         'learning_patterns',
         `business_id=eq.${businessId}&pattern_type=eq.pillar_mix&limit=10&select=trait,metadata`
       ).catch(() => []),
-      sbGet(
-        'businesses',
-        `id=eq.${businessId}&select=brand_tone,brand_voice_profile,content_pillars`
-      ).catch(() => []),
+      sbGet('businesses', `id=eq.${businessId}&select=brand_tone,brand_voice_profile,content_pillars`).catch(() => []),
     ]);
 
     const biz = brandMemoryRows[0] || {};
     const voiceProfile =
-      biz.brand_voice_profile ||
-      biz.brand_tone ||
-      'Warm, confident, specific. Avoid jargon. Never overclaim.';
+      biz.brand_voice_profile || biz.brand_tone || 'Warm, confident, specific. Avoid jargon. Never overclaim.';
 
-    const historicalWinners = (winners || []).map(w => {
+    const historicalWinners = (winners || []).map((w) => {
       const meta = w.metadata || {};
       return {
         hook: meta.hook || meta.example || w.trait,
@@ -60,7 +55,7 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
       };
     });
 
-    const antiPatterns = (antis || []).map(a => {
+    const antiPatterns = (antis || []).map((a) => {
       const meta = a.metadata || {};
       return {
         reason: a.trait,
@@ -71,7 +66,7 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
     // Pillar mix: prefer explicit learning pattern rows, fall back to JSON on businesses.
     let pillarMixStatus = [];
     if ((pillarRows || []).length) {
-      pillarMixStatus = pillarRows.map(p => {
+      pillarMixStatus = pillarRows.map((p) => {
         const meta = p.metadata || {};
         return {
           pillar: p.trait,
@@ -83,13 +78,15 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
       try {
         const parsed = typeof biz.content_pillars === 'string' ? JSON.parse(biz.content_pillars) : biz.content_pillars;
         if (Array.isArray(parsed)) {
-          pillarMixStatus = parsed.map(p => ({
+          pillarMixStatus = parsed.map((p) => ({
             pillar: p.name || p.pillar,
             target: Number(p.allocation || p.target || 25),
             actual30d: 0, // unknown without historical tracking
           }));
         }
-      } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
+      } catch (e) {
+        /* soft-fail — see ADR-0003 for empty-catch cleanup plan */
+      }
     }
 
     return { voiceProfile, historicalWinners, antiPatterns, pillarMixStatus };
@@ -148,7 +145,8 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
       const sorted = [...perfRows].sort((a, b) => new Date(a.measured_at) - new Date(b.measured_at));
       const half = Math.floor(sorted.length / 2);
       const firstAvg = sorted.slice(0, half).reduce((s, r) => s + Number(r.engagement_rate || 0), 0) / half;
-      const secondAvg = sorted.slice(half).reduce((s, r) => s + Number(r.engagement_rate || 0), 0) / (sorted.length - half);
+      const secondAvg =
+        sorted.slice(half).reduce((s, r) => s + Number(r.engagement_rate || 0), 0) / (sorted.length - half);
       if (secondAvg > firstAvg * 1.1) engagementTrend = 'up';
       else if (secondAvg < firstAvg * 0.9) engagementTrend = 'down';
     }
@@ -157,10 +155,7 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
     const postsPerWeek = postRows.length / 4.3; // 30d ≈ 4.3 weeks
     const saturationFatigueScore = Math.min(
       100,
-      Math.round(
-        postsPerWeek * 5 +
-          (engagementTrend === 'down' ? 40 : engagementTrend === 'flat' ? 15 : 0)
-      )
+      Math.round(postsPerWeek * 5 + (engagementTrend === 'down' ? 40 : engagementTrend === 'flat' ? 15 : 0))
     );
 
     return {
@@ -179,7 +174,7 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
       if (countryIntelligence && typeof countryIntelligence.getUpcomingHolidays === 'function') {
         const country = (brandCtx.primaryMarkets && brandCtx.primaryMarkets[0]) || 'XK';
         const raw = countryIntelligence.getUpcomingHolidays(country, 14) || [];
-        upcomingHolidays = raw.map(h => ({
+        upcomingHolidays = raw.map((h) => ({
           name: h.name || h.title || 'Holiday',
           date: h.date || h.iso_date || todayLocalDate,
           type: h.type || 'cultural',
@@ -206,7 +201,9 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
           relevance: 6,
         });
       }
-    } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
+    } catch (e) {
+      /* soft-fail — see ADR-0003 for empty-catch cleanup plan */
+    }
 
     try {
       const nq = `${brandCtx.industry} news ${brandCtx.primaryMarkets?.[0] || ''}`;
@@ -214,11 +211,19 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
       for (const h of hits) {
         newsCycle.push({
           headline: h.title,
-          source: (() => { try { return new URL(h.link).hostname; } catch { return 'news'; } })(),
+          source: (() => {
+            try {
+              return new URL(h.link).hostname;
+            } catch {
+              return 'news';
+            }
+          })(),
           relevance: 5,
         });
       }
-    } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
+    } catch (e) {
+      /* soft-fail — see ADR-0003 for empty-catch cleanup plan */
+    }
 
     return {
       todayLocalDate,
@@ -237,7 +242,7 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
       `business_id=eq.${businessId}&recorded_at=gte.${encodeURIComponent(since24h)}&order=recorded_at.desc&limit=20&select=competitor_doing_well,gap_opportunity,content_to_steal,positioning_tip,recorded_at`
     ).catch(() => []);
 
-    const last24h = rows.map(r => ({
+    const last24h = rows.map((r) => ({
       competitor: 'tracked',
       platform: 'instagram_feed',
       topic: (r.competitor_doing_well || '').slice(0, 140),
@@ -245,11 +250,11 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
       estimatedEngagement: 0.04,
     }));
     const gapOpportunities = rows
-      .map(r => r.gap_opportunity)
+      .map((r) => r.gap_opportunity)
       .filter(Boolean)
       .slice(0, 5);
     const whiteSpace = rows
-      .map(r => r.positioning_tip)
+      .map((r) => r.positioning_tip)
       .filter(Boolean)
       .slice(0, 5);
 
@@ -314,7 +319,7 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
       ).catch(() => []),
     ]);
 
-    const activeCampaigns = (activeCamps || []).map(c => ({
+    const activeCampaigns = (activeCamps || []).map((c) => ({
       name: c.campaign_name || 'campaign',
       funnelStage: c.funnel_stage || 'mofu',
       endsAt: c.end_date || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
@@ -325,17 +330,24 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
     try {
       const parsed = typeof biz.launch_pipeline === 'string' ? JSON.parse(biz.launch_pipeline) : biz.launch_pipeline;
       if (Array.isArray(parsed)) {
-        launchPipeline = parsed.map(l => ({
+        launchPipeline = parsed.map((l) => ({
           name: l.name || 'Upcoming',
           daysUntil: Math.max(0, Math.round((new Date(l.date).getTime() - Date.now()) / 86400000)),
         }));
       }
-    } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
+    } catch (e) {
+      /* soft-fail — see ADR-0003 for empty-catch cleanup plan */
+    }
 
     return {
       activeCampaigns,
       inventoryOrPromoCalendar: biz.inventory_notes || undefined,
-      salesPriorities: biz.sales_priorities ? String(biz.sales_priorities).split(/[;,\n]/).map(s => s.trim()).filter(Boolean) : undefined,
+      salesPriorities: biz.sales_priorities
+        ? String(biz.sales_priorities)
+            .split(/[;,\n]/)
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : undefined,
       launchPipeline,
     };
   }
@@ -346,27 +358,31 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
    */
   async function gatherBundle({ businessId, brandContext, todayLocalDate }) {
     const [brandMemory, performance, cultural, competitive, audience, business] = await Promise.all([
-      gatherBrandMemory(businessId).catch(e => {
+      gatherBrandMemory(businessId).catch((e) => {
         logger?.warn('/wf1/contextBundle', businessId, 'brandMemory failed', { error: e.message });
         return { voiceProfile: '', historicalWinners: [], antiPatterns: [], pillarMixStatus: [] };
       }),
-      gatherPerformance(businessId).catch(e => {
+      gatherPerformance(businessId).catch((e) => {
         logger?.warn('/wf1/contextBundle', businessId, 'performance failed', { error: e.message });
-        return { last30d: [], growthTrajectory: { followerDelta30d: 0, engagementTrend: 'flat' }, saturationFatigueScore: 0 };
+        return {
+          last30d: [],
+          growthTrajectory: { followerDelta30d: 0, engagementTrend: 'flat' },
+          saturationFatigueScore: 0,
+        };
       }),
-      gatherCultural(businessId, brandContext, todayLocalDate).catch(e => {
+      gatherCultural(businessId, brandContext, todayLocalDate).catch((e) => {
         logger?.warn('/wf1/contextBundle', businessId, 'cultural failed', { error: e.message });
         return { todayLocalDate, upcomingHolidays: [], trendingTopics: [], newsCycle: [] };
       }),
-      gatherCompetitive(businessId).catch(e => {
+      gatherCompetitive(businessId).catch((e) => {
         logger?.warn('/wf1/contextBundle', businessId, 'competitive failed', { error: e.message });
         return { last24h: [], gapOpportunities: [], whiteSpace: [] };
       }),
-      gatherAudience(businessId).catch(e => {
+      gatherAudience(businessId).catch((e) => {
         logger?.warn('/wf1/contextBundle', businessId, 'audience failed', { error: e.message });
         return { topComments48h: [], dropOffSignals: [] };
       }),
-      gatherBusiness(businessId).catch(e => {
+      gatherBusiness(businessId).catch((e) => {
         logger?.warn('/wf1/contextBundle', businessId, 'business failed', { error: e.message });
         return { activeCampaigns: [] };
       }),

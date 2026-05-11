@@ -6,27 +6,28 @@ _Started 2026-04-13. Backend repo for the 15-workflow autonomous marketing syste
 
 ## 0. Repo reality check (audit at start of V2 build-out)
 
-| Aspect | State |
-|---|---|
-| Stack | Node.js 18+ / Express 4 monolith, single `server.js` (10,236 lines, 212 routes) |
-| Router | No `routes/` files yet — everything is inline `app.post/get` in server.js |
-| Supabase | Project `zqhyrbttuqkvmdewiytf`, REST via `sbGet/sbPost/sbPatch` helpers (lines 260–278), service-role key in `SUPABASE_KEY` |
-| Migrations | 23 SQL files in `migrations/` (001–023); applied manually via Supabase SQL editor, no automated migrator |
-| Claude | Direct Anthropic HTTPS via `callClaude(prompt, taskType, maxTokens, extra)` — supports `taskType` routing (strategy→Opus, social_post→Sonnet, caption→Haiku), idempotency log, budget gate per plan, retry w/ backoff, extractJSON, returnRaw, system prompt injection |
-| Pinecone | Wired (`pineconeUpsert/Query`, `getBrandExamples`) — brand memory layer already live |
-| Higgsfield | Service factory `services/higgsfield.js` already integrated via Segmind |
-| Email | Resend via `sendEmail(to, subject, html)` + `sendEmailWithTags` for attribution |
-| WhatsApp | Twilio via `sendWhatsApp(to, message)` (line 954-ish) |
-| SerpAPI | `serpSearch(query, num)` helper |
-| Cron | **Not implemented in-process.** Current design relies on external n8n Cloud scheduled workflows hitting webhook endpoints. Continuing that pattern: WF1 daily cron = external hit to `/webhook/wf1-run-daily` from n8n cron OR Railway scheduled job (decision below). |
-| Auth | Webhook secret header `x-webhook-secret` + service-role Supabase RLS |
-| Plan gate | `middleware/planGate.js` + `checkPlanLimit` enforce agency-only features and monthly AI caps (already respects brief guardrails) |
-| Monthly/daily caps | `checkTokenBudgetForBusiness` in server.js enforces per-plan Claude call limits via `orchestration_logs` count |
-| Idempotency | `checkOrchestrationIdempotency(userId, task, windowMs)` helper (line 478) — reuse for WF1 cron double-fire protection |
+| Aspect                    | State                                                                                                                                                                                                                                                                                           |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stack                     | Node.js 18+ / Express 4 monolith, single `server.js` (10,236 lines, 212 routes)                                                                                                                                                                                                                 |
+| Router                    | No `routes/` files yet — everything is inline `app.post/get` in server.js                                                                                                                                                                                                                       |
+| Supabase                  | Project `zqhyrbttuqkvmdewiytf`, REST via `sbGet/sbPost/sbPatch` helpers (lines 260–278), service-role key in `SUPABASE_KEY`                                                                                                                                                                     |
+| Migrations                | 23 SQL files in `migrations/` (001–023); applied manually via Supabase SQL editor, no automated migrator                                                                                                                                                                                        |
+| Claude                    | Direct Anthropic HTTPS via `callClaude(prompt, taskType, maxTokens, extra)` — supports `taskType` routing (strategy→Opus, social_post→Sonnet, caption→Haiku), idempotency log, budget gate per plan, retry w/ backoff, extractJSON, returnRaw, system prompt injection                          |
+| Pinecone                  | Wired (`pineconeUpsert/Query`, `getBrandExamples`) — brand memory layer already live                                                                                                                                                                                                            |
+| Higgsfield                | Service factory `services/higgsfield.js` already integrated via Segmind                                                                                                                                                                                                                         |
+| Email                     | Resend via `sendEmail(to, subject, html)` + `sendEmailWithTags` for attribution                                                                                                                                                                                                                 |
+| WhatsApp                  | Twilio via `sendWhatsApp(to, message)` (line 954-ish)                                                                                                                                                                                                                                           |
+| SerpAPI                   | `serpSearch(query, num)` helper                                                                                                                                                                                                                                                                 |
+| Cron                      | **Not implemented in-process.** Current design relies on external n8n Cloud scheduled workflows hitting webhook endpoints. Continuing that pattern: WF1 daily cron = external hit to `/webhook/wf1-run-daily` from n8n cron OR Railway scheduled job (decision below).                          |
+| Auth                      | Webhook secret header `x-webhook-secret` + service-role Supabase RLS                                                                                                                                                                                                                            |
+| Plan gate                 | `middleware/planGate.js` + `checkPlanLimit` enforce agency-only features and monthly AI caps (already respects brief guardrails)                                                                                                                                                                |
+| Monthly/daily caps        | `checkTokenBudgetForBusiness` in server.js enforces per-plan Claude call limits via `orchestration_logs` count                                                                                                                                                                                  |
+| Idempotency               | `checkOrchestrationIdempotency(userId, task, windowMs)` helper (line 478) — reuse for WF1 cron double-fire protection                                                                                                                                                                           |
 | Existing content pipeline | `/webhook/content-generate` (line 5383), `/webhook/instant-content` (1908), `/webhook/content-approve` (5556), `/webhook/content-pieces-get` — legacy v1 — will be preserved, WF1 writes into the same `generated_content` table + new `content_concepts/content_assets` for full-spec fidelity |
-| Frontend contract for WF1 | `maroa-ai-marketing-automator/src/lib/api.ts` lines 259–340 — exact endpoint paths + JSON shapes — treated as the contract of record |
+| Frontend contract for WF1 | `maroa-ai-marketing-automator/src/lib/api.ts` lines 259–340 — exact endpoint paths + JSON shapes — treated as the contract of record                                                                                                                                                            |
 
 **Frontend contract paths (must match verbatim):**
+
 - `POST /webhook/wf1-strategic-decision` — body `{ businessId, forceReplan? }` → `{ runId, analysis, concepts[] }`
 - `POST /webhook/wf1-plan-get` (via GET in frontend with query params, but the frontend `get()` helper builds a URL — I'll implement both POST and GET for safety) — body `{ business_id, date? }` → `{ date, status, analysis, concepts[] }`
 - `POST /webhook/wf1-generate-asset` — body `{ businessId, conceptId }` → `{ assetId, qualityScore }`
@@ -41,30 +42,33 @@ _NB: the frontend uses `get()` for `wf1-plan-get` and `wf1-learning-state` — I
 ## 1. Decisions (rationale + tradeoffs)
 
 ### 1.1 Foundation framework sharing: **copy-in-build**
+
 The canonical strategic framework lives in `../maroa-ai-marketing-automator/src/lib/prompts/foundation.ts` (TypeScript). This backend is plain JavaScript/Node and must not add a TypeScript build step for 3 files. Options considered:
 
-| Option | Pro | Con | Verdict |
-|---|---|---|---|
-| Symlink the frontend file into backend | Zero drift | Breaks when repos cloned separately (Railway deploys only this repo) | ❌ |
-| npm workspace | Clean | Requires monorepo conversion + Railway build-command changes — out of scope | ❌ |
-| Copy-in-build script | Simple, proven, Railway-friendly | Potential drift if script isn't run | ✅ |
-| Duplicate and maintain both | Zero build deps | Drift guaranteed; violates single-source mandate | ❌ |
+| Option                                 | Pro                              | Con                                                                         | Verdict |
+| -------------------------------------- | -------------------------------- | --------------------------------------------------------------------------- | ------- |
+| Symlink the frontend file into backend | Zero drift                       | Breaks when repos cloned separately (Railway deploys only this repo)        | ❌      |
+| npm workspace                          | Clean                            | Requires monorepo conversion + Railway build-command changes — out of scope | ❌      |
+| Copy-in-build script                   | Simple, proven, Railway-friendly | Potential drift if script isn't run                                         | ✅      |
+| Duplicate and maintain both            | Zero build deps                  | Drift guaranteed; violates single-source mandate                            | ❌      |
 
 **Decision:** Added `scripts/sync_foundation.mjs` which reads the frontend `.ts` files, strips TypeScript type annotations with a minimal regex-based transform (sufficient for the pure-string prompt modules — they have no runtime type dependencies), and writes `services/prompts/foundation.js` + `services/prompts/workflow_1_daily_content.js` as CommonJS. Ran at dev time and in Railway's build step (`npm run build` → `node scripts/sync_foundation.mjs`). The generated files have a header banner: "AUTOGENERATED — DO NOT EDIT". This preserves the frontend as the single source of truth while giving the backend plain-require access.
 
 **Drift protection:** the sync script fails loudly if the source file hash changes but the output hasn't been regenerated. Railway build will fail rather than ship stale prompts.
 
 ### 1.2 Cron strategy for WF1 daily 06:00 local
+
 Options:
 
-| Option | Pro | Con | Verdict |
-|---|---|---|---|
-| n8n Cloud scheduled workflow hitting `/webhook/wf1-run-daily` | Already running, zero new infra | Adds an external dep for a core feature | — |
-| Railway cron (native scheduled job) | Internal, one fewer moving part | Railway cron is a hobby-plan feature; may add cost | — |
-| In-process interval (setInterval on startup) | Simplest | Lost on restart, hard to time-zone per business, bad for a critical loop | ❌ |
-| Supabase pg_cron + edge function → HTTP callback | Works with existing Supabase | Adds complexity, ties logic to DB | — |
+| Option                                                        | Pro                             | Con                                                                      | Verdict |
+| ------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------ | ------- |
+| n8n Cloud scheduled workflow hitting `/webhook/wf1-run-daily` | Already running, zero new infra | Adds an external dep for a core feature                                  | —       |
+| Railway cron (native scheduled job)                           | Internal, one fewer moving part | Railway cron is a hobby-plan feature; may add cost                       | —       |
+| In-process interval (setInterval on startup)                  | Simplest                        | Lost on restart, hard to time-zone per business, bad for a critical loop | ❌      |
+| Supabase pg_cron + edge function → HTTP callback              | Works with existing Supabase    | Adds complexity, ties logic to DB                                        | —       |
 
 **Decision:** Implement `/webhook/wf1-run-daily` as the cron target, but also run an in-process scheduler (`services/cron/wf1Daily.js`) on server boot that:
+
 1. Computes next 06:00 for each active business in their local timezone
 2. Uses `checkOrchestrationIdempotency` to prevent double-firing
 3. Calls the same internal function the webhook calls
@@ -72,6 +76,7 @@ Options:
 This gives us fault tolerance: if the internal scheduler dies, external cron still fires; if external cron fails, internal still runs. Idempotency guard prevents double execution.
 
 ### 1.3 Table strategy: new `content_concepts` + `content_assets` + reuse `generated_content`
+
 The spec wants a proper concept → asset pipeline with approval gates and learning loop. Current `generated_content` conflates both. Decision:
 
 - **New tables** for the WF1 strategic layer: `content_plans` (one per business per day), `content_concepts` (1–3 per plan), `content_assets` (one per approved concept), `content_performance` (after 48h), `learning_patterns` (winners/anti-patterns/hashtag bank)
@@ -79,22 +84,28 @@ The spec wants a proper concept → asset pipeline with approval gates and learn
 - **New** `events`, `approvals`, `brain_decisions` tables per frontend §3.1 — unified across all workflows
 
 ### 1.4 Quality gate implementation
+
 Two thresholds (per `AUTONOMY_MODES`):
+
 - ≥80 → approval queue (hybrid/approve_everything modes)
 - ≥95 → auto-publish (full_autopilot + hybrid after fallback window)
 
 Scored by a second Claude call (Haiku, fast + cheap) that evaluates the generated asset against brand voice, hook strength, visual brief specificity, pattern freshness, compliance, and the strategist's own predicted engagement. Stored in `content_assets.quality_score` + `quality_breakdown` JSON.
 
 ### 1.5 Learning loop window: **48h post-publish**
+
 Matches spec line 126 of workflow_1_daily_content.ts context bundle. Cron task `/webhook/wf1-measure-performance` runs every 30 min, picks up any published `content_assets` with `published_at < now() - 48h` AND `performance_measured_at is null`, fetches platform engagement via existing Meta Graph / TikTok / LinkedIn helpers, writes to `content_performance`, and updates `learning_patterns` (winners ≥ 1.5× baseline, anti-patterns ≤ 0.5× baseline, hashtag bank per-platform reach tracking).
 
 ### 1.6 Autonomy modes enforcement
+
 Stored as `businesses.wf1_autonomy_mode` (new column) + `businesses.wf1_hybrid_window_hours`. Defaults to `hybrid` / 4h per spec recommendation. Enforced server-side in the cron task: after strategic decision + generation + quality gate, a single switch decides publish vs approve-queue vs wait.
 
 ### 1.7 Guardrails enforcement
+
 Per `WF1_GUARDRAILS` constants in the frontend prompt module. Hardcoded mirror in `services/wf1/guardrails.js` (kept in sync via the same sync script). Volume caps checked against `content_posts` (new table) in 24h window. Topic cooldown against last 7d of `content_concepts.pillar + coreIdea`. Crisis auto-pause reads `events` table for `crisis.detected` entries (written by other workflows). Holiday sensitivity reads from `services/countryIntelligence.js` (already exists with 22-country holiday data) — extended with Ramadan daylight windows.
 
 ### 1.8 Test business: **Uje Karadaku** `fea4aae5-14b4-486d-89f4-33a7d7e4ab60`
+
 All dev-mode test runs target this business_id (water brand in Kosovo, B2C DTC/local hybrid, Albanian language, Europe/Belgrade timezone). Its business model classifies as `dtc_ecommerce` with a local-services crossover — WF1 will activate the DTC playbook.
 
 ---
@@ -103,16 +114,16 @@ All dev-mode test runs target this business_id (water brand in Kosovo, B2C DTC/l
 
 The current codebase has multiple routes that touch daily content generation. None of them implement the full spec. This table maps what exists vs what WF1 is replacing/extending:
 
-| Existing route | What it does | WF1 action |
-|---|---|---|
-| `POST /webhook/content-generate` (L5383) | Uses Sonnet to produce a single piece of content in brand voice | Keep as v1 legacy; WF1 supersedes via `/webhook/wf1-strategic-decision` |
-| `POST /webhook/instant-content` (L1908) | "Full week of content on demand" — batch generator | Keep — useful for new-user onboarding; not WF1 |
-| `POST /webhook/content-approve` (L5556) | Moves `generated_content.status` → approved | Keep; WF1 writes approved-state directly via `/webhook/wf1-decision` |
-| `GET /webhook/content-pieces-get` (L5531) | Reads `generated_content` | Extended to include WF1 `content_concepts` joined view |
-| `POST /webhook/ai-brain-run` (L6662) | Old orchestrator | Will be WF15 target later |
-| `POST /webhook/master-agent` (L7358) | Old master agent | Deprecated by WF15 |
-| `POST /webhook/auto-approve-content` (L7933) | Old auto-approval path | Deprecated; WF1 has proper quality-gate path |
-| `POST /webhook/publish-approved-content` (L7996) | Publishes approved pieces via platform APIs | **Reused** — WF1 auto-publish calls this directly |
+| Existing route                                   | What it does                                                    | WF1 action                                                              |
+| ------------------------------------------------ | --------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `POST /webhook/content-generate` (L5383)         | Uses Sonnet to produce a single piece of content in brand voice | Keep as v1 legacy; WF1 supersedes via `/webhook/wf1-strategic-decision` |
+| `POST /webhook/instant-content` (L1908)          | "Full week of content on demand" — batch generator              | Keep — useful for new-user onboarding; not WF1                          |
+| `POST /webhook/content-approve` (L5556)          | Moves `generated_content.status` → approved                     | Keep; WF1 writes approved-state directly via `/webhook/wf1-decision`    |
+| `GET /webhook/content-pieces-get` (L5531)        | Reads `generated_content`                                       | Extended to include WF1 `content_concepts` joined view                  |
+| `POST /webhook/ai-brain-run` (L6662)             | Old orchestrator                                                | Will be WF15 target later                                               |
+| `POST /webhook/master-agent` (L7358)             | Old master agent                                                | Deprecated by WF15                                                      |
+| `POST /webhook/auto-approve-content` (L7933)     | Old auto-approval path                                          | Deprecated; WF1 has proper quality-gate path                            |
+| `POST /webhook/publish-approved-content` (L7996) | Publishes approved pieces via platform APIs                     | **Reused** — WF1 auto-publish calls this directly                       |
 
 **No breaking changes.** Everything under `/webhook/wf1-*` is net-new; legacy routes continue functioning so old dashboards keep working while the new V2 shell rolls out.
 
@@ -125,6 +136,7 @@ The current codebase has multiple routes that touch daily content generation. No
 **File:** `migrations/024_wf1_content_engine.sql` (created this session)
 
 Adds:
+
 - `events` (unified activity feed)
 - `approvals` (unified approval queue)
 - `brain_decisions` (reserved for WF15)
@@ -146,73 +158,74 @@ All tables have `business_id` + `created_at` indexes, RLS enabled with service-r
 
 ### 4.1 WF1 — Daily Content Engine
 
-| Method | Path | Purpose | Contract source |
-|---|---|---|---|
-| POST | `/webhook/wf1-strategic-decision` | Runs Phase 1+2 on demand. Builds context bundle from brand memory + performance + cultural + competitive + audience + business state, calls Claude Opus with `buildStrategicDecisionPrompt`, persists `content_plans` + `content_concepts` rows, returns `{ runId, analysis, concepts[] }` | frontend api.ts:264 |
-| POST | `/webhook/wf1-run-daily` | Cron target + internal fallback. Iterates active businesses whose local time is between 06:00 and 06:59, runs strategic-decision for each with idempotency guard, then for each approved concept runs generation phase, then quality gate, then publish-or-queue per autonomy mode | — (cron-only) |
-| POST | `/webhook/wf1-plan-get` | Fetch plan for a business (date optional, defaults to today in local TZ). Joins plan + concepts + their latest generated assets | frontend api.ts:271 |
-| GET  | `/webhook/wf1-plan-get` | Same as above, GET variant (frontend's `get` helper calls GET) | — |
-| POST | `/webhook/wf1-generate-asset` | On-demand Phase 3 run for a specific concept (when user approves a concept and wants the asset produced now) | frontend api.ts:311 |
-| POST | `/webhook/wf1-decision` | Approve/reject/edit a concept or asset. Writes to `approvals` + `content_concepts.status` + feeds learning loop (rejection = soft anti-pattern) | frontend api.ts:318 |
-| GET  | `/webhook/wf1-learning-state` | Returns current learning-loop state for the business | frontend api.ts:327 |
-| POST | `/webhook/wf1-learning-state` | POST variant for parity | — |
-| POST | `/webhook/wf1-autonomy-mode` | Updates `businesses.wf1_autonomy_mode` + `wf1_hybrid_window_hours` | frontend api.ts:336 |
-| POST | `/webhook/wf1-measure-performance` | Cron target (every 30 min) — picks up posts ≥48h old with no performance measurement, fetches from platform, writes `content_performance`, updates `learning_patterns` | — |
+| Method | Path                               | Purpose                                                                                                                                                                                                                                                                                    | Contract source     |
+| ------ | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------- |
+| POST   | `/webhook/wf1-strategic-decision`  | Runs Phase 1+2 on demand. Builds context bundle from brand memory + performance + cultural + competitive + audience + business state, calls Claude Opus with `buildStrategicDecisionPrompt`, persists `content_plans` + `content_concepts` rows, returns `{ runId, analysis, concepts[] }` | frontend api.ts:264 |
+| POST   | `/webhook/wf1-run-daily`           | Cron target + internal fallback. Iterates active businesses whose local time is between 06:00 and 06:59, runs strategic-decision for each with idempotency guard, then for each approved concept runs generation phase, then quality gate, then publish-or-queue per autonomy mode         | — (cron-only)       |
+| POST   | `/webhook/wf1-plan-get`            | Fetch plan for a business (date optional, defaults to today in local TZ). Joins plan + concepts + their latest generated assets                                                                                                                                                            | frontend api.ts:271 |
+| GET    | `/webhook/wf1-plan-get`            | Same as above, GET variant (frontend's `get` helper calls GET)                                                                                                                                                                                                                             | —                   |
+| POST   | `/webhook/wf1-generate-asset`      | On-demand Phase 3 run for a specific concept (when user approves a concept and wants the asset produced now)                                                                                                                                                                               | frontend api.ts:311 |
+| POST   | `/webhook/wf1-decision`            | Approve/reject/edit a concept or asset. Writes to `approvals` + `content_concepts.status` + feeds learning loop (rejection = soft anti-pattern)                                                                                                                                            | frontend api.ts:318 |
+| GET    | `/webhook/wf1-learning-state`      | Returns current learning-loop state for the business                                                                                                                                                                                                                                       | frontend api.ts:327 |
+| POST   | `/webhook/wf1-learning-state`      | POST variant for parity                                                                                                                                                                                                                                                                    | —                   |
+| POST   | `/webhook/wf1-autonomy-mode`       | Updates `businesses.wf1_autonomy_mode` + `wf1_hybrid_window_hours`                                                                                                                                                                                                                         | frontend api.ts:336 |
+| POST   | `/webhook/wf1-measure-performance` | Cron target (every 30 min) — picks up posts ≥48h old with no performance measurement, fetches from platform, writes `content_performance`, updates `learning_patterns`                                                                                                                     | —                   |
 
 ---
 
 ## 5. Commit log (chronological)
 
-| Commit | Workflow | Files | Lines |
-|---|---|---|---|
-| `78db9b9` | WF1 — Daily Content Engine | 17 | +4229 |
-| `3bf919a` | WF13 — Weekly Strategy Brief | 11 | +2579 |
-| `ae4de6b` | WF15 — AI Brain | 4 | +576 |
-| `578053b` | WF2 — Lead Scoring & Routing | 4 | +657 |
-| `6aa2e01` | WF4 — Reviews & Reputation | 6 | +1004 |
-| `85ffa63` | WF3 — Ad Optimization Loop | 5 | +429 |
-| `0f81203` | WF5, 6, 7, 8, 9/11, 10, 12, 14 (batch) | 19 | +1818 |
+| Commit    | Workflow                               | Files | Lines |
+| --------- | -------------------------------------- | ----- | ----- |
+| `78db9b9` | WF1 — Daily Content Engine             | 17    | +4229 |
+| `3bf919a` | WF13 — Weekly Strategy Brief           | 11    | +2579 |
+| `ae4de6b` | WF15 — AI Brain                        | 4     | +576  |
+| `578053b` | WF2 — Lead Scoring & Routing           | 4     | +657  |
+| `6aa2e01` | WF4 — Reviews & Reputation             | 6     | +1004 |
+| `85ffa63` | WF3 — Ad Optimization Loop             | 5     | +429  |
+| `0f81203` | WF5, 6, 7, 8, 9/11, 10, 12, 14 (batch) | 19    | +1818 |
 
 **Total:** 66 files, ~11,300 lines of backend code across 7 commits. All 15 workflows from the MAROA_15_WORKFLOWS_V2 spec are backend-present.
 
 ## 6. Migration files added (in order)
 
-| File | Workflow |
-|---|---|
-| `024_wf1_content_engine.sql` | WF1: events, approvals, brain_decisions, content_plans/concepts/assets/posts/performance, learning_patterns, businesses.wf1_* |
-| `025_wf13_weekly_brief.sql` | WF13: weekly_briefs, brief_plan_actions, brief_delivery_log, brief_delivery_settings, reader_preferences_learned |
-| `026_wf15_ai_brain.sql` | WF15: brain_conversations, brain_messages, brain_tool_calls, brain_attachments, brain_memory |
-| `027_wf2_lead_scoring.sql` | WF2: lead_scores, lead_responses, routing_rules, icp_definitions, contacts.*extensions |
-| `028_wf4_reviews.sql` | WF4: reviews.*extensions, review_responses, review_requests, review_disputes, testimonial_library |
-| `029_wf3_ad_optimization.sql` | WF3: ad_optimization_runs, ad_optimization_actions |
-| `030_wf5_through_wf14.sql` | WF5-14: competitor_briefs, presence_audits, schema_markup_generated, email_segments/sequences/enrollments, insight_reports, inbox_threads/replies, studio_jobs, launches/launch_activities, budget_optimizer_runs |
+| File                          | Workflow                                                                                                                                                                                                          |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `024_wf1_content_engine.sql`  | WF1: events, approvals, brain*decisions, content_plans/concepts/assets/posts/performance, learning_patterns, businesses.wf1*\*                                                                                    |
+| `025_wf13_weekly_brief.sql`   | WF13: weekly_briefs, brief_plan_actions, brief_delivery_log, brief_delivery_settings, reader_preferences_learned                                                                                                  |
+| `026_wf15_ai_brain.sql`       | WF15: brain_conversations, brain_messages, brain_tool_calls, brain_attachments, brain_memory                                                                                                                      |
+| `027_wf2_lead_scoring.sql`    | WF2: lead_scores, lead_responses, routing_rules, icp_definitions, contacts.\*extensions                                                                                                                           |
+| `028_wf4_reviews.sql`         | WF4: reviews.\*extensions, review_responses, review_requests, review_disputes, testimonial_library                                                                                                                |
+| `029_wf3_ad_optimization.sql` | WF3: ad_optimization_runs, ad_optimization_actions                                                                                                                                                                |
+| `030_wf5_through_wf14.sql`    | WF5-14: competitor_briefs, presence_audits, schema_markup_generated, email_segments/sequences/enrollments, insight_reports, inbox_threads/replies, studio_jobs, launches/launch_activities, budget_optimizer_runs |
 
 **Apply order:** 024 → 025 → 026 → 027 → 028 → 029 → 030. Each is idempotent (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP POLICY IF EXISTS`), so partial reapplication is safe.
 
 ## 7. Services added (per workflow)
 
-| Workflow | Path | Modules |
-|---|---|---|
-| WF1 | `services/wf1/` | brandContext, contextBundle, guardrails, engine, publish, learningLoop, dailyRun, index, registerRoutes |
-| WF2 | `services/wf2/` | index, registerRoutes |
-| WF3 | `services/wf3/` | index, registerRoutes |
-| WF4 | `services/wf4/` | index, registerRoutes |
-| WF5 | `services/wf5/` | index |
-| WF6 | `services/wf6/` | index |
-| WF7 | `services/wf7/` | index |
-| WF8 | `services/wf8/` | index |
-| WF9/11 | `services/wf9/` | index |
-| WF10 | `services/wf10/` | index |
-| WF12 | `services/wf12/` | index |
-| WF13 | `services/wf13/` | contextBundle, engine, index, registerRoutes |
-| WF14 | `services/wf14/` | index |
-| WF15 | `services/wf15/` | index, registerRoutes |
-| WF5-14 routes | `services/wf_batch_routes.js` | batch route registrar |
-| Shared prompts | `services/prompts/` | foundation + 9 workflow modules (auto-generated for WF1/2/4/13/15, backend-native for WF3/5/6/7/8/9/10/12/14) |
+| Workflow       | Path                          | Modules                                                                                                       |
+| -------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| WF1            | `services/wf1/`               | brandContext, contextBundle, guardrails, engine, publish, learningLoop, dailyRun, index, registerRoutes       |
+| WF2            | `services/wf2/`               | index, registerRoutes                                                                                         |
+| WF3            | `services/wf3/`               | index, registerRoutes                                                                                         |
+| WF4            | `services/wf4/`               | index, registerRoutes                                                                                         |
+| WF5            | `services/wf5/`               | index                                                                                                         |
+| WF6            | `services/wf6/`               | index                                                                                                         |
+| WF7            | `services/wf7/`               | index                                                                                                         |
+| WF8            | `services/wf8/`               | index                                                                                                         |
+| WF9/11         | `services/wf9/`               | index                                                                                                         |
+| WF10           | `services/wf10/`              | index                                                                                                         |
+| WF12           | `services/wf12/`              | index                                                                                                         |
+| WF13           | `services/wf13/`              | contextBundle, engine, index, registerRoutes                                                                  |
+| WF14           | `services/wf14/`              | index                                                                                                         |
+| WF15           | `services/wf15/`              | index, registerRoutes                                                                                         |
+| WF5-14 routes  | `services/wf_batch_routes.js` | batch route registrar                                                                                         |
+| Shared prompts | `services/prompts/`           | foundation + 9 workflow modules (auto-generated for WF1/2/4/13/15, backend-native for WF3/5/6/7/8/9/10/12/14) |
 
 ## 8. Open handoffs (what the next operator must do)
 
 ### Required before first production traffic
+
 - [ ] Run all 7 migrations in Supabase SQL editor: 024 → 025 → 026 → 027 → 028 → 029 → 030
 - [ ] Verify `orchestration_logs` table exists (already in migrations 001-023) — required by WF1 idempotency guard
 - [ ] Set Railway env var `WF1_INTERNAL_CRON=true` to enable in-process schedulers OR configure external n8n cron hitting:
@@ -226,18 +239,22 @@ All tables have `business_id` + `created_at` indexes, RLS enabled with service-r
   - `POST /webhook/wf7-dispatch-due` every 15 min
 
 ### Frontend wiring
+
 - [ ] Frontend api.ts currently defines contracts for WF1, WF2, WF4, WF13, WF15 only. For WF3, WF5, WF6, WF7, WF8, WF9/11, WF10, WF12, WF14 the backend endpoints are live but no frontend caller exists yet — these need matching api.ts exports and UI pages. The endpoint paths + request/response shapes are documented above in section 4 (individual PRs) and enforced via the `services/wf_batch_routes.js` file.
 
 ### Foundation framework sharing
+
 - [x] `scripts/sync_foundation.mjs` reads from `../maroa-ai-marketing-automator/src/lib/prompts/*.ts` and generates `services/prompts/*.js`
 - [x] Prestart hook (`"prestart": "node scripts/sync_foundation.mjs"`) runs on every server boot
 - [x] Graceful no-op when frontend repo is absent (Railway deploys)
 - [x] Generated files committed to git so Railway has them at deploy time
 
 ### Higgsfield integration for WF10
+
 - [ ] WF10's `createStudioJob` calls `higgsfieldAI.generateImage` / `generateVideo` which must accept `{ prompt, businessId }` / `{ sourceImagePrompt, motionPrompt, aspectRatio, durationSeconds, businessId }` and return `{ url, thumbnailUrl }`. Current `services/higgsfield.js` factory may need a thin adapter — verify on first WF10 smoke test against Uje Karadaku.
 
 ### Data-gathering pipelines (deferred)
+
 - [ ] WF5 competitor data: requires Apify/SerpAPI scheduled scraping that writes to `competitor_insights`. Current implementation reads from that table but does not populate it.
 - [ ] WF6 local presence data: requires Google Business Profile API + Schema.org validation + citation scraping. Current `runAudit` accepts manual input via `auditInput` parameter.
 - [ ] WF8 customer voice data: reads from existing `reviews` + `inbox_threads` tables. For MVP use, manual review seeding + WF9 intake are sufficient.
@@ -245,15 +262,14 @@ All tables have `business_id` + `created_at` indexes, RLS enabled with service-r
 
 ## 9. Smoke tests performed
 
-| Workflow | Test | Result |
-|---|---|---|
-| Foundation sharing | Load foundation.js + workflow_1_daily_content.js, call buildStrategicDecisionPrompt | ✓ 17,927 char system prompt with all industry playbooks |
-| WF1 | End-to-end strategic decision against Uje Karadaku with fake Claude → 1 concept persisted, event logged | ✓ |
-| WF2 | Mock VP Marketing lead at Acme SaaS (pricing visits, demo, budget) | ✓ 100/100 hot tier |
-| WF1-15 | All 15 `require()` loads + `Object.keys` verification | ✓ All factories export their expected methods |
-| server.js | `node --check server.js` after each wiring step | ✓ 7 successful syntax checks |
+| Workflow           | Test                                                                                                    | Result                                                  |
+| ------------------ | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Foundation sharing | Load foundation.js + workflow_1_daily_content.js, call buildStrategicDecisionPrompt                     | ✓ 17,927 char system prompt with all industry playbooks |
+| WF1                | End-to-end strategic decision against Uje Karadaku with fake Claude → 1 concept persisted, event logged | ✓                                                       |
+| WF2                | Mock VP Marketing lead at Acme SaaS (pricing visits, demo, budget)                                      | ✓ 100/100 hot tier                                      |
+| WF1-15             | All 15 `require()` loads + `Object.keys` verification                                                   | ✓ All factories export their expected methods           |
+| server.js          | `node --check server.js` after each wiring step                                                         | ✓ 7 successful syntax checks                            |
 
 ## 10. Test business
 
 All development and smoke tests use **Uje Karadaku** (`fea4aae5-14b4-486d-89f4-33a7d7e4ab60`), the Kosovo bottled water brand. Classifies as `dtc_ecommerce` per `guessBusinessModel`. Language: Albanian (primary), English (secondary). Timezone: Europe/Belgrade. Country: XK.
-

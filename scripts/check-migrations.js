@@ -28,9 +28,15 @@ const path = require('path');
 
 const MIGRATIONS_DIR = path.join(__dirname, '..', 'migrations');
 
-function red(s) { return `\x1b[31m${s}\x1b[0m`; }
-function green(s) { return `\x1b[32m${s}\x1b[0m`; }
-function yellow(s) { return `\x1b[33m${s}\x1b[0m`; }
+function red(s) {
+  return `\x1b[31m${s}\x1b[0m`;
+}
+function green(s) {
+  return `\x1b[32m${s}\x1b[0m`;
+}
+function yellow(s) {
+  return `\x1b[33m${s}\x1b[0m`;
+}
 
 function exit(code, msg) {
   console.log(code === 0 ? green(msg) : red(msg));
@@ -39,7 +45,8 @@ function exit(code, msg) {
 
 function listMigrations() {
   if (!fs.existsSync(MIGRATIONS_DIR)) exit(1, `No migrations/ directory at ${MIGRATIONS_DIR}`);
-  return fs.readdirSync(MIGRATIONS_DIR)
+  return fs
+    .readdirSync(MIGRATIONS_DIR)
     .filter((f) => f.endsWith('.sql'))
     .sort();
 }
@@ -91,20 +98,23 @@ function checkLatestReferenced(parsed) {
   const slug = `${String(latest.number).padStart(3, '0')}_${latest.slug}`;
   const memoryPath = path.join(__dirname, '..', '.claude', 'projects', 'maroa', 'memory', 'MEMORY.md');
 
-  const referencedInMemory = fs.existsSync(memoryPath)
-    && fs.readFileSync(memoryPath, 'utf8').includes(slug);
+  const referencedInMemory = fs.existsSync(memoryPath) && fs.readFileSync(memoryPath, 'utf8').includes(slug);
 
   let referencedInGit = false;
   try {
     const { execSync } = require('child_process');
     const recentLog = execSync('git log -20 --pretty=%B', { encoding: 'utf8' });
     referencedInGit = recentLog.includes(slug) || recentLog.includes(`migration ${latest.number}`);
-  } catch { /* git not available */ }
+  } catch {
+    /* git not available */
+  }
 
   const errors = [];
   if (!referencedInMemory && !referencedInGit) {
     console.log(yellow(`  warn: latest migration ${slug} not referenced in MEMORY.md or recent git commits.`));
-    console.log(yellow(`        (This is a soft warning — could mean you forgot to mention the migration in a commit.)`));
+    console.log(
+      yellow(`        (This is a soft warning — could mean you forgot to mention the migration in a commit.)`)
+    );
   }
   return errors;
 }

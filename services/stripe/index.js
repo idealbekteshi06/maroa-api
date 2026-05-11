@@ -63,7 +63,9 @@ function verifyStripeSignature(rawBody, sigHeader, secret) {
   return signatures.some((sig) => {
     try {
       return crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'));
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   });
 }
 
@@ -71,14 +73,7 @@ function verifyStripeSignature(rawBody, sigHeader, secret) {
  * Map a Stripe event to business actions. Returns a summary; caller decides
  * whether to await side effects.
  */
-async function handleStripeEvent({
-  event,
-  sbGet, sbPatch, sbPost,
-  sendEmail,
-  logger,
-  internalSecret,
-  port = 3000,
-}) {
+async function handleStripeEvent({ event, sbGet, sbPatch, sbPost, sendEmail, logger, internalSecret, port = 3000 }) {
   if (!event?.type || !event?.data?.object) return { ok: false, reason: 'malformed_event' };
   const t = event.type;
   const obj = event.data.object;
@@ -88,8 +83,7 @@ async function handleStripeEvent({
     // ── checkout.session.completed → first paid signup ──
     if (t === 'checkout.session.completed' || t === 'customer.subscription.created') {
       const businessId = obj.metadata?.business_id || obj.client_reference_id;
-      const priceId = obj.items?.data?.[0]?.price?.id
-        || obj.line_items?.data?.[0]?.price?.id;
+      const priceId = obj.items?.data?.[0]?.price?.id || obj.line_items?.data?.[0]?.price?.id;
       const plan = obj.metadata?.plan || STRIPE_PRICE_TO_PLAN[priceId] || 'starter';
       if (!businessId) {
         result.actions.push({ skipped: 'no business_id in metadata' });
@@ -119,7 +113,9 @@ async function handleStripeEvent({
               ...(internalSecret ? { 'x-webhook-secret': internalSecret } : {}),
             },
             body: JSON.stringify({ businessId, source: 'stripe_checkout_completed', plan }),
-          }).catch((e) => logger?.warn?.('/stripe/webhook', businessId, 'cold-start trigger failed', { error: e.message }));
+          }).catch((e) =>
+            logger?.warn?.('/stripe/webhook', businessId, 'cold-start trigger failed', { error: e.message })
+          );
           result.actions.push({ cold_start_triggered: true });
           await sbPost?.('onboarding_events', {
             business_id: businessId,

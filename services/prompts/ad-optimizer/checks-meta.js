@@ -30,7 +30,7 @@
 function rollingMean(history, field, days = 7) {
   if (!Array.isArray(history) || history.length === 0) return null;
   const recent = history.slice(-days);
-  const vals = recent.map(r => Number(r?.[field])).filter(Number.isFinite);
+  const vals = recent.map((r) => Number(r?.[field])).filter(Number.isFinite);
   if (!vals.length) return null;
   return vals.reduce((a, b) => a + b, 0) / vals.length;
 }
@@ -38,14 +38,14 @@ function rollingMean(history, field, days = 7) {
 function trendDirection(history, field, days = 7) {
   if (!Array.isArray(history) || history.length < days * 2) return 'unknown';
   const half = Math.floor(days);
-  const olderHalf  = history.slice(-2 * half, -half);
-  const newerHalf  = history.slice(-half);
+  const olderHalf = history.slice(-2 * half, -half);
+  const newerHalf = history.slice(-half);
   const olderMean = rollingMean(olderHalf, field, half);
   const newerMean = rollingMean(newerHalf, field, half);
   if (olderMean == null || newerMean == null || olderMean === 0) return 'unknown';
   const pct = (newerMean - olderMean) / olderMean;
-  if (pct > 0.10) return 'rising';
-  if (pct < -0.10) return 'falling';
+  if (pct > 0.1) return 'rising';
+  if (pct < -0.1) return 'falling';
   return 'flat';
 }
 
@@ -64,10 +64,10 @@ const CHECKS = [
       const budget = Number(metrics?.daily_budget);
       if (!Number.isFinite(spend) || !Number.isFinite(budget) || budget <= 0) return null;
       const utilization = spend / budget;
-      if (utilization < 0.30) {
+      if (utilization < 0.3) {
         return {
           fix: 'Audience too small or bid too low — broaden audience or switch to "highest volume" bid strategy',
-          evidence: { metric: 'budget_utilization', value: utilization, threshold: 0.30 },
+          evidence: { metric: 'budget_utilization', value: utilization, threshold: 0.3 },
         };
       }
       return null;
@@ -162,7 +162,12 @@ const CHECKS = [
       if (ctrPct < market.healthy_ctr_pct * 0.6) {
         return {
           fix: `CTR ${ctrPct.toFixed(2)}% well below ${market.healthy_ctr_pct}% (${market.tier_name} healthy) — audience or hook isn't landing`,
-          evidence: { metric: 'ctr_pct', value: ctrPct, regional_benchmark: market.healthy_ctr_pct, market_tier: market.tier_name },
+          evidence: {
+            metric: 'ctr_pct',
+            value: ctrPct,
+            regional_benchmark: market.healthy_ctr_pct,
+            market_tier: market.tier_name,
+          },
         };
       }
       return null;
@@ -198,7 +203,7 @@ const CHECKS = [
       const cvr = conversions / clicks;
       if (cvr < 0.005) {
         return {
-          fix: `Click-to-conv ${(cvr*100).toFixed(2)}% — landing page friction or wrong audience`,
+          fix: `Click-to-conv ${(cvr * 100).toFixed(2)}% — landing page friction or wrong audience`,
           evidence: { metric: 'click_to_conversion', value: cvr, threshold: 0.005 },
         };
       }
@@ -274,7 +279,11 @@ const CHECKS = [
       if (metrics?.capi_configured === false || metrics?.event_match_quality < 5) {
         return {
           fix: 'iOS 14.5+ broke pixel-only tracking — install CAPI for accurate ROAS measurement (15-30% of conversions invisible without it)',
-          evidence: { metric: 'capi_configured', value: !!metrics?.capi_configured, event_match_quality: metrics?.event_match_quality ?? null },
+          evidence: {
+            metric: 'capi_configured',
+            value: !!metrics?.capi_configured,
+            event_match_quality: metrics?.event_match_quality ?? null,
+          },
         };
       }
       return null;
@@ -329,7 +338,13 @@ const CHECKS = [
       if (dir === 'rising' || (dir === 'flat' && roas > 2.5)) {
         return {
           fix: `ROAS ${roas.toFixed(2)} ${dir === 'rising' ? 'and rising' : 'sustained'} — scale candidate (respect learning phase)`,
-          evidence: { metric: 'roas', value: roas, trend: dir, sample_size: history?.length || 0, comparison_period: '7d' },
+          evidence: {
+            metric: 'roas',
+            value: roas,
+            trend: dir,
+            sample_size: history?.length || 0,
+            comparison_period: '7d',
+          },
         };
       }
       return null;
@@ -348,7 +363,13 @@ const CHECKS = [
       if (meanRoas != null && meanRoas < 1.0 && (history?.length || 0) >= 5) {
         return {
           fix: `ROAS ${roas.toFixed(2)} (7d mean ${meanRoas.toFixed(2)}) below 1.0 — pause or restructure`,
-          evidence: { metric: 'roas', value: roas, sample_size: history?.length, comparison_period: '7d', mean_roas_7d: meanRoas },
+          evidence: {
+            metric: 'roas',
+            value: roas,
+            sample_size: history?.length,
+            comparison_period: '7d',
+            mean_roas_7d: meanRoas,
+          },
         };
       }
       return null;
@@ -366,7 +387,7 @@ const CHECKS = [
       if (!Number.isFinite(cpa) || !Number.isFinite(target) || target <= 0) return null;
       if (cpa > target * 1.3) {
         return {
-          fix: `CPA $${cpa.toFixed(2)} is ${((cpa/target-1)*100).toFixed(0)}% over target $${target.toFixed(2)} — pause if no improvement in 3 days`,
+          fix: `CPA $${cpa.toFixed(2)} is ${((cpa / target - 1) * 100).toFixed(0)}% over target $${target.toFixed(2)} — pause if no improvement in 3 days`,
           evidence: { metric: 'cpa', value: cpa, target_cpa: target },
         };
       }
@@ -386,7 +407,12 @@ const CHECKS = [
       if (usdCpm > market.cpm_band_usd[1] * 1.5) {
         return {
           fix: `CPM $${usdCpm.toFixed(2)} is >${market.cpm_band_usd[1] * 1.5}x ${market.tier_name} band ceiling — auction is competitive; broaden audience or improve relevance`,
-          evidence: { metric: 'cpm_usd', value: usdCpm, regional_benchmark: market.cpm_band_usd, market_tier: market.tier_name },
+          evidence: {
+            metric: 'cpm_usd',
+            value: usdCpm,
+            regional_benchmark: market.cpm_band_usd,
+            market_tier: market.tier_name,
+          },
         };
       }
       return null;
@@ -404,7 +430,12 @@ const CHECKS = [
       if (cpc < market.cpc_band_usd[0] * 0.7) {
         return {
           fix: `CPC $${cpc.toFixed(2)} unusually cheap for ${market.tier_name} — strong creative-audience fit; safe to scale`,
-          evidence: { metric: 'cpc_usd', value: cpc, regional_benchmark: market.cpc_band_usd, market_tier: market.tier_name },
+          evidence: {
+            metric: 'cpc_usd',
+            value: cpc,
+            regional_benchmark: market.cpc_band_usd,
+            market_tier: market.tier_name,
+          },
         };
       }
       return null;
@@ -434,8 +465,29 @@ const CHECKS = [
 /**
  * Plan-tier check sets — what runs for free / growth / agency.
  */
-const PRIORITY_FREE_SET    = ['M01','M02','M05','M31','M42'];                      // 5 checks
-const PRIORITY_GROWTH_SET  = ['M01','M02','M03','M04','M05','M11','M12','M13','M21','M22','M31','M32','M33','M34','M41','M42','M43','M44','M45','M51']; // ~20
+const PRIORITY_FREE_SET = ['M01', 'M02', 'M05', 'M31', 'M42']; // 5 checks
+const PRIORITY_GROWTH_SET = [
+  'M01',
+  'M02',
+  'M03',
+  'M04',
+  'M05',
+  'M11',
+  'M12',
+  'M13',
+  'M21',
+  'M22',
+  'M31',
+  'M32',
+  'M33',
+  'M34',
+  'M41',
+  'M42',
+  'M43',
+  'M44',
+  'M45',
+  'M51',
+]; // ~20
 // Agency runs ALL.
 
 /**
@@ -445,9 +497,7 @@ const PRIORITY_GROWTH_SET  = ['M01','M02','M03','M04','M05','M11','M12','M13','M
 function runChecks({ metrics, history, market, decisionHistory, plan = 'free' }) {
   const tier = String(plan || 'free').toLowerCase();
   const allowedIds =
-    tier === 'agency'  ? null
-    : tier === 'growth' ? new Set(PRIORITY_GROWTH_SET)
-    : new Set(PRIORITY_FREE_SET);
+    tier === 'agency' ? null : tier === 'growth' ? new Set(PRIORITY_GROWTH_SET) : new Set(PRIORITY_FREE_SET);
 
   const findings = [];
   for (const check of CHECKS) {

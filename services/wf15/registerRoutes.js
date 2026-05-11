@@ -28,7 +28,8 @@ function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logge
   async function getConvHandler(req, res) {
     const businessId = req.body?.business_id || req.query?.business_id;
     const conversationId = req.body?.conversation_id || req.query?.conversation_id;
-    if (!businessId || !conversationId) return apiError(res, 400, 'INVALID_REQUEST', 'business_id + conversation_id required');
+    if (!businessId || !conversationId)
+      return apiError(res, 400, 'INVALID_REQUEST', 'business_id + conversation_id required');
     try {
       const r = await wf15.getConversation({ businessId, conversationId });
       res.json(r);
@@ -54,7 +55,8 @@ function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logge
   // ─── POST /webhook/wf15-send-message (SSE streaming) ───────
   app.post('/webhook/wf15-send-message', limits.expensive, async (req, res) => {
     const { businessId, conversationId, content, attachmentIds } = req.body || {};
-    if (!businessId || !conversationId || !content) return apiError(res, 400, 'INVALID_REQUEST', 'businessId + conversationId + content required');
+    if (!businessId || !conversationId || !content)
+      return apiError(res, 400, 'INVALID_REQUEST', 'businessId + conversationId + content required');
 
     // Set SSE headers — response is a stream, not JSON
     res.setHeader('Content-Type', 'text/event-stream');
@@ -92,7 +94,9 @@ function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logge
       }
       // Emit the content as a single token chunk, then done.
       res.write(`event: token\ndata: ${JSON.stringify({ delta: msg.content })}\n\n`);
-      res.write(`event: done\ndata: ${JSON.stringify({ messageId: msg.id, modelUsed: msg.model_used, costUsd: Number(msg.cost_usd || 0) })}\n\n`);
+      res.write(
+        `event: done\ndata: ${JSON.stringify({ messageId: msg.id, modelUsed: msg.model_used, costUsd: Number(msg.cost_usd || 0) })}\n\n`
+      );
       res.end();
     } catch (e) {
       res.write(`event: error\ndata: ${JSON.stringify({ message: e.message })}\n\n`);
@@ -103,7 +107,8 @@ function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logge
   // ─── POST /webhook/wf15-tool-decision ──────────────────────
   app.post('/webhook/wf15-tool-decision', limits.expensive, async (req, res) => {
     const { businessId, toolCallId, decision, edits } = req.body || {};
-    if (!businessId || !toolCallId || !decision) return apiError(res, 400, 'INVALID_REQUEST', 'required fields missing');
+    if (!businessId || !toolCallId || !decision)
+      return apiError(res, 400, 'INVALID_REQUEST', 'required fields missing');
     try {
       const r = await wf15.toolDecision({ businessId, toolCallId, decision, edits });
       res.json(r);
@@ -146,7 +151,8 @@ function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logge
   // accepts JSON metadata for now and returns an attachment id.
   app.post('/webhook/wf15-upload-attachment', limits.standardMutate, async (req, res) => {
     const { businessId, modality, url, mimeType, name, transcription, ocrText, scrapedSummary } = req.body || {};
-    if (!businessId || !modality || !url) return apiError(res, 400, 'INVALID_REQUEST', 'businessId, modality, url required');
+    if (!businessId || !modality || !url)
+      return apiError(res, 400, 'INVALID_REQUEST', 'businessId, modality, url required');
     try {
       const row = await sbPost('brain_attachments', {
         business_id: businessId,

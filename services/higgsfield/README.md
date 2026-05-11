@@ -13,48 +13,48 @@ navigation map for future engineers.
 
 ## Public API (returned by `createHiggsfieldService(deps)`)
 
-| Method | What it does |
-|---|---|
-| `modelForCapability(cap)` | Pure helper. cap='image' → 'nano_banana', 'video' → 'kling', 'soul' → 'soul_v2', 'cinema' → 'cinema_studio'. |
-| `pathForModel(modelId)` | Maps model id to Higgsfield path string. |
-| `generateProductImage(...)` | Cloud-first → FNF fallback. ~80 LOC. |
-| `generateProductVideo(...)` | Two-step: generate image, then animate. |
-| `generateHeroAd(...)` | High-stakes ad creative path. |
-| `scoreContent(...)` | Claude vision + text scoring on the generated asset. |
-| `generateCaption(...)` | Per-platform caption gen after image lands. |
-| `schedule30DaysClaude(...)` | Bulk schedule across content pieces. |
-| `processProductCatalog(...)` | E-commerce SKU loop. |
-| `vetCustomerAsset(...)` / `vetCustomerAssetBatch(...)` | Customer-uploaded image vetting. |
-| `smartProcessAsset(...)` / `smartProcessAssetRegenerate(...)` | Vetting → process / regenerate pipeline. |
-| `developCreativeConcept(...)` | Concept brief generation. |
-| `trainSoulCharacter(...)` | Soul ID training entry point. |
+| Method                                                        | What it does                                                                                                 |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `modelForCapability(cap)`                                     | Pure helper. cap='image' → 'nano_banana', 'video' → 'kling', 'soul' → 'soul_v2', 'cinema' → 'cinema_studio'. |
+| `pathForModel(modelId)`                                       | Maps model id to Higgsfield path string.                                                                     |
+| `generateProductImage(...)`                                   | Cloud-first → FNF fallback. ~80 LOC.                                                                         |
+| `generateProductVideo(...)`                                   | Two-step: generate image, then animate.                                                                      |
+| `generateHeroAd(...)`                                         | High-stakes ad creative path.                                                                                |
+| `scoreContent(...)`                                           | Claude vision + text scoring on the generated asset.                                                         |
+| `generateCaption(...)`                                        | Per-platform caption gen after image lands.                                                                  |
+| `schedule30DaysClaude(...)`                                   | Bulk schedule across content pieces.                                                                         |
+| `processProductCatalog(...)`                                  | E-commerce SKU loop.                                                                                         |
+| `vetCustomerAsset(...)` / `vetCustomerAssetBatch(...)`        | Customer-uploaded image vetting.                                                                             |
+| `smartProcessAsset(...)` / `smartProcessAssetRegenerate(...)` | Vetting → process / regenerate pipeline.                                                                     |
+| `developCreativeConcept(...)`                                 | Concept brief generation.                                                                                    |
+| `trainSoulCharacter(...)`                                     | Soul ID training entry point.                                                                                |
 
 ## File sections (line ranges)
 
-| Section | Lines | What's there |
-|---|---|---|
-| Module factory + env reads | 1-79 | `createHiggsfieldService` entry. All env-derived constants live here. |
-| Path constants | 36-78 | 20+ model path constants (Soul, Kling, Sora, DoP, Seedream, Seedance, Veo, Nano Banana, Wan, Flux Kontext, Cinema, Vibe Motion). All overridable via env. |
-| Capability → model resolver | 122-134 | `modelForCapability`, `pathForModel`. |
-| Supabase asset mirror | 136-204 | `downloadImageBuffer`, `uploadBufferToContentImages`, `mirrorHiggsfieldImageToSupabase`, `persistGeneratedImageUrl`. Customer assets stored in `content-images` bucket. |
-| HTTP layer | 206-285 | `higgsfieldUrl`, `keyAuthHeaders`, `parseJsonBody`, `extractRequestId`, `statusNorm`, `extractImageResultUrl`, `extractVideoResultUrl`, `hfPost`, `hfGet`. |
-| Polling loop | 286-355 | `pollRequestStatus` — handles 'queued', 'processing', 'completed', NSFW terminal states. |
-| Submit + wait helpers | 357-438 | `submitSoulAndWait`, `submitVideoAndWait`. |
-| Cancellation | 439-448 | `cancelRequest` for cleaning up stuck jobs. |
-| Brand-context helpers | 450-460 | `brandText` — extracts text from brand DNA. |
+| Section                        | Lines       | What's there                                                                                                                                                                                   |
+| ------------------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Module factory + env reads     | 1-79        | `createHiggsfieldService` entry. All env-derived constants live here.                                                                                                                          |
+| Path constants                 | 36-78       | 20+ model path constants (Soul, Kling, Sora, DoP, Seedream, Seedance, Veo, Nano Banana, Wan, Flux Kontext, Cinema, Vibe Motion). All overridable via env.                                      |
+| Capability → model resolver    | 122-134     | `modelForCapability`, `pathForModel`.                                                                                                                                                          |
+| Supabase asset mirror          | 136-204     | `downloadImageBuffer`, `uploadBufferToContentImages`, `mirrorHiggsfieldImageToSupabase`, `persistGeneratedImageUrl`. Customer assets stored in `content-images` bucket.                        |
+| HTTP layer                     | 206-285     | `higgsfieldUrl`, `keyAuthHeaders`, `parseJsonBody`, `extractRequestId`, `statusNorm`, `extractImageResultUrl`, `extractVideoResultUrl`, `hfPost`, `hfGet`.                                     |
+| Polling loop                   | 286-355     | `pollRequestStatus` — handles 'queued', 'processing', 'completed', NSFW terminal states.                                                                                                       |
+| Submit + wait helpers          | 357-438     | `submitSoulAndWait`, `submitVideoAndWait`.                                                                                                                                                     |
+| Cancellation                   | 439-448     | `cancelRequest` for cleaning up stuck jobs.                                                                                                                                                    |
+| Brand-context helpers          | 450-460     | `brandText` — extracts text from brand DNA.                                                                                                                                                    |
 | **Claude vision + text calls** | **461-510** | `claudeVision`, `claudeText`. **Both have TODO(callClaude-migration) comments** — they bypass `callClaude` so cost tracking + budget gates don't apply. PUNCHLIST item 7 tracks the migration. |
-| SerpAPI niche context | 513-520 | Pulls competitor context for prompts. |
-| Product image generation | 522-616 | `generateProductImage` + `submitImageOnPath` — the core image creation pipeline. |
-| Product video generation | 618-643 | `generateProductVideo` — extends image with motion. |
-| Hero ad generation | 645-668 | `generateHeroAd` — high-CTR ad creative path. |
-| Scoring | 670-755 | `runScoreDimensions`, `scoreContent` — Claude-judged quality scoring. |
-| Caption generation | 757-790 | `generateCaption` — per-platform caption + hashtags. |
-| Scheduling | 792-803 | `schedule30DaysClaude`. |
-| Plan normalization | 805-810 | `normalizePlan`. |
-| Product catalog pipeline | 811-942 | `processProductCatalog` — e-commerce bulk processing. |
-| Asset vetting | 943-1016 | `vetCustomerAsset`, `vetCustomerAssetBatch`, `smartProcessAsset`, `smartProcessAssetRegenerate`. |
-| Creative concept | 1034+ | `developCreativeConcept` — concept brief gen. |
-| Soul ID training | (remaining) | `trainSoulCharacter` + Cloud/FNF fallback logic. |
+| SerpAPI niche context          | 513-520     | Pulls competitor context for prompts.                                                                                                                                                          |
+| Product image generation       | 522-616     | `generateProductImage` + `submitImageOnPath` — the core image creation pipeline.                                                                                                               |
+| Product video generation       | 618-643     | `generateProductVideo` — extends image with motion.                                                                                                                                            |
+| Hero ad generation             | 645-668     | `generateHeroAd` — high-CTR ad creative path.                                                                                                                                                  |
+| Scoring                        | 670-755     | `runScoreDimensions`, `scoreContent` — Claude-judged quality scoring.                                                                                                                          |
+| Caption generation             | 757-790     | `generateCaption` — per-platform caption + hashtags.                                                                                                                                           |
+| Scheduling                     | 792-803     | `schedule30DaysClaude`.                                                                                                                                                                        |
+| Plan normalization             | 805-810     | `normalizePlan`.                                                                                                                                                                               |
+| Product catalog pipeline       | 811-942     | `processProductCatalog` — e-commerce bulk processing.                                                                                                                                          |
+| Asset vetting                  | 943-1016    | `vetCustomerAsset`, `vetCustomerAssetBatch`, `smartProcessAsset`, `smartProcessAssetRegenerate`.                                                                                               |
+| Creative concept               | 1034+       | `developCreativeConcept` — concept brief gen.                                                                                                                                                  |
+| Soul ID training               | (remaining) | `trainSoulCharacter` + Cloud/FNF fallback logic.                                                                                                                                               |
 
 ## Why it's one big closure (and not refactored yet)
 

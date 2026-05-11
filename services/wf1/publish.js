@@ -29,12 +29,7 @@ function createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger, ANTHROPIC
         message: asset.caption || '',
         access_token: token,
       });
-      const r = await apiRequest(
-        'POST',
-        url,
-        { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body.toString()
-      );
+      const r = await apiRequest('POST', url, { 'Content-Type': 'application/x-www-form-urlencoded' }, body.toString());
       if (r.status >= 300) throw new Error(`FB publish ${r.status}: ${JSON.stringify(r.body).slice(0, 200)}`);
       return { postId: r.body.id, postUrl: `https://facebook.com/${r.body.id}` };
     }

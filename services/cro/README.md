@@ -30,11 +30,11 @@ Growth/Agency: full audit + advisor wiring.
 
 ## Files
 
-| File | What |
-|---|---|
-| `engine.js` | Pull business profile, dispatch audit/rewrite, persist. |
-| `index.js` | Factory + DI. |
-| `registerRoutes.js` | HTTP mounting. |
+| File                | What                                                    |
+| ------------------- | ------------------------------------------------------- |
+| `engine.js`         | Pull business profile, dispatch audit/rewrite, persist. |
+| `index.js`          | Factory + DI.                                           |
+| `registerRoutes.js` | HTTP mounting.                                          |
 
 Prompt logic in `../prompts/cro/` (system prompt + scoring + i18n).
 

@@ -20,7 +20,15 @@ For every active campaign every day at 08:00 UTC:
 ## Public API
 
 ```js
-const adOptimizer = require('./services/ad-optimizer')({ sbGet, sbPost, sbPatch, callClaude, extractJSON, logger, Sentry });
+const adOptimizer = require('./services/ad-optimizer')({
+  sbGet,
+  sbPost,
+  sbPatch,
+  callClaude,
+  extractJSON,
+  logger,
+  Sentry,
+});
 
 adOptimizer.engine.auditOne({ campaignId, businessId, dryRun });
 adOptimizer.engine.auditAllActive({ dryRun, limit });
@@ -35,13 +43,13 @@ adOptimizer.registerRoutes({ app, apiError });
 
 ## Files
 
-| File | What |
-|---|---|
-| `engine.js` | Orchestrator. Pulls data, runs audit, persists, applies. |
-| `index.js` | Factory + DI + route binding. |
-| `launcher.js` | Cold-start launcher for new businesses. |
-| `learning-phase-interlock.js` | Prevents `pause` during Meta learning phase. |
-| `registerRoutes.js` | HTTP endpoint mounting. |
+| File                          | What                                                     |
+| ----------------------------- | -------------------------------------------------------- |
+| `engine.js`                   | Orchestrator. Pulls data, runs audit, persists, applies. |
+| `index.js`                    | Factory + DI + route binding.                            |
+| `launcher.js`                 | Cold-start launcher for new businesses.                  |
+| `learning-phase-interlock.js` | Prevents `pause` during Meta learning phase.             |
+| `registerRoutes.js`           | HTTP endpoint mounting.                                  |
 
 Prompt logic lives in `../prompts/ad-optimizer/`.
 

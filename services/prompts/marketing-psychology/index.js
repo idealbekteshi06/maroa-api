@@ -150,15 +150,7 @@ Return ONLY the JSON.`;
  * Audit copy for psychology principle application.
  */
 async function audit(opts) {
-  const {
-    text,
-    business,
-    funnelStage = 'consideration',
-    plan = 'free',
-    callClaude,
-    extractJSON,
-    logger,
-  } = opts || {};
+  const { text, business, funnelStage = 'consideration', plan = 'free', callClaude, extractJSON, logger } = opts || {};
 
   if (!text || typeof text !== 'string') {
     return { skipped: true, reason: 'empty_input' };
@@ -191,13 +183,17 @@ async function audit(opts) {
     });
     return {
       overall_score: score,
-      applied_summary: detection.applied.slice(0, 3).map(a => a.name).join(', ') || 'none detected',
-      principles_applied: detection.applied.map(a => ({
+      applied_summary:
+        detection.applied
+          .slice(0, 3)
+          .map((a) => a.name)
+          .join(', ') || 'none detected',
+      principles_applied: detection.applied.map((a) => ({
         id: a.id,
         name: a.name,
         evidence_quote: a.evidence_quotes[0] || '',
       })),
-      principles_missing_but_fit: missingFit.map(m => ({
+      principles_missing_but_fit: missingFit.map((m) => ({
         id: m.id,
         name: m.name,
         fit_reason: m.fit_reason,
@@ -206,7 +202,7 @@ async function audit(opts) {
       principles_misapplied: misapplied,
       manipulation_risk: manipulationRisk,
       industry_fit: detection.applied.length >= 3 ? 'well-fit' : 'under-using',
-      top_recommendations: missingFit.slice(0, 3).map(m => ({
+      top_recommendations: missingFit.slice(0, 3).map((m) => ({
         principle_id: m.id,
         why: m.fit_reason,
         preview_after: m.example_after,
@@ -227,22 +223,30 @@ async function audit(opts) {
     '',
     '## Business context',
     '```json',
-    JSON.stringify({
-      industry,
-      audience: business?.audience_description,
-      primary_language: market.primary_language,
-      funnel_stage: funnelStage,
-    }, null, 2),
+    JSON.stringify(
+      {
+        industry,
+        audience: business?.audience_description,
+        primary_language: market.primary_language,
+        funnel_stage: funnelStage,
+      },
+      null,
+      2
+    ),
     '```',
     '',
-    '## Deterministic detection results (use these, don\'t re-discover)',
+    "## Deterministic detection results (use these, don't re-discover)",
     '```json',
-    JSON.stringify({
-      applied: detection.applied,
-      missing_but_fit: missingFit,
-      misapplied,
-      manipulation_risk: manipulationRisk,
-    }, null, 2),
+    JSON.stringify(
+      {
+        applied: detection.applied,
+        missing_but_fit: missingFit,
+        misapplied,
+        manipulation_risk: manipulationRisk,
+      },
+      null,
+      2
+    ),
     '```',
     '',
     `Produce the audit JSON in language="${market.primary_language || 'en'}". Return ONLY the JSON.`,
@@ -267,7 +271,11 @@ async function audit(opts) {
   }
 
   let parsed;
-  try { parsed = extractJSON(raw); } catch { parsed = null; }
+  try {
+    parsed = extractJSON(raw);
+  } catch {
+    parsed = null;
+  }
   if (!parsed) return _deterministicFallback(detection, missingFit, misapplied, manipulationRisk);
 
   return {
@@ -325,7 +333,7 @@ async function apply(opts) {
   }
 
   // Refuse if high-risk + restricted industry
-  const restrictedIndustry = (chosenPrinciple.industries_low_fit || []).some(f => industry.includes(f));
+  const restrictedIndustry = (chosenPrinciple.industries_low_fit || []).some((f) => industry.includes(f));
   if (chosenPrinciple.ethical_risk >= 6 && restrictedIndustry) {
     const safeAlt = detector.suggestMissing({ text, industry, funnelStage, manipulationRiskCap: 4, limit: 1 });
     return {
@@ -346,25 +354,33 @@ async function apply(opts) {
     '',
     '## Business context',
     '```json',
-    JSON.stringify({
-      industry,
-      audience: business?.audience_description,
-      primary_language: market.primary_language,
-      funnel_stage: funnelStage,
-    }, null, 2),
+    JSON.stringify(
+      {
+        industry,
+        audience: business?.audience_description,
+        primary_language: market.primary_language,
+        funnel_stage: funnelStage,
+      },
+      null,
+      2
+    ),
     '```',
     '',
     '## Principle to apply',
     '```json',
-    JSON.stringify({
-      id: chosenPrinciple.id,
-      name: chosenPrinciple.name,
-      family: chosenPrinciple.family,
-      short_description: chosenPrinciple.short_description,
-      ethical_risk: chosenPrinciple.ethical_risk,
-      example_before: chosenPrinciple.example_before,
-      example_after: chosenPrinciple.example_after,
-    }, null, 2),
+    JSON.stringify(
+      {
+        id: chosenPrinciple.id,
+        name: chosenPrinciple.name,
+        family: chosenPrinciple.family,
+        short_description: chosenPrinciple.short_description,
+        ethical_risk: chosenPrinciple.ethical_risk,
+        example_before: chosenPrinciple.example_before,
+        example_after: chosenPrinciple.example_after,
+      },
+      null,
+      2
+    ),
     '```',
     '',
     `Rewrite in language="${market.primary_language || 'en'}". Preserve every concrete fact. Return ONLY JSON.`,
@@ -389,7 +405,11 @@ async function apply(opts) {
   }
 
   let parsed;
-  try { parsed = extractJSON(raw); } catch { parsed = null; }
+  try {
+    parsed = extractJSON(raw);
+  } catch {
+    parsed = null;
+  }
   if (!parsed) return { rewritten: text, refused: true, reason: 'parse_failed' };
 
   if (parsed.refused) {
@@ -424,18 +444,29 @@ function _deterministicFallback(detection, missingFit, misapplied, manipulationR
   });
   return {
     overall_score: score,
-    applied_summary: detection.applied.slice(0, 3).map(a => a.name).join(', ') || 'none detected',
-    principles_applied: detection.applied.map(a => ({
-      id: a.id, name: a.name, evidence_quote: a.evidence_quotes[0] || '',
+    applied_summary:
+      detection.applied
+        .slice(0, 3)
+        .map((a) => a.name)
+        .join(', ') || 'none detected',
+    principles_applied: detection.applied.map((a) => ({
+      id: a.id,
+      name: a.name,
+      evidence_quote: a.evidence_quotes[0] || '',
     })),
-    principles_missing_but_fit: missingFit.map(m => ({
-      id: m.id, name: m.name, fit_reason: m.fit_reason, expected_lift: 'medium',
+    principles_missing_but_fit: missingFit.map((m) => ({
+      id: m.id,
+      name: m.name,
+      fit_reason: m.fit_reason,
+      expected_lift: 'medium',
     })),
     principles_misapplied: misapplied,
     manipulation_risk: manipulationRisk,
     industry_fit: detection.applied.length >= 3 ? 'well-fit' : 'under-using',
-    top_recommendations: missingFit.slice(0, 3).map(m => ({
-      principle_id: m.id, why: m.fit_reason, preview_after: m.example_after,
+    top_recommendations: missingFit.slice(0, 3).map((m) => ({
+      principle_id: m.id,
+      why: m.fit_reason,
+      preview_after: m.example_after,
     })),
     llm_used: false,
     data_quality: 'deterministic_fallback',

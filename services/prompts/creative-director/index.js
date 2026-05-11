@@ -17,12 +17,10 @@ const hf = require('../higgsfield');
 
 function buildCreativeBrief(input) {
   const { brandDNA, businessGoal, contentGoal, ideaLevel, rotation } = input || {};
-  const system = systemPrompt.buildCreativeDirectorSystemPrompt(
-    brandDNA,
-    businessGoal,
-    contentGoal,
-    { ideaLevel, rotation }
-  );
+  const system = systemPrompt.buildCreativeDirectorSystemPrompt(brandDNA, businessGoal, contentGoal, {
+    ideaLevel,
+    rotation,
+  });
   const userTask = `Brief: ${contentGoal || 'general content'}\n\nProduce one Cannes-grade concept following the framework. JSON only.`;
   return { system, userTask };
 }
@@ -35,9 +33,11 @@ function convertConceptToMcslaInputs(concept, brandDNA) {
   const c = concept || {};
   const top = c.top_concept || {};
   const brief = top.downstream_brief_for_higgsfield || {};
-  const isVideo = /reel|story|video|tiktok|ad|spot|film/i.test(brief.platform_native_aspect || '') || /reel|story|video|tiktok|ad|spot|film/i.test(brief.action || '');
+  const isVideo =
+    /reel|story|video|tiktok|ad|spot|film/i.test(brief.platform_native_aspect || '') ||
+    /reel|story|video|tiktok|ad|spot|film/i.test(brief.action || '');
   return {
-    contentTheme: top.name ? `${top.name} — ${top.one_sentence}` : (c.brief_summary || ''),
+    contentTheme: top.name ? `${top.name} — ${top.one_sentence}` : c.brief_summary || '',
     isI2V: false,
     wantsAudio: !!brief.audio_cue,
     durationSec: 8,
@@ -49,8 +49,8 @@ function convertConceptToMcslaInputs(concept, brandDNA) {
       action: brief.action,
       camera: brief.camera,
       look: brief.look,
-      audio: brief.audio_cue
-    }
+      audio: brief.audio_cue,
+    },
   };
 }
 
@@ -64,7 +64,7 @@ function buildImageBriefFromConcept(concept, brandDNA) {
     brandDNA,
     contentTheme: inputs.contentTheme,
     hasReferenceImage: false,
-    isI2V: false
+    isI2V: false,
   });
   brief.creativeContext = inputs.creativeContext;
   brief.system = `${brief.system}\n\nADDITIONAL CREATIVE DIRECTION (from creative-director upstream):\nInsight: ${inputs.creativeContext.insight}\nPattern: ${inputs.creativeContext.pattern}\nVisualization: ${inputs.creativeContext.visualization}\nAction: ${inputs.creativeContext.action}\nCamera: ${inputs.creativeContext.camera}\nLook: ${inputs.creativeContext.look}\n\nLock the MCSLA output to this creative direction. Do not invent a different concept.`;
@@ -78,7 +78,7 @@ function buildVideoBriefFromConcept(concept, brandDNA, opts = {}) {
     contentTheme: inputs.contentTheme,
     isI2V: opts.isI2V || false,
     wantsAudio: inputs.wantsAudio,
-    durationSec: opts.durationSec || inputs.durationSec
+    durationSec: opts.durationSec || inputs.durationSec,
   });
   brief.creativeContext = inputs.creativeContext;
   brief.system = `${brief.system}\n\nADDITIONAL CREATIVE DIRECTION (from creative-director upstream):\nInsight: ${inputs.creativeContext.insight}\nPattern: ${inputs.creativeContext.pattern}\nVisualization: ${inputs.creativeContext.visualization}\nAction: ${inputs.creativeContext.action}\nCamera: ${inputs.creativeContext.camera}\nLook: ${inputs.creativeContext.look}${inputs.creativeContext.audio ? `\nAudio: ${inputs.creativeContext.audio}` : ''}\n\nLock the MCSLA output to this creative direction. Do not invent a different concept.`;
@@ -108,7 +108,9 @@ async function enrichConceptWithPsychology({ concept, business, plan, callClaude
       business,
       funnelStage: 'awareness',
       plan: 'free',
-      callClaude, extractJSON, logger,
+      callClaude,
+      extractJSON,
+      logger,
     });
     return {
       ...concept,
@@ -125,30 +127,52 @@ async function enrichConceptWithPsychology({ concept, business, plan, callClaude
     const hook = concept.top_concept.hook;
     const cta = concept.top_concept.downstream_brief_for_higgsfield?.action;
     const [hookRes, ctaRes] = await Promise.all([
-      hook ? psy.apply({
-        text: hook, business, principleId: 'auto', plan: planTier,
-        funnelStage: 'awareness', callClaude, extractJSON, logger,
-      }) : Promise.resolve(null),
-      cta ? psy.apply({
-        text: cta, business, principleId: 'auto', plan: planTier,
-        funnelStage: 'decision', callClaude, extractJSON, logger,
-      }) : Promise.resolve(null),
+      hook
+        ? psy.apply({
+            text: hook,
+            business,
+            principleId: 'auto',
+            plan: planTier,
+            funnelStage: 'awareness',
+            callClaude,
+            extractJSON,
+            logger,
+          })
+        : Promise.resolve(null),
+      cta
+        ? psy.apply({
+            text: cta,
+            business,
+            principleId: 'auto',
+            plan: planTier,
+            funnelStage: 'decision',
+            callClaude,
+            extractJSON,
+            logger,
+          })
+        : Promise.resolve(null),
     ]);
 
     return {
       ...concept,
       psychology_enriched: {
         applied: true,
-        hook_rewrite: hookRes && !hookRes.refused ? {
-          original: hook,
-          rewritten: hookRes.rewritten,
-          principle: hookRes.applied_principle,
-        } : null,
-        cta_rewrite: ctaRes && !ctaRes.refused ? {
-          original: cta,
-          rewritten: ctaRes.rewritten,
-          principle: ctaRes.applied_principle,
-        } : null,
+        hook_rewrite:
+          hookRes && !hookRes.refused
+            ? {
+                original: hook,
+                rewritten: hookRes.rewritten,
+                principle: hookRes.applied_principle,
+              }
+            : null,
+        cta_rewrite:
+          ctaRes && !ctaRes.refused
+            ? {
+                original: cta,
+                rewritten: ctaRes.rewritten,
+                principle: ctaRes.applied_principle,
+              }
+            : null,
       },
     };
   } catch (e) {
@@ -166,5 +190,5 @@ module.exports = {
   ...systemPrompt,
   ...methodologies,
   ...scoring,
-  ...patterns
+  ...patterns,
 };

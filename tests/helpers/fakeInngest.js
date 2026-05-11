@@ -28,8 +28,8 @@
 async function runFunction(fnObj, opts = {}) {
   const {
     event = { data: {} },
-    stepResponses = {},   // name → value or fn(args) returning value
-    failOn = [],          // names of steps that should throw
+    stepResponses = {}, // name → value or fn(args) returning value
+    failOn = [], // names of steps that should throw
     sleepShouldDelay = false,
   } = opts;
 

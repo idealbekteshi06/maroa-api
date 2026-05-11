@@ -122,19 +122,22 @@ function pickCta({ business, brandVoice }) {
   return firstOf(
     brandVoice?.preferred_cta,
     business?.cta_label,
-    business?.industry?.includes('saas') ? 'Start free' :
-      business?.industry?.includes('e-commerce') ? 'Shop now' :
-      business?.industry?.includes('lead') ? 'Get a quote' :
-      'Get started'
+    business?.industry?.includes('saas')
+      ? 'Start free'
+      : business?.industry?.includes('e-commerce')
+        ? 'Shop now'
+        : business?.industry?.includes('lead')
+          ? 'Get a quote'
+          : 'Get started'
   );
 }
 
 function pickValueProps({ business, brandVoice, count }) {
   const fromVoice = Array.isArray(brandVoice?.value_propositions)
     ? brandVoice.value_propositions.slice(0, count).map((vp) => ({
-      title: vp.title || vp.headline || 'Benefit',
-      body: vp.description || vp.body || '',
-    }))
+        title: vp.title || vp.headline || 'Benefit',
+        body: vp.description || vp.body || '',
+      }))
     : [];
   if (fromVoice.length >= count) return fromVoice;
 
@@ -142,27 +145,27 @@ function pickValueProps({ business, brandVoice, count }) {
   const industry = String(business?.industry || '').toLowerCase();
   const defaults = /e-?commerce|shop|retail/.test(industry)
     ? [
-      { title: 'Free shipping', body: 'On orders that qualify.' },
-      { title: 'Easy returns', body: 'No-questions-asked policy.' },
-      { title: 'Secure checkout', body: 'Encrypted payments.' },
-    ]
+        { title: 'Free shipping', body: 'On orders that qualify.' },
+        { title: 'Easy returns', body: 'No-questions-asked policy.' },
+        { title: 'Secure checkout', body: 'Encrypted payments.' },
+      ]
     : /saas|software|tech/.test(industry)
       ? [
-        { title: 'Setup in minutes', body: 'No engineer required.' },
-        { title: 'Cancel anytime', body: 'No long-term contract.' },
-        { title: 'Real support', body: 'Humans, not bots.' },
-      ]
+          { title: 'Setup in minutes', body: 'No engineer required.' },
+          { title: 'Cancel anytime', body: 'No long-term contract.' },
+          { title: 'Real support', body: 'Humans, not bots.' },
+        ]
       : /local|service/.test(industry)
         ? [
-          { title: 'Local team', body: 'Right here in your area.' },
-          { title: 'Licensed + insured', body: 'Fully credentialed.' },
-          { title: 'Free estimate', body: 'No-pressure consultation.' },
-        ]
+            { title: 'Local team', body: 'Right here in your area.' },
+            { title: 'Licensed + insured', body: 'Fully credentialed.' },
+            { title: 'Free estimate', body: 'No-pressure consultation.' },
+          ]
         : [
-          { title: 'Honest work', body: 'No surprises, no upsells.' },
-          { title: 'Fast response', body: 'Hear back same day.' },
-          { title: 'Real results', body: 'Outcomes you can measure.' },
-        ];
+            { title: 'Honest work', body: 'No surprises, no upsells.' },
+            { title: 'Fast response', body: 'Hear back same day.' },
+            { title: 'Real results', body: 'Outcomes you can measure.' },
+          ];
   return [...fromVoice, ...defaults].slice(0, count);
 }
 
@@ -171,10 +174,10 @@ function pickSocialProof({ vocSnapshot, count }) {
   // the section.
   const quotes = Array.isArray(vocSnapshot?.verbatim_quotes)
     ? vocSnapshot.verbatim_quotes.slice(0, count).map((q) => ({
-      text: q.text,
-      source: q.source || 'review',
-      author: q.author || null,
-    }))
+        text: q.text,
+        source: q.source || 'review',
+        author: q.author || null,
+      }))
     : [];
   return quotes;
 }
@@ -182,9 +185,9 @@ function pickSocialProof({ vocSnapshot, count }) {
 function pickObjections({ business, vocSnapshot, count }) {
   const fromVoc = Array.isArray(vocSnapshot?.top_objections)
     ? vocSnapshot.top_objections.slice(0, count).map((o) => ({
-      question: o.objection || o.question || 'How does this work?',
-      answer: o.rebuttal || o.answer || '',
-    }))
+        question: o.objection || o.question || 'How does this work?',
+        answer: o.rebuttal || o.answer || '',
+      }))
     : [];
   if (fromVoc.length >= count) return fromVoc;
 
@@ -192,21 +195,21 @@ function pickObjections({ business, vocSnapshot, count }) {
   const industry = String(business?.industry || '').toLowerCase();
   const defaults = /saas/.test(industry)
     ? [
-      { question: 'Will this integrate with my stack?', answer: 'We support 40+ tools out of the box.' },
-      { question: 'How long is setup?', answer: 'Most teams are running inside 30 minutes.' },
-      { question: 'What if it doesn\'t work for us?', answer: 'Cancel anytime — no contract.' },
-    ]
+        { question: 'Will this integrate with my stack?', answer: 'We support 40+ tools out of the box.' },
+        { question: 'How long is setup?', answer: 'Most teams are running inside 30 minutes.' },
+        { question: "What if it doesn't work for us?", answer: 'Cancel anytime — no contract.' },
+      ]
     : /e-?commerce|shop/.test(industry)
       ? [
-        { question: 'How long does shipping take?', answer: 'Most orders arrive in 3-5 business days.' },
-        { question: 'What\'s your return policy?', answer: '30-day no-questions-asked returns.' },
-        { question: 'Is checkout secure?', answer: 'PCI-DSS compliant. Your card never touches our servers.' },
-      ]
+          { question: 'How long does shipping take?', answer: 'Most orders arrive in 3-5 business days.' },
+          { question: "What's your return policy?", answer: '30-day no-questions-asked returns.' },
+          { question: 'Is checkout secure?', answer: 'PCI-DSS compliant. Your card never touches our servers.' },
+        ]
       : [
-        { question: 'How much does it cost?', answer: 'Honest, transparent pricing — no hidden fees.' },
-        { question: 'How fast can you get to me?', answer: 'Same-day or next-day in most cases.' },
-        { question: 'What if I\'m not satisfied?', answer: 'We make it right or you don\'t pay.' },
-      ];
+          { question: 'How much does it cost?', answer: 'Honest, transparent pricing — no hidden fees.' },
+          { question: 'How fast can you get to me?', answer: 'Same-day or next-day in most cases.' },
+          { question: "What if I'm not satisfied?", answer: "We make it right or you don't pay." },
+        ];
   return [...fromVoc, ...defaults].slice(0, count);
 }
 
@@ -230,7 +233,12 @@ function pickTrustStrip({ business }) {
 
 function renderHtml(spec) {
   if (!spec || !Array.isArray(spec.sections)) return '<!doctype html><html><body>Empty</body></html>';
-  const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const esc = (s) =>
+    String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   const sections = spec.sections.map(renderSection).join('\n');
   return `<!doctype html>
 <html lang="en">
@@ -271,24 +279,27 @@ ${sec.image_url ? `<div><img alt="" src="${esc(sec.image_url)}"></div>` : ''}
 </section>`;
     }
     if (sec.type === 'value_props') {
-      return `<section><div class="grid3">${
-        (sec.items || []).map((vp) => `<div class="card"><h2>${esc(vp.title)}</h2><p>${esc(vp.body)}</p></div>`).join('')
-      }</div></section>`;
+      return `<section><div class="grid3">${(sec.items || [])
+        .map((vp) => `<div class="card"><h2>${esc(vp.title)}</h2><p>${esc(vp.body)}</p></div>`)
+        .join('')}</div></section>`;
     }
     if (sec.type === 'social_proof' && Array.isArray(sec.quotes) && sec.quotes.length > 0) {
-      return `<section><div class="grid3">${
-        sec.quotes.map((q) => `<div class="quote">"${esc(q.text)}"<div style="margin-top:8px;font-style:normal;font-size:13px;color:var(--muted)">— ${esc(q.author || q.source || 'verified review')}</div></div>`).join('')
-      }</div></section>`;
+      return `<section><div class="grid3">${sec.quotes
+        .map(
+          (q) =>
+            `<div class="quote">"${esc(q.text)}"<div style="margin-top:8px;font-style:normal;font-size:13px;color:var(--muted)">— ${esc(q.author || q.source || 'verified review')}</div></div>`
+        )
+        .join('')}</div></section>`;
     }
     if (sec.type === 'objections') {
-      return `<section><div class="grid3">${
-        (sec.items || []).map((o) => `<div class="card"><h2>${esc(o.question)}</h2><p>${esc(o.answer)}</p></div>`).join('')
-      }</div></section>`;
+      return `<section><div class="grid3">${(sec.items || [])
+        .map((o) => `<div class="card"><h2>${esc(o.question)}</h2><p>${esc(o.answer)}</p></div>`)
+        .join('')}</div></section>`;
     }
     if (sec.type === 'trust_strip') {
-      return `<section class="center"><div class="trust" style="justify-content:center">${
-        (sec.items || []).map((t) => `<span>✓ ${esc(t.label)}</span>`).join('')
-      }</div></section>`;
+      return `<section class="center"><div class="trust" style="justify-content:center">${(sec.items || [])
+        .map((t) => `<span>✓ ${esc(t.label)}</span>`)
+        .join('')}</div></section>`;
     }
     if (sec.type === 'final_cta') {
       return `<section class="center"><a class="btn" href="${esc(sec.url || '#')}">${esc(sec.label)}</a></section>`;
@@ -305,18 +316,30 @@ function auditPageSpec(spec) {
 
   // Dim 1: Hero clarity (headline word count + subhead presence)
   const hero = spec?.sections?.find((s) => s.type === 'hero');
-  if (!hero?.headline) { findings.push('Missing hero headline'); score -= 20; }
-  else if (String(hero.headline).split(/\s+/).length > HEADLINE_MAX_WORDS) {
-    findings.push(`Headline exceeds ${HEADLINE_MAX_WORDS} words — likely loses scanability`); score -= 10;
+  if (!hero?.headline) {
+    findings.push('Missing hero headline');
+    score -= 20;
+  } else if (String(hero.headline).split(/\s+/).length > HEADLINE_MAX_WORDS) {
+    findings.push(`Headline exceeds ${HEADLINE_MAX_WORDS} words — likely loses scanability`);
+    score -= 10;
   }
-  if (!hero?.subhead) { findings.push('Missing hero subhead'); score -= 10; }
+  if (!hero?.subhead) {
+    findings.push('Missing hero subhead');
+    score -= 10;
+  }
 
   // Dim 2: CTA presence + label
-  if (!hero?.cta?.label) { findings.push('Missing hero CTA'); score -= 15; }
+  if (!hero?.cta?.label) {
+    findings.push('Missing hero CTA');
+    score -= 15;
+  }
 
   // Dim 3: Value prop trio (3 cards)
   const vp = spec?.sections?.find((s) => s.type === 'value_props');
-  if (!vp?.items || vp.items.length < 3) { findings.push('Less than 3 value props — weakens differentiation'); score -= 10; }
+  if (!vp?.items || vp.items.length < 3) {
+    findings.push('Less than 3 value props — weakens differentiation');
+    score -= 10;
+  }
 
   // Dim 4: Social proof present (or honestly omitted)
   const sp = spec?.sections?.find((s) => s.type === 'social_proof');
@@ -327,16 +350,21 @@ function auditPageSpec(spec) {
 
   // Dim 5: Objections (3 items)
   const obj = spec?.sections?.find((s) => s.type === 'objections');
-  if (!obj?.items || obj.items.length < 3) { findings.push('Less than 3 objections — likely missing top customer concerns'); score -= 5; }
+  if (!obj?.items || obj.items.length < 3) {
+    findings.push('Less than 3 objections — likely missing top customer concerns');
+    score -= 5;
+  }
 
   // Dim 6: Trust strip
   if (!spec?.sections?.find((s) => s.type === 'trust_strip')) {
-    findings.push('No trust strip — adds visible credibility'); score -= 5;
+    findings.push('No trust strip — adds visible credibility');
+    score -= 5;
   }
 
   // Dim 7: Final CTA
   if (!spec?.sections?.find((s) => s.type === 'final_cta')) {
-    findings.push('No closing CTA — page misses a final ask'); score -= 10;
+    findings.push('No closing CTA — page misses a final ask');
+    score -= 10;
   }
 
   return { score: Math.max(0, score), findings };

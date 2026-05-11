@@ -24,7 +24,9 @@
 const PRINCIPLES = [
   // ─── 1. CIALDINI'S 7 PRINCIPLES OF INFLUENCE (P001-P007) ───────────────
   {
-    id: 'P001', family: 'cialdini', name: 'Reciprocity',
+    id: 'P001',
+    family: 'cialdini',
+    name: 'Reciprocity',
     short_description: 'Give value first; people feel compelled to return it.',
     detection_patterns: [
       /\b(?:free|gratis|complimentary|no\s+charge|on\s+us)\b/i,
@@ -41,12 +43,11 @@ const PRINCIPLES = [
     evidence: 'Cialdini (1984), Influence',
   },
   {
-    id: 'P002', family: 'cialdini', name: 'Commitment & Consistency',
+    id: 'P002',
+    family: 'cialdini',
+    name: 'Commitment & Consistency',
     short_description: 'Small yes leads to bigger yes; people stay consistent with stated commitments.',
-    detection_patterns: [
-      /\b(?:start|begin|first\s+step|free\s+trial)\b/i,
-      /\b(?:commit(?:ted)?|pledge|promise)\b/i,
-    ],
+    detection_patterns: [/\b(?:start|begin|first\s+step|free\s+trial)\b/i, /\b(?:commit(?:ted)?|pledge|promise)\b/i],
     triggers: ['conversion funnel', 'free-to-paid', 'micro-commitment'],
     industries_high_fit: ['saas', 'fitness', 'education', 'subscription'],
     industries_low_fit: [],
@@ -57,7 +58,9 @@ const PRINCIPLES = [
     evidence: 'Cialdini (1984)',
   },
   {
-    id: 'P003', family: 'cialdini', name: 'Social Proof',
+    id: 'P003',
+    family: 'cialdini',
+    name: 'Social Proof',
     short_description: 'People follow what others do, especially similar others.',
     detection_patterns: [
       /\d+[\+,]?\s*(?:customers|clients|users|members|businesses|people|companies|reviews)\b/i,
@@ -75,7 +78,9 @@ const PRINCIPLES = [
     evidence: 'Cialdini (1984); Asch conformity experiments',
   },
   {
-    id: 'P004', family: 'cialdini', name: 'Authority',
+    id: 'P004',
+    family: 'cialdini',
+    name: 'Authority',
     short_description: 'We defer to credible experts and authority signals.',
     detection_patterns: [
       /\b(?:certified|licensed|board.?certified|accredited)\b/i,
@@ -93,7 +98,9 @@ const PRINCIPLES = [
     evidence: 'Cialdini (1984); Milgram experiments',
   },
   {
-    id: 'P005', family: 'cialdini', name: 'Liking',
+    id: 'P005',
+    family: 'cialdini',
+    name: 'Liking',
     short_description: 'We say yes to people we like; similarity, warmth, vulnerability build liking.',
     detection_patterns: [
       /\bI\s+(?:started|founded|grew\s+up|remember)\b/i,
@@ -110,7 +117,9 @@ const PRINCIPLES = [
     evidence: 'Cialdini (1984)',
   },
   {
-    id: 'P006', family: 'cialdini', name: 'Scarcity',
+    id: 'P006',
+    family: 'cialdini',
+    name: 'Scarcity',
     short_description: 'Less available = more valued. Limited quantity, time, or access drives action.',
     detection_patterns: [
       /\bonly\s+\d+(?:\s+\w+){0,3}\s+(?:left|remaining|available|seats|tables|spots|units|slots|tickets)\b/i,
@@ -129,7 +138,9 @@ const PRINCIPLES = [
     evidence: 'Cialdini (1984); Worchel et al. (1975) cookie scarcity study',
   },
   {
-    id: 'P007', family: 'cialdini', name: 'Unity',
+    id: 'P007',
+    family: 'cialdini',
+    name: 'Unity',
     short_description: 'Shared identity, "we" framing, in-group belonging drives commitment.',
     detection_patterns: [
       /\b(?:we|us|our|together|join\s+us|community)\b/i,
@@ -147,7 +158,9 @@ const PRINCIPLES = [
 
   // ─── 2. KAHNEMAN / TVERSKY COGNITIVE BIASES (P008-P020) ────────────────
   {
-    id: 'P008', family: 'kahneman', name: 'Anchoring',
+    id: 'P008',
+    family: 'kahneman',
+    name: 'Anchoring',
     short_description: 'First number seen dominates judgment. Set the anchor high; offers seem cheaper.',
     detection_patterns: [
       /\$?\d{2,5}(?:[,.]\d+)?\s*(?:was|reduced|crossed.out|originally|retail|MSRP)\b/i,
@@ -164,7 +177,9 @@ const PRINCIPLES = [
     evidence: 'Kahneman & Tversky (1974)',
   },
   {
-    id: 'P009', family: 'kahneman', name: 'Framing',
+    id: 'P009',
+    family: 'kahneman',
+    name: 'Framing',
     short_description: 'Same fact framed differently changes choice. Gain frame vs loss frame.',
     detection_patterns: [
       /\b(?:save|gain|earn|get\s+back)\s+\d+/i,
@@ -180,7 +195,9 @@ const PRINCIPLES = [
     evidence: 'Tversky & Kahneman (1981) framing experiments',
   },
   {
-    id: 'P010', family: 'kahneman', name: 'Loss Aversion',
+    id: 'P010',
+    family: 'kahneman',
+    name: 'Loss Aversion',
     short_description: 'Losses hurt 2x more than equivalent gains feel good. "Don\'t miss" > "Get".',
     detection_patterns: [
       /\b(?:don'?t\s+miss|miss\s+out|losing|leave\s+behind)\b/i,
@@ -188,15 +205,17 @@ const PRINCIPLES = [
     ],
     triggers: ['conversion push', 'retargeting', 'cart abandonment'],
     industries_high_fit: ['retail', 'event', 'travel', 'subscription'],
-    industries_low_fit: ['health', 'children\'s products'],
+    industries_low_fit: ['health', "children's products"],
     funnel_stages: ['decision'],
     example_before: 'Save 20% on subscription.',
-    example_after: 'You\'re paying €240/year extra by staying on the old plan — switch and stop the leak.',
+    example_after: "You're paying €240/year extra by staying on the old plan — switch and stop the leak.",
     ethical_risk: 5,
     evidence: 'Kahneman & Tversky (1979) prospect theory',
   },
   {
-    id: 'P011', family: 'kahneman', name: 'Status Quo Bias',
+    id: 'P011',
+    family: 'kahneman',
+    name: 'Status Quo Bias',
     short_description: 'People prefer current state. Reduce friction of switching.',
     detection_patterns: [
       /\bswitch\s+(?:in|easy|simple)\b/i,
@@ -213,27 +232,26 @@ const PRINCIPLES = [
     evidence: 'Samuelson & Zeckhauser (1988)',
   },
   {
-    id: 'P012', family: 'kahneman', name: 'Endowment Effect',
+    id: 'P012',
+    family: 'kahneman',
+    name: 'Endowment Effect',
     short_description: 'People value what they own (or imagine owning) more than potential.',
-    detection_patterns: [
-      /\b(?:your|yours|imagine|picture)\s+(?:new|own)\b/i,
-      /\btry\s+it\s+(?:free|first|now)\b/i,
-    ],
+    detection_patterns: [/\b(?:your|yours|imagine|picture)\s+(?:new|own)\b/i, /\btry\s+it\s+(?:free|first|now)\b/i],
     triggers: ['trial offers', 'try-before-buy', 'visualization'],
     industries_high_fit: ['retail', 'auto', 'home', 'saas'],
     industries_low_fit: [],
     funnel_stages: ['consideration'],
     example_before: 'Our chairs are ergonomic.',
-    example_after: 'Test it in your home for 30 days — most people don\'t want to give it back.',
+    example_after: "Test it in your home for 30 days — most people don't want to give it back.",
     ethical_risk: 2,
     evidence: 'Kahneman, Knetsch, Thaler (1990)',
   },
   {
-    id: 'P013', family: 'kahneman', name: 'Peak-End Rule',
+    id: 'P013',
+    family: 'kahneman',
+    name: 'Peak-End Rule',
     short_description: 'Experiences judged by peak moment + ending. End strong.',
-    detection_patterns: [
-      /\b(?:final|finally|finishing|ends?\s+with|wrap\s+up)\b/i,
-    ],
+    detection_patterns: [/\b(?:final|finally|finishing|ends?\s+with|wrap\s+up)\b/i],
     triggers: ['onboarding endings', 'email signoffs', 'service handoff'],
     industries_high_fit: ['service', 'hospitality', 'experience'],
     industries_low_fit: [],
@@ -244,12 +262,11 @@ const PRINCIPLES = [
     evidence: 'Kahneman et al. (1993)',
   },
   {
-    id: 'P014', family: 'kahneman', name: 'Availability Heuristic',
+    id: 'P014',
+    family: 'kahneman',
+    name: 'Availability Heuristic',
     short_description: 'Recent / vivid examples feel more probable. Use specific stories.',
-    detection_patterns: [
-      /\bjust\s+(?:yesterday|last\s+week|today)\b/i,
-      /\bI\s+just\s+(?:saw|heard)\b/i,
-    ],
+    detection_patterns: [/\bjust\s+(?:yesterday|last\s+week|today)\b/i, /\bI\s+just\s+(?:saw|heard)\b/i],
     triggers: ['storytelling', 'recency claims'],
     industries_high_fit: ['service', 'retail', 'restaurant'],
     industries_low_fit: [],
@@ -260,12 +277,11 @@ const PRINCIPLES = [
     evidence: 'Kahneman (2011), Thinking Fast and Slow',
   },
   {
-    id: 'P015', family: 'kahneman', name: 'Default Effect',
+    id: 'P015',
+    family: 'kahneman',
+    name: 'Default Effect',
     short_description: 'People stick with default option. Pre-select the option you want them to pick.',
-    detection_patterns: [
-      /\b(?:recommended|most\s+popular|best\s+value)\b/i,
-      /\bpre.?selected|default\b/i,
-    ],
+    detection_patterns: [/\b(?:recommended|most\s+popular|best\s+value)\b/i, /\bpre.?selected|default\b/i],
     triggers: ['pricing tables', 'plan selection', 'opt-in defaults'],
     industries_high_fit: ['saas', 'subscription', 'retail'],
     industries_low_fit: [],
@@ -276,23 +292,24 @@ const PRINCIPLES = [
     evidence: 'Johnson & Goldstein (2003) organ donation defaults',
   },
   {
-    id: 'P016', family: 'kahneman', name: 'Hyperbolic Discounting',
+    id: 'P016',
+    family: 'kahneman',
+    name: 'Hyperbolic Discounting',
     short_description: 'Present rewards feel disproportionately bigger than future ones. Pay now to save more later.',
-    detection_patterns: [
-      /\bsave\s+\d+%\s+(?:annual|yearly|monthly|today)\b/i,
-      /\bpay\s+annually\b/i,
-    ],
+    detection_patterns: [/\bsave\s+\d+%\s+(?:annual|yearly|monthly|today)\b/i, /\bpay\s+annually\b/i],
     triggers: ['annual billing', 'long-term commitments'],
     industries_high_fit: ['saas', 'subscription'],
     industries_low_fit: [],
     funnel_stages: ['decision'],
     example_before: 'Annual billing saves you money.',
-    example_after: 'Switch to annual today, save €120 this year — that\'s 2 free months you keep using right now.',
+    example_after: "Switch to annual today, save €120 this year — that's 2 free months you keep using right now.",
     ethical_risk: 3,
     evidence: 'Laibson (1997)',
   },
   {
-    id: 'P017', family: 'kahneman', name: 'Bandwagon Effect',
+    id: 'P017',
+    family: 'kahneman',
+    name: 'Bandwagon Effect',
     short_description: 'People do what they perceive others doing. "Everyone\'s switching."',
     detection_patterns: [
       /\b(?:everyone|everybody|most\s+people|growing\s+team|growing\s+number)\b/i,
@@ -308,12 +325,11 @@ const PRINCIPLES = [
     evidence: 'Leibenstein (1950)',
   },
   {
-    id: 'P018', family: 'kahneman', name: 'Halo Effect',
+    id: 'P018',
+    family: 'kahneman',
+    name: 'Halo Effect',
     short_description: 'One positive trait colors perception of all others. Lead with strongest signal.',
-    detection_patterns: [
-      /\b(?:beautifully|elegantly|cleanly)\s+designed\b/i,
-      /\baward.winning\b/i,
-    ],
+    detection_patterns: [/\b(?:beautifully|elegantly|cleanly)\s+designed\b/i, /\baward.winning\b/i],
     triggers: ['design signals', 'first impression', 'category leadership'],
     industries_high_fit: ['boutique', 'design', 'luxury', 'spa'],
     industries_low_fit: ['practical service'],
@@ -324,27 +340,27 @@ const PRINCIPLES = [
     evidence: 'Thorndike (1920)',
   },
   {
-    id: 'P019', family: 'kahneman', name: 'Confirmation Bias',
-    short_description: 'People seek info that confirms what they already believe. Mirror the audience\'s view.',
-    detection_patterns: [
-      /\byou\s+(?:already\s+know|suspected|knew)\b/i,
-    ],
+    id: 'P019',
+    family: 'kahneman',
+    name: 'Confirmation Bias',
+    short_description: "People seek info that confirms what they already believe. Mirror the audience's view.",
+    detection_patterns: [/\byou\s+(?:already\s+know|suspected|knew)\b/i],
     triggers: ['educated audience', 'segmented messaging'],
     industries_high_fit: ['saas', 'service', 'consulting'],
     industries_low_fit: [],
     funnel_stages: ['consideration'],
     example_before: 'Our software fixes problem X.',
-    example_after: 'You already know your spreadsheet workflow is breaking. Here\'s the fix — and yes, it\'s as simple as you think.',
+    example_after:
+      "You already know your spreadsheet workflow is breaking. Here's the fix — and yes, it's as simple as you think.",
     ethical_risk: 3,
     evidence: 'Wason (1960)',
   },
   {
-    id: 'P020', family: 'kahneman', name: 'Reference Class Effect',
+    id: 'P020',
+    family: 'kahneman',
+    name: 'Reference Class Effect',
     short_description: 'People judge by category comparison. Position carefully.',
-    detection_patterns: [
-      /\b(?:like|similar\s+to|the\s+\w+\s+of)\s+\b/i,
-      /\b(?:Uber\s+for|Airbnb\s+for)\b/i,
-    ],
+    detection_patterns: [/\b(?:like|similar\s+to|the\s+\w+\s+of)\s+\b/i, /\b(?:Uber\s+for|Airbnb\s+for)\b/i],
     triggers: ['new category positioning', 'analogies'],
     industries_high_fit: ['saas', 'startup'],
     industries_low_fit: ['established commodity'],
@@ -357,27 +373,27 @@ const PRINCIPLES = [
 
   // ─── 3. ARIELY'S BEHAVIORAL ECONOMICS (P021-P028) ──────────────────────
   {
-    id: 'P021', family: 'ariely', name: 'Decoy Effect',
+    id: 'P021',
+    family: 'ariely',
+    name: 'Decoy Effect',
     short_description: 'Add inferior third option to make target option look better.',
-    detection_patterns: [
-      /\b(?:Basic|Starter)\s+\$?\d+/i,
-    ],
+    detection_patterns: [/\b(?:Basic|Starter)\s+\$?\d+/i],
     triggers: ['pricing tables with 3 tiers'],
     industries_high_fit: ['saas', 'subscription'],
     industries_low_fit: [],
     funnel_stages: ['decision'],
     example_before: 'Basic $9, Pro $49.',
-    example_after: 'Basic $9 (5 users), Pro $49 (50 users), Premium $59 (50 users + analytics) — Pro shines as the obvious value.',
+    example_after:
+      'Basic $9 (5 users), Pro $49 (50 users), Premium $59 (50 users + analytics) — Pro shines as the obvious value.',
     ethical_risk: 5,
     evidence: 'Huber, Payne, Puto (1982); Ariely (2008)',
   },
   {
-    id: 'P022', family: 'ariely', name: 'Free vs Paid Asymmetry',
+    id: 'P022',
+    family: 'ariely',
+    name: 'Free vs Paid Asymmetry',
     short_description: 'Free creates disproportionate appeal — even tiny price kills conversion.',
-    detection_patterns: [
-      /\bfree\s+(?:trial|forever|tier|plan|sample|delivery)\b/i,
-      /\b\$0\b/i,
-    ],
+    detection_patterns: [/\bfree\s+(?:trial|forever|tier|plan|sample|delivery)\b/i, /\b\$0\b/i],
     triggers: ['lead capture', 'trial design', 'price barrier'],
     industries_high_fit: ['saas', 'service', 'retail'],
     industries_low_fit: [],
@@ -388,42 +404,42 @@ const PRINCIPLES = [
     evidence: 'Ariely & Shampanier (2007)',
   },
   {
-    id: 'P023', family: 'ariely', name: 'Expectations Shape Experience',
+    id: 'P023',
+    family: 'ariely',
+    name: 'Expectations Shape Experience',
     short_description: 'Setting high expectations → people experience the product as better.',
-    detection_patterns: [
-      /\bawarded|featured|world.class\b/i,
-    ],
+    detection_patterns: [/\bawarded|featured|world.class\b/i],
     triggers: ['premium positioning'],
     industries_high_fit: ['restaurant', 'luxury', 'spa', 'boutique'],
     industries_low_fit: [],
     funnel_stages: ['awareness'],
     example_before: 'Try our coffee.',
-    example_after: 'Roasted on arrival from the same farm in Yirgacheffe that supplies Blue Bottle. Our customers say it ruins other coffee for them.',
+    example_after:
+      'Roasted on arrival from the same farm in Yirgacheffe that supplies Blue Bottle. Our customers say it ruins other coffee for them.',
     ethical_risk: 4,
     evidence: 'Ariely (2008)',
   },
   {
-    id: 'P024', family: 'ariely', name: 'IKEA Effect',
+    id: 'P024',
+    family: 'ariely',
+    name: 'IKEA Effect',
     short_description: 'People value what they helped create. Build customization into experience.',
-    detection_patterns: [
-      /\b(?:customize|personalize|build\s+your)\b/i,
-      /\b(?:your\s+choice|pick\s+your)\b/i,
-    ],
+    detection_patterns: [/\b(?:customize|personalize|build\s+your)\b/i, /\b(?:your\s+choice|pick\s+your)\b/i],
     triggers: ['customization features', 'configuration'],
     industries_high_fit: ['retail', 'saas configuration', 'food'],
     industries_low_fit: [],
     funnel_stages: ['consideration', 'decision'],
     example_before: 'Buy our pizza.',
-    example_after: 'Pick 5 toppings. Each choice you make = 7% more likely you\'ll come back.',
+    example_after: "Pick 5 toppings. Each choice you make = 7% more likely you'll come back.",
     ethical_risk: 1,
     evidence: 'Norton, Mochon, Ariely (2012)',
   },
   {
-    id: 'P025', family: 'ariely', name: 'Pay What You Want',
+    id: 'P025',
+    family: 'ariely',
+    name: 'Pay What You Want',
     short_description: 'Asking customer to set price activates fairness norms; some pay more.',
-    detection_patterns: [
-      /\bpay\s+(?:what\s+you\s+want|whatever)\b/i,
-    ],
+    detection_patterns: [/\bpay\s+(?:what\s+you\s+want|whatever)\b/i],
     triggers: ['niche services', 'donation models', 'community products'],
     industries_high_fit: ['nonprofit', 'art', 'small service'],
     industries_low_fit: ['standard retail'],
@@ -434,26 +450,27 @@ const PRINCIPLES = [
     evidence: 'Ariely et al. (2014)',
   },
   {
-    id: 'P026', family: 'ariely', name: 'Sunk Cost Reframe',
-    short_description: 'People over-value what they\'ve invested in. Reframe to forward-looking thinking.',
-    detection_patterns: [
-      /\b(?:already\s+spent|already\s+invested|so\s+far)\b/i,
-    ],
+    id: 'P026',
+    family: 'ariely',
+    name: 'Sunk Cost Reframe',
+    short_description: "People over-value what they've invested in. Reframe to forward-looking thinking.",
+    detection_patterns: [/\b(?:already\s+spent|already\s+invested|so\s+far)\b/i],
     triggers: ['churn save', 'switcher campaigns'],
     industries_high_fit: ['saas churn', 'subscription'],
     industries_low_fit: [],
     funnel_stages: ['retention'],
-    example_before: 'Don\'t cancel — you\'ll lose your data.',
-    example_after: 'Whatever you\'ve invested so far, the next 30 days are what counts. Try the new layout — if it doesn\'t click, we\'ll refund the month.',
+    example_before: "Don't cancel — you'll lose your data.",
+    example_after:
+      "Whatever you've invested so far, the next 30 days are what counts. Try the new layout — if it doesn't click, we'll refund the month.",
     ethical_risk: 4,
     evidence: 'Arkes & Blumer (1985)',
   },
   {
-    id: 'P027', family: 'ariely', name: 'Choice Paralysis Reduction',
+    id: 'P027',
+    family: 'ariely',
+    name: 'Choice Paralysis Reduction',
     short_description: 'Too many options → no choice. Limit to 3-5 visible options.',
-    detection_patterns: [
-      /\bjust\s+(?:two|three|2|3)\s+(?:options|plans|tiers|choices)\b/i,
-    ],
+    detection_patterns: [/\bjust\s+(?:two|three|2|3)\s+(?:options|plans|tiers|choices)\b/i],
     triggers: ['decision overwhelm', 'too many SKUs'],
     industries_high_fit: ['saas', 'retail', 'restaurant menu'],
     industries_low_fit: [],
@@ -464,24 +481,26 @@ const PRINCIPLES = [
     evidence: 'Iyengar & Lepper (2000) jam study',
   },
   {
-    id: 'P028', family: 'ariely', name: 'Variable Reward',
+    id: 'P028',
+    family: 'ariely',
+    name: 'Variable Reward',
     short_description: 'Random rewards create stronger habit than fixed ones. Build mystery into engagement.',
-    detection_patterns: [
-      /\b(?:surprise|mystery|random|each\s+time|never\s+know)\b/i,
-    ],
+    detection_patterns: [/\b(?:surprise|mystery|random|each\s+time|never\s+know)\b/i],
     triggers: ['retention', 'gamification', 'app design'],
     industries_high_fit: ['app', 'subscription', 'cafe', 'gym'],
     industries_low_fit: ['serious service'],
     funnel_stages: ['retention'],
     example_before: 'Daily check-ins.',
-    example_after: 'Check in daily — you\'ll find a different reward each time, sometimes a surprise gift card.',
+    example_after: "Check in daily — you'll find a different reward each time, sometimes a surprise gift card.",
     ethical_risk: 6,
     evidence: 'Skinner (1953); Eyal (2014) Hooked',
   },
 
   // ─── 4. PRICING PSYCHOLOGY (P029-P035) ─────────────────────────────────
   {
-    id: 'P029', family: 'pricing', name: 'Charm Pricing',
+    id: 'P029',
+    family: 'pricing',
+    name: 'Charm Pricing',
     short_description: 'Prices ending in 9 feel disproportionately cheaper.',
     detection_patterns: [/\$?\d+(?:[,.]\d+)?9(?:\.99|\.95|\.97)?\b/],
     triggers: ['price display'],
@@ -494,7 +513,9 @@ const PRINCIPLES = [
     evidence: 'Schindler & Kibarian (1996)',
   },
   {
-    id: 'P030', family: 'pricing', name: 'Bundle Pricing',
+    id: 'P030',
+    family: 'pricing',
+    name: 'Bundle Pricing',
     short_description: 'Bundles obscure component prices and feel more valuable.',
     detection_patterns: [/\b(?:bundle|package|kit|all.?in.?one|complete)\b/i],
     triggers: ['catalogs', 'subscription tiers'],
@@ -507,7 +528,9 @@ const PRINCIPLES = [
     evidence: 'Stremersch & Tellis (2002)',
   },
   {
-    id: 'P031', family: 'pricing', name: 'Premium Signaling',
+    id: 'P031',
+    family: 'pricing',
+    name: 'Premium Signaling',
     short_description: 'High price signals quality — sometimes raising price increases conversions.',
     detection_patterns: [/\b(?:premium|exclusive|signature)\b/i],
     triggers: ['undifferentiated commodity', 'luxury'],
@@ -522,7 +545,9 @@ const PRINCIPLES = [
 
   // ─── 5. ATTENTION & CURIOSITY (P036-P044) ──────────────────────────────
   {
-    id: 'P036', family: 'attention', name: 'Curiosity Gap',
+    id: 'P036',
+    family: 'attention',
+    name: 'Curiosity Gap',
     short_description: 'Tease information without revealing it; create the gap, audience fills it by clicking.',
     detection_patterns: [
       /\b(?:secret|hidden|nobody\s+(?:knows|tells\s+you))\b/i,
@@ -533,16 +558,16 @@ const PRINCIPLES = [
     industries_low_fit: ['health/medical'],
     funnel_stages: ['awareness'],
     example_before: 'Improve your marketing.',
-    example_after: 'The 3 words that doubled my cafe\'s repeat customers (without ads).',
+    example_after: "The 3 words that doubled my cafe's repeat customers (without ads).",
     ethical_risk: 4,
     evidence: 'Loewenstein (1994)',
   },
   {
-    id: 'P037', family: 'attention', name: 'Specificity (Numbers > Adjectives)',
+    id: 'P037',
+    family: 'attention',
+    name: 'Specificity (Numbers > Adjectives)',
     short_description: 'Specific numbers beat adjectives every time. "30 customers" > "many customers".',
-    detection_patterns: [
-      /\b\d+(?:[.,]\d+)?\s*(?:%|customers|orders|sales|reviews)\b/i,
-    ],
+    detection_patterns: [/\b\d+(?:[.,]\d+)?\s*(?:%|customers|orders|sales|reviews)\b/i],
     triggers: ['claims of size, growth, results'],
     industries_high_fit: ['all'],
     industries_low_fit: [],
@@ -553,7 +578,9 @@ const PRINCIPLES = [
     evidence: 'Tversky & Kahneman (1973); Davenport et al. (2006)',
   },
   {
-    id: 'P038', family: 'attention', name: 'Concrete > Abstract',
+    id: 'P038',
+    family: 'attention',
+    name: 'Concrete > Abstract',
     short_description: 'Concrete language is processed 2x faster and remembered 3x longer.',
     detection_patterns: [],
     triggers: ['abstract product (saas, services)'],
@@ -566,7 +593,9 @@ const PRINCIPLES = [
     evidence: 'Paivio (1971)',
   },
   {
-    id: 'P039', family: 'attention', name: 'Pattern Interruption',
+    id: 'P039',
+    family: 'attention',
+    name: 'Pattern Interruption',
     short_description: 'Break expected pattern to capture attention. Surprise format.',
     detection_patterns: [],
     triggers: ['banner blindness', 'crowded feed'],
@@ -574,12 +603,14 @@ const PRINCIPLES = [
     industries_low_fit: [],
     funnel_stages: ['awareness'],
     example_before: 'Sale this weekend.',
-    example_after: 'I\'m not going to tell you to buy. But if you do, here\'s a 20% off code: NOPRESSURE.',
+    example_after: "I'm not going to tell you to buy. But if you do, here's a 20% off code: NOPRESSURE.",
     ethical_risk: 2,
     evidence: 'Berger (2013) Contagious',
   },
   {
-    id: 'P040', family: 'attention', name: 'Story over Stats',
+    id: 'P040',
+    family: 'attention',
+    name: 'Story over Stats',
     short_description: 'Single story → "donations". Stats → "less".',
     detection_patterns: [],
     triggers: ['emotional resonance', 'cause marketing'],
@@ -587,12 +618,15 @@ const PRINCIPLES = [
     industries_low_fit: ['B2B technical'],
     funnel_stages: ['awareness', 'consideration'],
     example_before: 'We help 5,000 customers.',
-    example_after: 'Maria called me at 2am — her order was delayed and she had a wedding. We hand-delivered it at 7am. That\'s why we exist.',
+    example_after:
+      "Maria called me at 2am — her order was delayed and she had a wedding. We hand-delivered it at 7am. That's why we exist.",
     ethical_risk: 2,
     evidence: 'Heath & Heath (2008) Made to Stick',
   },
   {
-    id: 'P041', family: 'attention', name: 'Surprise',
+    id: 'P041',
+    family: 'attention',
+    name: 'Surprise',
     short_description: 'Unexpected = memorable. Subvert expectation in headline or visual.',
     detection_patterns: [],
     triggers: ['social', 'ads', 'launches'],
@@ -600,12 +634,14 @@ const PRINCIPLES = [
     industries_low_fit: [],
     funnel_stages: ['awareness'],
     example_before: 'Best gym in Tirana.',
-    example_after: 'We\'re the gym people break up with their old gym for. (200+ broken contracts.)',
+    example_after: "We're the gym people break up with their old gym for. (200+ broken contracts.)",
     ethical_risk: 2,
     evidence: 'Heath & Heath (2008)',
   },
   {
-    id: 'P042', family: 'attention', name: 'Vivid Imagery',
+    id: 'P042',
+    family: 'attention',
+    name: 'Vivid Imagery',
     short_description: 'Concrete sensory details create mental movie. Sight, sound, smell, taste.',
     detection_patterns: [],
     triggers: ['food', 'travel', 'experiential'],
@@ -620,7 +656,9 @@ const PRINCIPLES = [
 
   // ─── 6. TRUST & CREDIBILITY (P045-P052) ───────────────────────────────
   {
-    id: 'P045', family: 'trust', name: 'Specificity Signals Trust',
+    id: 'P045',
+    family: 'trust',
+    name: 'Specificity Signals Trust',
     short_description: 'Specific = real. Vague = fake. "73 customers" > "many customers".',
     detection_patterns: [/\b\d+\b/],
     triggers: ['credibility-building'],
@@ -633,7 +671,9 @@ const PRINCIPLES = [
     evidence: 'Schindler & Holbrook (1986)',
   },
   {
-    id: 'P046', family: 'trust', name: 'Named Testimonials with Photo',
+    id: 'P046',
+    family: 'trust',
+    name: 'Named Testimonials with Photo',
     short_description: 'Anonymous quote = ignored. Full name + photo + city = trusted 3x more.',
     detection_patterns: [/—\s*\w+\s+\w+(?:,\s+\w+)?$/m],
     triggers: ['service businesses', 'high-trust decisions'],
@@ -646,40 +686,43 @@ const PRINCIPLES = [
     evidence: 'Goldstein, Cialdini, Griskevicius (2008)',
   },
   {
-    id: 'P047', family: 'trust', name: 'Risk Reversal',
+    id: 'P047',
+    family: 'trust',
+    name: 'Risk Reversal',
     short_description: 'Take the risk off the customer. Money-back, no-card-needed, free trial.',
-    detection_patterns: [
-      /\b(?:money.?back|refund|guarantee)\b/i,
-      /\b(?:risk.?free|no.?card)\b/i,
-    ],
+    detection_patterns: [/\b(?:money.?back|refund|guarantee)\b/i, /\b(?:risk.?free|no.?card)\b/i],
     triggers: ['high-ticket sell', 'first-time customer'],
     industries_high_fit: ['saas', 'service', 'retail'],
     industries_low_fit: [],
     funnel_stages: ['decision'],
     example_before: 'Buy our course.',
-    example_after: 'Try the first module free. If you don\'t learn one new thing, we\'ll refund — and let you keep the module.',
+    example_after:
+      "Try the first module free. If you don't learn one new thing, we'll refund — and let you keep the module.",
     ethical_risk: 1,
     evidence: 'Carlson, Suri (2017)',
   },
   {
-    id: 'P048', family: 'trust', name: 'Vulnerability/Honesty',
+    id: 'P048',
+    family: 'trust',
+    name: 'Vulnerability/Honesty',
     short_description: 'Admitting weakness builds trust. "Not for everyone".',
-    detection_patterns: [
-      /\b(?:not\s+for\s+everyone|won'?t\s+work\s+for|honest(?:ly)?)\b/i,
-    ],
+    detection_patterns: [/\b(?:not\s+for\s+everyone|won'?t\s+work\s+for|honest(?:ly)?)\b/i],
     triggers: ['premium positioning', 'B2B trust-building'],
     industries_high_fit: ['B2B service', 'consulting'],
     industries_low_fit: [],
     funnel_stages: ['consideration'],
     example_before: 'Best agency in town.',
-    example_after: 'Honestly — we\'re not the best for businesses under $50k revenue. We\'re the best for $200k-$2M shops.',
+    example_after:
+      "Honestly — we're not the best for businesses under $50k revenue. We're the best for $200k-$2M shops.",
     ethical_risk: 1,
     evidence: 'Norton, Frost, Ariely (2007)',
   },
 
   // ─── 7. URGENCY VARIANTS (P053-P058) ──────────────────────────────────
   {
-    id: 'P053', family: 'urgency', name: 'Time-Limited Offer',
+    id: 'P053',
+    family: 'urgency',
+    name: 'Time-Limited Offer',
     short_description: 'Deadline forces action. Specific time > vague.',
     detection_patterns: [/\bends?\s+(?:tonight|today|in\s+\d+\s+(?:hours|days))\b/i],
     triggers: ['decision push'],
@@ -692,7 +735,9 @@ const PRINCIPLES = [
     evidence: 'Cialdini (1984)',
   },
   {
-    id: 'P054', family: 'urgency', name: 'Quantity-Limited',
+    id: 'P054',
+    family: 'urgency',
+    name: 'Quantity-Limited',
     short_description: 'Specific quantity remaining > vague "limited".',
     detection_patterns: [/\b(?:only\s+)?\d+\s+(?:left|remaining|available)\b/i],
     triggers: ['inventory', 'class size', 'tickets'],
@@ -707,7 +752,9 @@ const PRINCIPLES = [
 
   // ─── 8. MOTIVATION (P059-P064) ────────────────────────────────────────
   {
-    id: 'P059', family: 'motivation', name: 'Self-Determination (Autonomy)',
+    id: 'P059',
+    family: 'motivation',
+    name: 'Self-Determination (Autonomy)',
     short_description: 'People want control over their choices. Frame as their decision.',
     detection_patterns: [/\b(?:your\s+choice|your\s+pace|on\s+your\s+terms)\b/i],
     triggers: ['user-control products', 'flexible plans'],
@@ -715,14 +762,16 @@ const PRINCIPLES = [
     industries_low_fit: [],
     funnel_stages: ['consideration'],
     example_before: 'We schedule your workouts.',
-    example_after: 'You pick the workouts that fit your week. We just make sure you don\'t skip them.',
+    example_after: "You pick the workouts that fit your week. We just make sure you don't skip them.",
     ethical_risk: 1,
     evidence: 'Deci & Ryan (1985) self-determination theory',
   },
 
   // ─── 9. DECISION ARCHITECTURE (P065-P070) ─────────────────────────────
   {
-    id: 'P065', family: 'decision', name: 'Hick\'s Law (Limit Options)',
+    id: 'P065',
+    family: 'decision',
+    name: "Hick's Law (Limit Options)",
     short_description: 'Decision time grows with number of options. 3-5 max.',
     detection_patterns: [],
     triggers: ['pricing tables', 'product configurators'],
@@ -735,7 +784,9 @@ const PRINCIPLES = [
     evidence: 'Hick (1952)',
   },
   {
-    id: 'P066', family: 'decision', name: 'Path of Least Resistance',
+    id: 'P066',
+    family: 'decision',
+    name: 'Path of Least Resistance',
     short_description: 'Reduce every form field, click, decision. The default wins.',
     detection_patterns: [],
     triggers: ['signup', 'checkout'],
@@ -750,7 +801,9 @@ const PRINCIPLES = [
 
   // ─── 10. EMOTIONAL DRIVERS (P071-P075) ────────────────────────────────
   {
-    id: 'P071', family: 'emotion', name: 'Joy / Delight',
+    id: 'P071',
+    family: 'emotion',
+    name: 'Joy / Delight',
     short_description: 'Unexpected positive emotion drives sharing.',
     detection_patterns: [],
     triggers: ['onboarding', 'easter eggs', 'micro-moments'],
@@ -758,12 +811,15 @@ const PRINCIPLES = [
     industries_low_fit: [],
     funnel_stages: ['retention'],
     example_before: 'Welcome.',
-    example_after: 'Welcome — your first delivery is on us, and we drew a small heart on the box. (We do this for everyone\'s first.)',
+    example_after:
+      "Welcome — your first delivery is on us, and we drew a small heart on the box. (We do this for everyone's first.)",
     ethical_risk: 1,
     evidence: 'Berger (2013)',
   },
   {
-    id: 'P072', family: 'emotion', name: 'Belonging / Identity',
+    id: 'P072',
+    family: 'emotion',
+    name: 'Belonging / Identity',
     short_description: 'Products that signal "people like us" do this.',
     detection_patterns: [],
     triggers: ['community products', 'movement positioning'],
@@ -776,7 +832,9 @@ const PRINCIPLES = [
     evidence: 'Tajfel (1979) social identity theory',
   },
   {
-    id: 'P073', family: 'emotion', name: 'Achievement / Status',
+    id: 'P073',
+    family: 'emotion',
+    name: 'Achievement / Status',
     short_description: 'Products that signal achievement drive purchase. Levels, badges, anniversaries.',
     detection_patterns: [/\b(?:level\s+up|elite|master|achievement|milestone)\b/i],
     triggers: ['gamification', 'tier programs'],
@@ -784,7 +842,7 @@ const PRINCIPLES = [
     industries_low_fit: [],
     funnel_stages: ['retention'],
     example_before: 'You completed 10 workouts.',
-    example_after: 'Level 2 unlocked. Less than 4% of members reach this. Here\'s your free t-shirt.',
+    example_after: "Level 2 unlocked. Less than 4% of members reach this. Here's your free t-shirt.",
     ethical_risk: 2,
     evidence: 'Csikszentmihalyi (1990) Flow',
   },
@@ -793,18 +851,22 @@ const PRINCIPLES = [
 /**
  * Get principle by ID.
  */
-function byId(id) { return PRINCIPLES.find(p => p.id === id) || null; }
+function byId(id) {
+  return PRINCIPLES.find((p) => p.id === id) || null;
+}
 
 /**
  * Get all principles in a family.
  */
-function byFamily(family) { return PRINCIPLES.filter(p => p.family === family); }
+function byFamily(family) {
+  return PRINCIPLES.filter((p) => p.family === family);
+}
 
 /**
  * Get distinct families list.
  */
 function families() {
-  return [...new Set(PRINCIPLES.map(p => p.family))];
+  return [...new Set(PRINCIPLES.map((p) => p.family))];
 }
 
 module.exports = {

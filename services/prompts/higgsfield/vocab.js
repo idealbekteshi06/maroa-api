@@ -1,18 +1,41 @@
 'use strict';
 
 const CAMERA = {
-  linear: ['Dolly In', 'Dolly Out', 'Dolly Left', 'Dolly Right', 'Dolly Zoom In', 'Dolly Zoom Out', 'Super Dolly In', 'Super Dolly Out', 'Truck Left', 'Truck Right'],
+  linear: [
+    'Dolly In',
+    'Dolly Out',
+    'Dolly Left',
+    'Dolly Right',
+    'Dolly Zoom In',
+    'Dolly Zoom Out',
+    'Super Dolly In',
+    'Super Dolly Out',
+    'Truck Left',
+    'Truck Right',
+  ],
   vertical: ['Crane Up', 'Crane Down', 'Crane Over The Head', 'Levitation', 'Tilt Up', 'Tilt Down'],
   orbit: ['360 Orbit', 'Arc', 'Lazy Susan', 'Robo Arm'],
   zoom: ['Crash Zoom In', 'Crash Zoom Out', 'Rack Focus'],
   follow: ['Action Run', 'FPV Drone', 'Handheld', 'Head Tracking', 'Snorricam'],
   cinematic: ['Bullet Time', 'Dutch Angle', 'Fisheye', 'Whip Pan', 'Overhead', 'Flying'],
-  product: ['Robo Arm', 'Lazy Susan', '360 Orbit', 'Arc', 'Dolly In', 'Macro Dolly In']
+  product: ['Robo Arm', 'Lazy Susan', '360 Orbit', 'Arc', 'Dolly In', 'Macro Dolly In'],
 };
 
 const SHOT_SIZE = ['ELS', 'EWS', 'WS', 'MLS', 'MWS', 'MS', 'MCU', 'CU', 'ECU', 'Macro', 'OTS', 'POV'];
 
-const ANGLE = ['Eye-Level', 'Low Angle', 'High Angle', 'Overhead', 'Birds Eye View', 'Worms Eye View', 'Dutch Angle', 'Over-the-Shoulder', 'POV', 'Selfie Angle', 'Ground Level'];
+const ANGLE = [
+  'Eye-Level',
+  'Low Angle',
+  'High Angle',
+  'Overhead',
+  'Birds Eye View',
+  'Worms Eye View',
+  'Dutch Angle',
+  'Over-the-Shoulder',
+  'POV',
+  'Selfie Angle',
+  'Ground Level',
+];
 
 const STYLE = ['Cinematic', 'VHS', 'Super 8MM', 'Anamorphic', 'Abstract', 'Documentary', 'Lifestyle', 'Editorial'];
 
@@ -26,7 +49,7 @@ const COLOR_GRADE = {
   noir: 'high contrast black and white',
   clean_commercial: 'warm neutral tones, soft diffused light, high key',
   premium_luxury: 'dark moody background, single hard side-light, deep shadows',
-  natural_organic: 'overcast diffused, muted earth tones, lifted blacks'
+  natural_organic: 'overcast diffused, muted earth tones, lifted blacks',
 };
 
 const LIGHTING = {
@@ -42,7 +65,7 @@ const LIGHTING = {
   practical_only: 'light from sources visible in frame',
   rembrandt: 'triangle of light on shadowed cheek',
   high_key: 'bright, minimal shadows',
-  low_key: 'deep shadows, moody'
+  low_key: 'deep shadows, moody',
 };
 
 const FILM_STOCK = [
@@ -50,14 +73,26 @@ const FILM_STOCK = [
   'Fuji Velvia — vivid saturated, fine grain',
   'Kodak Vision3 500T — cinematic natural slight warmth',
   'Ilford HP5 — classic black and white, visible grain',
-  'Kodak Ektachrome — bright contrasty, clean slide film'
+  'Kodak Ektachrome — bright contrasty, clean slide film',
 ];
 
 const MICRO_EXPRESSION = [
-  'Deadpan Neutral', 'Fierce Focus', 'Subtle Arrogance', 'Candid Profile',
-  'Suppressed Smile', 'Quiet Devastation', 'Wary Recognition', 'Nervous Composure',
-  'Cold Calculation', 'Bitter Amusement', 'Exhausted Relief', 'Frozen Shock',
-  'Simmering Rage', 'Vulnerable Openness', 'Controlled Breath', 'Sunblind Squint'
+  'Deadpan Neutral',
+  'Fierce Focus',
+  'Subtle Arrogance',
+  'Candid Profile',
+  'Suppressed Smile',
+  'Quiet Devastation',
+  'Wary Recognition',
+  'Nervous Composure',
+  'Cold Calculation',
+  'Bitter Amusement',
+  'Exhausted Relief',
+  'Frozen Shock',
+  'Simmering Rage',
+  'Vulnerable Openness',
+  'Controlled Breath',
+  'Sunblind Squint',
 ];
 
 const VIDEO_MODELS = {
@@ -65,10 +100,22 @@ const VIDEO_MODELS = {
   kling_2_6: { id: 'kling 2.6', best_for: 'character drama realism, no audio, 5-10s', has_audio: false },
   sora_2: { id: 'sora 2', best_for: 'epic scale, physics, action, explosions', has_audio: false },
   veo_3_1: { id: 'veo 3.1', best_for: 'reference images, first/last frame, environment, 4K', has_audio: true },
-  seedance_2: { id: 'seedance 2.0', best_for: '12-asset multimodal, lipsync, multilingual audio, 10s', has_audio: true },
-  minimax_hailuo_2_3: { id: 'minimax hailuo 2.3', best_for: 'VFX, fluid motion, anime, physics, 6-10s', has_audio: false },
+  seedance_2: {
+    id: 'seedance 2.0',
+    best_for: '12-asset multimodal, lipsync, multilingual audio, 10s',
+    has_audio: true,
+  },
+  minimax_hailuo_2_3: {
+    id: 'minimax hailuo 2.3',
+    best_for: 'VFX, fluid motion, anime, physics, 6-10s',
+    has_audio: false,
+  },
   wan_2_5: { id: 'wan 2.5', best_for: 'native audio, artistic, fantasy stylized, 5-10s', has_audio: true },
-  dop_standard: { id: 'higgsfield dop standard', best_for: 'I2V specialist, 50+ camera presets, optical physics, 3-5s', has_audio: false }
+  dop_standard: {
+    id: 'higgsfield dop standard',
+    best_for: 'I2V specialist, 50+ camera presets, optical physics, 3-5s',
+    has_audio: false,
+  },
 };
 
 const IMAGE_MODELS = {
@@ -77,13 +124,22 @@ const IMAGE_MODELS = {
   nano_banana_pro: { id: 'nano banana pro', best_for: 'max sharpness, 4K, product hero' },
   nano_banana_2: { id: 'nano banana 2', best_for: 'fast pro-quality, text rendering, consistency' },
   seedream_4_5: { id: 'seedream 4.5', best_for: 'reference consistency, dense text, 4K' },
-  kling_image_3: { id: 'kling image 3.0', best_for: 'native 4K, series mode, storyboarding' }
+  kling_image_3: { id: 'kling image 3.0', best_for: 'native 4K, series mode, storyboarding' },
 };
 
 const SOUL_PRESETS = [
-  'Editorial Street Style', 'Mystique City', 'Warm Ambient', 'Subtle Flash',
-  'Old Smartphone', 'Frutiger Aero', 'Swag Era', 'Y2K Outside',
-  'Nature Light', 'Y2K Studio', 'Theatrical Light', 'Siren'
+  'Editorial Street Style',
+  'Mystique City',
+  'Warm Ambient',
+  'Subtle Flash',
+  'Old Smartphone',
+  'Frutiger Aero',
+  'Swag Era',
+  'Y2K Outside',
+  'Nature Light',
+  'Y2K Studio',
+  'Theatrical Light',
+  'Siren',
 ];
 
 module.exports = {
@@ -97,5 +153,5 @@ module.exports = {
   MICRO_EXPRESSION,
   VIDEO_MODELS,
   IMAGE_MODELS,
-  SOUL_PRESETS
+  SOUL_PRESETS,
 };

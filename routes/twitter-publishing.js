@@ -14,8 +14,12 @@
 const crypto = require('crypto');
 
 function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getBrandExamples, env }) {
-  const TWITTER_CLIENT_ID = (env?.TWITTER_CLIENT_ID || process.env.TWITTER_CLIENT_ID || '').replace(/[^\x20-\x7E]/g, '').trim();
-  const TWITTER_CLIENT_SECRET = (env?.TWITTER_CLIENT_SECRET || process.env.TWITTER_CLIENT_SECRET || '').replace(/[^\x20-\x7E]/g, '').trim();
+  const TWITTER_CLIENT_ID = (env?.TWITTER_CLIENT_ID || process.env.TWITTER_CLIENT_ID || '')
+    .replace(/[^\x20-\x7E]/g, '')
+    .trim();
+  const TWITTER_CLIENT_SECRET = (env?.TWITTER_CLIENT_SECRET || process.env.TWITTER_CLIENT_SECRET || '')
+    .replace(/[^\x20-\x7E]/g, '')
+    .trim();
   const TWITTER_REDIRECT_URI = 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
 
   // GET /twitter-oauth-start — PKCE redirect
@@ -114,8 +118,12 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getB
     res.json({ received: true, message: `Twitter ${post_type} started` });
 
     try {
-      const biz = (await sbGet('businesses',
-        `id=eq.${encodeURIComponent(business_id)}&select=business_name,industry,brand_tone,target_audience,dream_customer,unique_differentiator,best_performing_themes,twitter_access_token,twitter_user_id`))[0];
+      const biz = (
+        await sbGet(
+          'businesses',
+          `id=eq.${encodeURIComponent(business_id)}&select=business_name,industry,brand_tone,target_audience,dream_customer,unique_differentiator,best_performing_themes,twitter_access_token,twitter_user_id`
+        )
+      )[0];
       if (!biz?.twitter_access_token) {
         return log?.('/webhook/twitter-publish', `Twitter not connected for ${business_id}`);
       }
@@ -182,7 +190,10 @@ Return only valid JSON: {"tweet":"...","content_theme":"..."}`;
         await sbPatch('businesses', `id=eq.${encodeURIComponent(business_id)}`, {
           next_twitter_post_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
         });
-        log?.('/webhook/twitter-publish', `Posted ${isThread ? `thread (${postedIds.length} tweets)` : 'tweet'} for ${business_id}`);
+        log?.(
+          '/webhook/twitter-publish',
+          `Posted ${isThread ? `thread (${postedIds.length} tweets)` : 'tweet'} for ${business_id}`
+        );
       } else {
         log?.('/webhook/twitter-publish', `Twitter post failed — no IDs returned`);
       }

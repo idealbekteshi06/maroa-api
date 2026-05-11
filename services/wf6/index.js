@@ -62,7 +62,10 @@ function createWf6(deps) {
   }
 
   async function getLatestAudit(businessId) {
-    const rows = await sbGet('presence_audits', `business_id=eq.${businessId}&order=audit_run_at.desc&limit=1&select=*`).catch(() => []);
+    const rows = await sbGet(
+      'presence_audits',
+      `business_id=eq.${businessId}&order=audit_run_at.desc&limit=1&select=*`
+    ).catch(() => []);
     return rows[0] || null;
   }
 

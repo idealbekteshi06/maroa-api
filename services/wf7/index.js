@@ -66,18 +66,21 @@ function createWf7(deps) {
 
   async function dispatchDue({ businessId }) {
     // Simple dispatch: find active enrollments whose last_sent_at is > plan delay days ago
-    const enrolls = await sbGet('email_enrollments', `business_id=eq.${businessId}&status=eq.active&select=*&limit=100`).catch(() => []);
+    const enrolls = await sbGet(
+      'email_enrollments',
+      `business_id=eq.${businessId}&status=eq.active&select=*&limit=100`
+    ).catch(() => []);
     const results = [];
     for (const e of enrolls) {
       try {
         const seqRows = await sbGet('email_sequences', `id=eq.${e.sequence_id}&select=*`);
         const seq = seqRows[0];
         if (!seq?.plan?.emails) continue;
-        const currentEmail = seq.plan.emails.find(em => em.stage === e.current_stage);
+        const currentEmail = seq.plan.emails.find((em) => em.stage === e.current_stage);
         if (!currentEmail) continue;
 
         const lastSent = e.last_sent_at ? new Date(e.last_sent_at).getTime() : new Date(e.enrolled_at).getTime();
-        const dueAt = lastSent + (Number(currentEmail.delay_days || 0) * 86400000);
+        const dueAt = lastSent + Number(currentEmail.delay_days || 0) * 86400000;
         if (Date.now() < dueAt) continue;
 
         // Get contact email
@@ -86,7 +89,11 @@ function createWf7(deps) {
         if (!contact?.email) continue;
 
         if (sendEmail) {
-          await sendEmail(contact.email, currentEmail.subject_line, currentEmail.body_html || currentEmail.body_plain || '');
+          await sendEmail(
+            contact.email,
+            currentEmail.subject_line,
+            currentEmail.body_html || currentEmail.body_plain || ''
+          );
         }
 
         const nextStage = e.current_stage + 1;

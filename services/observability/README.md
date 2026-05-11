@@ -5,12 +5,12 @@ layer.
 
 ## Files
 
-| File | What |
-|---|---|
-| `logger.js` | JSON line logger with request_id correlation. Sentry breadcrumbs auto-attached. |
-| `metrics.js` | Prometheus-format metric collector. Counters, histograms, gauges. Exported via `GET /metrics`. |
+| File              | What                                                                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `logger.js`       | JSON line logger with request_id correlation. Sentry breadcrumbs auto-attached.                                                            |
+| `metrics.js`      | Prometheus-format metric collector. Counters, histograms, gauges. Exported via `GET /metrics`.                                             |
 | `cost-tracker.js` | Per-business Anthropic spend logger. Writes to `llm_cost_logs`. Pricing table for Sonnet 4.5 / Opus 4.7 / Haiku 4.5 + cache-read discount. |
-| `index.js` | Facade: `observability.logger`, `observability.metrics`, `observability.costTracker`, `observability.metricsMiddleware()`. |
+| `index.js`        | Facade: `observability.logger`, `observability.metrics`, `observability.costTracker`, `observability.metricsMiddleware()`.                 |
 
 ## Public API
 

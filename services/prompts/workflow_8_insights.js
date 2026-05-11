@@ -51,19 +51,44 @@ specific enough that a founder could tell if it's true in 30 seconds.
 
   const user = `
 REVIEWS (last 30d):
-${(bundle.reviews || []).slice(0, 20).map(r => `  [${r.rating}★] ${r.platform}: "${(r.body || '').slice(0, 200)}"`).join('\n') || '(none)'}
+${
+  (bundle.reviews || [])
+    .slice(0, 20)
+    .map((r) => `  [${r.rating}★] ${r.platform}: "${(r.body || '').slice(0, 200)}"`)
+    .join('\n') || '(none)'
+}
 
 MESSAGES (last 30d):
-${(bundle.messages || []).slice(0, 15).map(m => `  ${m.source}: "${(m.text || '').slice(0, 200)}"`).join('\n') || '(none)'}
+${
+  (bundle.messages || [])
+    .slice(0, 15)
+    .map((m) => `  ${m.source}: "${(m.text || '').slice(0, 200)}"`)
+    .join('\n') || '(none)'
+}
 
 SUPPORT TICKETS (last 30d):
-${(bundle.tickets || []).slice(0, 10).map(t => `  [${t.severity}] ${t.subject}: "${(t.body || '').slice(0, 150)}"`).join('\n') || '(none)'}
+${
+  (bundle.tickets || [])
+    .slice(0, 10)
+    .map((t) => `  [${t.severity}] ${t.subject}: "${(t.body || '').slice(0, 150)}"`)
+    .join('\n') || '(none)'
+}
 
 SOCIAL COMMENTS (high-signal):
-${(bundle.comments || []).slice(0, 20).map(c => `  ${c.platform}: "${(c.text || '').slice(0, 150)}"`).join('\n') || '(none)'}
+${
+  (bundle.comments || [])
+    .slice(0, 20)
+    .map((c) => `  ${c.platform}: "${(c.text || '').slice(0, 150)}"`)
+    .join('\n') || '(none)'
+}
 
 SURVEY RESPONSES:
-${(bundle.survey || []).slice(0, 10).map(s => `  Q: ${s.question} A: ${s.answer}`).join('\n') || '(none)'}
+${
+  (bundle.survey || [])
+    .slice(0, 10)
+    .map((s) => `  Q: ${s.question} A: ${s.answer}`)
+    .join('\n') || '(none)'
+}
 `.trim();
 
   return { system: buildSystemPrompt(ctx, addendum), user };

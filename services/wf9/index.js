@@ -84,11 +84,15 @@ function createWf9(deps) {
     if (!thread) throw new Error('Thread not found');
 
     const brandContext = await resolveBrandContext(businessId);
-    const { system, user } = buildInboxReplyPrompt(brandContext, {
-      channel: thread.channel,
-      subject: thread.subject,
-      body: thread.body,
-    }, triage || { classification: thread.classification, urgency: thread.urgency });
+    const { system, user } = buildInboxReplyPrompt(
+      brandContext,
+      {
+        channel: thread.channel,
+        subject: thread.subject,
+        body: thread.body,
+      },
+      triage || { classification: thread.classification, urgency: thread.urgency }
+    );
     const raw = await callClaude(user, 'claude-sonnet-4-5', 1200, { system, businessId, returnRaw: true });
     const parsed = extractJSON(raw) || {};
 

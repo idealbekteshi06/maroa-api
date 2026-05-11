@@ -5,7 +5,7 @@
 
 This file is the canonical architectural map. Read it before making any
 non-trivial change. Pair with [LEARNINGS.md](./LEARNINGS.md) which is
-the decision log explaining *why* each piece is the way it is.
+the decision log explaining _why_ each piece is the way it is.
 
 ---
 
@@ -65,6 +65,7 @@ implemented as Express routes + Inngest functions in this repo. The
 ```
 
 Cross-cutting layers:
+
 - **Observability** — JSON logs (correlation IDs), Prometheus `/metrics`,
   Sentry with PII scrubbing, `/healthz` + `/readyz`.
 - **Cost discipline** — `lib/costGuard.js` per-business monthly cap;
@@ -76,20 +77,20 @@ Cross-cutting layers:
 
 ## 3. Tech stack (exact versions in `package.json`)
 
-| Layer | Tool | Note |
-|---|---|---|
-| Node | ≥18 | `package.json:engines` |
-| HTTP | Express 4 | One monolithic `server.js` — being carved into `routes/*.js` |
-| Background | Inngest 4 | Replaces n8n cron; events + `step.sleep` |
-| DB | Supabase Postgres | PostgREST + service-role key for inserts |
-| LLM | Anthropic Claude 4.x | Sonnet 4.5 default · Opus 4.7 for hard reasoning · Haiku 4.5 for cheap classify |
-| Image/Video | Higgsfield 2026 | Cloud-first → FNF fallback |
-| Social | Meta v21 + Ayrshare | LinkedIn, Pinterest, TikTok, YouTube via Ayrshare |
-| Payments | Paddle | Stripe still wired but secondary |
-| Email | Resend HTTPS | Railway blocks SMTP — see LEARNINGS §3 |
-| Observability | Sentry + Prometheus + JSON logs | `services/observability/` |
-| Deploy | Railway | Production: `maroa-api-production.up.railway.app` |
-| Frontend | Lovable | `maroa-ai-marketing-automator.lovable.app` |
+| Layer         | Tool                            | Note                                                                            |
+| ------------- | ------------------------------- | ------------------------------------------------------------------------------- |
+| Node          | ≥18                             | `package.json:engines`                                                          |
+| HTTP          | Express 4                       | One monolithic `server.js` — being carved into `routes/*.js`                    |
+| Background    | Inngest 4                       | Replaces n8n cron; events + `step.sleep`                                        |
+| DB            | Supabase Postgres               | PostgREST + service-role key for inserts                                        |
+| LLM           | Anthropic Claude 4.x            | Sonnet 4.5 default · Opus 4.7 for hard reasoning · Haiku 4.5 for cheap classify |
+| Image/Video   | Higgsfield 2026                 | Cloud-first → FNF fallback                                                      |
+| Social        | Meta v21 + Ayrshare             | LinkedIn, Pinterest, TikTok, YouTube via Ayrshare                               |
+| Payments      | Paddle                          | Stripe still wired but secondary                                                |
+| Email         | Resend HTTPS                    | Railway blocks SMTP — see LEARNINGS §3                                          |
+| Observability | Sentry + Prometheus + JSON logs | `services/observability/`                                                       |
+| Deploy        | Railway                         | Production: `maroa-api-production.up.railway.app`                               |
+| Frontend      | Lovable                         | `maroa-ai-marketing-automator.lovable.app`                                      |
 
 ---
 
@@ -98,21 +99,21 @@ Cross-cutting layers:
 Read `migrations/000_schema_bootstrap.sql` + the numbered migrations for
 the truth. High-traffic tables:
 
-| Table | What it holds |
-|---|---|
-| `businesses` | One row per customer org. Profile, plan, OAuth tokens (encrypted in `*_enc` columns), all stats counters. |
-| `generated_content` | One row per generated post. Captions, image_url, scheduled/published timestamps, performance score. |
-| `ad_campaigns` | Live Meta + Google campaigns we manage. |
-| `ad_performance_logs` | Daily metric snapshot per campaign. |
-| `ad_audit_results` | Output of ad-optimizer (decision, reason, score). |
-| `llm_cost_logs` | Every Anthropic call's cost + tokens — drives `cost-report` and `costGuard`. |
-| `webhook_events` | Paddle/Stripe/etc. dedup. `(provider, event_id)` PK. |
-| `_migrations` | Migration ledger — filename + checksum + applied_at. |
-| `cold_start_runs` | Onboarding orchestrator state machine. |
-| `content_plans`, `concepts`, `assets`, `posts`, `performance` | WF1 daily content pipeline (CASCADE chain). |
-| `events` | Cross-workflow event log (JSONB payloads). |
-| `errors` | Persistent error sink — drives anti-thrashing in ad-optimizer. |
-| `oauth_states` | PKCE state for Twitter/TikTok OAuth flows. |
+| Table                                                         | What it holds                                                                                             |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `businesses`                                                  | One row per customer org. Profile, plan, OAuth tokens (encrypted in `*_enc` columns), all stats counters. |
+| `generated_content`                                           | One row per generated post. Captions, image_url, scheduled/published timestamps, performance score.       |
+| `ad_campaigns`                                                | Live Meta + Google campaigns we manage.                                                                   |
+| `ad_performance_logs`                                         | Daily metric snapshot per campaign.                                                                       |
+| `ad_audit_results`                                            | Output of ad-optimizer (decision, reason, score).                                                         |
+| `llm_cost_logs`                                               | Every Anthropic call's cost + tokens — drives `cost-report` and `costGuard`.                              |
+| `webhook_events`                                              | Paddle/Stripe/etc. dedup. `(provider, event_id)` PK.                                                      |
+| `_migrations`                                                 | Migration ledger — filename + checksum + applied_at.                                                      |
+| `cold_start_runs`                                             | Onboarding orchestrator state machine.                                                                    |
+| `content_plans`, `concepts`, `assets`, `posts`, `performance` | WF1 daily content pipeline (CASCADE chain).                                                               |
+| `events`                                                      | Cross-workflow event log (JSONB payloads).                                                                |
+| `errors`                                                      | Persistent error sink — drives anti-thrashing in ad-optimizer.                                            |
+| `oauth_states`                                                | PKCE state for Twitter/TikTok OAuth flows.                                                                |
 
 Note: there are **138 tables** total. The schema is JSONB-heavy in the
 event/audit space — payloads are stored as `jsonb` and queried with
@@ -126,27 +127,28 @@ The 28 original n8n workflows are now implemented as a mix of HTTP
 endpoints and Inngest functions. Each `services/wf*` folder contains the
 engine. The schedule lives in `services/inngest/functions.js`.
 
-| # | Service | Trigger | Status |
-|---|---|---|---|
-| 01 | `services/wf1/` | Inngest daily 09:00 UTC | live |
-| 02 | `services/ad-optimizer/` | Inngest daily 08:00 UTC | live |
-| 03 | `services/wf3/` | webhook `/new-user-signup` | live |
-| 04 | retention | inlined in scorecard | merged |
-| 05 | `services/wf5/` | Inngest Mon 10:00 UTC | live |
-| 06 | `services/wf6/` | Inngest Sun 22:00 UTC | live (weekly-scorecard) |
-| 07 | `services/wf7/` | every 6h | live |
-| 08 | `services/wf8/` | daily 08:00 UTC | live |
-| 09 | `services/higgsfield.js` | on-demand (Soul ID, image, video) | live |
-| 10 | `services/wf10/` | webhook on account-connected | live |
-| 12 | `services/wf12/` | weekly | live |
-| 13 | `services/wf13/` | weekly synthesis | live |
-| 14 | `services/wf14/` | Fri 14:00 UTC | live (competitor) |
-| 15 | `services/wf15/` | webhook `/instant-content` | live (AI Brain) |
-| 22 | `services/voc/` | weekly | live |
-| 26 | `services/creative-engine/` | event-driven (refresh on low CTR) | live |
-| 28 | ~~Google My Business poster~~ | **REMOVED** | Google API killed in 2024 |
+| #   | Service                       | Trigger                           | Status                    |
+| --- | ----------------------------- | --------------------------------- | ------------------------- |
+| 01  | `services/wf1/`               | Inngest daily 09:00 UTC           | live                      |
+| 02  | `services/ad-optimizer/`      | Inngest daily 08:00 UTC           | live                      |
+| 03  | `services/wf3/`               | webhook `/new-user-signup`        | live                      |
+| 04  | retention                     | inlined in scorecard              | merged                    |
+| 05  | `services/wf5/`               | Inngest Mon 10:00 UTC             | live                      |
+| 06  | `services/wf6/`               | Inngest Sun 22:00 UTC             | live (weekly-scorecard)   |
+| 07  | `services/wf7/`               | every 6h                          | live                      |
+| 08  | `services/wf8/`               | daily 08:00 UTC                   | live                      |
+| 09  | `services/higgsfield.js`      | on-demand (Soul ID, image, video) | live                      |
+| 10  | `services/wf10/`              | webhook on account-connected      | live                      |
+| 12  | `services/wf12/`              | weekly                            | live                      |
+| 13  | `services/wf13/`              | weekly synthesis                  | live                      |
+| 14  | `services/wf14/`              | Fri 14:00 UTC                     | live (competitor)         |
+| 15  | `services/wf15/`              | webhook `/instant-content`        | live (AI Brain)           |
+| 22  | `services/voc/`               | weekly                            | live                      |
+| 26  | `services/creative-engine/`   | event-driven (refresh on low CTR) | live                      |
+| 28  | ~~Google My Business poster~~ | **REMOVED**                       | Google API killed in 2024 |
 
 Plus new capabilities born after the migration:
+
 - `services/cro/` — landing-page CRO audit + rewrites
 - `services/ai-seo/` — AI-search citability + llms.txt + JSON-LD
 - `services/forecasting/` — ROAS + spend forecast 30/60/90
@@ -209,12 +211,12 @@ npm run dev
 
 ## 8. Production test account
 
-| Field | Value |
-|---|---|
-| email | `idealbekteshi06@gmail.com` |
-| business_name | `ibgboost.com` |
-| business_id | `fea4aae5-14b4-486d-89f4-33a7d7e4ab60` |
-| plan | `growth` |
+| Field         | Value                                  |
+| ------------- | -------------------------------------- |
+| email         | `idealbekteshi06@gmail.com`            |
+| business_name | `ibgboost.com`                         |
+| business_id   | `fea4aae5-14b4-486d-89f4-33a7d7e4ab60` |
+| plan          | `growth`                               |
 
 Use this UUID for end-to-end test calls. Never run destructive ops
 against it without explicit approval — it's a real account.

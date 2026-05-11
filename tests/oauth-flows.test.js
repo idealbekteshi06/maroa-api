@@ -8,7 +8,7 @@ const google = require('../services/oauth/google');
 const { limits, makeLimiter } = require('../lib/rateLimiters');
 
 const SECRET = 'test-secret-do-not-leak';
-const BIZ_UUID  = '11111111-1111-4111-8111-111111111111';
+const BIZ_UUID = '11111111-1111-4111-8111-111111111111';
 const USER_UUID = '22222222-2222-4222-8222-222222222222';
 
 // ─── Meta OAuth state signing ────────────────────────────────────────────

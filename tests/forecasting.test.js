@@ -28,7 +28,7 @@ test('regression: linearForecast widens band with horizon', () => {
   const ts = [2, 2.1, 2.2, 2.15, 2.25, 2.3, 2.28, 2.32];
   const f30 = reg.linearForecast(ts, 30);
   const f90 = reg.linearForecast(ts, 90);
-  assert.ok((f90.high - f90.low) > (f30.high - f30.low), '90d band wider than 30d');
+  assert.ok(f90.high - f90.low > f30.high - f30.low, '90d band wider than 30d');
 });
 
 test('regression: confidence "high" requires R² + n', () => {
@@ -40,7 +40,7 @@ test('regression: confidence "high" requires R² + n', () => {
 
 test('regression: recommendBudgetAllocation moves spend toward higher-ROAS channel', () => {
   const r = reg.recommendBudgetAllocation([
-    { name: 'meta',   spend: 50, roas: 3.0 },
+    { name: 'meta', spend: 50, roas: 3.0 },
     { name: 'google', spend: 50, roas: 1.0 },
   ]);
   assert.ok(r.recommended.meta > 50, 'should reallocate toward meta');
@@ -84,7 +84,10 @@ test('forecastForBusiness: refuses to forecast on <14 days history', async () =>
     business: { business_name: 'X', plan: 'growth' },
     history: Array.from({ length: 5 }, (_, i) => ({ roas: 2 + i * 0.1, spend: 50 })),
     plan: 'growth',
-    callClaude: async () => { claudeCalled = true; return '{}'; },
+    callClaude: async () => {
+      claudeCalled = true;
+      return '{}';
+    },
     extractJSON: JSON.parse,
   });
   assert.strictEqual(claudeCalled, false, 'should NOT call Claude on insufficient data');
@@ -95,12 +98,15 @@ test('forecastForBusiness: refuses to forecast on <14 days history', async () =>
 
 test('forecastForBusiness: free tier returns numbers without LLM narrative', async () => {
   let claudeCalled = false;
-  const history = Array.from({ length: 30 }, (_, i) => ({ roas: 2 + (i * 0.02), spend: 50 + i }));
+  const history = Array.from({ length: 30 }, (_, i) => ({ roas: 2 + i * 0.02, spend: 50 + i }));
   const r = await fc.forecastForBusiness({
     business: { business_name: 'X', plan: 'free', location: 'New York' },
     history,
     plan: 'free',
-    callClaude: async () => { claudeCalled = true; return '{}'; },
+    callClaude: async () => {
+      claudeCalled = true;
+      return '{}';
+    },
     extractJSON: JSON.parse,
   });
   assert.strictEqual(claudeCalled, false, 'free tier should NOT call LLM');
@@ -112,15 +118,16 @@ test('forecastForBusiness: free tier returns numbers without LLM narrative', asy
 });
 
 test('forecastForBusiness: growth tier produces narrative + valid forecast', async () => {
-  const history = Array.from({ length: 30 }, (_, i) => ({ roas: 2 + (i * 0.02), spend: 50 + i }));
+  const history = Array.from({ length: 30 }, (_, i) => ({ roas: 2 + i * 0.02, spend: 50 + i }));
   const r = await fc.forecastForBusiness({
     business: { business_name: 'X', plan: 'growth', location: 'Tirana' },
     history,
     plan: 'growth',
-    callClaude: async () => JSON.stringify({
-      narrative: 'ROAS trending up. Expected revenue 60d range $X-$Y. Add budget if pace holds.',
-      caveats: [],
-    }),
+    callClaude: async () =>
+      JSON.stringify({
+        narrative: 'ROAS trending up. Expected revenue 60d range $X-$Y. Add budget if pace holds.',
+        caveats: [],
+      }),
     extractJSON: JSON.parse,
   });
   assert.strictEqual(r.short_circuited, false);
@@ -144,8 +151,8 @@ test('forecastForBusiness: caveats include high-variance flag', async () => {
 });
 
 test('forecastForBusiness: applies budget allocation when channelHistory provided', async () => {
-  const metaRows   = Array.from({ length: 30 }, (_, i) => ({ roas: 3.0,  spend: 50, platform: 'meta' }));
-  const googleRows = Array.from({ length: 30 }, (_, i) => ({ roas: 1.0,  spend: 50, platform: 'google' }));
+  const metaRows = Array.from({ length: 30 }, (_, i) => ({ roas: 3.0, spend: 50, platform: 'meta' }));
+  const googleRows = Array.from({ length: 30 }, (_, i) => ({ roas: 1.0, spend: 50, platform: 'google' }));
   const history = [...metaRows, ...googleRows];
   const r = await fc.forecastForBusiness({
     business: { business_name: 'X', plan: 'free' },

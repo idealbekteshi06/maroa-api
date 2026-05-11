@@ -12,6 +12,6 @@ module.exports = {
     'Side-light from a window — single named source, not "professional studio lighting"',
     'Three-act with physics: settle → pour → condensation',
     'Sensory-only language (visible/audible) — Seedance constraint compliant',
-    'No brand mention — pure appearance description'
-  ]
+    'No brand mention — pure appearance description',
+  ],
 };

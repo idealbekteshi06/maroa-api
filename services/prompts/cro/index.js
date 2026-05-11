@@ -8,11 +8,11 @@
  * ----------------------------------------------------------------------------
  */
 
-const i18nCro    = require('./i18n-cro');
+const i18nCro = require('./i18n-cro');
 const checksPage = require('./checks-page');
-const scoring    = require('./scoring');
-const schema     = require('./output-schema');
-const sysPrompt  = require('./system-prompt');
+const scoring = require('./scoring');
+const schema = require('./output-schema');
+const sysPrompt = require('./system-prompt');
 
 let _psychology = null;
 function getPsychology() {
@@ -35,19 +35,32 @@ async function auditPage(opts) {
   // Honest-scoring guard
   if (!html && !text) {
     return _shortCircuit({
-      score: 25, reason: 'No page content provided', findings, marketProfile, deterministicScore,
+      score: 25,
+      reason: 'No page content provided',
+      findings,
+      marketProfile,
+      deterministicScore,
     });
   }
 
   const system = sysPrompt.buildAuditSystemBlock();
-  const user = sysPrompt.buildAuditUserMessage({ business, marketProfile, html, text, findings, deterministicScore, plan });
+  const user = sysPrompt.buildAuditUserMessage({
+    business,
+    marketProfile,
+    html,
+    text,
+    findings,
+    deterministicScore,
+    plan,
+  });
 
   const { callWithAdvisor } = require('../advisor-tool');
   let raw;
   try {
     raw = await callWithAdvisor({
       callClaude,
-      system, user,
+      system,
+      user,
       executor: sysPrompt.modelForPlan(plan),
       task: 'audit',
       planTier: plan,
@@ -56,14 +69,32 @@ async function auditPage(opts) {
     });
   } catch (e) {
     logger?.error?.('cro.auditPage', null, 'Claude call failed', e);
-    return _shortCircuit({ score: deterministicScore.score, reason: 'Audit AI unavailable — using deterministic baseline', findings, marketProfile, deterministicScore });
+    return _shortCircuit({
+      score: deterministicScore.score,
+      reason: 'Audit AI unavailable — using deterministic baseline',
+      findings,
+      marketProfile,
+      deterministicScore,
+    });
   }
 
-  let parsed; try { parsed = extractJSON(raw); } catch { parsed = null; }
+  let parsed;
+  try {
+    parsed = extractJSON(raw);
+  } catch {
+    parsed = null;
+  }
   const v = parsed ? schema.validateAudit(parsed) : { valid: false, errors: ['parse_error'] };
   if (!v.valid) {
     logger?.warn?.('cro', null, 'invalid LLM output', v.errors);
-    return _shortCircuit({ score: deterministicScore.score, reason: 'Audit response invalid — using baseline', findings, marketProfile, deterministicScore, schema_errors: v.errors });
+    return _shortCircuit({
+      score: deterministicScore.score,
+      reason: 'Audit response invalid — using baseline',
+      findings,
+      marketProfile,
+      deterministicScore,
+      schema_errors: v.errors,
+    });
   }
 
   const criticalCount = (v.normalized.critical_issues || []).length;
@@ -74,7 +105,8 @@ async function auditPage(opts) {
     audit_score: v.normalized.audit_score || deterministicScore.score,
     dimension_scores: { ...deterministicScore.dimensions, ...(v.normalized.dimension_scores || {}) },
     expected_lift_band: v.normalized.expected_lift_band || lift,
-    current_estimated_conv_rate_band: v.normalized.current_estimated_conv_rate_band || scoring.bandForScore(v.normalized.audit_score),
+    current_estimated_conv_rate_band:
+      v.normalized.current_estimated_conv_rate_band || scoring.bandForScore(v.normalized.audit_score),
     deterministic_findings: findings,
     market_country: marketProfile.country,
     short_circuited: false,
@@ -104,7 +136,8 @@ async function rewritePage(opts) {
   try {
     raw = await advisorCall({
       callClaude,
-      system, user,
+      system,
+      user,
       executor: sysPrompt.modelForPlan(plan),
       task: 'rewrite',
       planTier: plan,
@@ -116,14 +149,19 @@ async function rewritePage(opts) {
     return _deterministicRewrite(business, marketProfile);
   }
 
-  let parsed; try { parsed = extractJSON(raw); } catch { parsed = null; }
+  let parsed;
+  try {
+    parsed = extractJSON(raw);
+  } catch {
+    parsed = null;
+  }
   const v = parsed ? schema.validateRewrite(parsed) : { valid: false, errors: ['parse_error'] };
   if (!v.valid) {
     return _deterministicRewrite(business, marketProfile);
   }
 
   // Score the LLM CTAs to make sure they're not weak
-  const ctas = (v.normalized.primary_cta_variants || []).map(c => ({
+  const ctas = (v.normalized.primary_cta_variants || []).map((c) => ({
     ...c,
     cta_score: i18nCro.scoreCta(c.text, marketProfile),
   }));
@@ -131,13 +169,19 @@ async function rewritePage(opts) {
   let psychologyEnriched = null;
   // Optional: apply psychology principle to top hero headline + top CTA
   // (Agency tier only — Growth+ pays for it via the existing rewrite call)
-  if (applyPsychology && String(plan).toLowerCase() === 'agency'
-      && Array.isArray(v.normalized.hero_headline_variants) && v.normalized.hero_headline_variants.length) {
+  if (
+    applyPsychology &&
+    String(plan).toLowerCase() === 'agency' &&
+    Array.isArray(v.normalized.hero_headline_variants) &&
+    v.normalized.hero_headline_variants.length
+  ) {
     psychologyEnriched = await _applyPsychologyToTopVariant({
       hero: v.normalized.hero_headline_variants[0],
       ctaText: ctas[0]?.text,
       business,
-      callClaude, extractJSON, logger,
+      callClaude,
+      extractJSON,
+      logger,
     });
   }
 
@@ -164,7 +208,9 @@ async function _applyPsychologyToTopVariant({ hero, ctaText, business, callClaud
           principleId: 'auto',
           plan: 'agency',
           funnelStage: 'consideration',
-          callClaude, extractJSON, logger,
+          callClaude,
+          extractJSON,
+          logger,
         })
       : null;
     const ctaResult = ctaText
@@ -174,21 +220,29 @@ async function _applyPsychologyToTopVariant({ hero, ctaText, business, callClaud
           principleId: 'auto',
           plan: 'agency',
           funnelStage: 'decision',
-          callClaude, extractJSON, logger,
+          callClaude,
+          extractJSON,
+          logger,
         })
       : null;
     return {
-      hero_psychology: heroResult && !heroResult.refused ? {
-        original: hero.text,
-        rewritten: heroResult.rewritten,
-        applied_principle: heroResult.applied_principle,
-        rationale: heroResult.changes_made,
-      } : null,
-      cta_psychology: ctaResult && !ctaResult.refused ? {
-        original: ctaText,
-        rewritten: ctaResult.rewritten,
-        applied_principle: ctaResult.applied_principle,
-      } : null,
+      hero_psychology:
+        heroResult && !heroResult.refused
+          ? {
+              original: hero.text,
+              rewritten: heroResult.rewritten,
+              applied_principle: heroResult.applied_principle,
+              rationale: heroResult.changes_made,
+            }
+          : null,
+      cta_psychology:
+        ctaResult && !ctaResult.refused
+          ? {
+              original: ctaText,
+              rewritten: ctaResult.rewritten,
+              applied_principle: ctaResult.applied_principle,
+            }
+          : null,
     };
   } catch (e) {
     logger?.warn?.('cro.applyPsychology', null, 'failed', e?.message);
@@ -207,7 +261,9 @@ function _deterministicRewrite(business, marketProfile) {
   return {
     hero_headline_variants: [],
     hero_subhead_variants: [],
-    primary_cta_variants: ctaVerb ? [{ text: `${ctaVerb} ${businessName}`, style: 'action_imperative', cta_score: 5 }] : [],
+    primary_cta_variants: ctaVerb
+      ? [{ text: `${ctaVerb} ${businessName}`, style: 'action_imperative', cta_score: 5 }]
+      : [],
     value_prop_bullets: [],
     social_proof_template: null,
     form_simplification: null,
@@ -221,12 +277,22 @@ function _shortCircuit({ score, reason, findings, marketProfile, deterministicSc
   return {
     audit_score: score,
     dimension_scores: deterministicScore?.dimensions || {},
-    critical_issues: (findings || []).filter(f => f.severity === 'critical').map(f => ({
-      id: f.check_id, severity: f.severity, fix: f.fix, time_to_fix_minutes: f.time_to_fix_minutes,
-    })),
-    warnings: (findings || []).filter(f => f.severity === 'warning').map(f => ({
-      id: f.check_id, severity: f.severity, fix: f.fix, time_to_fix_minutes: f.time_to_fix_minutes,
-    })),
+    critical_issues: (findings || [])
+      .filter((f) => f.severity === 'critical')
+      .map((f) => ({
+        id: f.check_id,
+        severity: f.severity,
+        fix: f.fix,
+        time_to_fix_minutes: f.time_to_fix_minutes,
+      })),
+    warnings: (findings || [])
+      .filter((f) => f.severity === 'warning')
+      .map((f) => ({
+        id: f.check_id,
+        severity: f.severity,
+        fix: f.fix,
+        time_to_fix_minutes: f.time_to_fix_minutes,
+      })),
     opportunities: [],
     primary_language: marketProfile?.primary_language || null,
     country: marketProfile?.country || null,

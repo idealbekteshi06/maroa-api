@@ -13,10 +13,22 @@
  */
 
 const BUZZWORDS = [
-  /world.?class/gi, /cutting.edge/gi, /innovative/gi, /best.in.class/gi,
-  /game.?changing/gi, /synerg/gi, /leverage/gi, /unparalleled/gi,
-  /next.?gen/gi, /revolutionar/gi, /disruptive/gi, /seamless(?!ly)/gi,
-  /robust/gi, /turn-?key/gi, /streamline/gi, /best.of.breed/gi,
+  /world.?class/gi,
+  /cutting.edge/gi,
+  /innovative/gi,
+  /best.in.class/gi,
+  /game.?changing/gi,
+  /synerg/gi,
+  /leverage/gi,
+  /unparalleled/gi,
+  /next.?gen/gi,
+  /revolutionar/gi,
+  /disruptive/gi,
+  /seamless(?!ly)/gi,
+  /robust/gi,
+  /turn-?key/gi,
+  /streamline/gi,
+  /best.of.breed/gi,
 ];
 
 /**
@@ -47,38 +59,20 @@ function suggestStandardQuestions({ business }) {
   const name = business?.business_name || 'us';
   const industry = String(business?.industry || business?.business_type || '').toLowerCase();
   const local = business?.operation_model === 'location_based' || business?.operation_model === 'hybrid';
-  const local_q = local ? [
-    `Where is ${name} located?`,
-    `What hours is ${name} open?`,
-    `How do I contact ${name}?`,
-  ] : [];
+  const local_q = local
+    ? [`Where is ${name} located?`, `What hours is ${name} open?`, `How do I contact ${name}?`]
+    : [];
 
   const industry_q = (() => {
-    if (/restaurant|cafe|bar|food/.test(industry)) return [
-      `What is on ${name}'s menu?`,
-      `Do you take reservations?`,
-      `Do you offer delivery?`,
-    ];
-    if (/dent|medi|clinic|health/.test(industry)) return [
-      `Do you accept new patients?`,
-      `What insurance do you accept?`,
-      `How do I book an appointment?`,
-    ];
-    if (/saas|software|app/.test(industry)) return [
-      `What does ${name} do?`,
-      `Do you offer a free trial?`,
-      `What integrations do you support?`,
-    ];
-    if (/shop|store|boutique|retail/.test(industry)) return [
-      `What products do you sell?`,
-      `Do you ship internationally?`,
-      `What is your return policy?`,
-    ];
-    return [
-      `What does ${name} do?`,
-      `Who do you serve?`,
-      `How do I get started?`,
-    ];
+    if (/restaurant|cafe|bar|food/.test(industry))
+      return [`What is on ${name}'s menu?`, `Do you take reservations?`, `Do you offer delivery?`];
+    if (/dent|medi|clinic|health/.test(industry))
+      return [`Do you accept new patients?`, `What insurance do you accept?`, `How do I book an appointment?`];
+    if (/saas|software|app/.test(industry))
+      return [`What does ${name} do?`, `Do you offer a free trial?`, `What integrations do you support?`];
+    if (/shop|store|boutique|retail/.test(industry))
+      return [`What products do you sell?`, `Do you ship internationally?`, `What is your return policy?`];
+    return [`What does ${name} do?`, `Who do you serve?`, `How do I get started?`];
   })();
 
   return [...local_q, ...industry_q].slice(0, 10);

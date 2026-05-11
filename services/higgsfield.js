@@ -17,7 +17,7 @@ module.exports = function createHiggsfieldService(deps) {
     ANTHROPIC_KEY,
     SERPAPI_KEY,
     SUPABASE_URL,
-    SUPABASE_KEY
+    SUPABASE_KEY,
   } = deps;
 
   const CONTENT_IMAGES_BUCKET = 'content-images';
@@ -136,16 +136,18 @@ module.exports = function createHiggsfieldService(deps) {
   function downloadImageBuffer(sourceUrl) {
     return new Promise((resolve, reject) => {
       const proto = sourceUrl.startsWith('https') ? https : http;
-      proto.get(sourceUrl, { headers: { Accept: '*/*' } }, (res) => {
-        if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
-          return downloadImageBuffer(new URL(res.headers.location, sourceUrl).href).then(resolve).catch(reject);
-        }
-        if (res.statusCode !== 200) return reject(new Error(`Download failed: ${res.statusCode}`));
-        const chunks = [];
-        res.on('data', (c) => chunks.push(c));
-        res.on('end', () => resolve(Buffer.concat(chunks)));
-        res.on('error', reject);
-      }).on('error', reject);
+      proto
+        .get(sourceUrl, { headers: { Accept: '*/*' } }, (res) => {
+          if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
+            return downloadImageBuffer(new URL(res.headers.location, sourceUrl).href).then(resolve).catch(reject);
+          }
+          if (res.statusCode !== 200) return reject(new Error(`Download failed: ${res.statusCode}`));
+          const chunks = [];
+          res.on('data', (c) => chunks.push(c));
+          res.on('end', () => resolve(Buffer.concat(chunks)));
+          res.on('error', reject);
+        })
+        .on('error', reject);
     });
   }
 
@@ -167,8 +169,8 @@ module.exports = function createHiggsfieldService(deps) {
             Authorization: `Bearer ${SUPABASE_KEY}`,
             'Content-Type': 'image/png',
             'Content-Length': imgBuf.length,
-            'x-upsert': 'false'
-          }
+            'x-upsert': 'false',
+          },
         },
         (res) => {
           let data = '';
@@ -230,7 +232,7 @@ module.exports = function createHiggsfieldService(deps) {
     }
     return {
       Authorization: `Key ${HIGGSFIELD_API_KEY_ID}:${HIGGSFIELD_API_KEY_SECRET}`,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     };
   }
 
@@ -238,7 +240,11 @@ module.exports = function createHiggsfieldService(deps) {
     if (body == null) return {};
     if (typeof body === 'object') return body;
     if (typeof body === 'string') {
-      try { return JSON.parse(body); } catch { return {}; }
+      try {
+        return JSON.parse(body);
+      } catch {
+        return {};
+      }
     }
     return {};
   }
@@ -308,7 +314,7 @@ module.exports = function createHiggsfieldService(deps) {
           statusUrl,
           requestId,
           httpStatus: r.status,
-          body: safeStringify(r.body)
+          body: safeStringify(r.body),
         });
         throw new Error(`Higgsfield status poll HTTP ${r.status}`);
       }
@@ -320,7 +326,7 @@ module.exports = function createHiggsfieldService(deps) {
           statusUrl,
           requestId,
           jobStatus: st,
-          body: safeStringify(body)
+          body: safeStringify(body),
         });
         const err = new Error(body.message || body.error || `Higgsfield job ${st}`);
         err.code = st;
@@ -337,7 +343,7 @@ module.exports = function createHiggsfieldService(deps) {
           statusUrl,
           requestId,
           kind,
-          body: safeStringify(body)
+          body: safeStringify(body),
         });
         throw new Error('Higgsfield completed but no result URL in response');
       }
@@ -349,7 +355,7 @@ module.exports = function createHiggsfieldService(deps) {
       requestId,
       timeoutMs,
       lastHttp,
-      lastBody: safeStringify(lastBodySnapshot)
+      lastBody: safeStringify(lastBodySnapshot),
     });
     throw new Error('Higgsfield job timeout');
   }
@@ -454,8 +460,10 @@ module.exports = function createHiggsfieldService(deps) {
       b.tone && `Brand tone: ${b.tone}`,
       b.audience && `Audience: ${b.audience}`,
       Array.isArray(b.competitors) && b.competitors.length && `Competitors: ${b.competitors.join(', ')}`,
-      b.trends && `Trends: ${b.trends}`
-    ].filter(Boolean).join('\n');
+      b.trends && `Trends: ${b.trends}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 
   async function claudeVision(prompt, imageUrls, opts = {}) {
@@ -467,7 +475,7 @@ module.exports = function createHiggsfieldService(deps) {
       if (!url || typeof url !== 'string') continue;
       content.push({
         type: 'image',
-        source: { type: 'url', url }
+        source: { type: 'url', url },
       });
     }
     content.push({ type: 'text', text: prompt });
@@ -476,11 +484,17 @@ module.exports = function createHiggsfieldService(deps) {
     // TODO(callClaude-migration): wire callClaude as a dep to this service
     // and route through it. Tracked in PUNCHLIST item 7.
     // eslint-disable-next-line no-restricted-syntax
-    const r = await apiRequest('POST', 'https://api.anthropic.com/v1/messages', {
-      'x-api-key': ANTHROPIC_KEY,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json'
-    }, body, opts.timeoutMs || 120000);
+    const r = await apiRequest(
+      'POST',
+      'https://api.anthropic.com/v1/messages',
+      {
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body,
+      opts.timeoutMs || 120000
+    );
     if (r.status !== 200) {
       const err = new Error(`Claude vision ${r.status}: ${JSON.stringify(r.body).slice(0, 300)}`);
       err.status = r.status;
@@ -494,16 +508,22 @@ module.exports = function createHiggsfieldService(deps) {
     const body = {
       model: extra.model || 'claude-sonnet-4-5',
       max_tokens: maxTok || 4096,
-      messages: [{ role: 'user', content: prompt }]
+      messages: [{ role: 'user', content: prompt }],
     };
     if (extra.system) body.system = extra.system;
     // TODO(callClaude-migration): wire callClaude as a dep to this service.
     // eslint-disable-next-line no-restricted-syntax
-    const r = await apiRequest('POST', 'https://api.anthropic.com/v1/messages', {
-      'x-api-key': ANTHROPIC_KEY,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json'
-    }, body, extra.timeoutMs || 120000);
+    const r = await apiRequest(
+      'POST',
+      'https://api.anthropic.com/v1/messages',
+      {
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body,
+      extra.timeoutMs || 120000
+    );
     if (r.status !== 200) throw new Error(`Claude ${r.status}`);
     const raw = r.body?.content?.[0]?.text || '';
     if (extra.returnRaw) return raw;
@@ -529,7 +549,7 @@ module.exports = function createHiggsfieldService(deps) {
       const p = {
         prompt: promptText,
         aspect_ratio: aspectRatio,
-        resolution: '1080p'
+        resolution: '1080p',
       };
       if (productImageUrl.startsWith('http')) p.image_url = productImageUrl;
       return p;
@@ -543,7 +563,10 @@ module.exports = function createHiggsfieldService(deps) {
           const url = await submitSoulAndWait(buildSoulPayload(overridePrompt, aspects[i] || '1:1'));
           if (url) urls.push(await persistGeneratedImageUrl(url, userId, i));
         } catch (e) {
-          console.error('[higgsfield:generateProductImage] soul generation failed (prompt override)', { index: i, message: e.message });
+          console.error('[higgsfield:generateProductImage] soul generation failed (prompt override)', {
+            index: i,
+            message: e.message,
+          });
           console.error(e.stack);
           logger.warn('higgsfield', null, 'soul generation failed (prompt override)', { message: e.message, index: i });
         }
@@ -557,18 +580,28 @@ module.exports = function createHiggsfieldService(deps) {
       contentTheme,
       productImageUrl,
       hasReferenceImage: true,
-      isI2V: true
+      isI2V: true,
     });
     const userPrompt = `${brief.userTask}\n\nLive niche signals (last week SERP):\n${serpCtx}`;
     const raw = await claudeVision(userPrompt, [productImageUrl], { max_tokens: 4096, system: brief.system });
     const plan = extractJSON(raw) || {};
-    const promptObjs = Array.isArray(plan.prompts) && plan.prompts.length
-      ? plan.prompts
-      : [
-          { aspect_ratio: '1:1', prompt: `Macro shot, low angle, static. Product on raw concrete with soft window side-light. Style: Cinematic commercial, warm neutral tones, soft diffused light, sharp focus throughout, 1:1.` },
-          { aspect_ratio: '9:16', prompt: `Selfie angle medium shot. Product held at arm's length, natural daylight, Editorial Street Style preset. Style: Lifestyle, warm neutral, 9:16.` },
-          { aspect_ratio: '4:5', prompt: `Cowboy shot, eye-level, slight handheld. Product on wooden counter at golden hour, side-light from window left. Style: Lifestyle, Kodak Portra 400 grain, lifted shadows, 4:5.` }
-        ];
+    const promptObjs =
+      Array.isArray(plan.prompts) && plan.prompts.length
+        ? plan.prompts
+        : [
+            {
+              aspect_ratio: '1:1',
+              prompt: `Macro shot, low angle, static. Product on raw concrete with soft window side-light. Style: Cinematic commercial, warm neutral tones, soft diffused light, sharp focus throughout, 1:1.`,
+            },
+            {
+              aspect_ratio: '9:16',
+              prompt: `Selfie angle medium shot. Product held at arm's length, natural daylight, Editorial Street Style preset. Style: Lifestyle, warm neutral, 9:16.`,
+            },
+            {
+              aspect_ratio: '4:5',
+              prompt: `Cowboy shot, eye-level, slight handheld. Product on wooden counter at golden hour, side-light from window left. Style: Lifestyle, Kodak Portra 400 grain, lifted shadows, 4:5.`,
+            },
+          ];
     const aspects = ['1:1', '9:16', '4:5'];
     const urls = [];
     // Genre router picked the right model — use the dispatcher so it routes
@@ -581,9 +614,8 @@ module.exports = function createHiggsfieldService(deps) {
       try {
         const payload = buildSoulPayload(prompt, obj.aspect_ratio || aspects[i] || '1:1');
         // submitSoulAndWait hard-codes PATH_SOUL; route to the right path when it differs
-        const url = targetPath === PATH_SOUL
-          ? await submitSoulAndWait(payload)
-          : await submitImageOnPath(targetPath, payload);
+        const url =
+          targetPath === PATH_SOUL ? await submitSoulAndWait(payload) : await submitImageOnPath(targetPath, payload);
         if (url) urls.push(await persistGeneratedImageUrl(url, userId, i));
       } catch (e) {
         console.error('[higgsfield:generateProductImage] gen failed', { index: i, model: modelId, message: e.message });
@@ -624,20 +656,22 @@ module.exports = function createHiggsfieldService(deps) {
       productImageUrl,
       isI2V: true,
       wantsAudio: false,
-      durationSec: 8
+      durationSec: 8,
     });
-    const motionPrompt = await claudeVision(
-      brief.userTask,
-      [productImageUrl],
-      { max_tokens: 2000, system: brief.system }
-    );
+    const motionPrompt = await claudeVision(brief.userTask, [productImageUrl], {
+      max_tokens: 2000,
+      system: brief.system,
+    });
     const parsed = extractJSON(motionPrompt) || {};
-    const promptText = hf.killSlop(parsed.prompt || 'Product on a sunlit surface. Camera: slow Macro Dolly In. Style: Cinematic commercial, warm neutral, soft diffused window light, 9:16.');
+    const promptText = hf.killSlop(
+      parsed.prompt ||
+        'Product on a sunlit surface. Camera: slow Macro Dolly In. Style: Cinematic commercial, warm neutral, soft diffused window light, 9:16.'
+    );
     const payload = {
       prompt: promptText,
       image_url: productImageUrl,
       aspect_ratio: parsed.aspect_ratio || '9:16',
-      resolution: '720p'
+      resolution: '720p',
     };
     return submitVideoAndWait(PATH_KLING, payload);
   }
@@ -649,20 +683,19 @@ module.exports = function createHiggsfieldService(deps) {
       brandDNA,
       contentTheme,
       productImageUrl,
-      isI2V: true
+      isI2V: true,
     });
-    const script = await claudeVision(
-      brief.userTask,
-      [productImageUrl],
-      { max_tokens: 2500, system: brief.system }
-    );
+    const script = await claudeVision(brief.userTask, [productImageUrl], { max_tokens: 2500, system: brief.system });
     const parsed = extractJSON(script) || {};
-    const promptText = hf.killSlop(parsed.prompt || 'Product hero on a sunlit surface. Camera: Robo Arm arcing slowly base to lid. Style: Cinematic commercial, warm neutral, soft diffused light, 9:16. Audio: gentle ambient, soft surface contact, single clean piano note on CTA.');
+    const promptText = hf.killSlop(
+      parsed.prompt ||
+        'Product hero on a sunlit surface. Camera: Robo Arm arcing slowly base to lid. Style: Cinematic commercial, warm neutral, soft diffused light, 9:16. Audio: gentle ambient, soft surface contact, single clean piano note on CTA.'
+    );
     const payload = {
       prompt: promptText,
       image_url: productImageUrl,
       aspect_ratio: parsed.aspect_ratio || '9:16',
-      resolution: '720p'
+      resolution: '720p',
     };
     return submitVideoAndWait(PATH_SORA, payload);
   }
@@ -683,12 +716,12 @@ module.exports = function createHiggsfieldService(deps) {
     const s = extractJSON(rawText) || {};
     const total =
       Number(s.total) ||
-      (Number(s.hook_strength || 0) +
+      Number(s.hook_strength || 0) +
         Number(s.visual_quality || 0) +
         Number(s.brand_alignment || 0) +
         Number(s.trend_relevance || 0) +
         Number(s.cta_clarity || 0) +
-        Number(s.engagement_potential || 0));
+        Number(s.engagement_potential || 0);
     return {
       hook_strength: Number(s.hook_strength) || 0,
       visual_quality: Number(s.visual_quality) || 0,
@@ -698,7 +731,7 @@ module.exports = function createHiggsfieldService(deps) {
       engagement_potential: Number(s.engagement_potential) || 0,
       total: Math.min(10, Math.max(0, total)),
       notes: s.notes || '',
-      breakdown: s
+      breakdown: s,
     };
   }
 
@@ -724,7 +757,7 @@ module.exports = function createHiggsfieldService(deps) {
           const url = await submitSoulAndWait({
             prompt: np,
             aspect_ratio: '1:1',
-            resolution: '1080p'
+            resolution: '1080p',
           });
           if (url) currentImage = await persistGeneratedImageUrl(url, mirrorUserId, 100 + regenerationCount);
         } catch (e) {
@@ -750,7 +783,7 @@ module.exports = function createHiggsfieldService(deps) {
       score: last,
       total: last.total,
       recommendation,
-      flags
+      flags,
     };
   }
 
@@ -767,7 +800,7 @@ module.exports = function createHiggsfieldService(deps) {
       instagram: 'Instagram: one-line hook + 3-4 line story + CTA + 15-20 hashtags.',
       tiktok: 'TikTok: 1-2 punchy lines + exactly 5 trending hashtags.',
       facebook: 'Facebook: 4-6 line story + soft CTA.',
-      linkedin: 'LinkedIn: professional insight + value + CTA (Agency tone).'
+      linkedin: 'LinkedIn: professional insight + value + CTA (Agency tone).',
     };
     const pr = platformRules[platform] || platformRules.instagram;
     const prompt =
@@ -780,12 +813,16 @@ module.exports = function createHiggsfieldService(deps) {
       ? await claudeVision(prompt, [imageUrl], { max_tokens: 2000 })
       : await claudeText(prompt, 'caption', 2000, { returnRaw: true });
 
-    const c = extractJSON(raw) || { caption: String(raw).slice(0, 2000), hashtags: [], suggested_posting_time: '18:00 local' };
+    const c = extractJSON(raw) || {
+      caption: String(raw).slice(0, 2000),
+      hashtags: [],
+      suggested_posting_time: '18:00 local',
+    };
     return {
       caption: c.caption || '',
       hashtags: Array.isArray(c.hashtags) ? c.hashtags : [],
       suggested_posting_time: c.suggested_posting_time || 'evening',
-      hook: c.hook || ''
+      hook: c.hook || '',
     };
   }
 
@@ -813,15 +850,15 @@ module.exports = function createHiggsfieldService(deps) {
     const plan = normalizePlan(options.plan || 'starter');
     const rem = {
       images: options.remaining?.images != null ? options.remaining.images : 999,
-      kling: options.remaining?.kling != null ? options.remaining.kling : (limits.kling || 0),
-      sora: options.remaining?.sora != null ? options.remaining.sora : (limits.sora || 0)
+      kling: options.remaining?.kling != null ? options.remaining.kling : limits.kling || 0,
+      sora: options.remaining?.sora != null ? options.remaining.sora : limits.sora || 0,
     };
     const out = {
       total_pieces: 0,
       average_score: 0,
       schedule_preview: [],
       items: [],
-      errors: []
+      errors: [],
     };
 
     let scoreSum = 0;
@@ -855,7 +892,7 @@ module.exports = function createHiggsfieldService(deps) {
               file_url: finalUrl,
               content_score: sc.total,
               score_breakdown: sc.score?.breakdown || sc.score,
-              status: 'scheduled'
+              status: 'scheduled',
             }).catch(() => {});
             out.total_pieces++;
           }
@@ -873,7 +910,7 @@ module.exports = function createHiggsfieldService(deps) {
                 content_type: 'video_kling',
                 file_url: vid,
                 content_score: k.score?.total,
-                status: 'scheduled'
+                status: 'scheduled',
               }).catch(() => {});
             } catch (e) {
               console.error('[higgsfield:processProductCatalog] kling', e.message);
@@ -893,7 +930,7 @@ module.exports = function createHiggsfieldService(deps) {
               business_id: businessId,
               content_type: 'video_sora',
               file_url: hero,
-              status: 'scheduled'
+              status: 'scheduled',
             }).catch(() => {});
           } catch (e) {
             console.error('[higgsfield:processProductCatalog] sora', e.message);
@@ -947,13 +984,13 @@ module.exports = function createHiggsfieldService(deps) {
     const raw = await claudeVision(req.userTask, [imageUrl], {
       max_tokens: 2500,
       system: req.system,
-      model: options.model || 'claude-sonnet-4-5'
+      model: options.model || 'claude-sonnet-4-5',
     });
     const parsed = extractJSON(raw) || {};
     const verdict = vetter.synthesizeVerdict({
       rawVetterOutput: parsed,
       brandDNA,
-      contentTheme
+      contentTheme,
     });
     return verdict;
   }
@@ -998,11 +1035,14 @@ module.exports = function createHiggsfieldService(deps) {
             prompt: p.prompt,
             aspect_ratio: p.aspect_ratio,
             resolution: '1080p',
-            image_url: imageUrl
+            image_url: imageUrl,
           });
           if (out) urls.push(await persistGeneratedImageUrl(out, userId, i));
         } catch (e) {
-          console.error('[higgsfield:smartProcessAsset] enhance failed', { aspect: p.aspect_ratio, message: e.message });
+          console.error('[higgsfield:smartProcessAsset] enhance failed', {
+            aspect: p.aspect_ratio,
+            message: e.message,
+          });
           logger.warn('higgsfield', null, 'enhance i2i failed', { message: e.message, aspect: p.aspect_ratio });
         }
       }
@@ -1017,7 +1057,7 @@ module.exports = function createHiggsfieldService(deps) {
   async function smartProcessAssetRegenerate(imageUrl, brandDNA, options, verdict) {
     const generated = await generateProductImage(imageUrl, brandDNA, {
       ...options,
-      contentTheme: options.contentTheme || verdict?.next_action?.genre || 'product hero'
+      contentTheme: options.contentTheme || verdict?.next_action?.genre || 'product hero',
     });
     return { verdict, generated, path: 'regenerate_fresh' };
   }
@@ -1037,22 +1077,23 @@ module.exports = function createHiggsfieldService(deps) {
       businessGoal,
       contentGoal,
       ideaLevel: options.ideaLevel || 'campaign',
-      rotation: options.rotation || 0
+      rotation: options.rotation || 0,
     });
     // claudeText is the local module helper (no caching support). Use the
     // injected callClaude when available for prompt caching + token budget.
-    const raw = typeof deps.callClaude === 'function'
-      ? await deps.callClaude(brief.userTask, options.model || 'claude-opus-4-7', 4096, {
-          system: brief.system,
-          businessId: options.businessId || null,
-          cacheSystem: true,         // creative-director system prompt is 13k chars — perfect cache target
-          returnRaw: true,
-        })
-      : await claudeText(brief.userTask, 'strategy', 4096, {
-          model: options.model || 'claude-opus-4-7',
-          system: brief.system,
-          returnRaw: true
-        });
+    const raw =
+      typeof deps.callClaude === 'function'
+        ? await deps.callClaude(brief.userTask, options.model || 'claude-opus-4-7', 4096, {
+            system: brief.system,
+            businessId: options.businessId || null,
+            cacheSystem: true, // creative-director system prompt is 13k chars — perfect cache target
+            returnRaw: true,
+          })
+        : await claudeText(brief.userTask, 'strategy', 4096, {
+            model: options.model || 'claude-opus-4-7',
+            system: brief.system,
+            returnRaw: true,
+          });
     const concept = extractJSON(raw) || { _raw: raw, _parse_failed: true };
     return concept;
   }
@@ -1062,7 +1103,8 @@ module.exports = function createHiggsfieldService(deps) {
    * The output of every step is captured so you can audit which layer drove each decision.
    */
   async function generateStrategicProductImage(productImageUrl, brandDNA, options = {}) {
-    const businessGoal = options.businessGoal || (brandDNA?.marketing_goal || brandDNA?.marketingGoal || 'increase awareness');
+    const businessGoal =
+      options.businessGoal || brandDNA?.marketing_goal || brandDNA?.marketingGoal || 'increase awareness';
     const contentGoal = options.contentGoal || options.contentTheme || 'monthly content theme';
     const concept = await developCreativeConcept(brandDNA, businessGoal, contentGoal, { ideaLevel: 'campaign' });
 
@@ -1081,12 +1123,13 @@ module.exports = function createHiggsfieldService(deps) {
       console.error('[higgsfield:generateStrategicProductImage] mcsla plan failed', e.message);
     }
 
-    const promptObjs = Array.isArray(plan?.prompts) && plan.prompts.length
-      ? plan.prompts
-      : aspects.map((ar) => ({
-          aspect_ratio: ar,
-          prompt: `${imageBrief.creativeContext?.subject || 'product'} — ${imageBrief.creativeContext?.action || 'static'}. Camera: ${imageBrief.creativeContext?.camera || 'Static'}. Style: ${imageBrief.creativeContext?.look || 'Cinematic commercial'}, ${ar}.`
-        }));
+    const promptObjs =
+      Array.isArray(plan?.prompts) && plan.prompts.length
+        ? plan.prompts
+        : aspects.map((ar) => ({
+            aspect_ratio: ar,
+            prompt: `${imageBrief.creativeContext?.subject || 'product'} — ${imageBrief.creativeContext?.action || 'static'}. Camera: ${imageBrief.creativeContext?.camera || 'Static'}. Style: ${imageBrief.creativeContext?.look || 'Cinematic commercial'}, ${ar}.`,
+          }));
 
     for (let i = 0; i < 3; i++) {
       const obj = promptObjs[i] || promptObjs[0];
@@ -1095,7 +1138,7 @@ module.exports = function createHiggsfieldService(deps) {
         const payload = {
           prompt,
           aspect_ratio: obj.aspect_ratio || aspects[i],
-          resolution: '1080p'
+          resolution: '1080p',
         };
         if (productImageUrl && productImageUrl.startsWith('http')) payload.image_url = productImageUrl;
         const url = await submitSoulAndWait(payload);
@@ -1122,7 +1165,9 @@ module.exports = function createHiggsfieldService(deps) {
     if (HIGGSFIELD_API_KEY_ID && HIGGSFIELD_API_KEY_SECRET) {
       return `Key ${HIGGSFIELD_API_KEY_ID}:${HIGGSFIELD_API_KEY_SECRET}`;
     }
-    throw new Error('Higgsfield Cloud credentials not configured (need HIGGSFIELD_API_KEY_ID + HIGGSFIELD_API_KEY_SECRET)');
+    throw new Error(
+      'Higgsfield Cloud credentials not configured (need HIGGSFIELD_API_KEY_ID + HIGGSFIELD_API_KEY_SECRET)'
+    );
   }
 
   /**
@@ -1131,7 +1176,9 @@ module.exports = function createHiggsfieldService(deps) {
    */
   function fnfAuthHeader() {
     if (HIGGSFIELD_BEARER_TOKEN) return `Bearer ${HIGGSFIELD_BEARER_TOKEN}`;
-    throw new Error('FNF Bearer token not configured (HIGGSFIELD_BEARER_TOKEN). Used only for Soul ID training fallback.');
+    throw new Error(
+      'FNF Bearer token not configured (HIGGSFIELD_BEARER_TOKEN). Used only for Soul ID training fallback.'
+    );
   }
 
   /**
@@ -1141,12 +1188,21 @@ module.exports = function createHiggsfieldService(deps) {
   function detectImageMimeType(buf) {
     if (!buf || buf.length < 12) return 'image/png';
     // PNG: 89 50 4E 47 0D 0A 1A 0A
-    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return 'image/png';
+    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
     // JPEG: FF D8 FF
-    if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'image/jpeg';
+    if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
     // WebP: RIFF....WEBP
-    if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
-        buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return 'image/webp';
+    if (
+      buf[0] === 0x52 &&
+      buf[1] === 0x49 &&
+      buf[2] === 0x46 &&
+      buf[3] === 0x46 &&
+      buf[8] === 0x57 &&
+      buf[9] === 0x45 &&
+      buf[10] === 0x42 &&
+      buf[11] === 0x50
+    )
+      return 'image/webp';
     // GIF: GIF8
     if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return 'image/gif';
     return 'application/octet-stream';
@@ -1161,7 +1217,9 @@ module.exports = function createHiggsfieldService(deps) {
     const boundary = `----maroa-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const parts = [];
     parts.push(Buffer.from(`--${boundary}\r\n`));
-    parts.push(Buffer.from(`Content-Disposition: form-data; name="file"; filename="${filename.replace(/"/g, '')}"\r\n`));
+    parts.push(
+      Buffer.from(`Content-Disposition: form-data; name="file"; filename="${filename.replace(/"/g, '')}"\r\n`)
+    );
     parts.push(Buffer.from(`Content-Type: ${mimeType}\r\n\r\n`));
     parts.push(buf);
     parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
@@ -1169,21 +1227,24 @@ module.exports = function createHiggsfieldService(deps) {
 
     const u = new URL(`${baseUrl}${path}`);
     return new Promise((resolve, reject) => {
-      const req = https.request({
-        hostname: u.hostname,
-        port: u.port || 443,
-        path: u.pathname + u.search,
-        method: 'POST',
-        headers: {
-          Authorization: authHeader,
-          'Content-Type': `multipart/form-data; boundary=${boundary}`,
-          'Content-Length': body.length,
+      const req = https.request(
+        {
+          hostname: u.hostname,
+          port: u.port || 443,
+          path: u.pathname + u.search,
+          method: 'POST',
+          headers: {
+            Authorization: authHeader,
+            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+            'Content-Length': body.length,
+          },
         },
-      }, (res) => {
-        let data = '';
-        res.on('data', (c) => (data += c));
-        res.on('end', () => resolve({ status: res.statusCode, body: data }));
-      });
+        (res) => {
+          let data = '';
+          res.on('data', (c) => (data += c));
+          res.on('end', () => resolve({ status: res.statusCode, body: data }));
+        }
+      );
       req.on('error', reject);
       req.write(body);
       req.end();
@@ -1211,7 +1272,8 @@ module.exports = function createHiggsfieldService(deps) {
           baseUrl: HIGGSFIELD_API_BASE,
           path: `${PATH_AGENTS_UPLOAD}?type=image`,
           authHeader: cloudAuthHeader(),
-          buf, filename,
+          buf,
+          filename,
         });
         if (r.status >= 200 && r.status < 300) {
           const parsed = parseJsonBody(r.body);
@@ -1239,7 +1301,8 @@ module.exports = function createHiggsfieldService(deps) {
         baseUrl: HIGGSFIELD_FNF_BASE,
         path: `${PATH_AGENTS_UPLOAD}?type=image`,
         authHeader: fnfAuthHeader(),
-        buf, filename,
+        buf,
+        filename,
       });
       if (r.status >= 200 && r.status < 300) {
         const parsed = parseJsonBody(r.body);
@@ -1290,7 +1353,9 @@ module.exports = function createHiggsfieldService(deps) {
     const minImages = Number(process.env.HIGGSFIELD_SOUL_ID_MIN_IMAGES) || 5;
     const maxImages = Number(process.env.HIGGSFIELD_SOUL_ID_MAX_IMAGES) || 20;
     if (!Array.isArray(sourceImageUrls) || sourceImageUrls.length < minImages || sourceImageUrls.length > maxImages) {
-      throw new Error(`Higgsfield Soul ID requires ${minImages}–${maxImages} reference images (got ${sourceImageUrls?.length || 0})`);
+      throw new Error(
+        `Higgsfield Soul ID requires ${minImages}–${maxImages} reference images (got ${sourceImageUrls?.length || 0})`
+      );
     }
     if (model !== 'soul_2' && model !== 'soul_cinematic') {
       throw new Error(`Higgsfield Soul ID model must be 'soul_2' or 'soul_cinematic' (got '${model}')`);
@@ -1317,21 +1382,24 @@ module.exports = function createHiggsfieldService(deps) {
     async function postCharacterCreate(baseUrl, authHeader) {
       const u = new URL(`${baseUrl}${PATH_CHARACTER_CREATE}`);
       return new Promise((resolve, reject) => {
-        const req = https.request({
-          hostname: u.hostname,
-          port: u.port || 443,
-          path: u.pathname + u.search,
-          method: 'POST',
-          headers: {
-            Authorization: authHeader,
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(bodyStr),
+        const req = https.request(
+          {
+            hostname: u.hostname,
+            port: u.port || 443,
+            path: u.pathname + u.search,
+            method: 'POST',
+            headers: {
+              Authorization: authHeader,
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(bodyStr),
+            },
           },
-        }, (res) => {
-          let data = '';
-          res.on('data', (c) => (data += c));
-          res.on('end', () => resolve({ status: res.statusCode, body: data }));
-        });
+          (res) => {
+            let data = '';
+            res.on('data', (c) => (data += c));
+            res.on('end', () => resolve({ status: res.statusCode, body: data }));
+          }
+        );
         req.on('error', reject);
         req.write(bodyStr);
         req.end();
@@ -1404,17 +1472,20 @@ module.exports = function createHiggsfieldService(deps) {
     while (Date.now() < deadline) {
       const u = new URL(`${HIGGSFIELD_FNF_BASE}${PATH_CHARACTER_STATUS}/${characterId}`);
       const respBody = await new Promise((resolve, reject) => {
-        const req = https.request({
-          hostname: u.hostname,
-          port: u.port || 443,
-          path: u.pathname + u.search,
-          method: 'GET',
-          headers: { Authorization: fnfAuthHeader() },
-        }, (res) => {
-          let data = '';
-          res.on('data', (c) => (data += c));
-          res.on('end', () => resolve({ status: res.statusCode, body: data }));
-        });
+        const req = https.request(
+          {
+            hostname: u.hostname,
+            port: u.port || 443,
+            path: u.pathname + u.search,
+            method: 'GET',
+            headers: { Authorization: fnfAuthHeader() },
+          },
+          (res) => {
+            let data = '';
+            res.on('data', (c) => (data += c));
+            res.on('end', () => resolve({ status: res.statusCode, body: data }));
+          }
+        );
         req.on('error', reject);
         req.end();
       });
@@ -1473,6 +1544,6 @@ module.exports = function createHiggsfieldService(deps) {
     modelForCapability,
     generateCaption,
     processProductCatalog,
-    cancelRequest
+    cancelRequest,
   };
 };

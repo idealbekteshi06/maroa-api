@@ -10,7 +10,10 @@ const incr = require('../services/forecasting/incrementality');
 
 test('competitor: detectChanges flags new ads (in after, not before)', () => {
   const before = [{ id: 'a1', text: 'old' }];
-  const after = [{ id: 'a1', text: 'old' }, { id: 'a2', text: 'new' }];
+  const after = [
+    { id: 'a1', text: 'old' },
+    { id: 'a2', text: 'new' },
+  ];
   const changes = competitor.detectChanges({ before, after, source: 'meta_ad_library' });
   assert.strictEqual(changes.length, 1);
   assert.strictEqual(changes[0].signal_type, 'new_ad_launched');
@@ -65,7 +68,7 @@ test('competitor: classifyChange marks spend_increase >= 50% WoW as alert', () =
 test('competitor: classifyChange marks spend_increase < 50% as info', () => {
   const r = competitor.classifyChange({
     signal_type: 'spend_increase',
-    payload: { spend_delta_pct: 0.20 },
+    payload: { spend_delta_pct: 0.2 },
   });
   assert.strictEqual(r.severity, 'info');
 });
@@ -95,7 +98,7 @@ test('incrementality: designTest splits geos by smallest-first', () => {
       { name: 'Houston', weight: 40 },
       { name: 'Phoenix', weight: 20 },
     ],
-    holdoutPct: 0.10,
+    holdoutPct: 0.1,
   });
   assert.strictEqual(r.ok, true);
   // Total weight 300, target 10% = 30. Phoenix (20) alone is below target,
@@ -124,8 +127,7 @@ test('incrementality: twoProportionZTest returns p≈1 for identical rates', () 
   const r = incr.twoProportionZTest({ x1: 50, n1: 1000, x2: 50, n2: 1000 });
   assert.strictEqual(Math.abs(r.z), 0);
   // CDF approximation is accurate to ~1e-7, so allow tiny rounding.
-  assert.ok(Math.abs(r.p_two_sided - 1) < 1e-6,
-    `Expected p≈1, got ${r.p_two_sided}`);
+  assert.ok(Math.abs(r.p_two_sided - 1) < 1e-6, `Expected p≈1, got ${r.p_two_sided}`);
 });
 
 test('incrementality: analyzeResults marks inconclusive when treatment <30 conversions', () => {
@@ -171,6 +173,8 @@ test('incrementality: analyzeResults shows platform-claimed > true incremental R
       control: { conversions: 100, spend: 0, audience_size: 2000, aov: 50 },
     },
   });
-  assert.ok(r.platform_claimed_roas > r.true_incremental_roas,
-    `platform ${r.platform_claimed_roas} should exceed true ${r.true_incremental_roas}`);
+  assert.ok(
+    r.platform_claimed_roas > r.true_incremental_roas,
+    `platform ${r.platform_claimed_roas} should exceed true ${r.true_incremental_roas}`
+  );
 });

@@ -147,7 +147,9 @@ function evaluatePacing({ metrics, recent_window, prev_24h, hours_elapsed, hours
           evidence: r.evidence,
         });
       }
-    } catch { /* defensive */ }
+    } catch {
+      /* defensive */
+    }
   }
   return alerts;
 }

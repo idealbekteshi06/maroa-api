@@ -23,7 +23,9 @@ The eval harness (`scripts/eval-prompts.js`) runs every fixture in either:
       "input": {
         "business": { "industry": "cafe", "plan": "growth" },
         "metrics": { "roas": 3.4, "ctr": 2.8, "spend": 18 },
-        "history": [/* 14 days */]
+        "history": [
+          /* 14 days */
+        ]
       },
       "stubbed_output": "{\"decision\":\"scale\",\"decision_reason\":\"Strong ROAS sustained 14 days past learning phase\",\"audit_score\":86,\"new_daily_budget\":25}",
       "golden": {

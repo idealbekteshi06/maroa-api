@@ -46,51 +46,89 @@ const CAMPAIGN_UUID = 'cccc2222-2222-4222-8222-222222222222';
 
 test('e2e: ad-optimizer audit runs with fake Anthropic + fake Supabase', async () => {
   const db = createFakeSupabase();
-  db.seed('ad_campaigns', [{
-    id: CAMPAIGN_UUID, business_id: BIZ_UUID, status: 'ACTIVE',
-    daily_budget: 25, days_active: 14, conversions_since_edit: 8,
-    days_since_edit: 7,
-  }]);
-  db.seed('businesses', [{
-    id: BIZ_UUID, business_name: 'Cafe Test', industry: 'cafe',
-    primary_language: 'en', plan: 'growth', location: 'Paris',
-  }]);
+  db.seed('ad_campaigns', [
+    {
+      id: CAMPAIGN_UUID,
+      business_id: BIZ_UUID,
+      status: 'ACTIVE',
+      daily_budget: 25,
+      days_active: 14,
+      conversions_since_edit: 8,
+      days_since_edit: 7,
+    },
+  ]);
+  db.seed('businesses', [
+    {
+      id: BIZ_UUID,
+      business_name: 'Cafe Test',
+      industry: 'cafe',
+      primary_language: 'en',
+      plan: 'growth',
+      location: 'Paris',
+    },
+  ]);
   db.seed('ad_performance_logs', [
-    { campaign_id: CAMPAIGN_UUID, spend: 12, clicks: 30, impressions: 1000,
-      ctr: 3, roas: 3.2, cpc: 0.40, frequency: 1.4, reach: 850, conversions: 4,
-      logged_at: '2026-05-01T00:00:00Z' },
-    { campaign_id: CAMPAIGN_UUID, spend: 18, clicks: 42, impressions: 1400,
-      ctr: 3.0, roas: 3.5, cpc: 0.43, frequency: 1.5, reach: 1200, conversions: 6,
-      logged_at: '2026-05-08T00:00:00Z' },
+    {
+      campaign_id: CAMPAIGN_UUID,
+      spend: 12,
+      clicks: 30,
+      impressions: 1000,
+      ctr: 3,
+      roas: 3.2,
+      cpc: 0.4,
+      frequency: 1.4,
+      reach: 850,
+      conversions: 4,
+      logged_at: '2026-05-01T00:00:00Z',
+    },
+    {
+      campaign_id: CAMPAIGN_UUID,
+      spend: 18,
+      clicks: 42,
+      impressions: 1400,
+      ctr: 3.0,
+      roas: 3.5,
+      cpc: 0.43,
+      frequency: 1.5,
+      reach: 1200,
+      conversions: 6,
+      logged_at: '2026-05-08T00:00:00Z',
+    },
   ]);
 
   const fakeClaude = createFakeClaude({
     responses: {
-      _default: () => JSON.stringify({
-        decision: 'scale',
-        decision_reason: 'ROAS 3.5, sustained 14d, well past learning phase',
-        audit_score: 84,
-        score_breakdown: {},
-        critical_issues: [],
-        warnings: [],
-        opportunities: ['scale_winner'],
-        new_daily_budget: 30,
-        trend: 'improving',
-        citations: [],
-      }),
+      _default: () =>
+        JSON.stringify({
+          decision: 'scale',
+          decision_reason: 'ROAS 3.5, sustained 14d, well past learning phase',
+          audit_score: 84,
+          score_breakdown: {},
+          critical_issues: [],
+          warnings: [],
+          opportunities: ['scale_winner'],
+          new_daily_budget: 30,
+          trend: 'improving',
+          citations: [],
+        }),
     },
   });
 
   const createAdOptimizer = require('../services/ad-optimizer');
   const adOptimizer = createAdOptimizer({
-    sbGet: db.sbGet, sbPost: db.sbPost, sbPatch: db.sbPatch,
-    callClaude: fakeClaude, extractJSON: fakeExtractJSON,
+    sbGet: db.sbGet,
+    sbPost: db.sbPost,
+    sbPatch: db.sbPatch,
+    callClaude: fakeClaude,
+    extractJSON: fakeExtractJSON,
     logger: { info: () => {}, warn: () => {}, error: () => {} },
     Sentry: null,
   });
 
   const r = await adOptimizer.engine.auditOne({
-    campaignId: CAMPAIGN_UUID, businessId: BIZ_UUID, dryRun: false,
+    campaignId: CAMPAIGN_UUID,
+    businessId: BIZ_UUID,
+    dryRun: false,
   });
 
   // What matters in the E2E smoke: the pipeline runs end-to-end without
@@ -98,11 +136,16 @@ test('e2e: ad-optimizer audit runs with fake Anthropic + fake Supabase', async (
   // 'keep' (short-circuit) or 'scale' (LLM path) depending on the
   // significance gates — either is correct behavior, not a bug.
   assert.ok(r.audit, 'audit object returned');
-  assert.ok(['scale', 'pause', 'keep', 'optimize', 'refresh_creative'].includes(r.audit.decision),
-    `decision must be a valid enum, got: ${r.audit.decision}`);
-  assert.ok(['budget_increased', 'budget_adjusted', 'paused', 'kept', 'refresh_creative_event', 'noop']
-    .includes(r.action_taken),
-    `action_taken must be valid, got: ${r.action_taken}`);
+  assert.ok(
+    ['scale', 'pause', 'keep', 'optimize', 'refresh_creative'].includes(r.audit.decision),
+    `decision must be a valid enum, got: ${r.audit.decision}`
+  );
+  assert.ok(
+    ['budget_increased', 'budget_adjusted', 'paused', 'kept', 'refresh_creative_event', 'noop'].includes(
+      r.action_taken
+    ),
+    `action_taken must be valid, got: ${r.action_taken}`
+  );
   // verify an audit row was persisted
   const audits = db.all('ad_audit_results');
   assert.strictEqual(audits.length, 1, 'one audit row written');
@@ -113,33 +156,43 @@ test('e2e: ad-optimizer audit runs with fake Anthropic + fake Supabase', async (
 test('e2e: cro audit + rewrite produces expected shape via fake Anthropic', async () => {
   const fakeClaude = createFakeClaude({
     responses: {
-      cro_audit: () => JSON.stringify({
-        audit_score: 71,
-        dimension_scores: { above_fold: 6, value_prop: 7, cta: 6, social_proof: 5, trust: 7, friction: 8, mobile: 8 },
-        critical_issues: [{ id: 'AF01', title: 'Hero too generic' }],
-        warnings: [{ id: 'SP02', title: 'No social proof above fold' }],
-        opportunities: [{ id: 'CT01', title: 'CTA color contrast' }],
-        expected_lift_band: '15-25%',
-      }),
-      cro_rewrite: () => JSON.stringify({
-        hero_headline_variants: [{ text: 'Coffee that wakes Paris up.', rationale: 'Specific + place-anchored' }],
-        hero_subhead_variants: [{ text: 'Locally roasted, daily.', rationale: 'Freshness + provenance' }],
-        primary_cta_variants: [{ text: 'See today\'s menu', style: 'action_imperative' }],
-        value_prop_bullets: [{ text: 'Beans roasted same week' }],
-      }),
+      cro_audit: () =>
+        JSON.stringify({
+          audit_score: 71,
+          dimension_scores: { above_fold: 6, value_prop: 7, cta: 6, social_proof: 5, trust: 7, friction: 8, mobile: 8 },
+          critical_issues: [{ id: 'AF01', title: 'Hero too generic' }],
+          warnings: [{ id: 'SP02', title: 'No social proof above fold' }],
+          opportunities: [{ id: 'CT01', title: 'CTA color contrast' }],
+          expected_lift_band: '15-25%',
+        }),
+      cro_rewrite: () =>
+        JSON.stringify({
+          hero_headline_variants: [{ text: 'Coffee that wakes Paris up.', rationale: 'Specific + place-anchored' }],
+          hero_subhead_variants: [{ text: 'Locally roasted, daily.', rationale: 'Freshness + provenance' }],
+          primary_cta_variants: [{ text: "See today's menu", style: 'action_imperative' }],
+          value_prop_bullets: [{ text: 'Beans roasted same week' }],
+        }),
     },
   });
 
   const db = createFakeSupabase();
-  db.seed('businesses', [{
-    id: BIZ_UUID, business_name: 'Cafe Test', industry: 'cafe',
-    primary_language: 'en', plan: 'agency',
-  }]);
+  db.seed('businesses', [
+    {
+      id: BIZ_UUID,
+      business_name: 'Cafe Test',
+      industry: 'cafe',
+      primary_language: 'en',
+      plan: 'agency',
+    },
+  ]);
 
   const createCro = require('../services/cro');
   const cro = createCro({
-    sbGet: db.sbGet, sbPost: db.sbPost, sbPatch: db.sbPatch,
-    callClaude: fakeClaude, extractJSON: fakeExtractJSON,
+    sbGet: db.sbGet,
+    sbPost: db.sbPost,
+    sbPatch: db.sbPatch,
+    callClaude: fakeClaude,
+    extractJSON: fakeExtractJSON,
     logger: { info: () => {}, warn: () => {}, error: () => {} },
     Sentry: null,
   });
@@ -164,7 +217,7 @@ test('e2e: cro audit + rewrite produces expected shape via fake Anthropic', asyn
 function findInngestFn(id) {
   const { functions } = require('../services/inngest/functions');
   return functions.find((f) => {
-    const fid = typeof f.id === 'function' ? f.id() : (f.id || f.opts?.id);
+    const fid = typeof f.id === 'function' ? f.id() : f.id || f.opts?.id;
     return fid === id;
   });
 }
@@ -201,24 +254,36 @@ test('e2e: webhook idempotency — first call inserts, second call detects dupli
   const wh = require('../lib/webhookEvents');
 
   const first = await wh.markProcessed({
-    provider: 'paddle', eventId: 'evt_123', sbPost: db.sbPost, logger: null,
+    provider: 'paddle',
+    eventId: 'evt_123',
+    sbPost: db.sbPost,
+    logger: null,
   });
   assert.strictEqual(first.firstTime, true);
 
   const second = await wh.markProcessed({
-    provider: 'paddle', eventId: 'evt_123', sbPost: db.sbPost, logger: null,
+    provider: 'paddle',
+    eventId: 'evt_123',
+    sbPost: db.sbPost,
+    logger: null,
   });
   assert.strictEqual(second.firstTime, false);
 
   // Different event still gets through
   const third = await wh.markProcessed({
-    provider: 'paddle', eventId: 'evt_456', sbPost: db.sbPost, logger: null,
+    provider: 'paddle',
+    eventId: 'evt_456',
+    sbPost: db.sbPost,
+    logger: null,
   });
   assert.strictEqual(third.firstTime, true);
 
   // Different provider, same id, also gets through (PK is (provider, event_id))
   const fourth = await wh.markProcessed({
-    provider: 'stripe', eventId: 'evt_123', sbPost: db.sbPost, logger: null,
+    provider: 'stripe',
+    eventId: 'evt_123',
+    sbPost: db.sbPost,
+    logger: null,
   });
   assert.strictEqual(fourth.firstTime, true);
 });
@@ -229,8 +294,8 @@ test('e2e: costGuard reads from llm_cost_logs and denies over cap', async () => 
   const db = createFakeSupabase();
   db.seed('businesses', [{ id: BIZ_UUID, plan: 'free' }]);
   db.seed('llm_cost_logs', [
-    { business_id: BIZ_UUID, cost_usd: 0.50, created_at: new Date().toISOString() },
-    { business_id: BIZ_UUID, cost_usd: 0.80, created_at: new Date().toISOString() },
+    { business_id: BIZ_UUID, cost_usd: 0.5, created_at: new Date().toISOString() },
+    { business_id: BIZ_UUID, cost_usd: 0.8, created_at: new Date().toISOString() },
     // free plan cap = $1 → these two ($1.30 total) put it over
   ]);
 
@@ -239,7 +304,7 @@ test('e2e: costGuard reads from llm_cost_logs and denies over cap', async () => 
   assert.strictEqual(verdict.allowed, false);
   assert.strictEqual(verdict.reason, 'monthly_cap_reached');
   assert.strictEqual(verdict.plan, 'free');
-  assert.ok(verdict.used_usd >= 1.30 - 0.001);
+  assert.ok(verdict.used_usd >= 1.3 - 0.001);
 });
 
 test('e2e: costGuard rejects malformed business_id (defense in depth)', async () => {

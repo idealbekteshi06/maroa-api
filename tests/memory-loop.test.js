@@ -96,9 +96,7 @@ test('extractLearnings voc.synthesis: saves top customer phrase', () => {
   const facts = ml.extractLearnings({
     task: 'voc.synthesis',
     output: {
-      pain_points: [
-        { theme: 'Parking', verbatim_quotes: ['parking is impossible on weekends'] },
-      ],
+      pain_points: [{ theme: 'Parking', verbatim_quotes: ['parking is impossible on weekends'] }],
     },
   });
   assert.strictEqual(facts.length, 1);
@@ -113,7 +111,10 @@ test('applyMemoryLoop: runs task without memoryService (graceful degradation)', 
     memoryService: null,
     scope: 'wf1.business-1',
     task: 'wf1.content',
-    runTask: async (prior) => { priorContextSeen = prior; return { input: {}, output: {} }; },
+    runTask: async (prior) => {
+      priorContextSeen = prior;
+      return { input: {}, output: {} };
+    },
   });
   assert.strictEqual(priorContextSeen, '');
   assert.strictEqual(r.factsRead, 0);
@@ -125,7 +126,9 @@ test('applyMemoryLoop: reads + writes facts when memoryService provided', async 
   const fakeMemory = {
     ensureSession: async () => ({ id: 'sess-123' }),
     getSession: async () => ({ facts: ['Existing fact 1', 'Existing fact 2'] }),
-    appendFact: async ({ sessionId, fact }) => { factsAppended.push(fact); },
+    appendFact: async ({ sessionId, fact }) => {
+      factsAppended.push(fact);
+    },
   };
   const r = await ml.applyMemoryLoop({
     memoryService: fakeMemory,
@@ -148,7 +151,9 @@ test('applyMemoryLoop: reads + writes facts when memoryService provided', async 
 
 test('applyMemoryLoop: graceful when memory read fails', async () => {
   const fakeMemory = {
-    ensureSession: async () => { throw new Error('memory unavailable'); },
+    ensureSession: async () => {
+      throw new Error('memory unavailable');
+    },
     getSession: async () => null,
     appendFact: async () => {},
   };

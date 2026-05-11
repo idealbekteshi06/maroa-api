@@ -34,9 +34,7 @@
  * ----------------------------------------------------------------------------
  */
 
-const {
-  buildStrategicDecisionPrompt,
-} = require('../prompts/workflow_1_daily_content.js');
+const { buildStrategicDecisionPrompt } = require('../prompts/workflow_1_daily_content.js');
 
 const SONNET_MODEL = 'claude-sonnet-4-5';
 const OPUS_MODEL = 'claude-opus-4-7';
@@ -44,21 +42,19 @@ const MAX_TOKENS = 4096;
 const BATCH_HARD_CAP = 1000; // safety: even if Anthropic supports 100k, cap our nightly to 1000 businesses per batch
 
 function createBatchOvernight(deps) {
-  const {
-    sbGet, sbPost, sbPatch,
-    extractJSON,
-    logger,
-    contextBundleBuilder,
-    buildBrandContext,
-    batchService,
-  } = deps;
+  const { sbGet, sbPost, sbPatch, extractJSON, logger, contextBundleBuilder, buildBrandContext, batchService } = deps;
   if (!batchService) throw new Error('batchOvernight: batchService dep required');
   if (!contextBundleBuilder) throw new Error('batchOvernight: contextBundleBuilder dep required');
 
   function localDateFor(profile) {
     const tz = profile?.timezone || 'Europe/Belgrade';
     try {
-      return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
     } catch {
       return new Date().toISOString().slice(0, 10);
     }
@@ -79,7 +75,11 @@ function createBatchOvernight(deps) {
       return { ok: true, requestCount: 0, anthropicId: null, internalId: null, skippedExistingPlans: 0, businesses: 0 };
     }
     if (businesses.length > BATCH_HARD_CAP) {
-      logger?.warn('/wf1/batchOvernight', null, `truncating to ${BATCH_HARD_CAP} businesses (saw ${businesses.length})`);
+      logger?.warn(
+        '/wf1/batchOvernight',
+        null,
+        `truncating to ${BATCH_HARD_CAP} businesses (saw ${businesses.length})`
+      );
       businesses = businesses.slice(0, BATCH_HARD_CAP);
     }
 
@@ -94,14 +94,21 @@ function createBatchOvernight(deps) {
         const todayLocalDate = localDateFor(profile);
 
         // Skip if a content_plan for today already exists (idempotent across cron retries)
-        const existing = await sbGet('content_plans', `business_id=eq.${business.id}&plan_date=eq.${todayLocalDate}&select=id`).catch(() => []);
+        const existing = await sbGet(
+          'content_plans',
+          `business_id=eq.${business.id}&plan_date=eq.${todayLocalDate}&select=id`
+        ).catch(() => []);
         if (existing[0]) {
           skippedExistingPlans++;
           continue;
         }
 
         const brandContext = buildBrandContext({ business, profile });
-        const bundle = await contextBundleBuilder.gatherBundle({ businessId: business.id, brandContext, todayLocalDate });
+        const bundle = await contextBundleBuilder.gatherBundle({
+          businessId: business.id,
+          brandContext,
+          todayLocalDate,
+        });
         const { system, user } = buildStrategicDecisionPrompt(brandContext, bundle);
 
         const isAgency = String(business.plan || '').toLowerCase() === 'agency';
@@ -128,7 +135,14 @@ function createBatchOvernight(deps) {
     }
 
     if (builtRequests.length === 0) {
-      return { ok: true, requestCount: 0, skippedExistingPlans, anthropicId: null, internalId: null, businesses: businesses.length };
+      return {
+        ok: true,
+        requestCount: 0,
+        skippedExistingPlans,
+        anthropicId: null,
+        internalId: null,
+        businesses: businesses.length,
+      };
     }
     if (dryRun) {
       return {
@@ -170,7 +184,10 @@ function createBatchOvernight(deps) {
       return { ok: true, status: reconciled.polled?.processing_status, applied: 0, written: 0 };
     }
 
-    const internalRows = await sbGet('anthropic_batches', `anthropic_batch_id=eq.${anthropicBatchId}&select=id,request_index`).catch(() => []);
+    const internalRows = await sbGet(
+      'anthropic_batches',
+      `anthropic_batch_id=eq.${anthropicBatchId}&select=id,request_index`
+    ).catch(() => []);
     const requestIndex = Array.isArray(internalRows[0]?.request_index) ? internalRows[0].request_index : [];
     const indexMap = new Map(requestIndex.map((e) => [e.custom_id, e]));
 
@@ -187,7 +204,10 @@ function createBatchOvernight(deps) {
         if (!businessId) continue;
 
         // Idempotency: if a plan for this date already exists, skip
-        const existing = await sbGet('content_plans', `business_id=eq.${businessId}&plan_date=eq.${idx.plan_date}&select=id`).catch(() => []);
+        const existing = await sbGet(
+          'content_plans',
+          `business_id=eq.${businessId}&plan_date=eq.${idx.plan_date}&select=id`
+        ).catch(() => []);
         if (existing[0]) continue;
 
         const text = r.result.message?.content?.find?.((b) => b.type === 'text')?.text || '';
@@ -242,9 +262,15 @@ function createBatchOvernight(deps) {
         }).catch(() => {});
 
         // Mark the anthropic_batch_results row applied=true
-        const matchingResultRows = await sbGet('anthropic_batch_results', `custom_id=eq.${r.custom_id}&order=created_at.desc&limit=1&select=id`).catch(() => []);
+        const matchingResultRows = await sbGet(
+          'anthropic_batch_results',
+          `custom_id=eq.${r.custom_id}&order=created_at.desc&limit=1&select=id`
+        ).catch(() => []);
         if (matchingResultRows[0]?.id) {
-          await sbPatch('anthropic_batch_results', `id=eq.${matchingResultRows[0].id}`, { applied: true, applied_at: new Date().toISOString() }).catch(() => {});
+          await sbPatch('anthropic_batch_results', `id=eq.${matchingResultRows[0].id}`, {
+            applied: true,
+            applied_at: new Date().toISOString(),
+          }).catch(() => {});
         }
       } catch (e) {
         errors++;
@@ -263,7 +289,11 @@ function createBatchOvernight(deps) {
     };
   }
 
-  return { submitOvernightBatch, applyOvernightBatch, constants: { BATCH_HARD_CAP, SONNET_MODEL, OPUS_MODEL, MAX_TOKENS } };
+  return {
+    submitOvernightBatch,
+    applyOvernightBatch,
+    constants: { BATCH_HARD_CAP, SONNET_MODEL, OPUS_MODEL, MAX_TOKENS },
+  };
 }
 
 module.exports = createBatchOvernight;

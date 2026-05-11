@@ -24,22 +24,22 @@ embed the same Supabase service-role key in 10+ places.
 Rotate in order of blast radius:
 
 - [ ] **Anthropic** — https://console.anthropic.com/settings/keys
-  Revoke `sk-ant-api03-2wwBU3RhNG…` and issue a new one. Update
-  `ANTHROPIC_KEY` in Railway env.
+      Revoke `sk-ant-api03-2wwBU3RhNG…` and issue a new one. Update
+      `ANTHROPIC_KEY` in Railway env.
 - [ ] **Supabase service-role** — Supabase dashboard → Project Settings
-  → API → "Reset service role key." Update `SUPABASE_KEY` and
-  `SUPABASE_SERVICE_ROLE_KEY` in Railway env. **Every** n8n-workflows
-  JSON file that embeds this key is now broken — that's intentional.
+      → API → "Reset service role key." Update `SUPABASE_KEY` and
+      `SUPABASE_SERVICE_ROLE_KEY` in Railway env. **Every** n8n-workflows
+      JSON file that embeds this key is now broken — that's intentional.
 - [ ] **Replicate** — `r8_Jet7AKlTlr6…`. Revoke at https://replicate.com/account/api-tokens, mint new, update `REPLICATE_API_KEY`.
 - [ ] **SerpAPI** — revoke + remint. Update `SERPAPI_KEY`.
 - [ ] **Pexels** — revoke + remint. Update `PEXELS_API_KEY`.
 - [ ] **Meta app secret** — `21a29db7504ebfa9740d247c8c8fd056`. Meta
-  Developer console → App Dashboard → Settings → Basic → Reset App
-  Secret. Update `META_APP_SECRET`.
+      Developer console → App Dashboard → Settings → Basic → Reset App
+      Secret. Update `META_APP_SECRET`.
 - [ ] **n8n Cloud JWT** — kill the n8n Cloud account entirely if you're
-  fully off n8n (which we are; nothing imports those workflows now).
+      fully off n8n (which we are; nothing imports those workflows now).
 - [ ] **`setup.sh`** — delete from local disk and from any backups
-  (`cd ~/Desktop/Maroa.ai && shred setup.sh && rm setup.sh`).
+      (`cd ~/Desktop/Maroa.ai && shred setup.sh && rm setup.sh`).
 
 After rotating, run `git log -p --all -- 'setup.sh' 'n8n-workflows/*.json'`
 to confirm no version of the file currently in HEAD contains a live key.
@@ -47,7 +47,7 @@ to confirm no version of the file currently in HEAD contains a live key.
 ### 2. Configure secrets in Doppler / Railway env (not `.env` files)
 
 - [ ] Sign up for Doppler (or use Railway env vars exclusively in prod).
-  Move every value previously in `setup.sh` into Doppler.
+      Move every value previously in `setup.sh` into Doppler.
 - [ ] Generate `OAUTH_TOKEN_ENC_KEY` for at-rest OAuth token encryption:
   ```
   openssl rand -hex 32
@@ -55,23 +55,23 @@ to confirm no version of the file currently in HEAD contains a live key.
   Add to Railway env AND Doppler. **Save the value** — losing it means
   losing decryptability of every OAuth token.
 - [ ] Set `SENTRY_DSN`, `SENTRY_TRACES_SAMPLE_RATE=0.1`, `RELEASE=<git-sha>`
-  on Railway.
+      on Railway.
 
 ### 3. Apply the new migrations to Supabase
 
 In Supabase SQL editor, run in order:
 
 - [ ] `migrations/054_webhook_events.sql` — webhook idempotency table.
-  Once applied, the dedup behavior in `lib/webhookEvents.js` activates
-  (until then it soft-fails and processes duplicates).
+      Once applied, the dedup behavior in `lib/webhookEvents.js` activates
+      (until then it soft-fails and processes duplicates).
 - [ ] `migrations/055_migrations_ledger.sql` — `_migrations` table.
-  Once applied, run `INSERT INTO _migrations (filename, checksum)
-  SELECT filename, '<sha256>' FROM ...` for every prior migration that's
-  already applied. `npm run check-migrations:applied` will tell you
-  which are missing.
+      Once applied, run `INSERT INTO _migrations (filename, checksum)
+SELECT filename, '<sha256>' FROM ...` for every prior migration that's
+      already applied. `npm run check-migrations:applied` will tell you
+      which are missing.
 - [ ] `migrations/056_oauth_token_encryption.sql` — adds `*_enc` columns
-  for OAuth tokens. New tokens auto-encrypt; existing ones stay
-  plaintext until you run the backfill.
+      for OAuth tokens. New tokens auto-encrypt; existing ones stay
+      plaintext until you run the backfill.
 
 ### 4. Run the OAuth token backfill
 
@@ -100,9 +100,9 @@ on every PR. It uses `GITHUB_TOKEN` (auto-provided) but you may want to
 add:
 
 - [ ] `SUPABASE_URL` + `SUPABASE_KEY` as **repository secrets** if you
-  want `--verify-applied` to run in CI.
+      want `--verify-applied` to run in CI.
 - [ ] Enable "Require status checks to pass before merging" on the `main`
-  branch (Settings → Branches → Branch protection rules).
+      branch (Settings → Branches → Branch protection rules).
 
 ---
 
@@ -151,6 +151,7 @@ file with one, fix the catches in that file before merging. The rule
 will go to `"error"` once the count drops below 20.
 
 Quick scan:
+
 ```
 npm run lint 2>&1 | grep -c "Empty block statement"
 ```
@@ -373,7 +374,7 @@ code-side. All passing CI. New items added to the "✅ covered" list:
 - ✅ **Inngest DLQ** — `migrations/058_inngest_dlq.sql` +
   `services/inngest/dlqRecorder.js`. Terminal failures write to
   `inngest_dlq` for replay + dashboard. Wired into ad-optimizer-daily
-  + content-publish-feedback-24h (rest in follow-up PRs).
+  - content-publish-feedback-24h (rest in follow-up PRs).
 - ✅ **OpenTelemetry scaffold** — `lib/otel.js` with `withSpan(name, fn)`
   helper. Opt-in via `OTEL_ENABLED=true` + installing
   `@opentelemetry/sdk-node`. No-op when not configured.
@@ -427,7 +428,7 @@ These are real projects, not afternoon items. Each is 1-2 sessions.
 - **Live-mode prompt eval** in CI cron — weekly real-Claude eval of
   fixtures, costs ~$5/week.
 - **OpenAPI hand-edits** — per-route summaries + request body schemas
-  + response shapes from the auto-generated skeleton.
+  - response shapes from the auto-generated skeleton.
 - **Empty-catch full sweep** — 100+ remaining `catch {}` blocks need
   logger wiring. New PRs fix files they touch; bulk PR optional.
 - **Per-service READMEs** — one `services/<name>/README.md` per service

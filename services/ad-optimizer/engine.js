@@ -22,12 +22,7 @@
 const adOptimizer = require('../prompts/ad-optimizer');
 
 function createEngine(deps) {
-  const {
-    sbGet, sbPost, sbPatch,
-    callClaude, extractJSON,
-    logger,
-    Sentry,
-  } = deps;
+  const { sbGet, sbPost, sbPatch, callClaude, extractJSON, logger, Sentry } = deps;
 
   if (!sbGet || !sbPost || !sbPatch) throw new Error('WF2 engine: sbGet/sbPost/sbPatch required');
   if (!callClaude || !extractJSON) throw new Error('WF2 engine: callClaude + extractJSON required');
@@ -43,11 +38,14 @@ function createEngine(deps) {
       // ─── Pull data (parallel) ──────────────────────────────────────────
       const [campaignRows, businessRows, history, decisionHistory] = await Promise.all([
         sbGet('ad_campaigns', `id=eq.${campaignId}&select=*`).catch(() => []),
-        sbGet('businesses',   `id=eq.${businessId}&select=*`).catch(() => []),
-        sbGet('ad_performance_logs',
-          `campaign_id=eq.${campaignId}&order=logged_at.desc&limit=14&select=*`).catch(() => []),
-        sbGet('ad_audit_results',
-          `campaign_id=eq.${campaignId}&order=audited_at.desc&limit=7&select=decision,decided_at:audited_at,created_at:audited_at`).catch(() => []),
+        sbGet('businesses', `id=eq.${businessId}&select=*`).catch(() => []),
+        sbGet('ad_performance_logs', `campaign_id=eq.${campaignId}&order=logged_at.desc&limit=14&select=*`).catch(
+          () => []
+        ),
+        sbGet(
+          'ad_audit_results',
+          `campaign_id=eq.${campaignId}&order=audited_at.desc&limit=7&select=decision,decided_at:audited_at,created_at:audited_at`
+        ).catch(() => []),
       ]);
 
       const campaign = campaignRows[0];
@@ -163,7 +161,11 @@ function createEngine(deps) {
         });
       }
 
-      Sentry?.addBreadcrumb?.({ category: 'wf2', message: 'auditOne done', data: { decision: audit.decision, action_taken } });
+      Sentry?.addBreadcrumb?.({
+        category: 'wf2',
+        message: 'auditOne done',
+        data: { decision: audit.decision, action_taken },
+      });
       return { audit, action_taken, campaign, business };
     } catch (e) {
       Sentry?.captureException?.(e);

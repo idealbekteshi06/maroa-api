@@ -26,18 +26,16 @@
  */
 
 function createFakeHiggsfield(opts = {}) {
-  const {
-    mode = 'always_succeed',
-    cloudMode = null,
-    fnfMode = null,
-    pollsBeforeReady = 2,
-  } = opts;
+  const { mode = 'always_succeed', cloudMode = null, fnfMode = null, pollsBeforeReady = 2 } = opts;
 
   const calls = [];
-  const jobs = new Map();   // jobId → { status, url, pollCount }
+  const jobs = new Map(); // jobId → { status, url, pollCount }
   let counter = 0;
 
-  function rid(prefix) { counter += 1; return `${prefix}_${Date.now()}_${counter}`; }
+  function rid(prefix) {
+    counter += 1;
+    return `${prefix}_${Date.now()}_${counter}`;
+  }
 
   function effectiveModeForApi(api) {
     if (api === 'cloud' && cloudMode) return cloudMode;

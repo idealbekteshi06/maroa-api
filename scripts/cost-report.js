@@ -37,20 +37,29 @@ function sbGet(table, query) {
   const url = `${SUPABASE_URL}/rest/v1/${table}?${query}`;
   return new Promise((resolve, reject) => {
     const u = new URL(url);
-    https.get({
-      hostname: u.hostname,
-      path: u.pathname + u.search,
-      headers: {
-        apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`,
-      },
-    }, (res) => {
-      let body = '';
-      res.on('data', c => body += c);
-      res.on('end', () => {
-        try { resolve(JSON.parse(body)); } catch (e) { reject(e); }
-      });
-    }).on('error', reject);
+    https
+      .get(
+        {
+          hostname: u.hostname,
+          path: u.pathname + u.search,
+          headers: {
+            apikey: SUPABASE_KEY,
+            Authorization: `Bearer ${SUPABASE_KEY}`,
+          },
+        },
+        (res) => {
+          let body = '';
+          res.on('data', (c) => (body += c));
+          res.on('end', () => {
+            try {
+              resolve(JSON.parse(body));
+            } catch (e) {
+              reject(e);
+            }
+          });
+        }
+      )
+      .on('error', reject);
   });
 }
 
@@ -63,12 +72,16 @@ function fmt(amount) {
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   // Last 24h
-  const todayRows = await sbGet('llm_cost_logs', `created_at=gte.${todayISO}&order=created_at.desc&limit=50000&select=*`)
-    .catch(() => []);
+  const todayRows = await sbGet(
+    'llm_cost_logs',
+    `created_at=gte.${todayISO}&order=created_at.desc&limit=50000&select=*`
+  ).catch(() => []);
 
   // Last 7 days
-  const weekRows = await sbGet('llm_cost_logs', `created_at=gte.${sevenDaysAgo}&order=created_at.desc&limit=200000&select=cost_usd,created_at`)
-    .catch(() => []);
+  const weekRows = await sbGet(
+    'llm_cost_logs',
+    `created_at=gte.${sevenDaysAgo}&order=created_at.desc&limit=200000&select=cost_usd,created_at`
+  ).catch(() => []);
 
   const todayTotal = todayRows.reduce((s, r) => s + Number(r.cost_usd || 0), 0);
   const weekTotal = weekRows.reduce((s, r) => s + Number(r.cost_usd || 0), 0);
@@ -141,7 +154,7 @@ function fmt(amount) {
   }
 
   if (!alerted) console.log('✅ No alerts. Within budget.');
-})().catch(e => {
+})().catch((e) => {
   console.error('Cost report failed:', e.message);
   process.exit(1);
 });

@@ -93,7 +93,11 @@ function signState({ businessId, userId, ts = Date.now(), nonce, secret }) {
 function verifyState(stateB64, secret) {
   if (!stateB64) return null;
   let raw;
-  try { raw = Buffer.from(stateB64, 'base64url').toString('utf8'); } catch { return null; }
+  try {
+    raw = Buffer.from(stateB64, 'base64url').toString('utf8');
+  } catch {
+    return null;
+  }
   const parts = raw.split('|');
   if (parts.length !== 5) return null;
   const [businessId, userId, nonce, ts, sig] = parts;
@@ -103,7 +107,9 @@ function verifyState(stateB64, secret) {
     const a = Buffer.from(sig, 'hex');
     const b = Buffer.from(expected, 'hex');
     ok = a.length === b.length && crypto.timingSafeEqual(a, b);
-  } catch { ok = false; }
+  } catch {
+    ok = false;
+  }
   if (!ok) return null;
   if (!isUuid(businessId) || !isUuid(userId)) return null;
   if (Date.now() - Number(ts) > 30 * 60 * 1000) return null;
@@ -166,11 +172,15 @@ async function fetchAccessibleAssets({ accessToken }) {
   // Three parallel calls — ad accounts, pages, IG accounts
   const [adAccountsRes, pagesRes] = await Promise.all([
     graphCall({ path: '/me/adaccounts', accessToken, query: { fields: 'id,account_id,name,currency,timezone_name' } }),
-    graphCall({ path: '/me/accounts', accessToken, query: { fields: 'id,name,access_token,instagram_business_account{id,username}' } }),
+    graphCall({
+      path: '/me/accounts',
+      accessToken,
+      query: { fields: 'id,name,access_token,instagram_business_account{id,username}' },
+    }),
   ]);
 
-  const adAccounts = adAccountsRes.ok ? (adAccountsRes.raw?.data || []) : [];
-  const pages = pagesRes.ok ? (pagesRes.raw?.data || []) : [];
+  const adAccounts = adAccountsRes.ok ? adAccountsRes.raw?.data || [] : [];
+  const pages = pagesRes.ok ? pagesRes.raw?.data || [] : [];
 
   // First page that has an IG business account attached
   const pageWithIg = pages.find((p) => p.instagram_business_account?.id);
@@ -179,7 +189,7 @@ async function fetchAccessibleAssets({ accessToken }) {
   return {
     ad_accounts: adAccounts,
     pages,
-    primary_ad_account: adAccounts[0] || null,    // Customer can override later
+    primary_ad_account: adAccounts[0] || null, // Customer can override later
     primary_page: pageWithIg || fallbackPage || null,
     instagram_business_account: pageWithIg?.instagram_business_account || null,
   };
@@ -190,10 +200,10 @@ async function fetchAccessibleAssets({ accessToken }) {
 function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger, verifyUserJwt }) {
   const APP_ID = (process.env.META_APP_ID || '').trim();
   const APP_SECRET = (process.env.META_APP_SECRET || '').trim();
-  const REDIRECT_URI = (process.env.META_OAUTH_REDIRECT_URI
-    || 'https://maroa-api-production.up.railway.app/webhook/oauth/meta/callback').trim();
-  const FRONTEND_URL = (process.env.FRONTEND_URL
-    || 'https://maroa-ai-marketing-automator.lovable.app').trim();
+  const REDIRECT_URI = (
+    process.env.META_OAUTH_REDIRECT_URI || 'https://maroa-api-production.up.railway.app/webhook/oauth/meta/callback'
+  ).trim();
+  const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://maroa-ai-marketing-automator.lovable.app').trim();
   const STATE_SECRET = (process.env.N8N_WEBHOOK_SECRET || '').trim();
 
   // Best-effort ownership check. Verifies the authenticated user is the
@@ -201,9 +211,14 @@ function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger
   async function userOwnsBusiness(userId, businessId) {
     if (!isUuid(userId) || !isUuid(businessId)) return false;
     try {
-      const rows = await sbGet('businesses', `id=eq.${encodeURIComponent(businessId)}&user_id=eq.${encodeURIComponent(userId)}&select=id&limit=1`);
+      const rows = await sbGet(
+        'businesses',
+        `id=eq.${encodeURIComponent(businessId)}&user_id=eq.${encodeURIComponent(userId)}&select=id&limit=1`
+      );
       return Array.isArray(rows) && rows.length === 1;
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   }
 
   // Extract JWT from Authorization header OR ?token= query (browser redirects
@@ -272,17 +287,36 @@ function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger
 
     try {
       // 1. Code → short token
-      const shortRes = await exchangeCodeForToken({ code, appId: APP_ID, appSecret: APP_SECRET, redirectUri: REDIRECT_URI });
+      const shortRes = await exchangeCodeForToken({
+        code,
+        appId: APP_ID,
+        appSecret: APP_SECRET,
+        redirectUri: REDIRECT_URI,
+      });
       if (!shortRes.ok) {
-        logger?.error?.('/webhook/oauth/meta/callback', businessId, 'short token exchange failed', { reason: shortRes.reason });
-        return res.redirect(302, `${FRONTEND_URL}/integrations?meta=error&reason=${encodeURIComponent(shortRes.reason)}`);
+        logger?.error?.('/webhook/oauth/meta/callback', businessId, 'short token exchange failed', {
+          reason: shortRes.reason,
+        });
+        return res.redirect(
+          302,
+          `${FRONTEND_URL}/integrations?meta=error&reason=${encodeURIComponent(shortRes.reason)}`
+        );
       }
 
       // 2. Short → long-lived (60 days)
-      const longRes = await exchangeShortForLong({ shortToken: shortRes.access_token, appId: APP_ID, appSecret: APP_SECRET });
+      const longRes = await exchangeShortForLong({
+        shortToken: shortRes.access_token,
+        appId: APP_ID,
+        appSecret: APP_SECRET,
+      });
       if (!longRes.ok) {
-        logger?.error?.('/webhook/oauth/meta/callback', businessId, 'long token exchange failed', { reason: longRes.reason });
-        return res.redirect(302, `${FRONTEND_URL}/integrations?meta=error&reason=${encodeURIComponent(longRes.reason)}`);
+        logger?.error?.('/webhook/oauth/meta/callback', businessId, 'long token exchange failed', {
+          reason: longRes.reason,
+        });
+        return res.redirect(
+          302,
+          `${FRONTEND_URL}/integrations?meta=error&reason=${encodeURIComponent(longRes.reason)}`
+        );
       }
 
       // 3. Fetch accessible ad accounts + pages + IG accounts
@@ -296,12 +330,13 @@ function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger
       // 060 will drop the plaintext columns. Until then, plaintext keeps
       // the existing read paths working.
       const patch = {
-        meta_access_token: longRes.access_token,                              // legacy plaintext (dropped in 060)
+        meta_access_token: longRes.access_token, // legacy plaintext (dropped in 060)
         ...oauthCrypto.encryptIfEnabled('meta_access_token', longRes.access_token),
         meta_token_expires_at: longRes.expires_in
           ? new Date(Date.now() + longRes.expires_in * 1000).toISOString()
           : null,
-        ad_account_id: assets.primary_ad_account?.account_id || assets.primary_ad_account?.id?.replace(/^act_/, '') || null,
+        ad_account_id:
+          assets.primary_ad_account?.account_id || assets.primary_ad_account?.id?.replace(/^act_/, '') || null,
         facebook_page_id: assets.primary_page?.id || null,
         facebook_page_access_token: assets.primary_page?.access_token || null,
         ...oauthCrypto.encryptIfEnabled('facebook_page_access_token', assets.primary_page?.access_token),
@@ -335,7 +370,8 @@ function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger
     const businessId = req.query.businessId || req.query.business_id;
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
     try {
-      const rows = await sbGet('businesses',
+      const rows = await sbGet(
+        'businesses',
         `id=eq.${businessId}&select=meta_access_token,meta_token_expires_at,ad_account_id,facebook_page_id,instagram_account_id,meta_connected_at`
       ).catch(() => []);
       const b = rows?.[0];
@@ -362,9 +398,7 @@ function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger
         instagram_account_id: b.instagram_account_id,
         meta_connected_at: b.meta_connected_at,
         token_expires_at: b.meta_token_expires_at,
-        granted_permissions: (probe.raw?.data || [])
-          .filter((p) => p.status === 'granted')
-          .map((p) => p.permission),
+        granted_permissions: (probe.raw?.data || []).filter((p) => p.status === 'granted').map((p) => p.permission),
       });
     } catch (e) {
       apiError(res, 500, 'META_OAUTH_HEALTH_FAILED', e.message);

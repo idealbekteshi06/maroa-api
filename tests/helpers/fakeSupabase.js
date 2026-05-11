@@ -57,14 +57,23 @@ function createFakeSupabase(opts = {}) {
     const search = new URLSearchParams(query);
     const out = { filters: [], select: null, order: null, limit: null, offset: null };
     for (const [k, v] of search.entries()) {
-      if (k === 'select') { out.select = v.split(',').map((s) => s.trim()); continue; }
+      if (k === 'select') {
+        out.select = v.split(',').map((s) => s.trim());
+        continue;
+      }
       if (k === 'order') {
         const [col, dir] = v.split('.');
         out.order = { col, dir: dir || 'asc' };
         continue;
       }
-      if (k === 'limit') { out.limit = Number(v); continue; }
-      if (k === 'offset') { out.offset = Number(v); continue; }
+      if (k === 'limit') {
+        out.limit = Number(v);
+        continue;
+      }
+      if (k === 'offset') {
+        out.offset = Number(v);
+        continue;
+      }
       out.filters.push({ col: k, raw: v });
     }
     return out;
@@ -75,16 +84,22 @@ function createFakeSupabase(opts = {}) {
     const [op, ...rest] = raw.split('.');
     const val = rest.join('.');
     switch (op) {
-      case 'eq':  return String(row[col]) === decodeURIComponent(val);
-      case 'neq': return String(row[col]) !== decodeURIComponent(val);
+      case 'eq':
+        return String(row[col]) === decodeURIComponent(val);
+      case 'neq':
+        return String(row[col]) !== decodeURIComponent(val);
       case 'in': {
         const list = val.replace(/^[(]/, '').replace(/[)]$/, '').split(',').map(decodeURIComponent);
         return list.includes(String(row[col]));
       }
-      case 'gte': return Number(row[col]) >= Number(val) || String(row[col]) >= String(val);
-      case 'lte': return Number(row[col]) <= Number(val) || String(row[col]) <= String(val);
-      case 'is':  return val === 'null' ? row[col] == null : row[col] === val;
-      default:    return true;
+      case 'gte':
+        return Number(row[col]) >= Number(val) || String(row[col]) >= String(val);
+      case 'lte':
+        return Number(row[col]) <= Number(val) || String(row[col]) <= String(val);
+      case 'is':
+        return val === 'null' ? row[col] == null : row[col] === val;
+      default:
+        return true;
     }
   }
 
@@ -171,8 +186,14 @@ function createFakeSupabase(opts = {}) {
   }
 
   return {
-    sbGet, sbPost, sbPatch, sbDelete,
-    seed, reset, where, all,
+    sbGet,
+    sbPost,
+    sbPatch,
+    sbDelete,
+    seed,
+    reset,
+    where,
+    all,
     _tables: tables,
     UUID_RE,
   };

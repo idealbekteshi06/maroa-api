@@ -36,8 +36,8 @@ function createGuardrails({ sbGet, countryIntelligence, logger }) {
     // Min spacing (240 minutes) between same platform
     const minSpacingMs = WF1_GUARDRAILS.volume.minMinutesBetweenSamePlatform * 60 * 1000;
     const latest = rows
-      .map(r => new Date(r.posted_at).getTime())
-      .filter(t => !Number.isNaN(t))
+      .map((r) => new Date(r.posted_at).getTime())
+      .filter((t) => !Number.isNaN(t))
       .sort((a, b) => b - a)[0];
     if (latest && Date.now() - latest < minSpacingMs) {
       const minsLeft = Math.ceil((latest + minSpacingMs - Date.now()) / 60000);
@@ -74,7 +74,7 @@ function createGuardrails({ sbGet, countryIntelligence, logger }) {
         .toLowerCase()
         .replace(/[^\w\s]/g, '')
         .split(/\s+/)
-        .filter(w => w.length > 3)
+        .filter((w) => w.length > 3)
     );
     if (!newWords.size) return { allowed: true };
 
@@ -85,7 +85,7 @@ function createGuardrails({ sbGet, countryIntelligence, logger }) {
           .toLowerCase()
           .replace(/[^\w\s]/g, '')
           .split(/\s+/)
-          .filter(w => w.length > 3)
+          .filter((w) => w.length > 3)
       );
       let overlap = 0;
       for (const w of newWords) {
@@ -132,7 +132,7 @@ function createGuardrails({ sbGet, countryIntelligence, logger }) {
     try {
       const country = (brandContext.primaryMarkets && brandContext.primaryMarkets[0]) || 'XK';
       const holidays = countryIntelligence.getUpcomingHolidays(country, 1) || [];
-      const today = holidays.find(h => {
+      const today = holidays.find((h) => {
         const d = new Date(h.date || h.iso_date);
         return d.toDateString() === new Date().toDateString();
       });
@@ -177,12 +177,15 @@ function createGuardrails({ sbGet, countryIntelligence, logger }) {
   // ── Cost cap per post ──────────────────────────────────────────────────
   function checkCostCap({ format, estimatedCost }) {
     const budgets = WF1_GUARDRAILS.costPerPostBudgetUsd;
-    const formatKey =
-      /reel/i.test(format) ? 'reel' :
-      /tiktok/i.test(format) ? 'tiktok' :
-      /carousel/i.test(format) ? 'carousel' :
-      /linkedin.*article/i.test(format) ? 'linkedinArticle' :
-      'image';
+    const formatKey = /reel/i.test(format)
+      ? 'reel'
+      : /tiktok/i.test(format)
+        ? 'tiktok'
+        : /carousel/i.test(format)
+          ? 'carousel'
+          : /linkedin.*article/i.test(format)
+            ? 'linkedinArticle'
+            : 'image';
     const cap = budgets[formatKey];
     if (estimatedCost > cap * 1.2) {
       return { allowed: false, reason: `Cost over budget: $${estimatedCost.toFixed(2)} > cap $${cap} (${formatKey})` };
@@ -200,9 +203,7 @@ function createGuardrails({ sbGet, countryIntelligence, logger }) {
       checkVolume({ businessId, platform: concept.platform }),
       checkTopicCooldown({ businessId, pillar: concept.pillar, coreIdea: concept.core_idea || concept.coreIdea }),
       checkCrisisPause({ businessId }),
-      Promise.resolve(
-        checkHolidaySensitivity({ brandContext, pillar: concept.pillar, currentLocalTime })
-      ),
+      Promise.resolve(checkHolidaySensitivity({ brandContext, pillar: concept.pillar, currentLocalTime })),
       Promise.resolve(
         checkCostCap({
           format: concept.format || '',

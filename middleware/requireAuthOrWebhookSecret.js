@@ -18,11 +18,12 @@ const SUPABASE_URL = clean(process.env.SUPABASE_URL);
 const SUPABASE_SERVICE_ROLE_KEY = clean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY);
 const N8N_WEBHOOK_SECRET = clean(process.env.N8N_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET);
 
-const supabaseAdmin = createClient && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
-  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    })
-  : null;
+const supabaseAdmin =
+  createClient && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      })
+    : null;
 
 if (!supabaseAdmin) {
   console.warn('[auth] supabaseAdmin NOT initialized — JWT verification disabled');
@@ -62,11 +63,12 @@ function requireAuthOrWebhookSecret(req, res, next) {
   }
 
   if (token && supabaseAdmin) {
-    supabaseAdmin.auth.getUser(token)
+    supabaseAdmin.auth
+      .getUser(token)
       .then(({ data, error }) => {
         if (error || !data?.user) {
           return res.status(401).json({
-            error: { code: 'UNAUTHORIZED', message: 'Invalid auth token', timestamp: new Date().toISOString() }
+            error: { code: 'UNAUTHORIZED', message: 'Invalid auth token', timestamp: new Date().toISOString() },
           });
         }
         req.user = data.user;
@@ -74,10 +76,10 @@ function requireAuthOrWebhookSecret(req, res, next) {
         req.authSource = 'jwt';
         return next();
       })
-      .catch(err => {
+      .catch((err) => {
         console.error('[auth] JWT verification failed:', err?.message || err);
         return res.status(401).json({
-          error: { code: 'UNAUTHORIZED', message: 'Auth verification failed', timestamp: new Date().toISOString() }
+          error: { code: 'UNAUTHORIZED', message: 'Auth verification failed', timestamp: new Date().toISOString() },
         });
       });
     return;

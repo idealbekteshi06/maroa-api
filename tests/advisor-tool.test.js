@@ -63,9 +63,13 @@ test('callWithAdvisor: routes through callClaude with advisor extras when enable
   };
   const r = await advisor.callWithAdvisor({
     callClaude: fakeClaude,
-    system: 's', user: 'u',
-    task: 'audit', budget: 'standard', planTier: 'growth',
-    executor: 'claude-sonnet-4-5', advisor: 'claude-opus-4-7',
+    system: 's',
+    user: 'u',
+    task: 'audit',
+    budget: 'standard',
+    planTier: 'growth',
+    executor: 'claude-sonnet-4-5',
+    advisor: 'claude-opus-4-7',
   });
   assert.strictEqual(r, 'OK');
   assert.strictEqual(captured.prompt, 'u');
@@ -83,15 +87,14 @@ test('callWithAdvisor: free tier silently degrades to executor-only (no advisor 
   };
   await advisor.callWithAdvisor({
     callClaude: fakeClaude,
-    system: 's', user: 'u',
-    task: 'audit', planTier: 'free',
+    system: 's',
+    user: 'u',
+    task: 'audit',
+    planTier: 'free',
   });
   assert.strictEqual(captured.extra.advisor, undefined);
 });
 
 test('callWithAdvisor: requires callClaude function', async () => {
-  await assert.rejects(
-    () => advisor.callWithAdvisor({ task: 'audit' }),
-    /callClaude required/
-  );
+  await assert.rejects(() => advisor.callWithAdvisor({ task: 'audit' }), /callClaude required/);
 });

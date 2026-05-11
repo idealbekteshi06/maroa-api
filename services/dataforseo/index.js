@@ -31,9 +31,7 @@ function isConfigured() {
 
 function authHeader() {
   if (!isConfigured()) return null;
-  const token = Buffer
-    .from(`${process.env.DATAFORSEO_LOGIN}:${process.env.DATAFORSEO_PASSWORD}`)
-    .toString('base64');
+  const token = Buffer.from(`${process.env.DATAFORSEO_LOGIN}:${process.env.DATAFORSEO_PASSWORD}`).toString('base64');
   return `Basic ${token}`;
 }
 
@@ -108,16 +106,18 @@ async function query({ prompt, engine = 'chatgpt', location_code = 2840 /* US */
   const task = r.raw?.tasks?.[0];
   const result = task?.result?.[0];
   const items = result?.items || [];
-  const responseText = items.map((i) => i.text || i.title || '').filter(Boolean).join(' ').slice(0, 2000);
-  const citedUrls = Array.from(new Set(
-    items.flatMap((i) => i.cited_urls || (i.url ? [i.url] : []))
-  ));
+  const responseText = items
+    .map((i) => i.text || i.title || '')
+    .filter(Boolean)
+    .join(' ')
+    .slice(0, 2000);
+  const citedUrls = Array.from(new Set(items.flatMap((i) => i.cited_urls || (i.url ? [i.url] : []))));
 
   return {
     engine,
     response_text: responseText,
     cited_urls: citedUrls,
-    api_cost_usd: Number(task?.cost) || 0.10,
+    api_cost_usd: Number(task?.cost) || 0.1,
     api_source: 'dataforseo',
     raw: r.raw,
   };

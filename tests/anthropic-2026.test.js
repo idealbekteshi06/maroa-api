@@ -107,7 +107,13 @@ test('anthropic-files: requires API key', () => {
 
 test('anthropic-batch: factory returns the expected surface', () => {
   const { createBatchService } = require(path.join(ROOT, 'services/anthropic-batch'));
-  const svc = createBatchService({ apiKey: 'test', logger: {}, sbGet: async () => [], sbPost: async () => ({}), sbPatch: async () => ({}) });
+  const svc = createBatchService({
+    apiKey: 'test',
+    logger: {},
+    sbGet: async () => [],
+    sbPost: async () => ({}),
+    sbPatch: async () => ({}),
+  });
   for (const fn of ['buildRequest', 'submitBatch', 'pollBatch', 'fetchResults', 'cancelBatch', 'reconcileResults']) {
     assert.equal(typeof svc[fn], 'function', `${fn} should be exported`);
   }
@@ -116,7 +122,13 @@ test('anthropic-batch: factory returns the expected surface', () => {
 
 test('anthropic-batch: buildRequest produces correct shape', () => {
   const { createBatchService } = require(path.join(ROOT, 'services/anthropic-batch'));
-  const svc = createBatchService({ apiKey: 'test', logger: {}, sbGet: async () => [], sbPost: async () => ({}), sbPatch: async () => ({}) });
+  const svc = createBatchService({
+    apiKey: 'test',
+    logger: {},
+    sbGet: async () => [],
+    sbPost: async () => ({}),
+    sbPatch: async () => ({}),
+  });
   const req = svc.buildRequest({
     customId: 'biz_123_concept_5',
     model: 'claude-sonnet-4-5',
@@ -137,7 +149,13 @@ test('anthropic-batch: buildRequest produces correct shape', () => {
 
 test('anthropic-batch: buildRequest with cacheSystem wraps system in cacheable block', () => {
   const { createBatchService } = require(path.join(ROOT, 'services/anthropic-batch'));
-  const svc = createBatchService({ apiKey: 'test', logger: {}, sbGet: async () => [], sbPost: async () => ({}), sbPatch: async () => ({}) });
+  const svc = createBatchService({
+    apiKey: 'test',
+    logger: {},
+    sbGet: async () => [],
+    sbPost: async () => ({}),
+    sbPatch: async () => ({}),
+  });
   const req = svc.buildRequest({
     customId: 'biz_x',
     model: 'claude-opus-4-7',
@@ -152,7 +170,13 @@ test('anthropic-batch: buildRequest with cacheSystem wraps system in cacheable b
 
 test('anthropic-batch: buildRequest with fileIds + citations attaches document blocks', () => {
   const { createBatchService } = require(path.join(ROOT, 'services/anthropic-batch'));
-  const svc = createBatchService({ apiKey: 'test', logger: {}, sbGet: async () => [], sbPost: async () => ({}), sbPatch: async () => ({}) });
+  const svc = createBatchService({
+    apiKey: 'test',
+    logger: {},
+    sbGet: async () => [],
+    sbPost: async () => ({}),
+    sbPatch: async () => ({}),
+  });
   const req = svc.buildRequest({
     customId: 'biz_x',
     model: 'claude-sonnet-4-5',
@@ -171,7 +195,13 @@ test('anthropic-batch: buildRequest with fileIds + citations attaches document b
 
 test('anthropic-batch: buildRequest validates required fields', () => {
   const { createBatchService } = require(path.join(ROOT, 'services/anthropic-batch'));
-  const svc = createBatchService({ apiKey: 'test', logger: {}, sbGet: async () => [], sbPost: async () => ({}), sbPatch: async () => ({}) });
+  const svc = createBatchService({
+    apiKey: 'test',
+    logger: {},
+    sbGet: async () => [],
+    sbPost: async () => ({}),
+    sbPatch: async () => ({}),
+  });
   assert.throws(() => svc.buildRequest({ model: 'x', prompt: 'y' }), /customId required/);
   assert.throws(() => svc.buildRequest({ customId: 'x', prompt: 'y' }), /model required/);
 });
@@ -181,9 +211,7 @@ test('anthropic-batch: buildRequest validates required fields', () => {
 test('citations: parseCitedResponse with no citations returns plain text', () => {
   const c = require(path.join(ROOT, 'services/anthropic-citations'));
   const out = c.parseCitedResponse({
-    content: [
-      { type: 'text', text: 'Here is the answer.' },
-    ],
+    content: [{ type: 'text', text: 'Here is the answer.' }],
   });
   assert.equal(out.renderedText, 'Here is the answer.');
   assert.deepEqual(out.citations, []);
@@ -195,18 +223,48 @@ test('citations: parseCitedResponse renders inline numbered markers + dedupes', 
     content: [
       { type: 'text', text: 'According to your data, ' },
       {
-        type: 'text', text: 'Q4 reach grew 32%',
-        citations: [{ type: 'char_location', cited_text: 'Q4 reach: +32%', document_index: 0, document_title: 'Performance Report', start_char_index: 100, end_char_index: 120 }],
+        type: 'text',
+        text: 'Q4 reach grew 32%',
+        citations: [
+          {
+            type: 'char_location',
+            cited_text: 'Q4 reach: +32%',
+            document_index: 0,
+            document_title: 'Performance Report',
+            start_char_index: 100,
+            end_char_index: 120,
+          },
+        ],
       },
       { type: 'text', text: ' and ' },
       {
-        type: 'text', text: 'CTR improved',
-        citations: [{ type: 'page_location', cited_text: 'CTR rose from 0.8 to 1.4', document_index: 1, document_title: 'IG Analytics', start_page_number: 3, end_page_number: 4 }],
+        type: 'text',
+        text: 'CTR improved',
+        citations: [
+          {
+            type: 'page_location',
+            cited_text: 'CTR rose from 0.8 to 1.4',
+            document_index: 1,
+            document_title: 'IG Analytics',
+            start_page_number: 3,
+            end_page_number: 4,
+          },
+        ],
       },
       // duplicate citation should NOT get a new marker
       {
-        type: 'text', text: ' as already shown',
-        citations: [{ type: 'char_location', cited_text: 'Q4 reach: +32%', document_index: 0, document_title: 'Performance Report', start_char_index: 100, end_char_index: 120 }],
+        type: 'text',
+        text: ' as already shown',
+        citations: [
+          {
+            type: 'char_location',
+            cited_text: 'Q4 reach: +32%',
+            document_index: 0,
+            document_title: 'Performance Report',
+            start_char_index: 100,
+            end_char_index: 120,
+          },
+        ],
       },
     ],
   });
@@ -220,16 +278,34 @@ test('citations: parseCitedResponse renders inline numbered markers + dedupes', 
 
 test('citations: normaliseCitation handles all 3 location types', () => {
   const c = require(path.join(ROOT, 'services/anthropic-citations'));
-  const text = c.normaliseCitation({ type: 'char_location', cited_text: 'x', document_index: 0, start_char_index: 5, end_char_index: 10 });
+  const text = c.normaliseCitation({
+    type: 'char_location',
+    cited_text: 'x',
+    document_index: 0,
+    start_char_index: 5,
+    end_char_index: 10,
+  });
   assert.equal(text.kind, 'text');
   assert.equal(text.start, 5);
   assert.equal(text.end, 10);
 
-  const pdf = c.normaliseCitation({ type: 'page_location', cited_text: 'y', document_index: 1, start_page_number: 2, end_page_number: 3 });
+  const pdf = c.normaliseCitation({
+    type: 'page_location',
+    cited_text: 'y',
+    document_index: 1,
+    start_page_number: 2,
+    end_page_number: 3,
+  });
   assert.equal(pdf.kind, 'pdf');
   assert.equal(pdf.startPage, 2);
 
-  const block = c.normaliseCitation({ type: 'content_block_location', cited_text: 'z', document_index: 2, start_block_index: 0, end_block_index: 1 });
+  const block = c.normaliseCitation({
+    type: 'content_block_location',
+    cited_text: 'z',
+    document_index: 2,
+    start_block_index: 0,
+    end_block_index: 1,
+  });
   assert.equal(block.kind, 'block');
   assert.equal(block.startBlock, 0);
 });

@@ -23,15 +23,15 @@ async function buildAndStorePineconeProfile(userId, profileData, getEmbedding, p
     business_name: profileData.business_name || '',
     business_type: profileData.business_type || '',
     primary_city: locs[0]?.city || '',
-    all_locations: locs.map(l => l.neighborhood ? `${l.neighborhood}, ${l.city}` : l.city).join(' | '),
+    all_locations: locs.map((l) => (l.neighborhood ? `${l.neighborhood}, ${l.city}` : l.city)).join(' | '),
     operation_model: profileData.operation_model || '',
     service_area: serviceArea.join(', '),
     ad_targeting_area: adArea.join(', '),
     primary_language: profileData.primary_language || 'Albanian',
     audience: `${profileData.audience_age_min || 18}-${profileData.audience_age_max || 65} years, ${profileData.audience_gender || 'mixed'}, ${profileData.audience_description || ''}`,
     pain_point: profileData.pain_point || '',
-    products: prods.map(p => `${p.name}: ${p.description || ''}${p.price ? ' (' + p.price + ')' : ''}`).join(' | '),
-    bestseller: prods.find(p => p.is_bestseller)?.name || prods[0]?.name || '',
+    products: prods.map((p) => `${p.name}: ${p.description || ''}${p.price ? ' (' + p.price + ')' : ''}`).join(' | '),
+    bestseller: prods.find((p) => p.is_bestseller)?.name || prods[0]?.name || '',
     current_offer: profileData.current_offer || 'none',
     primary_goal: profileData.primary_goal || '',
     monthly_budget: profileData.monthly_budget || '',
@@ -44,7 +44,7 @@ async function buildAndStorePineconeProfile(userId, profileData, getEmbedding, p
     business_hours_summary: buildHoursSummary(profileData.business_hours),
     seasonal: profileData.seasonal || 'year_round',
     busy_months: busyMonths.join(', '),
-    type: 'business_profile'
+    type: 'business_profile',
   };
 
   // Build rich text for embedding
@@ -68,7 +68,9 @@ async function buildAndStorePineconeProfile(userId, profileData, getEmbedding, p
     `Tagline: ${metadata.tagline}`,
     `Hours: ${metadata.business_hours_summary}`,
     `Season: ${metadata.seasonal}, busy months: ${metadata.busy_months}`,
-  ].filter(line => !line.endsWith(': ')).join('\n');
+  ]
+    .filter((line) => !line.endsWith(': '))
+    .join('\n');
 
   // Generate embedding
   const embedding = await getEmbedding(textForEmbedding);
@@ -83,7 +85,7 @@ async function buildAndStorePineconeProfile(userId, profileData, getEmbedding, p
     {
       id: `profile_${userId}`,
       values: embedding,
-      metadata: metadata
+      metadata: metadata,
     },
     {
       id: `context_${userId}`,
@@ -93,9 +95,9 @@ async function buildAndStorePineconeProfile(userId, profileData, getEmbedding, p
         type: 'master_prompt',
         text: masterPrompt.slice(0, 30000), // Pinecone metadata limit
         business_name: metadata.business_name,
-        primary_city: metadata.primary_city
-      }
-    }
+        primary_city: metadata.primary_city,
+      },
+    },
   ]);
 
   return { success: true, metadata };

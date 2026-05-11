@@ -11,17 +11,17 @@ map and [LEARNINGS.md](./LEARNINGS.md) for the decision log.
 
 ## Stack at a glance
 
-| Layer | Tool |
-|---|---|
-| HTTP API | Node 18+ · Express 4 |
+| Layer           | Tool                                                             |
+| --------------- | ---------------------------------------------------------------- |
+| HTTP API        | Node 18+ · Express 4                                             |
 | Background jobs | [Inngest](https://www.inngest.com) — durable cron + event-driven |
-| Database | Supabase Postgres (PostgREST + service-role key) |
-| LLM | Anthropic Claude (Sonnet 4.5 · Opus 4.7 · Haiku 4.5) |
-| Image/Video | Higgsfield AI (Cloud + FNF fallback) |
-| Social | Ayrshare + Meta Graph + LinkedIn UGC |
-| Payments | Paddle (primary) + Stripe (legacy) |
-| Observability | Sentry + Prometheus `/metrics` + structured JSON logs |
-| Deploy | Railway |
+| Database        | Supabase Postgres (PostgREST + service-role key)                 |
+| LLM             | Anthropic Claude (Sonnet 4.5 · Opus 4.7 · Haiku 4.5)             |
+| Image/Video     | Higgsfield AI (Cloud + FNF fallback)                             |
+| Social          | Ayrshare + Meta Graph + LinkedIn UGC                             |
+| Payments        | Paddle (primary) + Stripe (legacy)                               |
+| Observability   | Sentry + Prometheus `/metrics` + structured JSON logs            |
+| Deploy          | Railway                                                          |
 
 ---
 
@@ -106,18 +106,18 @@ in production).
 
 ## NPM scripts
 
-| Command | What it does |
-|---|---|
-| `npm run dev` | Watch + reload — `node --watch server.js` |
-| `npm start` | Production start |
-| `npm test` | Run the test suite (`node --test tests/*.test.js`) |
-| `npm run lint` | ESLint |
-| `npm run format` | Prettier write |
-| `npm run check-migrations` | Sanity-check migration file naming + gaps |
-| `npm run check-migrations:applied` | Diff repo vs `_migrations` ledger in DB |
-| `npm run cost-report` | Aggregate LLM spend per business / skill / model |
-| `npm run restore-drill` | Run the backup restore drill |
-| `npm run ops:audit` | Full pre-deploy: migrations + lint + test + audit |
+| Command                            | What it does                                       |
+| ---------------------------------- | -------------------------------------------------- |
+| `npm run dev`                      | Watch + reload — `node --watch server.js`          |
+| `npm start`                        | Production start                                   |
+| `npm test`                         | Run the test suite (`node --test tests/*.test.js`) |
+| `npm run lint`                     | ESLint                                             |
+| `npm run format`                   | Prettier write                                     |
+| `npm run check-migrations`         | Sanity-check migration file naming + gaps          |
+| `npm run check-migrations:applied` | Diff repo vs `_migrations` ledger in DB            |
+| `npm run cost-report`              | Aggregate LLM spend per business / skill / model   |
+| `npm run restore-drill`            | Run the backup restore drill                       |
+| `npm run ops:audit`                | Full pre-deploy: migrations + lint + test + audit  |
 
 ---
 
@@ -133,6 +133,7 @@ client ─▶ CORS ─▶ trust proxy ─▶ Sentry (PII-scrubbed) ─▶ reques
 ```
 
 Inngest events fire in parallel for:
+
 - daily ad optimizer (`TZ=UTC 0 8 * * *`)
 - pacing alerts (every 4h)
 - weekly scorecard (Sun 22:00 UTC)
@@ -145,11 +146,13 @@ Inngest events fire in parallel for:
 ## Common operations
 
 **Add a new env var**
+
 1. Add it to `lib/env.js` zod schema with `optionalString()` or required string.
 2. Add a line in `.env.example` with a comment.
 3. Use `env.MY_VAR` (don't read `process.env` directly).
 
 **Add a migration**
+
 1. Create `migrations/NNN_short_name.sql`. Make it idempotent
    (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`).
 2. Run `npm run check-migrations` locally — fails on gaps/duplicates.
@@ -158,12 +161,14 @@ Inngest events fire in parallel for:
    checksum (`shasum -a 256 migrations/NNN_*.sql`).
 
 **Add a new Inngest job**
+
 1. Add the function to `services/inngest/functions.js` and export it.
 2. POST your event from anywhere with
    `inngest.send({ name: 'maroa/...', data: {...} })`.
 3. The Inngest dashboard at https://app.inngest.com/ shows live runs.
 
 **Add a new LLM-using endpoint**
+
 - Mount `aiRateLimit` AND `costGuard` on the path in `server.js`.
 - Call `callClaude(prompt, model, max_tokens, { businessId, skill: 'my_skill' })`
   — that gives you retries, prompt-caching, cost tracking, budget enforcement.

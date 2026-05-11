@@ -107,7 +107,7 @@ test('parseCitationResult: detects competitor citations', () => {
   const r = tracker.parseCitationResult({
     responseText: 'Some answer.',
     citedUrls: ['https://acmedental.com', 'https://bestsmile.com/services'],
-    competitorNames: ['Best Smile', 'Pearly Whites'],   // distinct, no substring overlap
+    competitorNames: ['Best Smile', 'Pearly Whites'], // distinct, no substring overlap
     brandName: 'Acme Dental',
     brandUrl: 'https://acmedental.com',
   });
@@ -158,13 +158,21 @@ test('detectCitationGaps: returns prompts where only competitors got cited', asy
   const rows = [
     { prompt_text: 'A', engine: 'chatgpt', competitor_citations: [{ name: 'C1' }], observed_at: '2026-05-01' },
     { prompt_text: 'B', engine: 'perplexity', competitor_citations: [], observed_at: '2026-05-01' },
-    { prompt_text: 'C', engine: 'chatgpt', competitor_citations: [{ name: 'C2' }, { name: 'C3' }], observed_at: '2026-05-01' },
+    {
+      prompt_text: 'C',
+      engine: 'chatgpt',
+      competitor_citations: [{ name: 'C2' }, { name: 'C3' }],
+      observed_at: '2026-05-01',
+    },
   ];
   const deps = { sbGet: async () => rows };
   const r = await tracker.detectCitationGaps({ businessId: 'b1', days: 7, deps });
   assert.strictEqual(r.gap_count, 2);
   assert.strictEqual(r.gaps.length, 2);
-  assert.deepStrictEqual(r.gaps.map((g) => g.prompt_text), ['A', 'C']);
+  assert.deepStrictEqual(
+    r.gaps.map((g) => g.prompt_text),
+    ['A', 'C']
+  );
 });
 
 test('citation-tracker: free tier is plan-gated out', async () => {

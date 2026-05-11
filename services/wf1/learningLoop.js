@@ -51,8 +51,8 @@ function createLearningLoop({ sbGet, sbPost, sbPatch, apiRequest, logger }) {
       const url = `https://graph.facebook.com/v19.0/${post.platform_post_id}?fields=id,reactions.summary(true),comments.summary(true),shares,insights.metric(post_impressions_unique,post_impressions)&access_token=${token}`;
       const r = await apiRequest('GET', url, {});
       if (r.status !== 200) return null;
-      const reach = r.body.insights?.data?.find(i => i.name === 'post_impressions_unique')?.values?.[0]?.value || 0;
-      const impressions = r.body.insights?.data?.find(i => i.name === 'post_impressions')?.values?.[0]?.value || 0;
+      const reach = r.body.insights?.data?.find((i) => i.name === 'post_impressions_unique')?.values?.[0]?.value || 0;
+      const impressions = r.body.insights?.data?.find((i) => i.name === 'post_impressions')?.values?.[0]?.value || 0;
       const reactions = r.body.reactions?.summary?.total_count || 0;
       const comments = r.body.comments?.summary?.total_count || 0;
       const shares = r.body.shares?.count || 0;
@@ -138,17 +138,15 @@ function createLearningLoop({ sbGet, sbPost, sbPatch, apiRequest, logger }) {
       ? `business_id=eq.${businessId}&pattern_type=eq.${encPatternType}&platform=eq.${encPlatform}&trait=eq.${encTrait}`
       : `business_id=eq.${businessId}&pattern_type=eq.${encPatternType}&platform=is.null&trait=eq.${encTrait}`;
 
-    const existing = await sbGet('learning_patterns', `${filter}&select=id,sample_size,lift,drag,metadata`).catch(() => []);
+    const existing = await sbGet('learning_patterns', `${filter}&select=id,sample_size,lift,drag,metadata`).catch(
+      () => []
+    );
 
     if (existing[0]) {
       const row = existing[0];
       const newSample = (row.sample_size || 0) + 1;
-      const newLift = lift != null
-        ? ((Number(row.lift || 0) * (row.sample_size || 1)) + lift) / newSample
-        : row.lift;
-      const newDrag = drag != null
-        ? ((Number(row.drag || 0) * (row.sample_size || 1)) + drag) / newSample
-        : row.drag;
+      const newLift = lift != null ? (Number(row.lift || 0) * (row.sample_size || 1) + lift) / newSample : row.lift;
+      const newDrag = drag != null ? (Number(row.drag || 0) * (row.sample_size || 1) + drag) / newSample : row.drag;
       await sbPatch('learning_patterns', `id=eq.${row.id}`, {
         lift: newLift,
         drag: newDrag,
@@ -173,9 +171,7 @@ function createLearningLoop({ sbGet, sbPost, sbPatch, apiRequest, logger }) {
 
   // ── Measure a single post ────────────────────────────────────────────
   async function measurePost({ postId }) {
-    const [postRows] = await Promise.all([
-      sbGet('content_posts', `id=eq.${postId}&select=*`),
-    ]);
+    const [postRows] = await Promise.all([sbGet('content_posts', `id=eq.${postId}&select=*`)]);
     const post = postRows[0];
     if (!post) throw new Error(`Post not found: ${postId}`);
     if (post.performance_measured_at) {
@@ -355,17 +351,17 @@ function createLearningLoop({ sbGet, sbPost, sbPatch, apiRequest, logger }) {
     ]);
 
     return {
-      winningPatterns: (winners || []).map(w => ({
+      winningPatterns: (winners || []).map((w) => ({
         trait: w.trait,
         lift: Number(w.lift || 0),
         sampleSize: w.sample_size || 0,
       })),
-      antiPatterns: (antis || []).map(a => ({
+      antiPatterns: (antis || []).map((a) => ({
         trait: a.trait,
         drag: Number(a.drag || 0),
         sampleSize: a.sample_size || 0,
       })),
-      hashtagBank: (hashtags || []).map(h => ({
+      hashtagBank: (hashtags || []).map((h) => ({
         tag: h.trait,
         platform: h.platform || 'all',
         avgReach: Number(h.metadata?.avgReach || 0),

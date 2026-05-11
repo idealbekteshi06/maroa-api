@@ -35,13 +35,13 @@ const PLATFORM_VIA_META_GRAPH = ['threads', 'facebook', 'instagram'];
 
 // Platform → preferred aspect ratio for native rendering
 const PLATFORM_ASPECT_RATIO = {
-  linkedin: '1.91:1',     // landscape preferred for feed
-  pinterest: '2:3',       // tall portrait pins convert best
-  tiktok: '9:16',         // full vertical
-  youtube: '9:16',        // shorts only at this scope
-  threads: '1:1',         // square plays on both feeds and replies
+  linkedin: '1.91:1', // landscape preferred for feed
+  pinterest: '2:3', // tall portrait pins convert best
+  tiktok: '9:16', // full vertical
+  youtube: '9:16', // shorts only at this scope
+  threads: '1:1', // square plays on both feeds and replies
   facebook: '1.91:1',
-  instagram: '1:1',       // feed default; reels are 9:16 (handled separately)
+  instagram: '1:1', // feed default; reels are 9:16 (handled separately)
 };
 
 function adaptContentForPlatform({ platform, content, mediaUrl }) {
@@ -77,7 +77,7 @@ async function ayrsharePost({ apiKey, profileKey, platforms, post, mediaUrls, sc
   const body = {
     post,
     platforms,
-    mediaUrls: Array.isArray(mediaUrls) ? mediaUrls : (mediaUrls ? [mediaUrls] : []),
+    mediaUrls: Array.isArray(mediaUrls) ? mediaUrls : mediaUrls ? [mediaUrls] : [],
   };
   if (scheduleAt) body.scheduleDate = new Date(scheduleAt).toISOString();
   // profileKey identifies a sub-account — Ayrshare's per-customer model
@@ -121,19 +121,25 @@ const META_GRAPH_HOST = 'graph.facebook.com';
 function parseRateLimitHeader(headerValue) {
   if (!headerValue) return null;
   let parsed;
-  try { parsed = JSON.parse(headerValue); } catch { return null; }
+  try {
+    parsed = JSON.parse(headerValue);
+  } catch {
+    return null;
+  }
   let worstPct = 0;
   const hints = [];
   for (const accountId of Object.keys(parsed || {})) {
     const buckets = parsed[accountId] || [];
     for (const b of buckets) {
-      const pct = Math.max(
-        Number(b.call_count || 0),
-        Number(b.total_cputime || 0),
-        Number(b.total_time || 0),
-      );
+      const pct = Math.max(Number(b.call_count || 0), Number(b.total_cputime || 0), Number(b.total_time || 0));
       if (pct > worstPct) worstPct = pct;
-      if (pct >= 75) hints.push({ account: accountId, type: b.type, pct, estimated_time_to_regain_access: b.estimated_time_to_regain_access });
+      if (pct >= 75)
+        hints.push({
+          account: accountId,
+          type: b.type,
+          pct,
+          estimated_time_to_regain_access: b.estimated_time_to_regain_access,
+        });
     }
   }
   return { worstPct, throttleHints: hints };
@@ -151,22 +157,60 @@ function classifyMetaError(json) {
 
   // Rate limit
   if (code === 4 || code === 17 || code === 32 || code === 613) {
-    return { category: 'rate_limit', retryable: true, hint: 'back off + retry after X-Business-Use-Case-Usage drops', code, subcode };
+    return {
+      category: 'rate_limit',
+      retryable: true,
+      hint: 'back off + retry after X-Business-Use-Case-Usage drops',
+      code,
+      subcode,
+    };
   }
-  if (subcode === 1487390) return { category: 'daily_spend_cap', retryable: false, hint: 'ad account hit daily spend cap', code, subcode };
-  if (subcode === 80004) return { category: 'api_throttle', retryable: true, hint: 'API throttled — retry in 5 minutes', code, subcode };
+  if (subcode === 1487390)
+    return { category: 'daily_spend_cap', retryable: false, hint: 'ad account hit daily spend cap', code, subcode };
+  if (subcode === 80004)
+    return { category: 'api_throttle', retryable: true, hint: 'API throttled — retry in 5 minutes', code, subcode };
 
   // Auth / permissions
-  if (code === 190) return { category: 'token_expired', retryable: false, hint: 'access token expired — user must re-auth', code, subcode };
-  if (code === 200 || code === 10) return { category: 'permission_denied', retryable: false, hint: 'missing scope or page admin role', code, subcode };
-  if (code === 102) return { category: 'session_expired', retryable: false, hint: 'session expired — full re-auth required', code, subcode };
+  if (code === 190)
+    return {
+      category: 'token_expired',
+      retryable: false,
+      hint: 'access token expired — user must re-auth',
+      code,
+      subcode,
+    };
+  if (code === 200 || code === 10)
+    return { category: 'permission_denied', retryable: false, hint: 'missing scope or page admin role', code, subcode };
+  if (code === 102)
+    return {
+      category: 'session_expired',
+      retryable: false,
+      hint: 'session expired — full re-auth required',
+      code,
+      subcode,
+    };
 
   // Validation
-  if (code === 100) return { category: 'validation', retryable: false, hint: msg || 'invalid parameter', code, subcode };
-  if (subcode === 1815004) return { category: 'duplicate_post', retryable: false, hint: 'identical post within last 5 minutes — Meta blocks dupes', code, subcode };
+  if (code === 100)
+    return { category: 'validation', retryable: false, hint: msg || 'invalid parameter', code, subcode };
+  if (subcode === 1815004)
+    return {
+      category: 'duplicate_post',
+      retryable: false,
+      hint: 'identical post within last 5 minutes — Meta blocks dupes',
+      code,
+      subcode,
+    };
 
   // IG-specific
-  if (subcode === 2207001) return { category: 'ig_media_unavailable', retryable: true, hint: 'media still uploading — retry in 10s', code, subcode };
+  if (subcode === 2207001)
+    return {
+      category: 'ig_media_unavailable',
+      retryable: true,
+      hint: 'media still uploading — retry in 10s',
+      code,
+      subcode,
+    };
 
   // Default
   return { category: 'unknown', retryable: code >= 500, hint: msg || `HTTP error code ${code}`, code, subcode };
@@ -229,9 +273,7 @@ async function metaGraphPost({ accessToken, pageAccessToken, accountId, platform
   if (platform === 'facebook') {
     // FB page posts use the page-scoped access token.
     const token = pageAccessToken || accessToken;
-    const body = mediaUrl
-      ? { url: mediaUrl, caption: text, published: true }
-      : { message: text, published: true };
+    const body = mediaUrl ? { url: mediaUrl, caption: text, published: true } : { message: text, published: true };
     const endpoint = mediaUrl ? `/${accountId}/photos` : `/${accountId}/feed`;
     const r = await metaGraph({ method: 'POST', path: endpoint, accessToken: token, body });
     if (!r.ok) {
@@ -283,9 +325,7 @@ async function metaGraphPost({ accessToken, pageAccessToken, accountId, platform
   if (platform === 'threads') {
     // 2-step like IG. Threads supports text-only OR image.
     const token = accessToken;
-    const body = mediaUrl
-      ? { media_type: 'IMAGE', image_url: mediaUrl, text }
-      : { media_type: 'TEXT', text };
+    const body = mediaUrl ? { media_type: 'IMAGE', image_url: mediaUrl, text } : { media_type: 'TEXT', text };
     const containerRes = await metaGraph({
       method: 'POST',
       path: `/${accountId}/threads`,
@@ -323,7 +363,8 @@ async function metaGraphPost({ accessToken, pageAccessToken, accountId, platform
 
 async function listConnectedPlatforms({ businessId, deps }) {
   const { sbGet } = deps;
-  const rows = await sbGet?.('businesses',
+  const rows = await sbGet?.(
+    'businesses',
     `id=eq.${businessId}&select=meta_access_token,facebook_page_id,instagram_account_id,threads_account_id,ayrshare_profile_key,ayrshare_connected_platforms`
   ).catch(() => []);
   const business = rows?.[0];
@@ -348,7 +389,8 @@ async function postNow({ businessId, platforms, content, mediaUrl, deps }) {
   const valid = (platforms || []).filter((p) => SUPPORTED_PLATFORMS.includes(p));
   if (valid.length === 0) return { ok: false, reason: 'no supported platforms in request' };
 
-  const businessRows = await sbGet('businesses',
+  const businessRows = await sbGet(
+    'businesses',
     `id=eq.${businessId}&select=meta_access_token,meta_access_token_enc,facebook_page_id,facebook_page_access_token,facebook_page_access_token_enc,instagram_account_id,threads_account_id,ayrshare_profile_key`
   ).catch(() => []);
   const business = businessRows?.[0];
@@ -371,7 +413,7 @@ async function postNow({ businessId, platforms, content, mediaUrl, deps }) {
     // adapt content per-platform first to honor character limits, then pass
     // the longest-tolerant version because Ayrshare doesn't accept per-
     // platform overrides for body text in a single call.
-    const adapted = adaptContentForPlatform({ platform: 'youtube', content, mediaUrl });  // longest limit
+    const adapted = adaptContentForPlatform({ platform: 'youtube', content, mediaUrl }); // longest limit
     const r = await ayrsharePost({
       apiKey: process.env.AYRSHARE_API_KEY,
       profileKey: business.ayrshare_profile_key,
@@ -388,9 +430,12 @@ async function postNow({ businessId, platforms, content, mediaUrl, deps }) {
     const r = await metaGraphPost({
       accessToken: metaToken,
       pageAccessToken: pageToken,
-      accountId: p === 'facebook' ? business.facebook_page_id :
-                  p === 'instagram' ? business.instagram_account_id :
-                  business.threads_account_id,
+      accountId:
+        p === 'facebook'
+          ? business.facebook_page_id
+          : p === 'instagram'
+            ? business.instagram_account_id
+            : business.threads_account_id,
       platform: p,
       post: adapted.body,
       mediaUrl,
@@ -398,7 +443,9 @@ async function postNow({ businessId, platforms, content, mediaUrl, deps }) {
     });
     if (r.rateLimit && r.rateLimit.worstPct >= 75) {
       logger?.warn?.('social-multi.meta', businessId, 'rate-limit pressure', {
-        platform: p, worst_pct: r.rateLimit.worstPct, throttle_hints: r.rateLimit.throttleHints,
+        platform: p,
+        worst_pct: r.rateLimit.worstPct,
+        throttle_hints: r.rateLimit.throttleHints,
       });
     }
     results.push({ via: 'meta_graph', platform: p, ...r });
@@ -432,9 +479,7 @@ async function schedulePost({ businessId, platforms, content, mediaUrl, schedule
   const valid = (platforms || []).filter((p) => SUPPORTED_PLATFORMS.includes(p));
   if (valid.length === 0) return { ok: false, reason: 'no supported platforms' };
 
-  const businessRows = await sbGet('businesses',
-    `id=eq.${businessId}&select=ayrshare_profile_key`
-  ).catch(() => []);
+  const businessRows = await sbGet('businesses', `id=eq.${businessId}&select=ayrshare_profile_key`).catch(() => []);
   const business = businessRows?.[0];
   if (!business?.ayrshare_profile_key) {
     // Persist as draft for our cron to handle when we add Meta scheduling

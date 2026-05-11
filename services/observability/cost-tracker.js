@@ -21,15 +21,15 @@ const metrics = require('./metrics');
 
 const PRICING = {
   // model → { input_per_mtok, output_per_mtok, cache_read_per_mtok }
-  'claude-sonnet-4-5': { input: 3.0,  output: 15.0, cache_read: 0.30 },
-  'claude-opus-4-7':   { input: 5.0,  output: 25.0, cache_read: 0.50 },
-  'claude-haiku-4-5':  { input: 0.80, output: 4.0,  cache_read: 0.08 },
+  'claude-sonnet-4-5': { input: 3.0, output: 15.0, cache_read: 0.3 },
+  'claude-opus-4-7': { input: 5.0, output: 25.0, cache_read: 0.5 },
+  'claude-haiku-4-5': { input: 0.8, output: 4.0, cache_read: 0.08 },
   // Aliases for backwards compat
-  'claude-sonnet-4':   { input: 3.0,  output: 15.0, cache_read: 0.30 },
-  'claude-opus-4':     { input: 5.0,  output: 25.0, cache_read: 0.50 },
+  'claude-sonnet-4': { input: 3.0, output: 15.0, cache_read: 0.3 },
+  'claude-opus-4': { input: 5.0, output: 25.0, cache_read: 0.5 },
 };
 
-const FALLBACK_PRICING = { input: 3.0, output: 15.0, cache_read: 0.30 }; // Sonnet default
+const FALLBACK_PRICING = { input: 3.0, output: 15.0, cache_read: 0.3 }; // Sonnet default
 
 /**
  * Compute cost in USD for a single LLM call.
@@ -42,15 +42,11 @@ function calcCost(usage, model) {
   if (!usage || typeof usage !== 'object') return 0;
   const p = PRICING[model] || FALLBACK_PRICING;
 
-  const cachedRead   = Number(usage.cache_read_input_tokens) || 0;
-  const inputTokens  = (Number(usage.input_tokens) || 0) - cachedRead;
+  const cachedRead = Number(usage.cache_read_input_tokens) || 0;
+  const inputTokens = (Number(usage.input_tokens) || 0) - cachedRead;
   const outputTokens = Number(usage.output_tokens) || 0;
 
-  return (
-    (inputTokens / 1e6)  * p.input +
-    (cachedRead / 1e6)   * p.cache_read +
-    (outputTokens / 1e6) * p.output
-  );
+  return (inputTokens / 1e6) * p.input + (cachedRead / 1e6) * p.cache_read + (outputTokens / 1e6) * p.output;
 }
 
 /**
@@ -65,7 +61,7 @@ async function track({ businessId, skill, model, usage, cost_usd, sbPost, logger
   // Metrics
   metrics.increment('llm_calls_total', { skill: skill || 'unknown', model: model || 'unknown' });
   metrics.observeHistogram('llm_cost_usd_total_per_call', cost * 1000, { skill, model });
-  metrics.increment('llm_tokens_input_total',  { skill, model }, Number(usage?.input_tokens) || 0);
+  metrics.increment('llm_tokens_input_total', { skill, model }, Number(usage?.input_tokens) || 0);
   metrics.increment('llm_tokens_output_total', { skill, model }, Number(usage?.output_tokens) || 0);
   if (usage?.cache_read_input_tokens) {
     metrics.increment('llm_tokens_cached_total', { skill, model }, Number(usage.cache_read_input_tokens));
@@ -97,10 +93,9 @@ async function track({ businessId, skill, model, usage, cost_usd, sbPost, logger
  */
 async function buildCostReport({ sbGet, days = 7 }) {
   const since = new Date(Date.now() - days * 86400000).toISOString();
-  const rows = await sbGet(
-    'llm_cost_logs',
-    `created_at=gte.${since}&order=created_at.desc&limit=10000&select=*`
-  ).catch(() => []);
+  const rows = await sbGet('llm_cost_logs', `created_at=gte.${since}&order=created_at.desc&limit=10000&select=*`).catch(
+    () => []
+  );
 
   const byBusiness = new Map();
   const bySkill = new Map();
@@ -127,9 +122,7 @@ async function buildCostReport({ sbGet, days = 7 }) {
     by_skill: Object.fromEntries(
       [...bySkill.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, Number(v.toFixed(2))])
     ),
-    by_model: Object.fromEntries(
-      [...byModel.entries()].map(([k, v]) => [k, Number(v.toFixed(2))])
-    ),
+    by_model: Object.fromEntries([...byModel.entries()].map(([k, v]) => [k, Number(v.toFixed(2))])),
   };
 }
 

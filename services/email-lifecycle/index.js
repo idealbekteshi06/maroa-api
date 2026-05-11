@@ -30,7 +30,7 @@
 const STAGE_DEFAULTS = {
   welcome: { trigger_event: 'signup', cadence_days: [0, 2, 7] },
   nurture: { trigger_event: 'welcome_complete', cadence_days: [0, 7, 14, 28] },
-  abandoned_cart: { trigger_event: 'cart_abandoned', cadence_days: [0, 1, 3] },   // 1h handled separately as fractional day
+  abandoned_cart: { trigger_event: 'cart_abandoned', cadence_days: [0, 1, 3] }, // 1h handled separately as fractional day
   post_purchase: { trigger_event: 'purchase', cadence_days: [0, 7, 30] },
   re_engagement: { trigger_event: 'no_open_14d', cadence_days: [0, 16] },
   win_back: { trigger_event: 'no_visit_60d', cadence_days: [0, 30] },
@@ -39,8 +39,8 @@ const STAGE_DEFAULTS = {
 const PSYCHOLOGY_BY_STAGE_STEP = {
   // Maps a stage+step to a recommended psychological principle.
   // Industry-aware logic still applies on top of these defaults.
-  'welcome:0': 'reciprocity',           // Day 0 — give value
-  'welcome:1': 'social_proof',          // Day 2 — show others love it
+  'welcome:0': 'reciprocity', // Day 0 — give value
+  'welcome:1': 'social_proof', // Day 2 — show others love it
   'welcome:2': 'commitment_consistency', // Day 7 — micro-commitment
   'nurture:0': 'reciprocity',
   'nurture:1': 'authority',
@@ -49,13 +49,13 @@ const PSYCHOLOGY_BY_STAGE_STEP = {
   'abandoned_cart:0': 'loss_aversion',
   'abandoned_cart:1': 'scarcity',
   'abandoned_cart:2': 'social_proof',
-  'post_purchase:0': 'reciprocity',     // confirm + thank
-  'post_purchase:1': 'authority',       // onboarding insights
-  'post_purchase:2': 'social_proof',    // review request
+  'post_purchase:0': 'reciprocity', // confirm + thank
+  'post_purchase:1': 'authority', // onboarding insights
+  'post_purchase:2': 'social_proof', // review request
   're_engagement:0': 'curiosity',
   're_engagement:1': 'loss_aversion',
-  'win_back:0': 'reciprocity',          // soft return offer
-  'win_back:1': 'loss_aversion',        // last chance
+  'win_back:0': 'reciprocity', // soft return offer
+  'win_back:1': 'loss_aversion', // last chance
 };
 
 function principleForStep(stage, stepIndex) {
@@ -92,14 +92,16 @@ async function enrollRecipient({ businessId, stage, email, name, deps }) {
   const { sbGet, sbPost } = deps;
   if (!email || !stage) return { ok: false, reason: 'email + stage required' };
 
-  const seqRows = await sbGet('email_sequences',
+  const seqRows = await sbGet(
+    'email_sequences',
     `business_id=eq.${businessId}&stage=eq.${stage}&is_active=eq.true&select=*&limit=1`
   ).catch(() => []);
   const seq = seqRows?.[0];
   if (!seq) return { ok: false, reason: `no active sequence for stage ${stage}` };
 
   // Idempotency — don't enroll the same email twice in the same active sequence
-  const existing = await sbGet('email_sequence_runs',
+  const existing = await sbGet(
+    'email_sequence_runs',
     `sequence_id=eq.${seq.id}&recipient_email=eq.${encodeURIComponent(email)}&status=eq.running&limit=1&select=id`
   ).catch(() => []);
   if (existing && existing[0]) return { ok: true, alreadyEnrolled: true };
@@ -135,31 +137,31 @@ function composeStepEmail({ business, sequence, step, recipient, brandVoiceAncho
     'welcome:0': {
       subject: `Welcome, ${recipientName} 👋`,
       preheader: `Here's what we'll do for you in the first 24 hours`,
-      lead: 'A quick hello + here\'s exactly what happens next.',
-      cta: 'See what\'s inside',
+      lead: "A quick hello + here's exactly what happens next.",
+      cta: "See what's inside",
     },
     'welcome:1': {
       subject: `${business.business_name}: how it works`,
       preheader: `The 3-step thing we do for ${business.industry || 'businesses like yours'}`,
-      lead: 'Most people don\'t realize this is even possible — here\'s the short version.',
+      lead: "Most people don't realize this is even possible — here's the short version.",
       cta: 'Show me',
     },
     'welcome:2': {
       subject: 'Your first wins (week 1 review)',
-      preheader: 'A quick look at what\'s already happening',
-      lead: 'You\'ve been with us 7 days. Here\'s what\'s already shipped on your behalf.',
+      preheader: "A quick look at what's already happening",
+      lead: "You've been with us 7 days. Here's what's already shipped on your behalf.",
       cta: 'View dashboard',
     },
     'abandoned_cart:0': {
       subject: 'You left something behind',
       preheader: 'Just in case it slipped your mind',
-      lead: 'Here\'s what you were looking at — still available, still ready.',
+      lead: "Here's what you were looking at — still available, still ready.",
       cta: 'Pick up where you left off',
     },
     'abandoned_cart:1': {
       subject: '24 hours later — still here?',
       preheader: 'A quick reminder',
-      lead: 'No pressure — just letting you know it\'s still in your cart.',
+      lead: "No pressure — just letting you know it's still in your cart.",
       cta: 'Complete checkout',
     },
     'abandoned_cart:2': {
@@ -171,35 +173,35 @@ function composeStepEmail({ business, sequence, step, recipient, brandVoiceAncho
     'post_purchase:0': {
       subject: `Thanks, ${recipientName}!`,
       preheader: 'Order confirmed + what happens next',
-      lead: 'Real quick — here\'s your confirmation and a thank-you.',
+      lead: "Real quick — here's your confirmation and a thank-you.",
       cta: 'View order',
     },
     'post_purchase:1': {
       subject: 'Day 7: getting the most out of it',
       preheader: 'A few tips most people miss',
-      lead: 'Here\'s what experienced users do to get more out of their purchase.',
+      lead: "Here's what experienced users do to get more out of their purchase.",
       cta: 'See the tips',
     },
     'post_purchase:2': {
       subject: 'How are we doing?',
       preheader: 'Two minutes — would you mind?',
-      lead: 'A quick request: would you share how it\'s going?',
+      lead: "A quick request: would you share how it's going?",
       cta: 'Leave a quick review',
     },
     're_engagement:0': {
       subject: 'Did we miss something?',
       preheader: 'Honest question',
       lead: 'Two weeks went by without hearing from you. Anything we can fix?',
-      cta: 'Yes — here\'s the thing',
+      cta: "Yes — here's the thing",
     },
     're_engagement:1': {
       subject: 'Last note from us (for now)',
       preheader: 'No spam — just a final check-in',
-      lead: 'If you\'re not interested anymore, that\'s totally fine — no hard feelings.',
+      lead: "If you're not interested anymore, that's totally fine — no hard feelings.",
       cta: 'Stay subscribed',
     },
     'win_back:0': {
-      subject: 'It\'s been a while',
+      subject: "It's been a while",
       preheader: 'A small gift to come back',
       lead: 'We saved a 20%-off code for you. No expiration.',
       cta: 'Use my code',
@@ -238,11 +240,14 @@ function composeStepEmail({ business, sequence, step, recipient, brandVoiceAncho
 
 async function processDueRuns({ now = new Date(), deps }) {
   const { sbGet, sbPatch, sendEmail, logger } = deps;
-  const due = await sbGet('email_sequence_runs',
+  const due = await sbGet(
+    'email_sequence_runs',
     `status=eq.running&next_send_at=lte.${now.toISOString()}&select=*&limit=200`
   ).catch(() => []);
 
-  let sent = 0, failed = 0, completed = 0;
+  let sent = 0,
+    failed = 0,
+    completed = 0;
   for (const run of due || []) {
     try {
       const seqRows = await sbGet('email_sequences', `id=eq.${run.sequence_id}&select=*&limit=1`).catch(() => []);
@@ -284,7 +289,9 @@ async function processDueRuns({ now = new Date(), deps }) {
 
       const nextStep = stepIdx + 1;
       const isComplete = nextStep >= cadence.length;
-      const nextSend = isComplete ? null : new Date(Date.now() + (cadence[nextStep] - (cadence[stepIdx] || 0)) * 24 * 60 * 60 * 1000).toISOString();
+      const nextSend = isComplete
+        ? null
+        : new Date(Date.now() + (cadence[nextStep] - (cadence[stepIdx] || 0)) * 24 * 60 * 60 * 1000).toISOString();
 
       await sbPatch('email_sequence_runs', `id=eq.${run.id}`, {
         current_step: nextStep,
@@ -294,7 +301,8 @@ async function processDueRuns({ now = new Date(), deps }) {
         send_log: log,
       }).catch(() => {});
 
-      if (sendResult.ok) sent += 1; else failed += 1;
+      if (sendResult.ok) sent += 1;
+      else failed += 1;
       if (isComplete) completed += 1;
     } catch (e) {
       failed += 1;

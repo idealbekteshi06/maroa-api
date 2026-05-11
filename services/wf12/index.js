@@ -63,7 +63,9 @@ function createWf12(deps) {
   }
 
   async function listLaunches(businessId) {
-    const rows = await sbGet('launches', `business_id=eq.${businessId}&order=created_at.desc&select=*&limit=20`).catch(() => []);
+    const rows = await sbGet('launches', `business_id=eq.${businessId}&order=created_at.desc&select=*&limit=20`).catch(
+      () => []
+    );
     return { items: rows };
   }
 

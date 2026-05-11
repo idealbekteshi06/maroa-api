@@ -18,7 +18,7 @@ const SLOP_REPLACEMENTS = {
   'cool transition': 'match-cut',
   'dramatic camera': 'slow Crane Up',
   'eye-catching': null,
-  'attention-grabbing': null
+  'attention-grabbing': null,
 };
 
 function killSlop(text) {
@@ -28,7 +28,10 @@ function killSlop(text) {
     const re = new RegExp(`\\b${slop.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
     out = out.replace(re, replacement || '');
   }
-  return out.replace(/\s{2,}/g, ' ').replace(/\s+([,.])/g, '$1').trim();
+  return out
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([,.])/g, '$1')
+    .trim();
 }
 
 const SLOP_INSTRUCTION = `

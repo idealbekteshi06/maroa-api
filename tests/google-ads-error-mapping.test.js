@@ -36,34 +36,40 @@ test('classifyGoogleAdsError: 5xx → google_outage, retryable', () => {
 });
 
 test('classifyGoogleAdsError: GoogleAdsFailure quota_error → quota_exceeded', () => {
-  const c = ga.classifyGoogleAdsError({
-    error: {
-      details: [
-        {
-          '@type': 'type.googleapis.com/google.ads.googleads.v18.errors.GoogleAdsFailure',
-          requestId: 'req_abc',
-          errors: [{ errorCode: { quota_error: 'RESOURCE_EXHAUSTED' }, message: 'quota hit' }],
-        },
-      ],
+  const c = ga.classifyGoogleAdsError(
+    {
+      error: {
+        details: [
+          {
+            '@type': 'type.googleapis.com/google.ads.googleads.v18.errors.GoogleAdsFailure',
+            requestId: 'req_abc',
+            errors: [{ errorCode: { quota_error: 'RESOURCE_EXHAUSTED' }, message: 'quota hit' }],
+          },
+        ],
+      },
     },
-  }, 429);
+    429
+  );
   assert.strictEqual(c.category, 'quota_exceeded');
   assert.strictEqual(c.codeName, 'quota_error');
   assert.strictEqual(c.requestId, 'req_abc');
 });
 
 test('classifyGoogleAdsError: query_error → validation, not retryable', () => {
-  const c = ga.classifyGoogleAdsError({
-    error: {
-      details: [
-        {
-          '@type': 'type.googleapis.com/google.ads.googleads.v18.errors.GoogleAdsFailure',
-          requestId: 'req_xyz',
-          errors: [{ errorCode: { query_error: 'BAD_SYNTAX' }, message: 'invalid GAQL' }],
-        },
-      ],
+  const c = ga.classifyGoogleAdsError(
+    {
+      error: {
+        details: [
+          {
+            '@type': 'type.googleapis.com/google.ads.googleads.v18.errors.GoogleAdsFailure',
+            requestId: 'req_xyz',
+            errors: [{ errorCode: { query_error: 'BAD_SYNTAX' }, message: 'invalid GAQL' }],
+          },
+        ],
+      },
     },
-  }, 400);
+    400
+  );
   assert.strictEqual(c.category, 'validation');
   assert.strictEqual(c.retryable, false);
   assert.ok(c.hint.includes('invalid'));

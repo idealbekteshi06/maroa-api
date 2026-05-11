@@ -51,19 +51,45 @@ function createWf3(deps) {
     const byCamp = new Map();
     for (const p of perf) {
       const key = p.campaign_id || 'unknown';
-      const rec = byCamp.get(key) || { spend: 0, clicks: 0, impressions: 0, conversions: 0, reach: 0, roas_sum: 0, roas_n: 0, ctr_sum: 0, ctr_n: 0, freq_sum: 0, freq_n: 0, cpc_sum: 0, cpc_n: 0 };
+      const rec = byCamp.get(key) || {
+        spend: 0,
+        clicks: 0,
+        impressions: 0,
+        conversions: 0,
+        reach: 0,
+        roas_sum: 0,
+        roas_n: 0,
+        ctr_sum: 0,
+        ctr_n: 0,
+        freq_sum: 0,
+        freq_n: 0,
+        cpc_sum: 0,
+        cpc_n: 0,
+      };
       rec.spend += Number(p.spend || 0);
       rec.clicks += Number(p.clicks || 0);
       rec.impressions += Number(p.impressions || 0);
       rec.conversions += Number(p.conversions || 0);
       rec.reach += Number(p.reach || 0);
-      if (p.roas != null) { rec.roas_sum += Number(p.roas || 0); rec.roas_n++; }
-      if (p.ctr != null) { rec.ctr_sum += Number(p.ctr || 0); rec.ctr_n++; }
-      if (p.frequency != null) { rec.freq_sum += Number(p.frequency || 0); rec.freq_n++; }
-      if (p.cpc != null) { rec.cpc_sum += Number(p.cpc || 0); rec.cpc_n++; }
+      if (p.roas != null) {
+        rec.roas_sum += Number(p.roas || 0);
+        rec.roas_n++;
+      }
+      if (p.ctr != null) {
+        rec.ctr_sum += Number(p.ctr || 0);
+        rec.ctr_n++;
+      }
+      if (p.frequency != null) {
+        rec.freq_sum += Number(p.frequency || 0);
+        rec.freq_n++;
+      }
+      if (p.cpc != null) {
+        rec.cpc_sum += Number(p.cpc || 0);
+        rec.cpc_n++;
+      }
       byCamp.set(key, rec);
     }
-    const campSnap = (campaigns || []).map(c => {
+    const campSnap = (campaigns || []).map((c) => {
       const r = byCamp.get(c.meta_campaign_id || c.id) || {};
       return {
         platform: c.platform || 'meta',
@@ -95,7 +121,10 @@ function createWf3(deps) {
       const rec = weekBuckets.get(wk) || { spend: 0, conversions: 0, roas_sum: 0, roas_n: 0 };
       rec.spend += Number(p.spend || 0);
       rec.conversions += Number(p.conversions || 0);
-      if (p.roas != null) { rec.roas_sum += Number(p.roas || 0); rec.roas_n++; }
+      if (p.roas != null) {
+        rec.roas_sum += Number(p.roas || 0);
+        rec.roas_n++;
+      }
       weekBuckets.set(wk, rec);
     }
     const trajectory = [...weekBuckets.entries()]
@@ -126,7 +155,10 @@ function createWf3(deps) {
     const snapshot = await buildSnapshot({ businessId, weekStart });
 
     // Idempotency
-    const existing = await sbGet('ad_optimization_runs', `business_id=eq.${businessId}&week_start=eq.${snapshot.weekStart}&select=id,status`).catch(() => []);
+    const existing = await sbGet(
+      'ad_optimization_runs',
+      `business_id=eq.${businessId}&week_start=eq.${snapshot.weekStart}&select=id,status`
+    ).catch(() => []);
     if (existing[0] && !force) {
       return { runId: existing[0].id, status: existing[0].status, reused: true };
     }
@@ -222,9 +254,15 @@ function createWf3(deps) {
   }
 
   async function getLatestRun(businessId) {
-    const rows = await sbGet('ad_optimization_runs', `business_id=eq.${businessId}&order=week_start.desc&limit=1&select=*`).catch(() => []);
+    const rows = await sbGet(
+      'ad_optimization_runs',
+      `business_id=eq.${businessId}&order=week_start.desc&limit=1&select=*`
+    ).catch(() => []);
     if (!rows[0]) return null;
-    const actions = await sbGet('ad_optimization_actions', `run_id=eq.${rows[0].id}&order=created_at.asc&select=*`).catch(() => []);
+    const actions = await sbGet(
+      'ad_optimization_actions',
+      `run_id=eq.${rows[0].id}&order=created_at.asc&select=*`
+    ).catch(() => []);
     return { run: rows[0], actions };
   }
 

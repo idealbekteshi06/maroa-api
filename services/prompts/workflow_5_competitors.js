@@ -51,12 +51,23 @@ NON-NEGOTIABLE
 
   const user = `
 COMPETITOR DATA (last 7 days):
-${(bundle.competitors || []).map(c => `  ${c.name} (${c.url || 'no url'})
-    recent posts: ${(c.posts || []).slice(0, 3).map(p => `"${p.title || ''}" eng=${p.engagement || 0}`).join(' | ') || '(none)'}
+${
+  (bundle.competitors || [])
+    .map(
+      (c) => `  ${c.name} (${c.url || 'no url'})
+    recent posts: ${
+      (c.posts || [])
+        .slice(0, 3)
+        .map((p) => `"${p.title || ''}" eng=${p.engagement || 0}`)
+        .join(' | ') || '(none)'
+    }
     active ads: ${(c.ads || []).length}
     price signals: ${c.pricing || 'unchanged'}
     sentiment: ${c.sentiment || 'flat'}
-`).join('\n') || '(no competitors tracked)'}
+`
+    )
+    .join('\n') || '(no competitors tracked)'
+}
 
 OUR WEEK:
   content published: ${bundle.ourPosts ?? 0}
@@ -64,7 +75,7 @@ OUR WEEK:
   pipeline: ${bundle.ourPipeline ?? 'stable'}
 
 MARKET NEWS:
-${(bundle.newsCycle || []).map(n => `  ${n.headline} (${n.source})`).join('\n') || '(none)'}
+${(bundle.newsCycle || []).map((n) => `  ${n.headline} (${n.source})`).join('\n') || '(none)'}
 `.trim();
 
   return { system: buildSystemPrompt(ctx, addendum), user };

@@ -30,13 +30,13 @@
  */
 
 const POWER_PACK_DEFAULT = {
-  pmax: 0.70,
-  ai_max_search: 0.20,
-  demand_gen: 0.10,
+  pmax: 0.7,
+  ai_max_search: 0.2,
+  demand_gen: 0.1,
 };
 
 const CONSOLIDATION_MIN_CONVERSIONS_PER_MONTH = 30;
-const ASSET_GROUP_VIDEO_COVERAGE_TARGET = 0.6;     // 60% of asset groups should have ≥1 video
+const ASSET_GROUP_VIDEO_COVERAGE_TARGET = 0.6; // 60% of asset groups should have ≥1 video
 
 // ─── Allocation rebalance ────────────────────────────────────────────────
 
@@ -90,13 +90,19 @@ function recommendAllocation({ currentSplit, roasByType, learningPhaseTypes = []
 
 function scoreAssetCoverage(assetGroups) {
   if (!Array.isArray(assetGroups) || assetGroups.length === 0) {
-    return { score: 0, video_coverage: 0, recommendations: ['No asset groups detected — PMax cannot run effectively without assets'] };
+    return {
+      score: 0,
+      video_coverage: 0,
+      recommendations: ['No asset groups detected — PMax cannot run effectively without assets'],
+    };
   }
   const withVideo = assetGroups.filter((g) => Array.isArray(g.videos) && g.videos.length > 0).length;
   const coverage = withVideo / assetGroups.length;
   const recs = [];
   if (coverage < ASSET_GROUP_VIDEO_COVERAGE_TARGET) {
-    recs.push(`Video coverage ${(coverage * 100).toFixed(0)}% below target ${ASSET_GROUP_VIDEO_COVERAGE_TARGET * 100}% — request 1 video per asset group (research shows 25-40% lift)`);
+    recs.push(
+      `Video coverage ${(coverage * 100).toFixed(0)}% below target ${ASSET_GROUP_VIDEO_COVERAGE_TARGET * 100}% — request 1 video per asset group (research shows 25-40% lift)`
+    );
   }
   return {
     score: Math.round(coverage * 100),
@@ -141,9 +147,13 @@ async function auditCampaigns({ businessId, deps }) {
     return { ok: false, reason: 'googleAdsApi.fetchInsights not configured' };
   }
 
-  const trustScaling = await measurementHealth?.trustForScaling?.({
-    businessId, platform: 'google', deps,
-  }).catch(() => false);
+  const trustScaling = await measurementHealth
+    ?.trustForScaling?.({
+      businessId,
+      platform: 'google',
+      deps,
+    })
+    .catch(() => false);
 
   let insights;
   try {
@@ -179,17 +189,37 @@ function decideForCampaign({ camp, trustScaling }) {
   // Refusal: untrusted measurement → no scaling, only obvious pauses
   if (!trustScaling) {
     if (typeof cpa === 'number' && typeof target_cpa === 'number' && cpa > target_cpa * 3) {
-      return { campaign_id: id, type, decision: 'pause', reason: `CPA ${cpa} > 3× target ${target_cpa} (scaling untrusted — pausing on hard signal only)` };
+      return {
+        campaign_id: id,
+        type,
+        decision: 'pause',
+        reason: `CPA ${cpa} > 3× target ${target_cpa} (scaling untrusted — pausing on hard signal only)`,
+      };
     }
-    return { campaign_id: id, type, decision: 'hold', reason: 'Enhanced Conversions match rate below 50% — measurement untrusted, no scale decisions' };
+    return {
+      campaign_id: id,
+      type,
+      decision: 'hold',
+      reason: 'Enhanced Conversions match rate below 50% — measurement untrusted, no scale decisions',
+    };
   }
 
   // Trusted measurement → standard rules
   if (typeof roas === 'number' && roas >= 3.0 && conversions_30d >= 30) {
-    return { campaign_id: id, type, decision: 'scale_20pct', reason: `ROAS ${roas.toFixed(2)} ≥ 3.0 with ${conversions_30d} conversions in 30d` };
+    return {
+      campaign_id: id,
+      type,
+      decision: 'scale_20pct',
+      reason: `ROAS ${roas.toFixed(2)} ≥ 3.0 with ${conversions_30d} conversions in 30d`,
+    };
   }
   if (typeof roas === 'number' && roas < 1.0 && conversions_30d < 5) {
-    return { campaign_id: id, type, decision: 'pause', reason: `ROAS ${roas.toFixed(2)} < 1.0 with only ${conversions_30d} conversions` };
+    return {
+      campaign_id: id,
+      type,
+      decision: 'pause',
+      reason: `ROAS ${roas.toFixed(2)} < 1.0 with only ${conversions_30d} conversions`,
+    };
   }
   return { campaign_id: id, type, decision: 'hold', reason: 'Within normal bounds' };
 }

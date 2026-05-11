@@ -51,13 +51,20 @@ const ROOT = path.join(__dirname, '..');
 const FIXTURES_DIR = path.join(ROOT, 'tests', 'fixtures', 'prompts');
 const LIVE = process.argv.includes('--live');
 
-function red(s) { return `\x1b[31m${s}\x1b[0m`; }
-function green(s) { return `\x1b[32m${s}\x1b[0m`; }
-function yellow(s) { return `\x1b[33m${s}\x1b[0m`; }
+function red(s) {
+  return `\x1b[31m${s}\x1b[0m`;
+}
+function green(s) {
+  return `\x1b[32m${s}\x1b[0m`;
+}
+function yellow(s) {
+  return `\x1b[33m${s}\x1b[0m`;
+}
 
 function loadFixtures() {
   if (!fs.existsSync(FIXTURES_DIR)) return [];
-  return fs.readdirSync(FIXTURES_DIR)
+  return fs
+    .readdirSync(FIXTURES_DIR)
     .filter((f) => f.endsWith('.json'))
     .map((f) => {
       const full = path.join(FIXTURES_DIR, f);
@@ -106,7 +113,9 @@ function checkGolden(actual, golden) {
       const text = typeof actual === 'string' ? actual : JSON.stringify(actual);
       const slop = vp.detect(text);
       if (slop.slop_score > 40) issues.push(`slop_score=${slop.slop_score} > 40`);
-    } catch { /* voice-polish not loadable */ }
+    } catch {
+      /* voice-polish not loadable */
+    }
   }
   return issues;
 }
@@ -125,8 +134,11 @@ async function runSample(skill, sample) {
   // Parse if stubbed_output is a JSON string (the common case — easier to
   // write in JSON fixture files than to nest objects).
   if (typeof sample.stubbed_output === 'string') {
-    try { return JSON.parse(sample.stubbed_output); }
-    catch { return sample.stubbed_output; }
+    try {
+      return JSON.parse(sample.stubbed_output);
+    } catch {
+      return sample.stubbed_output;
+    }
   }
   return sample.stubbed_output;
 }

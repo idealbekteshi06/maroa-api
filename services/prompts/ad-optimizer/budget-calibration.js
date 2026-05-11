@@ -25,10 +25,10 @@ const SPEND_TIERS = {
     min_clicks_for_decision: 50,
     min_spend_usd_for_pause: 20,
     min_conversions_for_roas_call: 3,
-    significant_ctr_change_pct: 0.4,    // 0.4 percentage points
+    significant_ctr_change_pct: 0.4, // 0.4 percentage points
     safe_budget_increase_pct: 15,
     safe_budget_decrease_pct: 20,
-    learning_phase_conversions: 50,     // Meta default — same for everyone
+    learning_phase_conversions: 50, // Meta default — same for everyone
     creative_fatigue_freq: 4.5,
   },
   SMALL: {
@@ -170,9 +170,7 @@ function safeBudgetChange({ daily_budget_usd, direction, learning_phase_state })
   const cap = learning.in_learning
     ? Math.min(tier.safe_budget_increase_pct, learning.max_budget_change_pct)
     : tier.safe_budget_increase_pct;
-  const pct = direction === 'down'
-    ? -1 * Math.min(tier.safe_budget_decrease_pct, learning.max_budget_change_pct)
-    : cap;
+  const pct = direction === 'down' ? -1 * Math.min(tier.safe_budget_decrease_pct, learning.max_budget_change_pct) : cap;
   const newBudgetUsd = daily_budget_usd * (1 + pct / 100);
   return {
     pct_change: pct,

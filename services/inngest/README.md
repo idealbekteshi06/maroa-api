@@ -12,15 +12,16 @@ work without distributed locks.
 
 ## Files
 
-| File | What |
-|---|---|
-| `client.js` | `inngest.createClient()` factory + auth wiring. |
-| `functions.js` | All 22 functions registered. `withDLQ()` helper auto-attaches `onFailure: dlqHandler({...})`. |
-| `dlqRecorder.js` | `onFailure` callback that writes to `inngest_dlq` (migration 058). |
+| File             | What                                                                                          |
+| ---------------- | --------------------------------------------------------------------------------------------- |
+| `client.js`      | `inngest.createClient()` factory + auth wiring.                                               |
+| `functions.js`   | All 22 functions registered. `withDLQ()` helper auto-attaches `onFailure: dlqHandler({...})`. |
+| `dlqRecorder.js` | `onFailure` callback that writes to `inngest_dlq` (migration 058).                            |
 
 ## Registered functions
 
 Cron:
+
 - `ad-optimizer-daily` — 08:00 UTC
 - `pacing-alerts-every-4h` — every 4h
 - `weekly-scorecard-sun-22-utc` — Sun 22:00 UTC
@@ -39,6 +40,7 @@ Cron:
 - `wf13-weekly-synthesis` — Sun 23:00 UTC
 
 Event:
+
 - `content-publish-feedback-24h` — `maroa/content.publish.feedback-24h` (24h sleep + score)
 - `cold-start-run` — `maroa/cold-start.run`
 - `cold-start-resume` — `maroa/cold-start.resume`

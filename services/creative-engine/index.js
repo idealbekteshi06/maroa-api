@@ -25,15 +25,15 @@
  */
 
 const VARIANTS_PER_DAY_BY_PLAN = {
-  free: 0,        // free tier doesn't get the engine
-  growth: 3,      // 3/day — solid velocity
-  agency: 5,      // 5/day — full velocity
+  free: 0, // free tier doesn't get the engine
+  growth: 3, // 3/day — solid velocity
+  agency: 5, // 5/day — full velocity
 };
 
-const TEST_BUDGET_PCT = 0.01;       // route 1% of daily budget to new variants
-const MIN_TEST_HOURS = 72;          // minimum 3 days before promoting
-const PROMOTE_Z_SCORE = 1.5;        // CTR z-score > +1.5σ → promote
-const KILL_Z_SCORE = -1.5;          // CTR z-score < -1.5σ → kill
+const TEST_BUDGET_PCT = 0.01; // route 1% of daily budget to new variants
+const MIN_TEST_HOURS = 72; // minimum 3 days before promoting
+const PROMOTE_Z_SCORE = 1.5; // CTR z-score > +1.5σ → promote
+const KILL_Z_SCORE = -1.5; // CTR z-score < -1.5σ → kill
 const KILL_CONSECUTIVE_DAYS = 3;
 
 // ─── Variant generation ──────────────────────────────────────────────────
@@ -60,8 +60,10 @@ async function generateDailyVariants({ businessId, deps }) {
   }
 
   // Skip if we've already generated today's batch (idempotency)
-  const todayStart = new Date(); todayStart.setUTCHours(0, 0, 0, 0);
-  const recent = await sbGet('ad_creative_variants',
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const recent = await sbGet(
+    'ad_creative_variants',
     `business_id=eq.${businessId}&source=eq.daily_engine&created_at=gte.${todayStart.toISOString()}&select=id&limit=10`
   ).catch(() => []);
   if (recent && recent.length >= variantsPerDay) {
@@ -69,7 +71,8 @@ async function generateDailyVariants({ businessId, deps }) {
   }
 
   // Pull the brand voice anchor
-  const anchorRows = await sbGet('brand_voice_anchors',
+  const anchorRows = await sbGet(
+    'brand_voice_anchors',
     `business_id=eq.${businessId}&order=created_at.desc&limit=1&select=anchor`
   ).catch(() => []);
   const brandDNA = anchorRows?.[0]?.anchor || (brandVoice?.buildAnchor?.({ business }) ?? {});
@@ -78,7 +81,8 @@ async function generateDailyVariants({ businessId, deps }) {
   // top-3 patterns by lift confidence — gives us a starting point that's
   // already proven to work for similar businesses.
   const budgetTier = bucketBudgetTier(business.daily_budget);
-  const patterns = await sbGet('cross_account_patterns',
+  const patterns = await sbGet(
+    'cross_account_patterns',
     `industry=eq.${encodeURIComponent(business.industry || '')}&budget_tier=eq.${budgetTier}&order=median_roas_lift.desc&limit=3&select=*`
   ).catch(() => []);
 
@@ -86,7 +90,11 @@ async function generateDailyVariants({ businessId, deps }) {
   for (let i = 0; i < variantsPerDay; i += 1) {
     const seedPattern = patterns[i % Math.max(1, patterns.length)] || null;
     const variant = await generateOneVariant({
-      business, brandDNA, seedPattern, variantIndex: i, deps,
+      business,
+      brandDNA,
+      seedPattern,
+      variantIndex: i,
+      deps,
     }).catch((e) => {
       logger?.warn?.('creative-engine.generate', businessId, `variant ${i} failed`, { error: e.message });
       return null;
@@ -141,11 +149,13 @@ async function generateOneVariant({ business, brandDNA, seedPattern, variantInde
       audience_summary: brandDNA?.audience_summary,
       never_say: brandDNA?.never_say,
     },
-    seed_pattern: seedPattern ? {
-      type: seedPattern.pattern_type,
-      signature: seedPattern.pattern_signature,
-      payload: seedPattern.pattern_payload,
-    } : null,
+    seed_pattern: seedPattern
+      ? {
+          type: seedPattern.pattern_type,
+          signature: seedPattern.pattern_signature,
+          payload: seedPattern.pattern_payload,
+        }
+      : null,
     variant_index: variantIndex,
   });
 
@@ -180,7 +190,9 @@ async function generateOneVariant({ business, brandDNA, seedPattern, variantInde
       // Don't actually trigger live generation here — flagged as queued so
       // the publishing layer (which has API budget gating) handles it.
       // assetUrl remains null until the asset job completes.
-    } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
+    } catch (e) {
+      /* soft-fail — see ADR-0003 for empty-catch cleanup plan */
+    }
   }
 
   return {
@@ -233,7 +245,8 @@ async function evaluateTestingVariants({ businessId, deps }) {
   const { sbGet, sbPatch, logger } = deps;
 
   const cutoff = new Date(Date.now() - MIN_TEST_HOURS * 60 * 60 * 1000).toISOString();
-  const testing = await sbGet('ad_creative_variants',
+  const testing = await sbGet(
+    'ad_creative_variants',
     `business_id=eq.${businessId}&status=eq.testing&test_started_at=lte.${cutoff}&select=*`
   ).catch(() => []);
 
@@ -241,13 +254,15 @@ async function evaluateTestingVariants({ businessId, deps }) {
 
   // Compute cohort mean/std from ALL variants (testing + recently promoted/killed)
   // for this business — gives us a stable baseline.
-  const cohortRows = await sbGet('ad_creative_variants',
+  const cohortRows = await sbGet(
+    'ad_creative_variants',
     `business_id=eq.${businessId}&status=in.(testing,promoted,killed)&select=ctr,roas&limit=200`
   ).catch(() => []);
   const ctrStats = meanStd(cohortRows.map((r) => Number(r.ctr)).filter((x) => x > 0));
   const roasStats = meanStd(cohortRows.map((r) => Number(r.roas)).filter((x) => x > 0));
 
-  let promoted = 0, killed = 0;
+  let promoted = 0,
+    killed = 0;
   for (const v of testing) {
     const ctr = Number(v.ctr);
     const roas = Number(v.roas);
@@ -274,7 +289,9 @@ async function evaluateTestingVariants({ businessId, deps }) {
         z_score_ctr: zCtr,
         z_score_roas: zRoas,
         decision_reason: reason,
-      }).catch((e) => logger?.warn?.('creative-engine.evaluate', businessId, 'patch failed', { id: v.id, error: e.message }));
+      }).catch((e) =>
+        logger?.warn?.('creative-engine.evaluate', businessId, 'patch failed', { id: v.id, error: e.message })
+      );
     }
   }
 

@@ -10,12 +10,18 @@
  */
 
 const SIX_CRITERIA = {
-  originality: { weight: 0.25, gate: 'cap at 7 if pattern has 3+ canonical cases; cap at 6 if pattern has 50+ (P09 / P11 / P16)' },
-  strategic_fit: { weight: 0.20, gate: 'must answer the brief\'s objective and hit the TA' },
-  emotional_response: { weight: 0.20, gate: 'Tier 1 (generic happy/sad) ≤ 6; Tier 2 (specific: nostalgic/defiant/proud) 6-8; Tier 3 (complex: bittersweet pride / ironic sincerity) 8-10' },
+  originality: {
+    weight: 0.25,
+    gate: 'cap at 7 if pattern has 3+ canonical cases; cap at 6 if pattern has 50+ (P09 / P11 / P16)',
+  },
+  strategic_fit: { weight: 0.2, gate: "must answer the brief's objective and hit the TA" },
+  emotional_response: {
+    weight: 0.2,
+    gate: 'Tier 1 (generic happy/sad) ≤ 6; Tier 2 (specific: nostalgic/defiant/proud) 6-8; Tier 3 (complex: bittersweet pride / ironic sincerity) 8-10',
+  },
   feasibility: { weight: 0.15, gate: 'must be implementable within budget/timeline/constraints stated in brief' },
-  scalability: { weight: 0.10, gate: 'series? other media? other markets?' },
-  simplicity: { weight: 0.10, gate: 'one sentence, 10-second explanation, otherwise it\'s a plan not an idea' }
+  scalability: { weight: 0.1, gate: 'series? other media? other markets?' },
+  simplicity: { weight: 0.1, gate: "one sentence, 10-second explanation, otherwise it's a plan not an idea" },
 };
 
 const HUMANKIND_SCALE = {
@@ -26,9 +32,9 @@ const HUMANKIND_SCALE = {
   5: 'Brand purpose — has a human mission',
   6: 'Intelligent idea — smart but not channel-tied',
   7: 'HumanKind Act — changes thoughts/feelings, impeccable craft (PRESENTATION FLOOR — below 7 do not present)',
-  8: 'Changes thinking — becomes part of people\'s lives',
+  8: "Changes thinking — becomes part of people's lives",
   9: 'Changes living — inspires lifestyle change',
-  10: 'Changes the world'
+  10: 'Changes the world',
 };
 
 const GREY_SCALE = {
@@ -41,13 +47,21 @@ const GREY_SCALE = {
   7: 'Original',
   8: 'Best in category',
   9: 'Best in show',
-  10: 'Best in the world'
+  10: 'Best in the world',
 };
 
 const TIER_EMOTION = {
   1: ['happy', 'sad', 'angry', 'excited', 'positive'],
   2: ['nostalgic', 'defiant', 'proud', 'amused', 'curious', 'tender'],
-  3: ['bittersweet pride', 'ironic sincerity', 'vulnerable defiance', 'reluctant hope', 'angry love', 'tender shame', 'absurd longing']
+  3: [
+    'bittersweet pride',
+    'ironic sincerity',
+    'vulnerable defiance',
+    'reluctant hope',
+    'angry love',
+    'tender shame',
+    'absurd longing',
+  ],
 };
 
 function emotionTierFor(emotionWord) {
@@ -67,22 +81,31 @@ function computeWeightedScore(scores) {
 }
 
 function gapAnalysis(weightedScore, humankindScore) {
-  if (weightedScore >= 8 && humankindScore < 7) return { diagnosis: 'clever_but_doesnt_matter', action: 'strengthen human purpose, find tension' };
-  if (weightedScore < 7 && humankindScore >= 8) return { diagnosis: 'matters_but_boring', action: 'strengthen craft, originality, surprise' };
-  if (weightedScore >= 8 && humankindScore >= 8) return { diagnosis: 'strong_candidate', action: 'check scalability, polish' };
+  if (weightedScore >= 8 && humankindScore < 7)
+    return { diagnosis: 'clever_but_doesnt_matter', action: 'strengthen human purpose, find tension' };
+  if (weightedScore < 7 && humankindScore >= 8)
+    return { diagnosis: 'matters_but_boring', action: 'strengthen craft, originality, surprise' };
+  if (weightedScore >= 8 && humankindScore >= 8)
+    return { diagnosis: 'strong_candidate', action: 'check scalability, polish' };
   return { diagnosis: 'restart', action: 'different HMW, different methods' };
 }
 
 const STOPPING_CRITERIA = {
   exit_success: 'top idea weighted ≥ 9.0 AND HumanKind ≥ 7 → run pre-mortem then exit to articulate',
   exit_attempts: '5 passes completed → deliver best with honest assessment',
-  exit_plateau: '2 consecutive passes with delta < 0.2 → convergence, deliver with note'
+  exit_plateau: '2 consecutive passes with delta < 0.2 → convergence, deliver with note',
 };
 
 function calibrationText() {
-  const sixLines = Object.entries(SIX_CRITERIA).map(([k, c]) => `- ${k} (${c.weight * 100}%): ${c.gate}`).join('\n');
-  const hkLines = Object.entries(HUMANKIND_SCALE).map(([n, l]) => `${n} = ${l}`).join('\n');
-  const greyLines = Object.entries(GREY_SCALE).map(([n, l]) => `${n} = ${l}`).join('\n');
+  const sixLines = Object.entries(SIX_CRITERIA)
+    .map(([k, c]) => `- ${k} (${c.weight * 100}%): ${c.gate}`)
+    .join('\n');
+  const hkLines = Object.entries(HUMANKIND_SCALE)
+    .map(([n, l]) => `${n} = ${l}`)
+    .join('\n');
+  const greyLines = Object.entries(GREY_SCALE)
+    .map(([n, l]) => `${n} = ${l}`)
+    .join('\n');
   return `SIX WEIGHTED CRITERIA (idea strength, output as 1-10 each):
 ${sixLines}
 
@@ -105,7 +128,9 @@ GAP ANALYSIS RULES:
 - Both < 7 → restart with different HMW
 
 STOPPING CRITERIA:
-${Object.values(STOPPING_CRITERIA).map((s) => `- ${s}`).join('\n')}`;
+${Object.values(STOPPING_CRITERIA)
+  .map((s) => `- ${s}`)
+  .join('\n')}`;
 }
 
 module.exports = {
@@ -117,5 +142,5 @@ module.exports = {
   emotionTierFor,
   computeWeightedScore,
   gapAnalysis,
-  calibrationText
+  calibrationText,
 };

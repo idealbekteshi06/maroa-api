@@ -19,23 +19,32 @@
  * ----------------------------------------------------------------------------
  */
 
-const i18n         = require('./i18n-market');
-const budget       = require('./budget-calibration');
-const checksMeta   = require('./checks-meta');
+const i18n = require('./i18n-market');
+const budget = require('./budget-calibration');
+const checksMeta = require('./checks-meta');
 const checksGoogle = require('./checks-google');
-const trendMod     = require('./trend-analysis');
-const scoring      = require('./scoring');
-const schema       = require('./output-schema');
-const antiSlop     = require('./anti-slop');
-const sysPrompt    = require('./system-prompt');
+const trendMod = require('./trend-analysis');
+const scoring = require('./scoring');
+const schema = require('./output-schema');
+const antiSlop = require('./anti-slop');
+const sysPrompt = require('./system-prompt');
 
 /**
  * Phase 1 — Build audit inputs from raw data.
  * All deterministic; runs in <10ms.
  */
-function buildAuditInputs({ business, metrics, history = [], decisionHistory = [], plan, platform = 'meta', liveRates = {} }) {
+function buildAuditInputs({
+  business,
+  metrics,
+  history = [],
+  decisionHistory = [],
+  plan,
+  platform = 'meta',
+  liveRates = {},
+}) {
   const marketProfile = i18n.buildMarketProfile(business, { liveRates });
-  const dailyBudgetUsd = i18n.toUsd(metrics?.daily_budget, marketProfile.currency, liveRates) ?? metrics?.daily_budget ?? 0;
+  const dailyBudgetUsd =
+    i18n.toUsd(metrics?.daily_budget, marketProfile.currency, liveRates) ?? metrics?.daily_budget ?? 0;
   const spendUsd = i18n.toUsd(metrics?.spend, marketProfile.currency, liveRates) ?? metrics?.spend ?? 0;
   const budgetTier = budget.tierForDailyBudgetUsd(dailyBudgetUsd);
   const trend = trendMod.buildTrendSummary(history);
@@ -65,7 +74,13 @@ function buildAuditInputs({ business, metrics, history = [], decisionHistory = [
   // Run deterministic checks for the platform
   const checkRunner = platform === 'google' ? checksGoogle.runChecks : checksMeta.runChecks;
   const findings = checkRunner({
-    metrics: { ...metrics, spend_usd: spendUsd, daily_budget_usd: dailyBudgetUsd, cpm_usd: i18n.toUsd(metrics?.cpm, marketProfile.currency, liveRates), cpc_usd: i18n.toUsd(metrics?.cpc, marketProfile.currency, liveRates) },
+    metrics: {
+      ...metrics,
+      spend_usd: spendUsd,
+      daily_budget_usd: dailyBudgetUsd,
+      cpm_usd: i18n.toUsd(metrics?.cpm, marketProfile.currency, liveRates),
+      cpc_usd: i18n.toUsd(metrics?.cpc, marketProfile.currency, liveRates),
+    },
     history,
     market: marketProfile,
     decisionHistory,
@@ -122,9 +137,16 @@ function buildAuditPrompt(inputs, { business, metrics, decisionHistory, plan }) 
  */
 async function auditCampaign(opts) {
   const {
-    business, metrics, history = [], decisionHistory = [], plan = 'free',
-    platform = 'meta', liveRates = {},
-    callClaude, extractJSON, logger,
+    business,
+    metrics,
+    history = [],
+    decisionHistory = [],
+    plan = 'free',
+    platform = 'meta',
+    liveRates = {},
+    callClaude,
+    extractJSON,
+    logger,
   } = opts || {};
 
   if (typeof callClaude !== 'function') throw new Error('auditCampaign: callClaude required');
@@ -153,7 +175,7 @@ async function auditCampaign(opts) {
   }
 
   // Critical compliance findings → immediate pause regardless of plan
-  const policyHit = inputs.findings.find(f => f.category === 'compliance' && f.severity === 'critical');
+  const policyHit = inputs.findings.find((f) => f.category === 'compliance' && f.severity === 'critical');
   if (policyHit) {
     return _shortCircuit({
       decision: 'pause',
@@ -182,8 +204,8 @@ async function auditCampaign(opts) {
       planTier: plan,
       max_tokens: prompt.max_tokens,
       extra: {
-        cacheSystem: true,           // prompt-cache the 12k-char system block
-        temperature: 0.2,            // low randomness for decisions
+        cacheSystem: true, // prompt-cache the 12k-char system block
+        temperature: 0.2, // low randomness for decisions
         businessId: business?.id,
         skill: 'ad_optimizer_audit',
       },
@@ -199,7 +221,11 @@ async function auditCampaign(opts) {
   }
 
   let parsed;
-  try { parsed = extractJSON(raw); } catch { parsed = null; }
+  try {
+    parsed = extractJSON(raw);
+  } catch {
+    parsed = null;
+  }
 
   // ─── One repair attempt before falling back ─────────────────────────────
   // Prior behavior: any parse failure short-circuited to 'keep'. That's a
@@ -237,7 +263,9 @@ async function auditCampaign(opts) {
         extra: { temperature: 0.0, returnRaw: true, skill: 'ad_optimizer_repair' },
       });
       return extractJSON(repairedRaw);
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   }
 
   if (!parsed) {
@@ -281,7 +309,9 @@ async function auditCampaign(opts) {
   return {
     ...v.normalized,
     decision: finalDecision.decision,
-    decision_reason: finalDecision.changed ? `${v.normalized.decision_reason} (anti-thrash: ${finalDecision.reason})` : v.normalized.decision_reason,
+    decision_reason: finalDecision.changed
+      ? `${v.normalized.decision_reason} (anti-thrash: ${finalDecision.reason})`
+      : v.normalized.decision_reason,
     audit_score: inputs.auditScore.score,
     score_breakdown: inputs.auditScore.dimensions,
     market_tier: inputs.marketProfile.tier_name,
@@ -328,8 +358,8 @@ function _shortCircuit({ decision, reason, inputs, reason_key, schema_errors }) 
 function _wouldRecommendPause(inputs) {
   // If any critical-severity finding exists in budget/conversion category,
   // a pause would be expected. Used to gate learning-phase protection.
-  return inputs.findings.some(f =>
-    (f.category === 'budget' || f.category === 'conversion') && f.severity === 'critical'
+  return inputs.findings.some(
+    (f) => (f.category === 'budget' || f.category === 'conversion') && f.severity === 'critical'
   );
 }
 
@@ -364,7 +394,9 @@ async function auditAdCopyPsychology({ adCopy, business, plan, callClaude, extra
     business,
     funnelStage: 'consideration',
     plan: plan || 'free',
-    callClaude, extractJSON, logger,
+    callClaude,
+    extractJSON,
+    logger,
   });
 }
 

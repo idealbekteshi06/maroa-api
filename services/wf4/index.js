@@ -78,7 +78,7 @@ function createWf4(deps) {
         signature_title: d.signatureTitle || '',
         personalization_score: Number(d.personalizationScore || 0),
         brand_voice_match_score: Number(d.brandVoiceMatchScore || 0),
-        word_count: d.wordCount || ((d.body || '').split(/\s+/).length),
+        word_count: d.wordCount || (d.body || '').split(/\s+/).length,
         psychology_levers: d.psychologyLevers || [],
         predicted_impact: d.predictedImpact || 'goodwill',
         is_active: true,
@@ -89,7 +89,7 @@ function createWf4(deps) {
     await sbPatch('reviews', `id=eq.${reviewId}`, { response_status: 'awaiting_approval' }).catch(() => {});
 
     return {
-      drafts: saved.map(r => ({
+      drafts: saved.map((r) => ({
         id: r.id,
         body: r.body,
         signatureName: r.signature_name,
@@ -161,12 +161,24 @@ function createWf4(deps) {
 
   async function requestReview(data) {
     const {
-      businessId, customerId, customerName, customerContact, channel, platform,
-      triggerKind, productOrService, staffMember,
+      businessId,
+      customerId,
+      customerName,
+      customerContact,
+      channel,
+      platform,
+      triggerKind,
+      productOrService,
+      staffMember,
     } = data;
     const brandContext = await resolveBrandContext(businessId);
     const { system, user } = buildReviewRequestPrompt(brandContext, {
-      channel, customerName, productOrService, staffMember, triggerKind, platform,
+      channel,
+      customerName,
+      productOrService,
+      staffMember,
+      triggerKind,
+      platform,
     });
     const raw = await callClaude(user, 'claude-sonnet-4-5', 800, { system, businessId, returnRaw: true });
     const parsed = extractJSON(raw) || {};
@@ -211,9 +223,9 @@ function createWf4(deps) {
       const c = r.category || 'neutral';
       if (counts[c] != null) counts[c]++;
     }
-    const pending = rows.filter(r => (r.response_status || 'pending') === 'pending').length;
+    const pending = rows.filter((r) => (r.response_status || 'pending') === 'pending').length;
     return {
-      items: rows.map(r => rowToReviewRow(r)),
+      items: rows.map((r) => rowToReviewRow(r)),
       nextCursor: rows.length === limit ? rows[rows.length - 1].posted_at : null,
       counts,
       pendingResponseCount: pending,
@@ -233,7 +245,7 @@ function createWf4(deps) {
       reviewerReviewCount: r.reviewer_review_count,
       reviewerLocation: r.reviewer_location,
       transactionVerified: r.transaction_verified,
-      draftedResponses: responses.map(d => ({
+      draftedResponses: responses.map((d) => ({
         id: d.id,
         body: d.body,
         signatureName: d.signature_name,
@@ -251,7 +263,10 @@ function createWf4(deps) {
 
   async function getReputationSnapshot({ businessId }) {
     const since = new Date(Date.now() - 365 * 86400000).toISOString();
-    const rows = await sbGet('reviews', `business_id=eq.${businessId}&created_at=gte.${encodeURIComponent(since)}&select=platform,rating,category,sentiment,posted_at,response_status,topics,body`).catch(() => []);
+    const rows = await sbGet(
+      'reviews',
+      `business_id=eq.${businessId}&created_at=gte.${encodeURIComponent(since)}&select=platform,rating,category,sentiment,posted_at,response_status,topics,body`
+    ).catch(() => []);
     const byPlatform = new Map();
     const sentimentTimeline = new Map();
     const posTheme = new Map();
@@ -273,7 +288,7 @@ function createWf4(deps) {
       sentimentTimeline.set(day, slot);
 
       for (const t of r.topics || []) {
-        const map = (r.category === 'positive') ? posTheme : negTheme;
+        const map = r.category === 'positive' ? posTheme : negTheme;
         const entry = map.get(t) || { count: 0, sample: r.body || '' };
         entry.count++;
         map.set(t, entry);
@@ -295,17 +310,24 @@ function createWf4(deps) {
       sentimentTimeline: [...sentimentTimeline.entries()]
         .sort((a, b) => a[0].localeCompare(b[0]))
         .map(([date, v]) => ({ date, ...v })),
-      topPositiveThemes: [...posTheme.entries()].slice(0, 5).map(([theme, v]) => ({ theme, count: v.count, sampleQuote: v.sample.slice(0, 140) })),
-      topNegativeThemes: [...negTheme.entries()].slice(0, 5).map(([theme, v]) => ({ theme, count: v.count, sampleQuote: v.sample.slice(0, 140) })),
+      topPositiveThemes: [...posTheme.entries()]
+        .slice(0, 5)
+        .map(([theme, v]) => ({ theme, count: v.count, sampleQuote: v.sample.slice(0, 140) })),
+      topNegativeThemes: [...negTheme.entries()]
+        .slice(0, 5)
+        .map(([theme, v]) => ({ theme, count: v.count, sampleQuote: v.sample.slice(0, 140) })),
       benchmarks: { industryAvgRating: 4.0, topCompetitorAvgRating: 4.3, directionVsIndustry: 'flat' },
       topComplaintsForOps: [...negTheme.keys()].slice(0, 5),
     };
   }
 
   async function getTestimonialLibrary(businessId) {
-    const rows = await sbGet('testimonial_library', `business_id=eq.${businessId}&order=created_at.desc&select=*`).catch(() => []);
+    const rows = await sbGet(
+      'testimonial_library',
+      `business_id=eq.${businessId}&order=created_at.desc&select=*`
+    ).catch(() => []);
     return {
-      items: rows.map(r => ({
+      items: rows.map((r) => ({
         reviewId: r.review_id,
         platform: r.platform,
         reviewerName: r.reviewer_name,
@@ -319,7 +341,10 @@ function createWf4(deps) {
 
   async function requestTestimonialPermission({ businessId, reviewId }) {
     // Create or update testimonial_library row with permission requested
-    const existing = await sbGet('testimonial_library', `business_id=eq.${businessId}&review_id=eq.${reviewId}&select=id`).catch(() => []);
+    const existing = await sbGet(
+      'testimonial_library',
+      `business_id=eq.${businessId}&review_id=eq.${reviewId}&select=id`
+    ).catch(() => []);
     if (existing[0]) {
       await sbPatch('testimonial_library', `id=eq.${existing[0].id}`, { permission_status: 'requested' });
     } else {

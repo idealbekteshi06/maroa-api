@@ -115,9 +115,9 @@ function createBundleAggregator({ sbGet, countryIntelligence, logger }) {
     const avgRating = rows.reduce((s, r) => s + Number(r.rating || 0), 0) / rows.length;
     const avgSent = rows.reduce((s, r) => s + Number(r.sentiment || 0), 0) / rows.length;
     const notable = rows
-      .filter(r => r.quote)
+      .filter((r) => r.quote)
       .slice(0, 3)
-      .map(r => ({ source: r.platform || 'unknown', rating: Number(r.rating || 0), quote: r.quote || '' }));
+      .map((r) => ({ source: r.platform || 'unknown', rating: Number(r.rating || 0), quote: r.quote || '' }));
     return {
       newReviews: trendPoint(rows.length),
       avgRating: trendPoint(avgRating),
@@ -132,7 +132,7 @@ function createBundleAggregator({ sbGet, countryIntelligence, logger }) {
       'competitor_insights',
       `business_id=eq.${businessId}&recorded_at=gte.${encodeURIComponent(startIso)}&recorded_at=lte.${encodeURIComponent(endIso)}&order=recorded_at.desc&limit=15&select=*`
     ).catch(() => []);
-    const significantMoves = insights.map(r => ({
+    const significantMoves = insights.map((r) => ({
       competitor: r.competitor_name || 'tracked',
       move: r.competitor_doing_well || 'activity',
       date: (r.recorded_at || '').slice(0, 10),
@@ -171,9 +171,18 @@ function createBundleAggregator({ sbGet, countryIntelligence, logger }) {
       }));
     return {
       topThemes,
-      emergingComplaints: reviews.filter(r => Number(r.sentiment || 0) < -0.3 && r.quote).slice(0, 3).map(r => r.quote),
-      emergingLoves: reviews.filter(r => Number(r.sentiment || 0) > 0.5 && r.quote).slice(0, 3).map(r => r.quote),
-      notableQuotes: reviews.filter(r => r.quote).slice(0, 3).map(r => ({ source: 'reviews', quote: r.quote })),
+      emergingComplaints: reviews
+        .filter((r) => Number(r.sentiment || 0) < -0.3 && r.quote)
+        .slice(0, 3)
+        .map((r) => r.quote),
+      emergingLoves: reviews
+        .filter((r) => Number(r.sentiment || 0) > 0.5 && r.quote)
+        .slice(0, 3)
+        .map((r) => r.quote),
+      notableQuotes: reviews
+        .filter((r) => r.quote)
+        .slice(0, 3)
+        .map((r) => ({ source: 'reviews', quote: r.quote })),
     };
   }
 
@@ -190,10 +199,12 @@ function createBundleAggregator({ sbGet, countryIntelligence, logger }) {
     let seasonalFactors;
     try {
       if (countryIntelligence?.getUpcomingHolidays) {
-        const profile = (await sbGet('business_profiles', `user_id=eq.${businessId}&select=country`).catch(() => []))[0];
+        const profile = (
+          await sbGet('business_profiles', `user_id=eq.${businessId}&select=country`).catch(() => [])
+        )[0];
         const country = profile?.country || 'XK';
         const raw = countryIntelligence.getUpcomingHolidays(country, 14) || [];
-        upcomingHolidays = raw.map(h => ({ name: h.name, date: h.date, type: h.type || 'cultural' }));
+        upcomingHolidays = raw.map((h) => ({ name: h.name, date: h.date, type: h.type || 'cultural' }));
       }
       if (countryIntelligence?.getSeason) {
         seasonalFactors = countryIntelligence.getSeason(new Date(startIso));
@@ -205,14 +216,8 @@ function createBundleAggregator({ sbGet, countryIntelligence, logger }) {
   }
 
   async function gatherReaderPreferences({ businessId }) {
-    const rows = await sbGet(
-      'reader_preferences_learned',
-      `business_id=eq.${businessId}&select=*`
-    ).catch(() => []);
-    const settings = await sbGet(
-      'brief_delivery_settings',
-      `business_id=eq.${businessId}&select=*`
-    ).catch(() => []);
+    const rows = await sbGet('reader_preferences_learned', `business_id=eq.${businessId}&select=*`).catch(() => []);
+    const settings = await sbGet('brief_delivery_settings', `business_id=eq.${businessId}&select=*`).catch(() => []);
     const learned = rows[0] || {};
     const s = settings[0] || {};
     return {
@@ -242,25 +247,17 @@ function createBundleAggregator({ sbGet, countryIntelligence, logger }) {
         })()
       : weekStartEnd();
 
-    const [
-      platforms,
-      ads,
-      reviews,
-      competitive,
-      customerVoice,
-      operational,
-      cultural,
-      readerPreferences,
-    ] = await Promise.all([
-      gatherPlatforms({ businessId, startIso, endIso }),
-      gatherAds({ businessId, startIso, endIso }),
-      gatherReviews({ businessId, startIso, endIso }),
-      gatherCompetitive({ businessId, startIso, endIso }),
-      gatherCustomerVoice({ businessId, startIso, endIso }),
-      gatherOperational({ businessId }),
-      gatherCultural({ businessId, startIso }),
-      gatherReaderPreferences({ businessId }),
-    ]);
+    const [platforms, ads, reviews, competitive, customerVoice, operational, cultural, readerPreferences] =
+      await Promise.all([
+        gatherPlatforms({ businessId, startIso, endIso }),
+        gatherAds({ businessId, startIso, endIso }),
+        gatherReviews({ businessId, startIso, endIso }),
+        gatherCompetitive({ businessId, startIso, endIso }),
+        gatherCustomerVoice({ businessId, startIso, endIso }),
+        gatherOperational({ businessId }),
+        gatherCultural({ businessId, startIso }),
+        gatherReaderPreferences({ businessId }),
+      ]);
 
     return {
       weekStart,

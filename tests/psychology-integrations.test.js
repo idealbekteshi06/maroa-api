@@ -42,7 +42,7 @@ test('quality-gate: psychology threshold=0 for audit_narrative skips check', asy
 
 test('quality-gate: dental scarcity hits manipulation_risk_high → soft block', async () => {
   const r = await qg.gate({
-    text: 'Only 5 implant slots left this month. Don\'t miss out!',
+    text: "Only 5 implant slots left this month. Don't miss out!",
     business: { industry: 'dental', primary_language: 'en' },
     contentType: 'ad_copy',
     plan: 'free', // no callClaude → soft becomes hard
@@ -266,7 +266,10 @@ test('ad-optimizer: auditAdCopyPsychology free tier deterministic-only (no LLM)'
     adCopy: 'Save 30% this week. Trusted by 1,000+ customers.',
     business: { industry: 'retail', primary_language: 'en' },
     plan: 'free',
-    callClaude: async () => { claudeCalled = true; return '{}'; },
+    callClaude: async () => {
+      claudeCalled = true;
+      return '{}';
+    },
     extractJSON: JSON.parse,
   });
   assert.strictEqual(claudeCalled, false, 'free tier should not call LLM for psychology audit');

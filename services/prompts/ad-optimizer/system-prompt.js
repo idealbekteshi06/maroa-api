@@ -23,8 +23,9 @@ const { REGION_TIERS } = require('./i18n-market');
 
 function buildStableSystemBlock() {
   const regionTable = Object.entries(REGION_TIERS)
-    .map(([name, t]) =>
-      `${name.padEnd(11)} | CPM $${t.cpm_band_usd[0]}-${t.cpm_band_usd[1]} | CPC $${t.cpc_band_usd[0]}-${t.cpc_band_usd[1]} | CTR ≥${t.healthy_ctr_pct}% | freq concern ${t.frequency_concern}, alarm ${t.frequency_alarm}`
+    .map(
+      ([name, t]) =>
+        `${name.padEnd(11)} | CPM $${t.cpm_band_usd[0]}-${t.cpm_band_usd[1]} | CPC $${t.cpc_band_usd[0]}-${t.cpc_band_usd[1]} | CTR ≥${t.healthy_ctr_pct}% | freq concern ${t.frequency_concern}, alarm ${t.frequency_alarm}`
     )
     .join('\n');
 
@@ -155,17 +156,21 @@ function buildUserMessage({ business, marketProfile, metrics, trend, findings, d
     ``,
     `## Market profile (apply these thresholds, not US defaults)`,
     `\`\`\`json`,
-    JSON.stringify({
-      country: marketProfile?.country,
-      market_tier: marketProfile?.tier_name,
-      currency: marketProfile?.currency,
-      timezone: marketProfile?.timezone,
-      cpm_band_usd: marketProfile?.cpm_band_usd,
-      cpc_band_usd: marketProfile?.cpc_band_usd,
-      healthy_ctr_pct: marketProfile?.healthy_ctr_pct,
-      frequency_concern: marketProfile?.frequency_concern,
-      frequency_alarm: marketProfile?.frequency_alarm,
-    }, null, 2),
+    JSON.stringify(
+      {
+        country: marketProfile?.country,
+        market_tier: marketProfile?.tier_name,
+        currency: marketProfile?.currency,
+        timezone: marketProfile?.timezone,
+        cpm_band_usd: marketProfile?.cpm_band_usd,
+        cpc_band_usd: marketProfile?.cpc_band_usd,
+        healthy_ctr_pct: marketProfile?.healthy_ctr_pct,
+        frequency_concern: marketProfile?.frequency_concern,
+        frequency_alarm: marketProfile?.frequency_alarm,
+      },
+      null,
+      2
+    ),
     `\`\`\``,
     ``,
     `## Current metrics (point-in-time)`,
@@ -185,14 +190,18 @@ function buildUserMessage({ business, marketProfile, metrics, trend, findings, d
     ``,
     `## Recent decision history (anti-thrashing)`,
     `\`\`\`json`,
-    JSON.stringify({
-      thrashing: antiThrashing?.thrashing,
-      pattern: antiThrashing?.pattern,
-      flip_count_7decisions: antiThrashing?.flip_count_7decisions,
-      last_pause_at: antiThrashing?.last_pause_at,
-      last_scale_at: antiThrashing?.last_scale_at,
-      decisions: (decisionHistory || []).slice(0, 7),
-    }, null, 2),
+    JSON.stringify(
+      {
+        thrashing: antiThrashing?.thrashing,
+        pattern: antiThrashing?.pattern,
+        flip_count_7decisions: antiThrashing?.flip_count_7decisions,
+        last_pause_at: antiThrashing?.last_pause_at,
+        last_scale_at: antiThrashing?.last_scale_at,
+        decisions: (decisionHistory || []).slice(0, 7),
+      },
+      null,
+      2
+    ),
     `\`\`\``,
     ``,
     `Produce the audit JSON. decision_reason in language="${marketProfile?.primary_language || 'en'}". new_daily_budget in currency="${marketProfile?.currency || 'USD'}".`,

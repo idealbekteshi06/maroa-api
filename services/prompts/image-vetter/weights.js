@@ -16,7 +16,7 @@ const COMMERCIAL_HEAVY = {
   genre_fit: 1.0,
   marketing_suitability: 1.0,
   safety: 1.0,
-  genuineness: 0.5
+  genuineness: 0.5,
 };
 
 const UGC_HEAVY = {
@@ -27,7 +27,7 @@ const UGC_HEAVY = {
   genre_fit: 1.2,
   marketing_suitability: 1.0,
   safety: 1.0,
-  genuineness: 1.5
+  genuineness: 1.5,
 };
 
 const DOCUMENTARY_HEAVY = {
@@ -38,7 +38,7 @@ const DOCUMENTARY_HEAVY = {
   genre_fit: 1.3,
   marketing_suitability: 1.0,
   safety: 1.0,
-  genuineness: 1.2
+  genuineness: 1.2,
 };
 
 const ATMOSPHERE_HEAVY = {
@@ -49,7 +49,7 @@ const ATMOSPHERE_HEAVY = {
   genre_fit: 1.1,
   marketing_suitability: 0.8,
   safety: 1.0,
-  genuineness: 0.8
+  genuineness: 0.8,
 };
 
 const GENRE_WEIGHTS = {
@@ -64,13 +64,30 @@ const GENRE_WEIGHTS = {
   b2b_saas: DOCUMENTARY_HEAVY,
   before_after: DOCUMENTARY_HEAVY,
   location_establishing: ATMOSPHERE_HEAVY,
-  seasonal_holiday: ATMOSPHERE_HEAVY
+  seasonal_holiday: ATMOSPHERE_HEAVY,
 };
 
-const DIMENSIONS = ['technical', 'composition', 'lighting', 'brand_alignment', 'genre_fit', 'marketing_suitability', 'safety', 'genuineness'];
+const DIMENSIONS = [
+  'technical',
+  'composition',
+  'lighting',
+  'brand_alignment',
+  'genre_fit',
+  'marketing_suitability',
+  'safety',
+  'genuineness',
+];
 
 function weightsFor(genre) {
   return GENRE_WEIGHTS[genre] || COMMERCIAL_HEAVY;
 }
 
-module.exports = { GENRE_WEIGHTS, DIMENSIONS, weightsFor, COMMERCIAL_HEAVY, UGC_HEAVY, DOCUMENTARY_HEAVY, ATMOSPHERE_HEAVY };
+module.exports = {
+  GENRE_WEIGHTS,
+  DIMENSIONS,
+  weightsFor,
+  COMMERCIAL_HEAVY,
+  UGC_HEAVY,
+  DOCUMENTARY_HEAVY,
+  ATMOSPHERE_HEAVY,
+};

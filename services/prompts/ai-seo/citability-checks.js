@@ -23,7 +23,10 @@
 
 function hasJsonLd(html, type) {
   if (!html) return false;
-  const pattern = new RegExp(`<script[^>]*type=["']application/ld\\+json["'][^>]*>[\\s\\S]*?"@type"\\s*:\\s*["']${type}["'][\\s\\S]*?</script>`, 'i');
+  const pattern = new RegExp(
+    `<script[^>]*type=["']application/ld\\+json["'][^>]*>[\\s\\S]*?"@type"\\s*:\\s*["']${type}["'][\\s\\S]*?</script>`,
+    'i'
+  );
   return pattern.test(html);
 }
 
@@ -40,9 +43,9 @@ function hasTldr(text) {
 
 function hasFaqBlock(html) {
   if (!html) return false;
-  return /<(h[1-3])[^>]*>[^<]*\?/i.test(html) ||
-         /<dt[^>]*>[\s\S]*?<\/dt>\s*<dd/i.test(html) ||
-         hasJsonLd(html, 'FAQPage');
+  return (
+    /<(h[1-3])[^>]*>[^<]*\?/i.test(html) || /<dt[^>]*>[\s\S]*?<\/dt>\s*<dd/i.test(html) || hasJsonLd(html, 'FAQPage')
+  );
 }
 
 function hasNumber(text) {
@@ -427,15 +430,28 @@ const CHECKS = [
   },
 ];
 
-const PRIORITY_FREE_SET = ['S01','S03','S15','S18','S23'];                                                                  // 5
-const PRIORITY_GROWTH_SET = ['S01','S02','S03','S04','S05','S06','S11','S15','S18','S19','S20','S23','S26','S29'];          // 14
+const PRIORITY_FREE_SET = ['S01', 'S03', 'S15', 'S18', 'S23']; // 5
+const PRIORITY_GROWTH_SET = [
+  'S01',
+  'S02',
+  'S03',
+  'S04',
+  'S05',
+  'S06',
+  'S11',
+  'S15',
+  'S18',
+  'S19',
+  'S20',
+  'S23',
+  'S26',
+  'S29',
+]; // 14
 
 function runChecks({ html, text, business, marketProfile, llms_txt_present, llms_full_txt_present, plan = 'free' }) {
   const tier = String(plan || 'free').toLowerCase();
   const allowedIds =
-      tier === 'agency' ? null
-    : tier === 'growth' ? new Set(PRIORITY_GROWTH_SET)
-    : new Set(PRIORITY_FREE_SET);
+    tier === 'agency' ? null : tier === 'growth' ? new Set(PRIORITY_GROWTH_SET) : new Set(PRIORITY_FREE_SET);
 
   const findings = [];
   const ctx = { html, text, business, marketProfile, llms_txt_present, llms_full_txt_present, plan };
@@ -454,10 +470,12 @@ function runChecks({ html, text, business, marketProfile, llms_txt_present, llms
           evidence: r.evidence,
         });
       }
-    } catch { /* defensive */ }
+    } catch {
+      /* defensive */
+    }
   }
   const sevW = { critical: 3, warning: 2, info: 1 };
-  findings.sort((a, b) => (sevW[b.severity] - sevW[a.severity]) || (b.priority - a.priority));
+  findings.sort((a, b) => sevW[b.severity] - sevW[a.severity] || b.priority - a.priority);
   return findings;
 }
 

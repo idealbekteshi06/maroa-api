@@ -22,12 +22,18 @@ function createWf8(deps) {
   async function gatherBundle(businessId) {
     const since = new Date(Date.now() - 30 * 86400000).toISOString();
     const [reviews, messages] = await Promise.all([
-      sbGet('reviews', `business_id=eq.${businessId}&created_at=gte.${encodeURIComponent(since)}&select=rating,platform,body,sentiment&limit=50`).catch(() => []),
-      sbGet('inbox_threads', `business_id=eq.${businessId}&created_at=gte.${encodeURIComponent(since)}&select=channel,body,classification&limit=40`).catch(() => []),
+      sbGet(
+        'reviews',
+        `business_id=eq.${businessId}&created_at=gte.${encodeURIComponent(since)}&select=rating,platform,body,sentiment&limit=50`
+      ).catch(() => []),
+      sbGet(
+        'inbox_threads',
+        `business_id=eq.${businessId}&created_at=gte.${encodeURIComponent(since)}&select=channel,body,classification&limit=40`
+      ).catch(() => []),
     ]);
     return {
       reviews,
-      messages: messages.map(m => ({ source: m.channel, text: m.body })),
+      messages: messages.map((m) => ({ source: m.channel, text: m.body })),
       tickets: [],
       comments: [],
       survey: [],
@@ -56,7 +62,10 @@ function createWf8(deps) {
   }
 
   async function getLatestReport(businessId) {
-    const rows = await sbGet('insight_reports', `business_id=eq.${businessId}&order=created_at.desc&limit=1&select=*`).catch(() => []);
+    const rows = await sbGet(
+      'insight_reports',
+      `business_id=eq.${businessId}&order=created_at.desc&limit=1&select=*`
+    ).catch(() => []);
     return rows[0] || null;
   }
 

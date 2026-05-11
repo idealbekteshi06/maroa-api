@@ -22,8 +22,11 @@ const {
 } = require('../prompts/workflow_13_weekly_brief.js');
 
 function createEngine({
-  sbGet, sbPost, sbPatch,
-  callClaude, extractJSON,
+  sbGet,
+  sbPost,
+  sbPatch,
+  callClaude,
+  extractJSON,
   logger,
   aggregator,
   buildBrandContext,
@@ -42,17 +45,19 @@ function createEngine({
 
   async function getDeliverySettings(businessId) {
     const rows = await sbGet('brief_delivery_settings', `business_id=eq.${businessId}&select=*`).catch(() => []);
-    return rows[0] || {
-      autonomy_mode: 'review_first',
-      channels: ['email', 'dashboard_only'],
-      recipients: [],
-      delivery_day: 'monday',
-      delivery_local_time: '07:00',
-      preferred_length: 'standard',
-      tone_preference: 'direct',
-      technical_depth: 'intermediate',
-      language: 'English',
-    };
+    return (
+      rows[0] || {
+        autonomy_mode: 'review_first',
+        channels: ['email', 'dashboard_only'],
+        recipients: [],
+        delivery_day: 'monday',
+        delivery_local_time: '07:00',
+        preferred_length: 'standard',
+        tone_preference: 'direct',
+        technical_depth: 'intermediate',
+        language: 'English',
+      }
+    );
   }
 
   async function runSynthesis({ businessId, weekStart, force = false }) {
@@ -95,7 +100,10 @@ function createEngine({
 
     try {
       // Phase 2: synthesis
-      await sbPatch('weekly_briefs', `id=eq.${briefRow.id}`, { status: 'synthesizing', updated_at: new Date().toISOString() });
+      await sbPatch('weekly_briefs', `id=eq.${briefRow.id}`, {
+        status: 'synthesizing',
+        updated_at: new Date().toISOString(),
+      });
       const synthesisPrompt = buildStrategicSynthesisPrompt(brandContext, bundle);
       const synthesisRaw = await callClaude(synthesisPrompt.user, 'claude-opus-4-7', 5000, {
         system: synthesisPrompt.system,
@@ -106,11 +114,17 @@ function createEngine({
 
       // Validate synthesis guardrails
       if ((synthesis.dataSources || []).length < WF13_GUARDRAILS.minDataSources) {
-        logger?.warn('/wf13/engine', businessId, 'synthesis missing data sources', { count: (synthesis.dataSources || []).length });
+        logger?.warn('/wf13/engine', businessId, 'synthesis missing data sources', {
+          count: (synthesis.dataSources || []).length,
+        });
       }
 
       // Phase 3: polish
-      await sbPatch('weekly_briefs', `id=eq.${briefRow.id}`, { status: 'polishing', synthesis, updated_at: new Date().toISOString() });
+      await sbPatch('weekly_briefs', `id=eq.${briefRow.id}`, {
+        status: 'polishing',
+        synthesis,
+        updated_at: new Date().toISOString(),
+      });
       const polishPrompt = buildClientVoicePrompt(brandContext, synthesis);
       const polishRaw = await callClaude(polishPrompt.user, 'claude-sonnet-4-5', 4000, {
         system: polishPrompt.system,
@@ -121,9 +135,11 @@ function createEngine({
 
       // Decide final status
       const nextStatus =
-        settings.autonomy_mode === 'auto_send' ? 'approved' :
-        settings.autonomy_mode === 'manual' ? 'awaiting_review' :
-        'awaiting_review';
+        settings.autonomy_mode === 'auto_send'
+          ? 'approved'
+          : settings.autonomy_mode === 'manual'
+            ? 'awaiting_review'
+            : 'awaiting_review';
 
       await sbPatch('weekly_briefs', `id=eq.${briefRow.id}`, {
         status: nextStatus,
@@ -198,14 +214,15 @@ function createEngine({
   }
 
   async function deliverBrief({ briefId }) {
-    const [briefRows] = await Promise.all([
-      sbGet('weekly_briefs', `id=eq.${briefId}&select=*`),
-    ]);
+    const [briefRows] = await Promise.all([sbGet('weekly_briefs', `id=eq.${briefId}&select=*`)]);
     const brief = briefRows[0];
     if (!brief) throw new Error(`Brief not found: ${briefId}`);
 
     const settings = await getDeliverySettings(brief.business_id);
-    const bizRows = await sbGet('businesses', `id=eq.${brief.business_id}&select=email,business_name,first_name,whatsapp_number`);
+    const bizRows = await sbGet(
+      'businesses',
+      `id=eq.${brief.business_id}&select=email,business_name,first_name,whatsapp_number`
+    );
     const business = bizRows[0] || {};
     const deliverable = brief.deliverable || {};
 
@@ -214,7 +231,7 @@ function createEngine({
     const recipients = Array.isArray(settings.recipients) ? settings.recipients : [];
 
     // Fallback recipient: the business owner's email
-    const fallbackEmail = recipients.find(r => r.email)?.email || business.email;
+    const fallbackEmail = recipients.find((r) => r.email)?.email || business.email;
 
     for (const channel of channels) {
       try {
@@ -222,7 +239,12 @@ function createEngine({
           const subject = deliverable.subjectLine || brief.subject_line || `Weekly brief — ${brief.week_start}`;
           const html = renderHtmlFromDeliverable(deliverable, business);
           const result = await sendEmail(fallbackEmail, subject, html);
-          deliveries.push({ channel, recipient: fallbackEmail, status: result?.ok ? 'sent' : 'failed', external_id: result?.id });
+          deliveries.push({
+            channel,
+            recipient: fallbackEmail,
+            status: result?.ok ? 'sent' : 'failed',
+            external_id: result?.id,
+          });
         } else if (channel === 'whatsapp' && business.whatsapp_number && sendWhatsApp) {
           const msg = `*${deliverable.tldr?.headline || brief.headline || 'Weekly brief'}*\n\n${(deliverable.tldr?.bullets || []).slice(0, 3).join('\n')}\n\n${deliverable.tldr?.strategicQuestion || ''}`;
           await sendWhatsApp(business.whatsapp_number, msg);
@@ -268,19 +290,25 @@ function createEngine({
   function renderHtmlFromDeliverable(deliverable, business) {
     if (!deliverable) return '<p>Weekly brief not available</p>';
     const fb = deliverable.fullBrief || {};
-    const h = n => `<h2 style="font-family:Inter,sans-serif;color:#0f172a;font-size:18px;margin:24px 0 8px;">${n}</h2>`;
-    const body = s => `<div style="font-family:Inter,sans-serif;color:#334155;font-size:14px;line-height:1.6;">${s || ''}</div>`;
+    const h = (n) =>
+      `<h2 style="font-family:Inter,sans-serif;color:#0f172a;font-size:18px;margin:24px 0 8px;">${n}</h2>`;
+    const body = (s) =>
+      `<div style="font-family:Inter,sans-serif;color:#334155;font-size:14px;line-height:1.6;">${s || ''}</div>`;
     const greet = deliverable.greeting || `Hi ${business.first_name || ''},`;
     return `
 <!doctype html>
 <html><body style="margin:0;padding:24px;background:#fafafa;">
 <div style="max-width:640px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:32px;">
 <p style="font-family:Inter,sans-serif;font-size:15px;color:#0f172a;">${greet}</p>
-${deliverable.tldr ? `<div style="background:#f8fafc;border-left:3px solid #0f172a;padding:16px;margin:16px 0;">
+${
+  deliverable.tldr
+    ? `<div style="background:#f8fafc;border-left:3px solid #0f172a;padding:16px;margin:16px 0;">
   <p style="margin:0 0 8px;font-family:Inter,sans-serif;font-weight:500;">${deliverable.tldr.headline || ''}</p>
-  <ul style="margin:0;padding-left:20px;font-family:Inter,sans-serif;font-size:13px;color:#334155;">${(deliverable.tldr.bullets || []).map(b => `<li>${b}</li>`).join('')}</ul>
+  <ul style="margin:0;padding-left:20px;font-family:Inter,sans-serif;font-size:13px;color:#334155;">${(deliverable.tldr.bullets || []).map((b) => `<li>${b}</li>`).join('')}</ul>
   <p style="margin:12px 0 0;font-family:Inter,sans-serif;font-style:italic;color:#64748b;">${deliverable.tldr.strategicQuestion || ''}</p>
-</div>` : ''}
+</div>`
+    : ''
+}
 ${h('Executive summary')}${body(fb.executiveSummary)}
 ${h('KPI narrative')}${body(fb.kpiNarrativeMarkdown)}
 ${h('What is working')}${body(fb.winsMarkdown)}

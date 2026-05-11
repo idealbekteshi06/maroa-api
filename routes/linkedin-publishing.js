@@ -18,8 +18,12 @@
  */
 
 function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getBrandExamples, env }) {
-  const LINKEDIN_CLIENT_ID = (env?.LINKEDIN_CLIENT_ID || process.env.LINKEDIN_CLIENT_ID || '').replace(/[^\x20-\x7E]/g, '').trim();
-  const LINKEDIN_CLIENT_SECRET = (env?.LINKEDIN_CLIENT_SECRET || process.env.LINKEDIN_CLIENT_SECRET || '').replace(/[^\x20-\x7E]/g, '').trim();
+  const LINKEDIN_CLIENT_ID = (env?.LINKEDIN_CLIENT_ID || process.env.LINKEDIN_CLIENT_ID || '')
+    .replace(/[^\x20-\x7E]/g, '')
+    .trim();
+  const LINKEDIN_CLIENT_SECRET = (env?.LINKEDIN_CLIENT_SECRET || process.env.LINKEDIN_CLIENT_SECRET || '')
+    .replace(/[^\x20-\x7E]/g, '')
+    .trim();
   const LINKEDIN_REDIRECT_URI = 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
 
   // GET /linkedin-oauth-start — redirect user to LinkedIn consent screen
@@ -112,7 +116,10 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getB
       };
       await sbPatch('businesses', `id=eq.${encodeURIComponent(business_id)}`, updates);
 
-      log?.('/webhook/linkedin-oauth-exchange', `LinkedIn connected for ${business_id} — person: ${profile.name}, org: ${orgId}`);
+      log?.(
+        '/webhook/linkedin-oauth-exchange',
+        `LinkedIn connected for ${business_id} — person: ${profile.name}, org: ${orgId}`
+      );
       return res.json({
         success: true,
         linkedin_person_id: personId,
@@ -133,8 +140,12 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getB
     res.json({ received: true, message: 'LinkedIn publish started' });
 
     try {
-      const biz = (await sbGet('businesses',
-        `id=eq.${encodeURIComponent(business_id)}&select=business_name,industry,brand_tone,target_audience,dream_customer,unique_differentiator,best_performing_themes,linkedin_access_token,linkedin_person_id,linkedin_organization_id`))[0];
+      const biz = (
+        await sbGet(
+          'businesses',
+          `id=eq.${encodeURIComponent(business_id)}&select=business_name,industry,brand_tone,target_audience,dream_customer,unique_differentiator,best_performing_themes,linkedin_access_token,linkedin_person_id,linkedin_organization_id`
+        )
+      )[0];
       if (!biz?.linkedin_access_token) {
         return log?.('/webhook/linkedin-publish', `LinkedIn not connected for ${business_id}`);
       }
@@ -142,8 +153,12 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getB
       // 1. Generate post with Claude if not provided
       let postText = content;
       if (!postText || postText === 'AI_GENERATE') {
-        const bestThemes = biz.best_performing_themes ? JSON.stringify(biz.best_performing_themes) : 'not available yet';
-        const brandContext = getBrandExamples ? await getBrandExamples(business_id, 'social_post', `${biz.business_name} ${biz.industry} linkedin`) : '';
+        const bestThemes = biz.best_performing_themes
+          ? JSON.stringify(biz.best_performing_themes)
+          : 'not available yet';
+        const brandContext = getBrandExamples
+          ? await getBrandExamples(business_id, 'social_post', `${biz.business_name} ${biz.industry} linkedin`)
+          : '';
         const prompt = `${brandContext}You are a LinkedIn content expert. Generate a professional LinkedIn post for a ${biz.industry} business.
 Business: ${biz.business_name}
 Tone: ${biz.brand_tone || 'professional and approachable'}

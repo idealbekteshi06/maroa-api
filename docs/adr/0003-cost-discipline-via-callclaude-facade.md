@@ -10,6 +10,7 @@ prompt loops. A single runaway customer can turn a $99/month subscription
 into a $400/month loss.
 
 Before this ADR, the codebase had:
+
 - 3 direct `apiRequest('POST', 'https://api.anthropic.com/v1/messages', ...)`
   calls that bypassed every safety mechanism (no retries, no cache, no
   cost tracking, no budget gate).
@@ -39,8 +40,8 @@ Every Claude call goes through the single `callClaude()` facade in
    skill, the business's `brand_voice_anchor` is prepended to the
    system prompt (5-min cache).
 6. **Accepts both call shapes** — the positional `(prompt, model, max,
-   extra)` form used by legacy callers AND the object `({system, user,
-   model, max_tokens, extra})` form used by services/prompts/.
+extra)` form used by legacy callers AND the object `({system, user,
+model, max_tokens, extra})` form used by services/prompts/.
 7. **Supports prompt caching** via `extra.cacheSystem`.
 8. **Honors files API + citations** via `extra.fileIds` + `extra.citations`.
 9. **Routes advisor pattern** when called via
@@ -48,15 +49,16 @@ Every Claude call goes through the single `callClaude()` facade in
 
 ## Alternatives considered
 
-| Option | Why we didn't pick it |
-|---|---|
-| Per-service Anthropic clients | 50+ services each with their own retry/cost code = 50+ places to fix when something changes. The facade is one fix point. |
-| LangChain / similar abstraction | Adds an opinionated framework on top of an already-simple API. The savings don't justify the new abstraction. |
-| Switch to OpenAI mid-call (multi-provider) | We picked Anthropic deliberately. Multi-provider is Phase 5+ if at all. |
+| Option                                     | Why we didn't pick it                                                                                                     |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| Per-service Anthropic clients              | 50+ services each with their own retry/cost code = 50+ places to fix when something changes. The facade is one fix point. |
+| LangChain / similar abstraction            | Adds an opinionated framework on top of an already-simple API. The savings don't justify the new abstraction.             |
+| Switch to OpenAI mid-call (multi-provider) | We picked Anthropic deliberately. Multi-provider is Phase 5+ if at all.                                                   |
 
 ## Consequences
 
 **Positive:**
+
 - One file owns LLM call semantics. New features (e.g. streaming,
   tool-use, batch API) plug in once.
 - Cost dashboards become real. Per-business monthly caps actually
@@ -66,6 +68,7 @@ Every Claude call goes through the single `callClaude()` facade in
   place; downstream callers benefit automatically.
 
 **Negative:**
+
 - `callClaude` is now ~140 lines and supports two call shapes. Some
   complexity is justified (legacy compat + features); some is not
   (eventually consolidate to one shape after every caller migrates).

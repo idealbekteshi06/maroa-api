@@ -81,9 +81,7 @@ test('meta-marketing: createCampaignWithAdSetsAndAds dry-run preserves campaign_
       name: 'launch_test',
       objective: 'Lead',
       daily_budget: 50,
-      variants: [
-        { audience_label: 'lookalike', daily_budget: 25, audience: { type: 'lookalike' } },
-      ],
+      variants: [{ audience_label: 'lookalike', daily_budget: 25, audience: { type: 'lookalike' } }],
     },
   });
   assert.strictEqual(r.ok, true);
@@ -126,9 +124,13 @@ test('google-ads-api: createPmaxCampaign returns dry_run without GOOGLE_ADS_LIVE
 test('tiktok-marketing: isConfigured requires both fields', () => {
   assert.strictEqual(tiktokMarketing.isConfigured({}), false);
   assert.strictEqual(tiktokMarketing.isConfigured({ tiktok_access_token: 'x' }), false);
-  assert.strictEqual(tiktokMarketing.isConfigured({
-    tiktok_access_token: 'x', tiktok_advertiser_id: 'y',
-  }), true);
+  assert.strictEqual(
+    tiktokMarketing.isConfigured({
+      tiktok_access_token: 'x',
+      tiktok_advertiser_id: 'y',
+    }),
+    true
+  );
 });
 
 test('tiktok-marketing: createSmartPlusCampaign dry-run without TIKTOK_ADS_LIVE', async () => {

@@ -15,8 +15,12 @@
 const crypto = require('crypto');
 
 function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getBrandExamples, env }) {
-  const TIKTOK_CLIENT_KEY = (env?.TIKTOK_CLIENT_KEY || process.env.TIKTOK_CLIENT_KEY || '').replace(/[^\x20-\x7E]/g, '').trim();
-  const TIKTOK_CLIENT_SECRET = (env?.TIKTOK_CLIENT_SECRET || process.env.TIKTOK_CLIENT_SECRET || '').replace(/[^\x20-\x7E]/g, '').trim();
+  const TIKTOK_CLIENT_KEY = (env?.TIKTOK_CLIENT_KEY || process.env.TIKTOK_CLIENT_KEY || '')
+    .replace(/[^\x20-\x7E]/g, '')
+    .trim();
+  const TIKTOK_CLIENT_SECRET = (env?.TIKTOK_CLIENT_SECRET || process.env.TIKTOK_CLIENT_SECRET || '')
+    .replace(/[^\x20-\x7E]/g, '')
+    .trim();
   const TIKTOK_REDIRECT_URI = 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
 
   app.get('/tiktok-oauth-start', async (req, res) => {
@@ -85,10 +89,9 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getB
 
       let userId = null;
       try {
-        const userResp = await fetch(
-          'https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,username',
-          { headers: { Authorization: `Bearer ${access_token}` } }
-        );
+        const userResp = await fetch('https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,username', {
+          headers: { Authorization: `Bearer ${access_token}` },
+        });
         const ud = await userResp.json();
         userId = ud?.data?.user?.open_id || null;
       } catch (e) {
@@ -116,8 +119,12 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getB
     res.json({ received: true, message: 'TikTok script generation started' });
 
     try {
-      const biz = (await sbGet('businesses',
-        `id=eq.${encodeURIComponent(business_id)}&select=business_name,industry,brand_tone,target_audience,dream_customer,unique_differentiator,best_performing_themes,tiktok_access_token,tiktok_user_id`))[0];
+      const biz = (
+        await sbGet(
+          'businesses',
+          `id=eq.${encodeURIComponent(business_id)}&select=business_name,industry,brand_tone,target_audience,dream_customer,unique_differentiator,best_performing_themes,tiktok_access_token,tiktok_user_id`
+        )
+      )[0];
       if (!biz?.tiktok_access_token) {
         return log?.('/webhook/tiktok-publish', `TikTok not connected for ${business_id}`);
       }

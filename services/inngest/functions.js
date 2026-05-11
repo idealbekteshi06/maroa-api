@@ -32,16 +32,12 @@ const { dlqHandler } = require('./dlqRecorder');
 function withDLQ(opts) {
   if (opts.onFailure) return opts;
   const eventName =
-    opts.triggers?.[0]?.event
-    || (opts.triggers?.[0]?.cron ? `cron:${opts.triggers[0].cron}` : 'unknown');
+    opts.triggers?.[0]?.event || (opts.triggers?.[0]?.cron ? `cron:${opts.triggers[0].cron}` : 'unknown');
   return { ...opts, onFailure: dlqHandler({ functionId: opts.id, eventName }) };
 }
 
 const PORT = process.env.PORT || 3000;
-const INTERNAL_BASE =
-  process.env.INTERNAL_API_BASE ||
-  process.env.MAROA_API_INTERNAL_URL ||
-  `http://127.0.0.1:${PORT}`;
+const INTERNAL_BASE = process.env.INTERNAL_API_BASE || process.env.MAROA_API_INTERNAL_URL || `http://127.0.0.1:${PORT}`;
 const INTERNAL_SECRET = process.env.N8N_WEBHOOK_SECRET || '';
 
 async function callInternal(path, body) {
@@ -143,7 +139,10 @@ const contentPublishFeedback24h = inngest.createFunction(
     // One feedback check per (business, content). Concurrency keyed on
     // contentId so multiple posts from same business can run in parallel.
     concurrency: { limit: 1, key: 'event.data.contentId' },
-    onFailure: dlqHandler({ functionId: 'content-publish-feedback-24h', eventName: 'maroa/content.publish.feedback-24h' }),
+    onFailure: dlqHandler({
+      functionId: 'content-publish-feedback-24h',
+      eventName: 'maroa/content.publish.feedback-24h',
+    }),
     triggers: [{ event: 'maroa/content.publish.feedback-24h' }],
   },
   async ({ event, step }) => {
@@ -174,9 +173,7 @@ const manualAdAudit = inngest.createFunction(
   async ({ event, step }) => {
     const dryRun = !!event?.data?.dryRun;
     const limit = Number(event?.data?.limit || 50);
-    return await step.run('run', async () =>
-      callInternal('/webhook/ad-optimizer-daily-audit', { dryRun, limit })
-    );
+    return await step.run('run', async () => callInternal('/webhook/ad-optimizer-daily-audit', { dryRun, limit }));
   }
 );
 
@@ -206,9 +203,7 @@ const manualScorecardRun = inngest.createFunction(
   }),
   async ({ event, step }) => {
     const dryRun = !!event?.data?.dryRun;
-    return await step.run('run', async () =>
-      callInternal('/webhook/weekly-scorecard-all', { dryRun })
-    );
+    return await step.run('run', async () => callInternal('/webhook/weekly-scorecard-all', { dryRun }));
   }
 );
 
@@ -432,9 +427,7 @@ const emailLifecycleProcess = inngest.createFunction(
     triggers: [{ cron: 'TZ=UTC */15 * * * *' }],
   }),
   async ({ step }) => {
-    const result = await step.run('process-due', async () =>
-      callInternal('/webhook/email-lifecycle-process-due', {})
-    );
+    const result = await step.run('process-due', async () => callInternal('/webhook/email-lifecycle-process-due', {}));
     return {
       ok: true,
       due: result?.due ?? 0,
@@ -539,9 +532,7 @@ const coldStartResume = inngest.createFunction(
   async ({ event, step }) => {
     const businessId = event?.data?.businessId;
     if (!businessId) return { ok: false, reason: 'missing businessId' };
-    const result = await step.run('resume', async () =>
-      callInternal('/webhook/cold-start-resume', { businessId })
-    );
+    const result = await step.run('resume', async () => callInternal('/webhook/cold-start-resume', { businessId }));
     return {
       ok: !!result?.ok,
       status: result?.status ?? null,

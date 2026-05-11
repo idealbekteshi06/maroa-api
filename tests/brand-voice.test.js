@@ -86,9 +86,9 @@ test('buildAnchor: VOC analysis lifts confidence to high + adds verbatim phrases
     vocAnalysis: voc,
   });
   assert.strictEqual(a.confidence, 'high');
-  assert.ok(a.derived_from.find(s => s.startsWith('voc-analysis')));
+  assert.ok(a.derived_from.find((s) => s.startsWith('voc-analysis')));
   // VOC verbatim phrases extracted into do_words
-  const hasVocPhrase = a.do_words.some(w => ['parking', 'fresh', 'espresso', 'morning', 'love'].includes(w));
+  const hasVocPhrase = a.do_words.some((w) => ['parking', 'fresh', 'espresso', 'morning', 'love'].includes(w));
   assert.ok(hasVocPhrase, `expected VOC phrase in do_words, got: ${a.do_words.join(',')}`);
 });
 
@@ -130,9 +130,15 @@ test('buildAnchor: manual overrides win + flag in derived_from', () => {
 });
 
 test('buildAnchor: exemplar paragraph in business primary_language', () => {
-  const en = bv.buildAnchor({ business: { business_name: 'X', industry: 'cafe', primary_language: 'en', operation_model: 'location_based' } });
-  const sq = bv.buildAnchor({ business: { business_name: 'X', industry: 'cafe', primary_language: 'sq', operation_model: 'location_based' } });
-  const de = bv.buildAnchor({ business: { business_name: 'X', industry: 'cafe', primary_language: 'de', operation_model: 'location_based' } });
+  const en = bv.buildAnchor({
+    business: { business_name: 'X', industry: 'cafe', primary_language: 'en', operation_model: 'location_based' },
+  });
+  const sq = bv.buildAnchor({
+    business: { business_name: 'X', industry: 'cafe', primary_language: 'sq', operation_model: 'location_based' },
+  });
+  const de = bv.buildAnchor({
+    business: { business_name: 'X', industry: 'cafe', primary_language: 'de', operation_model: 'location_based' },
+  });
   assert.match(en.exemplar_paragraph, /since 2018/);
   assert.match(sq.exemplar_paragraph, /2018/);
   assert.match(de.exemplar_paragraph, /seit 2018/);

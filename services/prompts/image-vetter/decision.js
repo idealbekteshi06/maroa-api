@@ -6,7 +6,7 @@ const VERDICT_BANDS = {
   use_as_is: [85, 100.01],
   enhance_via_higgsfield: [60, 84.999],
   regenerate_fresh: [40, 59.999],
-  reject: [0, 39.999]
+  reject: [0, 39.999],
 };
 
 function bandFor(total) {
@@ -33,14 +33,27 @@ function applyHardGates(scores, opts = {}) {
   const gates = [];
   const safety = scores.safety;
   if (safety <= 4) gates.push({ name: 'safety', forces: 'reject', reason: `safety score ${safety} below threshold` });
-  if (opts.flagThirdParty) gates.push({ name: 'third_party', forces: 'reject', reason: 'identifiable third party without consent' });
-  if (opts.flagMinor) gates.push({ name: 'minor', forces: 'reject', reason: 'minor in shot without explicit family/kids vertical context' });
-  if (opts.flagNsfw) gates.push({ name: 'nsfw', forces: 'reject', reason: 'NSFW content for non-adult-vertical brand' });
+  if (opts.flagThirdParty)
+    gates.push({ name: 'third_party', forces: 'reject', reason: 'identifiable third party without consent' });
+  if (opts.flagMinor)
+    gates.push({
+      name: 'minor',
+      forces: 'reject',
+      reason: 'minor in shot without explicit family/kids vertical context',
+    });
+  if (opts.flagNsfw)
+    gates.push({ name: 'nsfw', forces: 'reject', reason: 'NSFW content for non-adult-vertical brand' });
 
   const minDim = opts.smallestDimensionPx;
-  if (Number.isFinite(minDim) && minDim < 800) gates.push({ name: 'resolution', forces: 'regenerate_fresh', reason: `smallest side ${minDim}px below 800px floor — cannot enhance via I2I` });
+  if (Number.isFinite(minDim) && minDim < 800)
+    gates.push({
+      name: 'resolution',
+      forces: 'regenerate_fresh',
+      reason: `smallest side ${minDim}px below 800px floor — cannot enhance via I2I`,
+    });
 
-  if (scores.brand_alignment <= 2) gates.push({ name: 'brand_alignment', forces: 'regenerate_fresh', reason: 'image actively contradicts brand DNA' });
+  if (scores.brand_alignment <= 2)
+    gates.push({ name: 'brand_alignment', forces: 'regenerate_fresh', reason: 'image actively contradicts brand DNA' });
 
   return gates;
 }
@@ -63,12 +76,7 @@ function refineEnhanceVsRegenerate(verdict, scores, opts = {}) {
   if (verdict === 'regenerate_fresh') {
     const subjectCorrect = opts.subjectCorrect === true;
     const resOK = !Number.isFinite(opts.smallestDimensionPx) || opts.smallestDimensionPx >= 800;
-    if (
-      subjectCorrect &&
-      scores.brand_alignment >= 5 &&
-      scores.safety >= 7 &&
-      resOK
-    ) {
+    if (subjectCorrect && scores.brand_alignment >= 5 && scores.safety >= 7 && resOK) {
       return 'enhance_via_higgsfield';
     }
   }
@@ -99,7 +107,7 @@ function decide(rawScores, genre, opts = {}) {
       scores,
       weights_applied: genre,
       hard_gates_fired: gates,
-      rationale_lead: gates.map((g) => `[gate:${g.name}] ${g.reason}`).join(' | ')
+      rationale_lead: gates.map((g) => `[gate:${g.name}] ${g.reason}`).join(' | '),
     };
   }
 
@@ -109,7 +117,7 @@ function decide(rawScores, genre, opts = {}) {
 
   const distances = Object.entries(VERDICT_BANDS).map(([v, [lo, hi]]) => ({
     v,
-    distance: Math.min(Math.abs(total - lo), Math.abs(total - hi))
+    distance: Math.min(Math.abs(total - lo), Math.abs(total - hi)),
   }));
   const minDist = Math.min(...distances.map((d) => d.distance));
   const borderline = minDist <= 3;
@@ -121,8 +129,17 @@ function decide(rawScores, genre, opts = {}) {
     genre,
     scores,
     weights_applied: genre,
-    hard_gates_fired: []
+    hard_gates_fired: [],
   };
 }
 
-module.exports = { decide, bandFor, computeTotal, normalizeScores, applyHardGates, refineEnhanceVsRegenerate, VERDICT_BANDS, DIMENSIONS };
+module.exports = {
+  decide,
+  bandFor,
+  computeTotal,
+  normalizeScores,
+  applyHardGates,
+  refineEnhanceVsRegenerate,
+  VERDICT_BANDS,
+  DIMENSIONS,
+};

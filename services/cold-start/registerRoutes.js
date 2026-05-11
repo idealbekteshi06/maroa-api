@@ -31,10 +31,21 @@ function makeLimiter(windowMs, max, name) {
 
 function registerColdStartRoutes(deps) {
   const {
-    app, coldStart, apiError, logger,
-    sbGet, sbPost, sbPatch,
-    callClaude, brandVoice, creativeDirector,
-    higgsfield, adOptimizer, aiSeo, wf1, sentry,
+    app,
+    coldStart,
+    apiError,
+    logger,
+    sbGet,
+    sbPost,
+    sbPatch,
+    callClaude,
+    brandVoice,
+    creativeDirector,
+    higgsfield,
+    adOptimizer,
+    aiSeo,
+    wf1,
+    sentry,
   } = deps;
 
   // Inngest sender (optional — if INNGEST_EVENT_KEY set we trigger durable run;
@@ -49,10 +60,18 @@ function registerColdStartRoutes(deps) {
 
   function buildPhaseDeps() {
     return {
-      sbGet, sbPost, sbPatch,
-      callClaude, brandVoice, creativeDirector,
-      higgsfield, adOptimizer, aiSeo, wf1,
-      logger, sentry,
+      sbGet,
+      sbPost,
+      sbPatch,
+      callClaude,
+      brandVoice,
+      creativeDirector,
+      higgsfield,
+      adOptimizer,
+      aiSeo,
+      wf1,
+      logger,
+      sentry,
     };
   }
 
@@ -82,7 +101,9 @@ function registerColdStartRoutes(deps) {
             data: { businessId, runId: run.id },
           });
         } catch (e) {
-          logger?.warn?.('/webhook/cold-start-trigger', businessId, 'inngest send failed (non-fatal)', { error: e.message });
+          logger?.warn?.('/webhook/cold-start-trigger', businessId, 'inngest send failed (non-fatal)', {
+            error: e.message,
+          });
         }
       }
       res.json({ ok: true, run_id: run.id, status: run.status, current_phase: run.current_phase });
@@ -143,7 +164,8 @@ function registerColdStartRoutes(deps) {
     const businessId = req.query?.businessId || req.query?.business_id;
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
     try {
-      const concepts = await sbGet('cold_start_concepts',
+      const concepts = await sbGet(
+        'cold_start_concepts',
         `business_id=eq.${businessId}&order=variant_index.asc&select=id,variant_index,concept,preview_image_url,preview_video_url,status`
       ).catch(() => []);
       res.json({ concepts: concepts || [] });
@@ -172,7 +194,9 @@ function registerColdStartRoutes(deps) {
             data: { businessId, reason: 'concept_approved' },
           });
         } catch (e) {
-          logger?.warn?.('/webhook/cold-start-approve', businessId, 'inngest send failed (non-fatal)', { error: e.message });
+          logger?.warn?.('/webhook/cold-start-approve', businessId, 'inngest send failed (non-fatal)', {
+            error: e.message,
+          });
         }
       }
       res.json({

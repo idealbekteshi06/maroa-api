@@ -48,7 +48,7 @@ function varianceClass(timeSeries) {
   const cv = coefVariation(timeSeries.filter(Number.isFinite));
   if (cv == null) return 'unknown';
   if (cv < 0.25) return 'low';
-  if (cv < 0.6)  return 'medium';
+  if (cv < 0.6) return 'medium';
   return 'high';
 }
 
@@ -65,7 +65,10 @@ function linearFit(values) {
   const meanX = (n - 1) / 2;
   const meanY = v.reduce((a, b) => a + b, 0) / n;
 
-  let num = 0, denX = 0, totalSS = 0, residSS = 0;
+  let num = 0,
+    denX = 0,
+    totalSS = 0,
+    residSS = 0;
   for (let i = 0; i < n; i++) {
     num += (xs[i] - meanX) * (v[i] - meanY);
     denX += (xs[i] - meanX) ** 2;
@@ -101,9 +104,7 @@ function linearForecast(timeSeries, horizonDays) {
   const mid = slope * futureX + intercept;
 
   // Residual std-dev defines the confidence band
-  const residuals = timeSeries
-    .filter(Number.isFinite)
-    .map((v, i) => v - (slope * i + intercept));
+  const residuals = timeSeries.filter(Number.isFinite).map((v, i) => v - (slope * i + intercept));
   const residSd = stddev(residuals) || 0;
 
   // Confidence band widens with horizon (sqrt of horizon = standard practice)
@@ -115,8 +116,8 @@ function linearForecast(timeSeries, horizonDays) {
   else if (r2 < 0.2 || n < 7) confidence = 'low';
 
   return {
-    low:  Math.max(0, mid - band),
-    mid:  Math.max(0, mid),
+    low: Math.max(0, mid - band),
+    mid: Math.max(0, mid),
     high: Math.max(0, mid + band),
     slope,
     intercept,
@@ -140,9 +141,9 @@ function linearForecast(timeSeries, horizonDays) {
  */
 function recommendBudgetAllocation(channels) {
   if (!Array.isArray(channels) || channels.length < 2) return null;
-  const valid = channels.filter(c =>
-    Number.isFinite(Number(c.spend)) && Number(c.spend) > 0 &&
-    Number.isFinite(Number(c.roas)) && Number(c.roas) > 0
+  const valid = channels.filter(
+    (c) =>
+      Number.isFinite(Number(c.spend)) && Number(c.spend) > 0 && Number.isFinite(Number(c.roas)) && Number(c.roas) > 0
   );
   if (valid.length < 2) return null;
 
@@ -151,43 +152,49 @@ function recommendBudgetAllocation(channels) {
 
   // Compute marginal-ROAS at current point for each channel
   // Then simulate moving small chunks (5% of total) toward higher-marginal channel
-  const allocation = valid.map(c => ({ name: c.name, spend: Number(c.spend), roas: Number(c.roas), scale: Number(c.spend) }));
+  const allocation = valid.map((c) => ({
+    name: c.name,
+    spend: Number(c.spend),
+    roas: Number(c.roas),
+    scale: Number(c.spend),
+  }));
 
   const stepSize = totalSpend * 0.02; // 2% chunks
   const steps = 25; // ~50% redistribution max
 
   for (let step = 0; step < steps; step++) {
     // Marginal ROAS for each channel at current allocation
-    const marginals = allocation.map(c => {
+    const marginals = allocation.map((c) => {
       const extra = c.spend - c.scale;
       const marginal = c.roas * Math.exp(-extra / Math.max(1, c.scale));
       return { name: c.name, marginal };
     });
 
     // Find highest-marginal and lowest-marginal
-    const highest = marginals.reduce((a, b) => a.marginal > b.marginal ? a : b);
-    const lowest  = marginals.reduce((a, b) => a.marginal < b.marginal ? a : b);
+    const highest = marginals.reduce((a, b) => (a.marginal > b.marginal ? a : b));
+    const lowest = marginals.reduce((a, b) => (a.marginal < b.marginal ? a : b));
     if (highest.marginal - lowest.marginal < 0.05) break; // converged
 
     // Move stepSize from lowest to highest, but never below 10% of original
-    const lowChannel = allocation.find(c => c.name === lowest.name);
-    const highChannel = allocation.find(c => c.name === highest.name);
-    if (lowChannel.spend - stepSize < lowChannel.scale * 0.10) break;
-    lowChannel.spend  -= stepSize;
+    const lowChannel = allocation.find((c) => c.name === lowest.name);
+    const highChannel = allocation.find((c) => c.name === highest.name);
+    if (lowChannel.spend - stepSize < lowChannel.scale * 0.1) break;
+    lowChannel.spend -= stepSize;
     highChannel.spend += stepSize;
   }
 
   // Expected lift: conservative estimate at HALF of perfect-linear lift to
   // account for diminishing returns we can't measure exactly.
-  let currentRevenue = 0, linearNewRevenue = 0;
-  for (const c of valid)      currentRevenue   += c.spend * c.roas;
+  let currentRevenue = 0,
+    linearNewRevenue = 0;
+  for (const c of valid) currentRevenue += c.spend * c.roas;
   for (const c of allocation) linearNewRevenue += c.spend * c.roas;
   const linearLift = currentRevenue > 0 ? (linearNewRevenue - currentRevenue) / currentRevenue : null;
   const liftPct = linearLift != null ? Math.max(0, linearLift * 0.5) : null;
 
   return {
-    current: Object.fromEntries(valid.map(c => [c.name, Number(c.spend)])),
-    recommended: Object.fromEntries(allocation.map(c => [c.name, Number(c.spend.toFixed(2))])),
+    current: Object.fromEntries(valid.map((c) => [c.name, Number(c.spend)])),
+    recommended: Object.fromEntries(allocation.map((c) => [c.name, Number(c.spend.toFixed(2))])),
     expected_lift_pct: liftPct != null ? Number(liftPct.toFixed(3)) : null,
   };
 }
@@ -212,10 +219,8 @@ function cohortLtv(orders) {
   const customerCount = byCustomer.size;
   if (customerCount < 5) return null;
 
-  const totals = [...byCustomer.values()].map(list =>
-    list.reduce((a, o) => a + Number(o.amount || 0), 0)
-  );
-  const repeatCount = [...byCustomer.values()].filter(list => list.length > 1).length;
+  const totals = [...byCustomer.values()].map((list) => list.reduce((a, o) => a + Number(o.amount || 0), 0));
+  const repeatCount = [...byCustomer.values()].filter((list) => list.length > 1).length;
   const repeatRate = repeatCount / customerCount;
   const meanLtv = mean(totals);
 

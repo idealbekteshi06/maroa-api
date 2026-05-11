@@ -54,15 +54,18 @@ test('postNow Meta path: dry-runs without META_PUBLISH_LIVE', async () => {
   delete process.env.META_PUBLISH_LIVE;
 
   const db = createFakeSupabase();
-  db.seed('businesses', [{
-    id: BIZ_UUID, plan: 'growth',
-    meta_access_token: 'EAAfake',
-    facebook_page_id: 'page-1',
-    facebook_page_access_token: 'EAAfake-page',
-    instagram_account_id: 'ig-1',
-    threads_account_id: 'th-1',
-    ayrshare_profile_key: null,
-  }]);
+  db.seed('businesses', [
+    {
+      id: BIZ_UUID,
+      plan: 'growth',
+      meta_access_token: 'EAAfake',
+      facebook_page_id: 'page-1',
+      facebook_page_access_token: 'EAAfake-page',
+      instagram_account_id: 'ig-1',
+      threads_account_id: 'th-1',
+      ayrshare_profile_key: null,
+    },
+  ]);
 
   const r = await social.postNow({
     businessId: BIZ_UUID,
@@ -88,19 +91,23 @@ test('postNow Meta path: Facebook publish with text-only when LIVE=true', async 
   global.fetch = async (url) => {
     lastUrl = url.toString();
     return {
-      ok: true, status: 200,
+      ok: true,
+      status: 200,
       headers: { get: () => null },
       json: async () => ({ id: 'fb_post_42', post_id: 'fb_post_42' }),
     };
   };
 
   const db = createFakeSupabase();
-  db.seed('businesses', [{
-    id: BIZ_UUID, plan: 'growth',
-    meta_access_token: 'EAA-user',
-    facebook_page_id: 'page-1',
-    facebook_page_access_token: 'EAA-page',
-  }]);
+  db.seed('businesses', [
+    {
+      id: BIZ_UUID,
+      plan: 'growth',
+      meta_access_token: 'EAA-user',
+      facebook_page_id: 'page-1',
+      facebook_page_access_token: 'EAA-page',
+    },
+  ]);
 
   const r = await social.postNow({
     businessId: BIZ_UUID,
@@ -122,11 +129,14 @@ test('postNow Meta path: Instagram requires media_url, fails fast without', asyn
   const orig = process.env.META_PUBLISH_LIVE;
   process.env.META_PUBLISH_LIVE = 'true';
   const db = createFakeSupabase();
-  db.seed('businesses', [{
-    id: BIZ_UUID, plan: 'growth',
-    meta_access_token: 'EAA-user',
-    instagram_account_id: 'ig-1',
-  }]);
+  db.seed('businesses', [
+    {
+      id: BIZ_UUID,
+      plan: 'growth',
+      meta_access_token: 'EAA-user',
+      instagram_account_id: 'ig-1',
+    },
+  ]);
 
   const r = await social.postNow({
     businessId: BIZ_UUID,
@@ -145,27 +155,37 @@ test('postNow Meta path: rate-limit warning surfaces when worstPct ≥ 75', asyn
   process.env.META_PUBLISH_LIVE = 'true';
   const origFetch = global.fetch;
   global.fetch = async () => ({
-    ok: true, status: 200,
+    ok: true,
+    status: 200,
     headers: {
-      get: (k) => k.toLowerCase() === 'x-business-use-case-usage'
-        ? JSON.stringify({ 'page-1': [{ type: 'ads_management', call_count: 92, total_cputime: 80, total_time: 60 }] })
-        : null,
+      get: (k) =>
+        k.toLowerCase() === 'x-business-use-case-usage'
+          ? JSON.stringify({
+              'page-1': [{ type: 'ads_management', call_count: 92, total_cputime: 80, total_time: 60 }],
+            })
+          : null,
     },
     json: async () => ({ id: 'fb_post_50' }),
   });
 
   const db = createFakeSupabase();
-  db.seed('businesses', [{
-    id: BIZ_UUID, plan: 'growth',
-    meta_access_token: 'EAA', facebook_page_id: 'page-1', facebook_page_access_token: 'EAA-page',
-  }]);
+  db.seed('businesses', [
+    {
+      id: BIZ_UUID,
+      plan: 'growth',
+      meta_access_token: 'EAA',
+      facebook_page_id: 'page-1',
+      facebook_page_access_token: 'EAA-page',
+    },
+  ]);
   let warnCalled = false;
   const r = await social.postNow({
     businessId: BIZ_UUID,
     platforms: ['facebook'],
     content: { body: 'check rate limit handling' },
     deps: {
-      sbGet: db.sbGet, sbPost: db.sbPost,
+      sbGet: db.sbGet,
+      sbPost: db.sbPost,
       logger: {
         info: () => {},
         warn: (route, biz, msg, data) => {

@@ -12,15 +12,15 @@
  */
 
 const SOCIAL_PATTERNS = [
-  { platform: 'facebook',  match: /facebook\.com\/[\w.-]+/i },
+  { platform: 'facebook', match: /facebook\.com\/[\w.-]+/i },
   { platform: 'instagram', match: /instagram\.com\/[\w.-]+/i },
-  { platform: 'twitter',   match: /(?:twitter|x)\.com\/[\w.-]+/i },
-  { platform: 'linkedin',  match: /linkedin\.com\/(?:company|in)\/[\w.-]+/i },
-  { platform: 'youtube',   match: /youtube\.com\/(?:c|channel|@)[\w.-]+/i },
-  { platform: 'tiktok',    match: /tiktok\.com\/@[\w.-]+/i },
+  { platform: 'twitter', match: /(?:twitter|x)\.com\/[\w.-]+/i },
+  { platform: 'linkedin', match: /linkedin\.com\/(?:company|in)\/[\w.-]+/i },
+  { platform: 'youtube', match: /youtube\.com\/(?:c|channel|@)[\w.-]+/i },
+  { platform: 'tiktok', match: /tiktok\.com\/@[\w.-]+/i },
   { platform: 'pinterest', match: /pinterest\.com\/[\w.-]+/i },
-  { platform: 'github',    match: /github\.com\/[\w.-]+/i },
-  { platform: 'crunchbase',match: /crunchbase\.com\/(?:organization|person)\/[\w.-]+/i },
+  { platform: 'github', match: /github\.com\/[\w.-]+/i },
+  { platform: 'crunchbase', match: /crunchbase\.com\/(?:organization|person)\/[\w.-]+/i },
 ];
 
 /**
@@ -74,10 +74,8 @@ function detectEntityGaps({ sameAs }) {
     if (/wikipedia\.org/i.test(url)) present.add('wikipedia');
     if (/wikidata\.org/i.test(url)) present.add('wikidata');
   }
-  const allCanonical = [
-    'linkedin', 'instagram', 'facebook', 'crunchbase', 'wikipedia', 'wikidata',
-  ];
-  return allCanonical.filter(p => !present.has(p));
+  const allCanonical = ['linkedin', 'instagram', 'facebook', 'crunchbase', 'wikipedia', 'wikidata'];
+  return allCanonical.filter((p) => !present.has(p));
 }
 
 module.exports = {

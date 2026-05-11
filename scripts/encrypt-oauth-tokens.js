@@ -26,7 +26,9 @@
 const oauthCrypto = require('../lib/oauthCrypto');
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/[^\x20-\x7E]/g, '').trim();
-const SUPABASE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '').replace(/[^\x20-\x7E]/g, '').trim();
+const SUPABASE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '')
+  .replace(/[^\x20-\x7E]/g, '')
+  .trim();
 const DRY_RUN = process.argv.includes('--dry-run');
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
@@ -112,7 +114,9 @@ async function run() {
     if (rows.length < PAGE) break;
   }
 
-  console.log(`\nDone. Scanned ${totalRows} rows, encrypted ${totalEncrypted} business${totalEncrypted === 1 ? '' : 'es'}.`);
+  console.log(
+    `\nDone. Scanned ${totalRows} rows, encrypted ${totalEncrypted} business${totalEncrypted === 1 ? '' : 'es'}.`
+  );
   if (errors.length) {
     console.log(`\nErrors (${errors.length}):`);
     for (const e of errors.slice(0, 10)) console.log(`  ${e.id}: ${e.error}`);

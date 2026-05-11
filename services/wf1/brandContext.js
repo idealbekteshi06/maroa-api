@@ -72,15 +72,20 @@ function parseList(v) {
     try {
       const parsed = JSON.parse(v);
       if (Array.isArray(parsed)) return parsed;
-    } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
-    return v.split(/[;,\n]/).map(s => s.trim()).filter(Boolean);
+    } catch (e) {
+      /* soft-fail — see ADR-0003 for empty-catch cleanup plan */
+    }
+    return v
+      .split(/[;,\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
   return [];
 }
 
 function parseCompetitors(v) {
   const list = parseList(v);
-  return list.map(c => {
+  return list.map((c) => {
     if (typeof c === 'string') return { name: c, position: 'unknown' };
     return { name: c.name || c.title || 'unknown', position: c.position || c.positioning || 'unknown' };
   });
@@ -88,9 +93,18 @@ function parseCompetitors(v) {
 
 function parsePersonas(profile, business) {
   const raw = profile?.personas || business?.personas || [];
-  const list = typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return []; } })() : raw;
+  const list =
+    typeof raw === 'string'
+      ? (() => {
+          try {
+            return JSON.parse(raw);
+          } catch {
+            return [];
+          }
+        })()
+      : raw;
   if (Array.isArray(list) && list.length) {
-    return list.map(p => ({
+    return list.map((p) => ({
       name: p.name || p.persona_name || 'Target customer',
       jtbd: p.jtbd || p.job_to_be_done || p.goal || p.description || 'Improve their situation',
       painPoints: parseList(p.painPoints || p.pain_points || p.pains),
@@ -99,11 +113,13 @@ function parsePersonas(profile, business) {
   // Fallback: synthesize one from audience_description + pain_point.
   const desc = profile?.audience_description || business?.target_audience || 'general audience';
   const pain = profile?.pain_point || '';
-  return [{
-    name: 'Primary audience',
-    jtbd: desc.slice(0, 120),
-    painPoints: pain ? [pain] : [],
-  }];
+  return [
+    {
+      name: 'Primary audience',
+      jtbd: desc.slice(0, 120),
+      painPoints: pain ? [pain] : [],
+    },
+  ];
 }
 
 function parseBrandVoice(profile, business) {
@@ -115,9 +131,18 @@ function parseBrandVoice(profile, business) {
 
 function parsePillars(profile, business) {
   const raw = profile?.content_pillars || business?.content_pillars || [];
-  const list = typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return []; } })() : raw;
+  const list =
+    typeof raw === 'string'
+      ? (() => {
+          try {
+            return JSON.parse(raw);
+          } catch {
+            return [];
+          }
+        })()
+      : raw;
   if (Array.isArray(list) && list.length) {
-    return list.map(p => ({
+    return list.map((p) => ({
       name: p.name || p.pillar || String(p),
       allocation: Number(p.allocation || p.percentage || 25),
     }));
@@ -153,7 +178,9 @@ function buildBrandContext({ business = {}, profile = {} }) {
     const raw = business.onboarding_data;
     const od = typeof raw === 'string' ? JSON.parse(raw) : raw;
     form = od?.form || {};
-  } catch { /* ignore parse errors */ }
+  } catch {
+    /* ignore parse errors */
+  }
 
   const businessModel = guessBusinessModel(
     profile.industry || business.industry || form.business_type,
@@ -192,7 +219,13 @@ function buildBrandContext({ business = {}, profile = {} }) {
     websiteUrl: business.website_url || form.website_url || '',
 
     // Budget & economics
-    monthlyBudget: Number(profile.monthly_budget || business.monthly_budget || (Array.isArray(form.monthly_budget) ? form.monthly_budget[0] : form.monthly_budget) || 0) || 0,
+    monthlyBudget:
+      Number(
+        profile.monthly_budget ||
+          business.monthly_budget ||
+          (Array.isArray(form.monthly_budget) ? form.monthly_budget[0] : form.monthly_budget) ||
+          0
+      ) || 0,
     avgOrderValue: Number(profile.avg_spend || business.avg_order_value || 0) || 0,
     currentOffer: profile.current_offer || '',
     currentSpend: form.current_spend || '',
@@ -216,19 +249,35 @@ function buildBrandContext({ business = {}, profile = {} }) {
     // Products & offers
     products: (() => {
       const raw = profile.products || business.products || [];
-      if (typeof raw === 'string') { try { return JSON.parse(raw); } catch { return []; } }
+      if (typeof raw === 'string') {
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return [];
+        }
+      }
       return Array.isArray(raw) ? raw : [];
     })(),
 
     // Scheduling & platforms
-    activePlatforms: parseList(business.social_accounts_connected === true ? form.platforms : (business.social_accounts_connected || form.platforms)),
+    activePlatforms: parseList(
+      business.social_accounts_connected === true
+        ? form.platforms
+        : business.social_accounts_connected || form.platforms
+    ),
     postingFrequency: profile.best_posting_times || business.posting_frequency || form.post_frequency || 'auto',
 
     // Seasonality
     seasonal: profile.seasonal || 'year_round',
     busyMonths: (() => {
       const raw = profile.busy_months || [];
-      if (typeof raw === 'string') { try { return JSON.parse(raw); } catch { return []; } }
+      if (typeof raw === 'string') {
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return [];
+        }
+      }
       return Array.isArray(raw) ? raw : [];
     })(),
 

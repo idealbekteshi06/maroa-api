@@ -86,15 +86,23 @@ async function createCampaign({ business, name, conversionEvent, dailyBudgetCent
     body: {
       name,
       objective,
-      status: 'PAUSED',                    // safety: created PAUSED, manually activated
+      status: 'PAUSED', // safety: created PAUSED, manually activated
       special_ad_categories: [],
       buying_type: 'AUCTION',
-      daily_budget: dailyBudgetCents,      // cents (e.g. 1000 = $10)
+      daily_budget: dailyBudgetCents, // cents (e.g. 1000 = $10)
     },
   });
 }
 
-async function createAdSet({ business, campaignId, name, audience, dailyBudgetCents, optimizationGoal = 'OFFSITE_CONVERSIONS', billingEvent = 'IMPRESSIONS' }) {
+async function createAdSet({
+  business,
+  campaignId,
+  name,
+  audience,
+  dailyBudgetCents,
+  optimizationGoal = 'OFFSITE_CONVERSIONS',
+  billingEvent = 'IMPRESSIONS',
+}) {
   if (!META_LAUNCH_LIVE()) {
     return { ok: true, dry_run: true, ad_set_id: `dry_run_adset_${Date.now()}` };
   }
@@ -165,7 +173,10 @@ async function createCampaignWithAdSetsAndAds({ business, payload }) {
 
     if (variant.creative) {
       const adRes = await createAd({
-        business, adSetId, name: `${payload.name}_${variant.audience_label}_ad`, creative: variant.creative,
+        business,
+        adSetId,
+        name: `${payload.name}_${variant.audience_label}_ad`,
+        creative: variant.creative,
       });
       if (adRes.ok) adIds.push(adRes.dry_run ? adRes.ad_id : adRes.raw.id);
     }
@@ -203,13 +214,14 @@ async function fetchInsights({ businessId, business, since, until }) {
   if (!r.ok) return { ok: false, reason: r.reason, campaigns: [] };
 
   const campaigns = (r.raw?.data || []).map((row) => {
-    const conversions = Number(((row.actions || []).find((a) => a.action_type === 'offsite_conversion')?.value) || 0);
-    const revenue = Number(((row.action_values || []).find((a) => a.action_type === 'offsite_conversion')?.value) || 0);
+    const conversions = Number((row.actions || []).find((a) => a.action_type === 'offsite_conversion')?.value || 0);
+    const revenue = Number((row.action_values || []).find((a) => a.action_type === 'offsite_conversion')?.value || 0);
     const spend = Number(row.spend) || 0;
     return {
       id: row.campaign_id,
       name: row.campaign_name,
-      spend, clicks: Number(row.clicks) || 0,
+      spend,
+      clicks: Number(row.clicks) || 0,
       impressions: Number(row.impressions) || 0,
       ctr: Number(row.ctr) || null,
       cpc: Number(row.cpc) || null,
@@ -217,10 +229,10 @@ async function fetchInsights({ businessId, business, since, until }) {
       frequency: Number(row.frequency) || null,
       reach: Number(row.reach) || 0,
       conversions,
-      conversions_30d: conversions,                    // approximation; daily audit uses 7d window by default
+      conversions_30d: conversions, // approximation; daily audit uses 7d window by default
       roas: spend > 0 ? revenue / spend : null,
       cpa: conversions > 0 ? spend / conversions : null,
-      learning_phase: false,                            // requires separate /act/insights call with delivery_estimate
+      learning_phase: false, // requires separate /act/insights call with delivery_estimate
       target_cpa: null,
     };
   });
@@ -267,7 +279,10 @@ async function fetchMeasurementHealth({ business }) {
     totalEvents += Number(row.count) || 0;
     if (row.dedupe_keys || row.cnp_match_keys) totalBoth += Number(row.count) || 0;
     if (row.event_source === 'server' || row.event_source === 'both') totalCapi += Number(row.count) || 0;
-    if (typeof row.emq === 'number') { emqSum += row.emq; emqCount += 1; }
+    if (typeof row.emq === 'number') {
+      emqSum += row.emq;
+      emqCount += 1;
+    }
   }
   return {
     emq: emqCount > 0 ? emqSum / emqCount : null,
@@ -289,14 +304,16 @@ async function sendConversionEvent({ business, pixelId, event_name, event_data, 
     path: `/${px}/events`,
     accessToken: business.meta_access_token,
     body: {
-      data: [{
-        event_name,
-        event_time: Math.floor(Date.now() / 1000),
-        event_id: event_id || `${event_name}_${Date.now()}`,        // for dedup with browser pixel
-        action_source: 'website',
-        user_data: user_data || {},
-        custom_data: event_data || {},
-      }],
+      data: [
+        {
+          event_name,
+          event_time: Math.floor(Date.now() / 1000),
+          event_id: event_id || `${event_name}_${Date.now()}`, // for dedup with browser pixel
+          action_source: 'website',
+          user_data: user_data || {},
+          custom_data: event_data || {},
+        },
+      ],
     },
   });
 }

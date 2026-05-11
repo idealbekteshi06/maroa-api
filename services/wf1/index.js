@@ -32,9 +32,13 @@ const createBatchOvernight = require('./batchOvernight.js');
 
 function createWf1(deps) {
   const {
-    sbGet, sbPost, sbPatch,
-    callClaude, extractJSON,
-    apiRequest, serpSearch,
+    sbGet,
+    sbPost,
+    sbPatch,
+    callClaude,
+    extractJSON,
+    apiRequest,
+    serpSearch,
     countryIntelligence,
     checkOrchestrationIdempotency,
     recordOrchestrationTaskRun,
@@ -49,8 +53,11 @@ function createWf1(deps) {
   const contextBundleBuilder = createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, logger });
   const guardrails = createGuardrails({ sbGet, countryIntelligence, logger });
   const engine = createEngine({
-    sbGet, sbPost, sbPatch,
-    callClaude, extractJSON,
+    sbGet,
+    sbPost,
+    sbPatch,
+    callClaude,
+    extractJSON,
     logger,
     contextBundleBuilder,
     guardrails,
@@ -59,7 +66,10 @@ function createWf1(deps) {
   const publisher = createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger });
   const learningLoop = createLearningLoop({ sbGet, sbPost, sbPatch, apiRequest, logger });
   const dailyRun = createDailyRun({
-    sbGet, sbPost, sbPatch, logger,
+    sbGet,
+    sbPost,
+    sbPatch,
+    logger,
     engine,
     publisher,
     checkOrchestrationIdempotency,
@@ -70,7 +80,9 @@ function createWf1(deps) {
   // Only wires up if batchService is provided in deps.
   const batchOvernight = batchService
     ? createBatchOvernight({
-        sbGet, sbPost, sbPatch,
+        sbGet,
+        sbPost,
+        sbPatch,
         extractJSON,
         logger,
         contextBundleBuilder,
@@ -79,7 +91,16 @@ function createWf1(deps) {
       })
     : null;
 
-  return { engine, publisher, learningLoop, dailyRun, guardrails, contextBundleBuilder, buildBrandContext, batchOvernight };
+  return {
+    engine,
+    publisher,
+    learningLoop,
+    dailyRun,
+    guardrails,
+    contextBundleBuilder,
+    buildBrandContext,
+    batchOvernight,
+  };
 }
 
 module.exports = createWf1;

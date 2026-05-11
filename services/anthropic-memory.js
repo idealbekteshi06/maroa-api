@@ -50,7 +50,11 @@ function rawHttp(method, urlStr, headers, body, timeoutMs = 60000) {
       res.on('end', () => {
         const txt = Buffer.concat(chunks).toString('utf8');
         let parsed = txt;
-        try { parsed = JSON.parse(txt); } catch { /* keep raw */ }
+        try {
+          parsed = JSON.parse(txt);
+        } catch {
+          /* keep raw */
+        }
         resolve({ status: res.statusCode, body: parsed, raw: txt });
       });
     });
@@ -78,17 +82,15 @@ function createMemoryService({ apiKey, logger, http }) {
   }
 
   async function createSession({ businessId, userId, namespace = 'wf15', metadata = {} } = {}) {
-    const r = await _http(
-      'POST',
-      `${ANTHROPIC_API_BASE}${MEMORY_BASE}/sessions`,
-      headers(),
-      {
-        external_id: `${namespace}:${businessId}:${userId || ''}`,
-        metadata: { businessId, userId, namespace, ...metadata },
-      }
-    );
+    const r = await _http('POST', `${ANTHROPIC_API_BASE}${MEMORY_BASE}/sessions`, headers(), {
+      external_id: `${namespace}:${businessId}:${userId || ''}`,
+      metadata: { businessId, userId, namespace, ...metadata },
+    });
     if (r.status < 200 || r.status >= 300) {
-      logger?.warn('anthropic-memory', businessId, 'createSession failed', { status: r.status, body: r.raw?.slice?.(0, 400) });
+      logger?.warn('anthropic-memory', businessId, 'createSession failed', {
+        status: r.status,
+        body: r.raw?.slice?.(0, 400),
+      });
       const e = new Error(`Memory createSession HTTP ${r.status}`);
       e.status = r.status;
       e.body = r.body;
@@ -125,7 +127,7 @@ function createMemoryService({ apiKey, logger, http }) {
       `${ANTHROPIC_API_BASE}${MEMORY_BASE}/sessions/${encodeURIComponent(sessionId)}`,
       headers()
     );
-    if (r.status < 200 || r.status >= 300 && r.status !== 404) {
+    if (r.status < 200 || (r.status >= 300 && r.status !== 404)) {
       throw new Error(`Memory deleteSession HTTP ${r.status}`);
     }
     return { ok: true };
@@ -145,7 +147,9 @@ function createMemoryService({ apiKey, logger, http }) {
       );
       const list = existing.body?.data || existing.body?.sessions || [];
       if (list[0]) return list[0];
-    } catch { /* fall through to create */ }
+    } catch {
+      /* fall through to create */
+    }
     return await createSession({ businessId, userId, namespace });
   }
 

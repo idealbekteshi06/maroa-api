@@ -107,12 +107,17 @@ function createFakeClaude(opts = {}) {
     }
     if (extra && extra.returnRaw) return body;
     // Default: callClaude returns extractJSON(body) || { _raw: body }
-    try { return JSON.parse(body); }
-    catch { return { _raw: body }; }
+    try {
+      return JSON.parse(body);
+    } catch {
+      return { _raw: body };
+    }
   }
 
   fakeCallClaude.calls = calls;
-  fakeCallClaude.reset = () => { calls.length = 0; };
+  fakeCallClaude.reset = () => {
+    calls.length = 0;
+  };
   fakeCallClaude.callCount = () => calls.length;
   fakeCallClaude.lastCall = () => calls[calls.length - 1] || null;
   fakeCallClaude.callsForSkill = (skill) => calls.filter((c) => c.skill === skill);
@@ -124,9 +129,19 @@ function createFakeClaude(opts = {}) {
 function fakeExtractJSON(text) {
   if (!text) return null;
   if (typeof text === 'object') return text;
-  try { return JSON.parse(text); } catch { /* fall through to regex extract */ }
+  try {
+    return JSON.parse(text);
+  } catch {
+    /* fall through to regex extract */
+  }
   const m = String(text).match(/{[\s\S]*}/);
-  if (m) { try { return JSON.parse(m[0]); } catch { /* malformed JSON inside text */ } }
+  if (m) {
+    try {
+      return JSON.parse(m[0]);
+    } catch {
+      /* malformed JSON inside text */
+    }
+  }
   return null;
 }
 

@@ -19,7 +19,16 @@ Every Sunday at 22:00 UTC, for every active business:
 ## Public API
 
 ```js
-const ws = require('./services/weekly-scorecard')({ sbGet, sbPost, sbPatch, callClaude, extractJSON, sendEmail, logger, Sentry });
+const ws = require('./services/weekly-scorecard')({
+  sbGet,
+  sbPost,
+  sbPatch,
+  callClaude,
+  extractJSON,
+  sendEmail,
+  logger,
+  Sentry,
+});
 
 await ws.engine.generateForBusiness({ businessId, dryRun, sendEmailToOwner });
 await ws.engine.generateForAll({ dryRun });
@@ -33,11 +42,11 @@ ws.registerRoutes({ app, apiError });
 
 ## Files
 
-| File | What |
-|---|---|
-| `engine.js` | Orchestrator + LLM call + quality-gate + email + persist. |
-| `index.js` | Factory + DI. |
-| `registerRoutes.js` | HTTP mounting. |
+| File                | What                                                      |
+| ------------------- | --------------------------------------------------------- |
+| `engine.js`         | Orchestrator + LLM call + quality-gate + email + persist. |
+| `index.js`          | Factory + DI.                                             |
+| `registerRoutes.js` | HTTP mounting.                                            |
 
 Prompt + scoring data builder in `../prompts/weekly-scorecard/`.
 

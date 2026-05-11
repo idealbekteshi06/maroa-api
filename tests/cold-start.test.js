@@ -49,7 +49,10 @@ test('classifyIndustry: trusts customer-provided industry', async () => {
   const calls = [];
   const deps = {
     sbGet: async () => [{ id: 'biz-1', industry: 'dental clinic', business_name: 'Test' }],
-    callClaude: async (...args) => { calls.push(args); return { content: [{ text: '{}' }] }; },
+    callClaude: async (...args) => {
+      calls.push(args);
+      return { content: [{ text: '{}' }] };
+    },
     logger: { warn: () => {}, error: () => {} },
   };
   const r = await phases.classifyIndustry({ businessId: 'biz-1', deps });
@@ -79,124 +82,147 @@ function withFnfToken(token, fn) {
     const prev = process.env.HIGGSFIELD_BEARER_TOKEN;
     if (token) process.env.HIGGSFIELD_BEARER_TOKEN = token;
     else delete process.env.HIGGSFIELD_BEARER_TOKEN;
-    try { return await fn(); } finally {
+    try {
+      return await fn();
+    } finally {
       if (prev === undefined) delete process.env.HIGGSFIELD_BEARER_TOKEN;
       else process.env.HIGGSFIELD_BEARER_TOKEN = prev;
     }
   };
 }
 
-test('trainSoulId: Cloud-only account → graceful skip with prompt_driven mode', withFnfToken('', async () => {
-  // No HIGGSFIELD_BEARER_TOKEN → Cloud-only path. Should skip gracefully
-  // and NEVER block onboarding (the A+++ rule).
-  let patched = null;
-  const deps = {
-    sbGet: async () => [],            // no photos required for Cloud-only path
-    sbPatch: async (table, q, body) => { patched = { table, body }; },
-    higgsfield: { trainSoulCharacter: async () => ({}) },
-    logger: { info: () => {}, warn: () => {}, error: () => {} },
-  };
-  const r = await phases.trainSoulId({ businessId: 'biz-cloud-only', deps });
-  assert.strictEqual(r.ok, true);
-  assert.strictEqual(r.awaitingInput, undefined,
-    'Cloud-only path must NOT request more photos — onboarding continues');
-  assert.strictEqual(r.data.soul_id, null);
-  assert.strictEqual(r.data.used_cloud_only, true);
-  assert.strictEqual(r.data.generation_mode, 'prompt_driven');
-  assert.ok(/Standard tier|prompt-driven/i.test(r.data.message));
-  // Should clear soul_id on businesses row to remove any stale value
-  assert.strictEqual(patched?.table, 'businesses');
-  assert.strictEqual(patched?.body?.soul_id, null);
-}));
-
-test('trainSoulId: FNF path + <5 photos → awaitingInput', withFnfToken('hf_test_bearer', async () => {
-  const deps = {
-    sbGet: async () => [
-      { id: 'p1', photo_url: 'https://1' },
-      { id: 'p2', photo_url: 'https://2' },
-      { id: 'p3', photo_url: 'https://3' },
-    ],
-    sbPatch: async () => {},
-    higgsfield: { trainSoulCharacter: async () => ({}) },
-    logger: { warn: () => {}, error: () => {} },
-  };
-  const r = await phases.trainSoulId({ businessId: 'biz-3', deps });
-  assert.strictEqual(r.ok, true);
-  assert.strictEqual(r.awaitingInput, true);
-  assert.strictEqual(r.data.uploaded, 3);
-  assert.strictEqual(r.data.required, 5);
-}));
-
-test('trainSoulId: FNF path + 5+ photos → trains, returns character_locked mode', withFnfToken('hf_test_bearer', async () => {
-  let capturedArgs = null;
-  const deps = {
-    sbGet: async () => [
-      { id: 'p1', photo_url: 'https://1' },
-      { id: 'p2', photo_url: 'https://2' },
-      { id: 'p3', photo_url: 'https://3' },
-      { id: 'p4', photo_url: 'https://4' },
-      { id: 'p5', photo_url: 'https://5' },
-    ],
-    sbPatch: async () => {},
-    higgsfield: {
-      trainSoulCharacter: async (args) => {
-        capturedArgs = args;
-        return { higgsfield_character_id: 'soul_abc123', model_used: 'soul_2', api_used: 'fnf' };
+test(
+  'trainSoulId: Cloud-only account → graceful skip with prompt_driven mode',
+  withFnfToken('', async () => {
+    // No HIGGSFIELD_BEARER_TOKEN → Cloud-only path. Should skip gracefully
+    // and NEVER block onboarding (the A+++ rule).
+    let patched = null;
+    const deps = {
+      sbGet: async () => [], // no photos required for Cloud-only path
+      sbPatch: async (table, q, body) => {
+        patched = { table, body };
       },
-    },
-    logger: { warn: () => {}, error: () => {} },
-  };
-  const r = await phases.trainSoulId({ businessId: 'biz-4', deps });
-  assert.strictEqual(r.ok, true);
-  assert.strictEqual(r.awaitingInput, undefined);
-  assert.strictEqual(r.data.soul_id, 'soul_abc123');
-  assert.strictEqual(r.data.generation_mode, 'character_locked');
-  assert.strictEqual(r.data.api_used, 'fnf');
-  assert.strictEqual(capturedArgs.model, 'soul_2');
-  assert.strictEqual(capturedArgs.sourceImageUrls.length, 5);
-}));
+      higgsfield: { trainSoulCharacter: async () => ({}) },
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    };
+    const r = await phases.trainSoulId({ businessId: 'biz-cloud-only', deps });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(
+      r.awaitingInput,
+      undefined,
+      'Cloud-only path must NOT request more photos — onboarding continues'
+    );
+    assert.strictEqual(r.data.soul_id, null);
+    assert.strictEqual(r.data.used_cloud_only, true);
+    assert.strictEqual(r.data.generation_mode, 'prompt_driven');
+    assert.ok(/Standard tier|prompt-driven/i.test(r.data.message));
+    // Should clear soul_id on businesses row to remove any stale value
+    assert.strictEqual(patched?.table, 'businesses');
+    assert.strictEqual(patched?.body?.soul_id, null);
+  })
+);
 
-test('trainSoulId: FNF path + training error → graceful fallback (does NOT kill onboarding)', withFnfToken('hf_test_bearer', async () => {
-  const deps = {
-    sbGet: async () => [
-      { id: 'p1', photo_url: 'https://1' },
-      { id: 'p2', photo_url: 'https://2' },
-      { id: 'p3', photo_url: 'https://3' },
-      { id: 'p4', photo_url: 'https://4' },
-      { id: 'p5', photo_url: 'https://5' },
-    ],
-    sbPatch: async () => {},
-    higgsfield: {
-      trainSoulCharacter: async () => { throw new Error('Higgsfield 503'); },
-    },
-    logger: { warn: () => {}, error: () => {} },
-  };
-  const r = await phases.trainSoulId({ businessId: 'biz-fail', deps });
-  assert.strictEqual(r.ok, true,
-    'A+++ rule: training failure must NEVER kill cold-start');
-  assert.strictEqual(r.data.soul_id, null);
-  assert.strictEqual(r.data.generation_mode, 'prompt_driven_fallback');
-  assert.ok(/503/.test(r.data.training_error));
-}));
+test(
+  'trainSoulId: FNF path + <5 photos → awaitingInput',
+  withFnfToken('hf_test_bearer', async () => {
+    const deps = {
+      sbGet: async () => [
+        { id: 'p1', photo_url: 'https://1' },
+        { id: 'p2', photo_url: 'https://2' },
+        { id: 'p3', photo_url: 'https://3' },
+      ],
+      sbPatch: async () => {},
+      higgsfield: { trainSoulCharacter: async () => ({}) },
+      logger: { warn: () => {}, error: () => {} },
+    };
+    const r = await phases.trainSoulId({ businessId: 'biz-3', deps });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.awaitingInput, true);
+    assert.strictEqual(r.data.uploaded, 3);
+    assert.strictEqual(r.data.required, 5);
+  })
+);
 
-test('trainSoulId: FNF path passes up to 10 photos (better identity lock)', withFnfToken('hf_test_bearer', async () => {
-  let capturedArgs = null;
-  const photoRows = [];
-  for (let i = 1; i <= 15; i += 1) photoRows.push({ id: `p${i}`, photo_url: `https://${i}` });
-  const deps = {
-    sbGet: async () => photoRows,
-    sbPatch: async () => {},
-    higgsfield: {
-      trainSoulCharacter: async (args) => {
-        capturedArgs = args;
-        return { higgsfield_character_id: 'soul_xyz', model_used: 'soul_2', api_used: 'fnf' };
+test(
+  'trainSoulId: FNF path + 5+ photos → trains, returns character_locked mode',
+  withFnfToken('hf_test_bearer', async () => {
+    let capturedArgs = null;
+    const deps = {
+      sbGet: async () => [
+        { id: 'p1', photo_url: 'https://1' },
+        { id: 'p2', photo_url: 'https://2' },
+        { id: 'p3', photo_url: 'https://3' },
+        { id: 'p4', photo_url: 'https://4' },
+        { id: 'p5', photo_url: 'https://5' },
+      ],
+      sbPatch: async () => {},
+      higgsfield: {
+        trainSoulCharacter: async (args) => {
+          capturedArgs = args;
+          return { higgsfield_character_id: 'soul_abc123', model_used: 'soul_2', api_used: 'fnf' };
+        },
       },
-    },
-    logger: { warn: () => {}, error: () => {} },
-  };
-  await phases.trainSoulId({ businessId: 'biz-5', deps });
-  assert.strictEqual(capturedArgs.sourceImageUrls.length, 10);
-}));
+      logger: { warn: () => {}, error: () => {} },
+    };
+    const r = await phases.trainSoulId({ businessId: 'biz-4', deps });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.awaitingInput, undefined);
+    assert.strictEqual(r.data.soul_id, 'soul_abc123');
+    assert.strictEqual(r.data.generation_mode, 'character_locked');
+    assert.strictEqual(r.data.api_used, 'fnf');
+    assert.strictEqual(capturedArgs.model, 'soul_2');
+    assert.strictEqual(capturedArgs.sourceImageUrls.length, 5);
+  })
+);
+
+test(
+  'trainSoulId: FNF path + training error → graceful fallback (does NOT kill onboarding)',
+  withFnfToken('hf_test_bearer', async () => {
+    const deps = {
+      sbGet: async () => [
+        { id: 'p1', photo_url: 'https://1' },
+        { id: 'p2', photo_url: 'https://2' },
+        { id: 'p3', photo_url: 'https://3' },
+        { id: 'p4', photo_url: 'https://4' },
+        { id: 'p5', photo_url: 'https://5' },
+      ],
+      sbPatch: async () => {},
+      higgsfield: {
+        trainSoulCharacter: async () => {
+          throw new Error('Higgsfield 503');
+        },
+      },
+      logger: { warn: () => {}, error: () => {} },
+    };
+    const r = await phases.trainSoulId({ businessId: 'biz-fail', deps });
+    assert.strictEqual(r.ok, true, 'A+++ rule: training failure must NEVER kill cold-start');
+    assert.strictEqual(r.data.soul_id, null);
+    assert.strictEqual(r.data.generation_mode, 'prompt_driven_fallback');
+    assert.ok(/503/.test(r.data.training_error));
+  })
+);
+
+test(
+  'trainSoulId: FNF path passes up to 10 photos (better identity lock)',
+  withFnfToken('hf_test_bearer', async () => {
+    let capturedArgs = null;
+    const photoRows = [];
+    for (let i = 1; i <= 15; i += 1) photoRows.push({ id: `p${i}`, photo_url: `https://${i}` });
+    const deps = {
+      sbGet: async () => photoRows,
+      sbPatch: async () => {},
+      higgsfield: {
+        trainSoulCharacter: async (args) => {
+          capturedArgs = args;
+          return { higgsfield_character_id: 'soul_xyz', model_used: 'soul_2', api_used: 'fnf' };
+        },
+      },
+      logger: { warn: () => {}, error: () => {} },
+    };
+    await phases.trainSoulId({ businessId: 'biz-5', deps });
+    assert.strictEqual(capturedArgs.sourceImageUrls.length, 10);
+  })
+);
 
 // ─── Launcher: platform eligibility ──────────────────────────────────────
 
@@ -256,13 +282,23 @@ test('launcher: coldStartLaunch is dry_run when META_AD_LAUNCH_LIVE not set', as
   const captured = [];
   const deps = {
     sbGet: async (table, q) => {
-      if (table === 'businesses') return [{
-        id: 'biz-x', business_name: 'X', industry: 'plumber', daily_budget: 30,
-        country_code: 'US', location: 'Austin TX', competitors: [],
-      }];
+      if (table === 'businesses')
+        return [
+          {
+            id: 'biz-x',
+            business_name: 'X',
+            industry: 'plumber',
+            daily_budget: 30,
+            country_code: 'US',
+            location: 'Austin TX',
+            competitors: [],
+          },
+        ];
       return [];
     },
-    sbPost: async (table, row) => { captured.push({ table, row }); },
+    sbPost: async (table, row) => {
+      captured.push({ table, row });
+    },
     logger: { info: () => {}, warn: () => {}, error: () => {} },
     sentry: null,
   };
@@ -274,7 +310,7 @@ test('launcher: coldStartLaunch is dry_run when META_AD_LAUNCH_LIVE not set', as
   });
   assert.strictEqual(r.dry_run, true);
   assert.strictEqual(r.platforms.length, 2); // $30/day → Meta + Google
-  assert.strictEqual(r.launched, 6);          // 2 platforms × 3 audiences
+  assert.strictEqual(r.launched, 6); // 2 platforms × 3 audiences
   assert.strictEqual(captured.length, 6);
   // Every persisted row should have status starting with 'planned_dry_run'
   for (const c of captured) {

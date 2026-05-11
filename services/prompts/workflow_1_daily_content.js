@@ -125,49 +125,49 @@ Return ONLY valid JSON, no prose outside JSON:
 <brand_memory>
 Voice: ${bundle.brandMemory.voiceProfile}
 Winning patterns (top ${bundle.brandMemory.historicalWinners.length}):
-${bundle.brandMemory.historicalWinners.map(w => `  • [${w.format}] "${w.hook}" — ${w.trait} — +${Math.round(w.engagementLift * 100)}% vs baseline`).join('\n')}
+${bundle.brandMemory.historicalWinners.map((w) => `  • [${w.format}] "${w.hook}" — ${w.trait} — +${Math.round(w.engagementLift * 100)}% vs baseline`).join('\n')}
 
 Anti-patterns to avoid:
-${bundle.brandMemory.antiPatterns.map(a => `  • ${a.reason}: ${a.example}`).join('\n')}
+${bundle.brandMemory.antiPatterns.map((a) => `  • ${a.reason}: ${a.example}`).join('\n')}
 
 Pillar mix (target vs actual 30d):
-${bundle.brandMemory.pillarMixStatus.map(p => `  • ${p.pillar}: ${p.target}% target / ${p.actual30d}% actual ${p.actual30d < p.target ? '⬇ UNDER' : p.actual30d > p.target ? '⬆ OVER' : '= on target'}`).join('\n')}
+${bundle.brandMemory.pillarMixStatus.map((p) => `  • ${p.pillar}: ${p.target}% target / ${p.actual30d}% actual ${p.actual30d < p.target ? '⬇ UNDER' : p.actual30d > p.target ? '⬆ OVER' : '= on target'}`).join('\n')}
 </brand_memory>
 
 <performance_last_30d>
-${bundle.performance.last30d.map(p => `  • ${p.platform}: ${p.posts} posts, ${(p.avgEngagement * 100).toFixed(1)}% avg eng (${p.vsBenchmark > 0 ? '+' : ''}${(p.vsBenchmark * 100).toFixed(0)}% vs industry benchmark)`).join('\n')}
+${bundle.performance.last30d.map((p) => `  • ${p.platform}: ${p.posts} posts, ${(p.avgEngagement * 100).toFixed(1)}% avg eng (${p.vsBenchmark > 0 ? '+' : ''}${(p.vsBenchmark * 100).toFixed(0)}% vs industry benchmark)`).join('\n')}
 Growth: follower Δ30d = ${bundle.performance.growthTrajectory.followerDelta30d > 0 ? '+' : ''}${bundle.performance.growthTrajectory.followerDelta30d}; engagement trend = ${bundle.performance.growthTrajectory.engagementTrend}
 Saturation/fatigue score: ${bundle.performance.saturationFatigueScore}/100
 </performance_last_30d>
 
 <cultural_context>
 Upcoming holidays:
-${bundle.cultural.upcomingHolidays.map(h => `  • ${h.date} — ${h.name} (${h.type})`).join('\n') || '  (none)'}
+${bundle.cultural.upcomingHolidays.map((h) => `  • ${h.date} — ${h.name} (${h.type})`).join('\n') || '  (none)'}
 ${bundle.cultural.seasonalMoment ? `Seasonal moment: ${bundle.cultural.seasonalMoment}\n` : ''}
 Trending topics:
-${bundle.cultural.trendingTopics.map(t => `  • [${t.platform}] ${t.topic} — velocity=${t.velocity}, relevance=${t.relevance}/10`).join('\n') || '  (none relevant)'}
+${bundle.cultural.trendingTopics.map((t) => `  • [${t.platform}] ${t.topic} — velocity=${t.velocity}, relevance=${t.relevance}/10`).join('\n') || '  (none relevant)'}
 News cycle:
-${bundle.cultural.newsCycle.map(n => `  • ${n.headline} (${n.source}, relevance ${n.relevance}/10)`).join('\n') || '  (none relevant)'}
+${bundle.cultural.newsCycle.map((n) => `  • ${n.headline} (${n.source}, relevance ${n.relevance}/10)`).join('\n') || '  (none relevant)'}
 </cultural_context>
 
 <competitive_last_24h>
-${bundle.competitive.last24h.map(c => `  • ${c.competitor} [${c.platform}] "${c.topic}" — ${c.format}, est. engagement ${(c.estimatedEngagement * 100).toFixed(1)}%`).join('\n') || '  (quiet)'}
+${bundle.competitive.last24h.map((c) => `  • ${c.competitor} [${c.platform}] "${c.topic}" — ${c.format}, est. engagement ${(c.estimatedEngagement * 100).toFixed(1)}%`).join('\n') || '  (quiet)'}
 Gap opportunities: ${bundle.competitive.gapOpportunities.join(' | ') || '(none)'}
 White space:       ${bundle.competitive.whiteSpace.join(' | ') || '(none)'}
 </competitive_last_24h>
 
 <audience_last_48h>
-${bundle.audience.topComments48h.map(c => `  • [${c.platform}] ${c.topic} — sentiment=${c.sentiment.toFixed(2)}, volume=${c.volume}`).join('\n') || '  (quiet)'}
+${bundle.audience.topComments48h.map((c) => `  • [${c.platform}] ${c.topic} — sentiment=${c.sentiment.toFixed(2)}, volume=${c.volume}`).join('\n') || '  (quiet)'}
 Demographic shifts: ${bundle.audience.demographicShifts ?? 'none detected'}
 Drop-off signals: ${bundle.audience.dropOffSignals.join('; ') || 'none'}
 </audience_last_48h>
 
 <business_state>
 Active campaigns:
-${bundle.business.activeCampaigns.map(c => `  • ${c.name} (${c.funnelStage}) ends ${c.endsAt}`).join('\n') || '  (none)'}
+${bundle.business.activeCampaigns.map((c) => `  • ${c.name} (${c.funnelStage}) ends ${c.endsAt}`).join('\n') || '  (none)'}
 ${bundle.business.inventoryOrPromoCalendar ? `Inventory/promo: ${bundle.business.inventoryOrPromoCalendar}\n` : ''}
 ${bundle.business.salesPriorities?.length ? `Sales priorities: ${bundle.business.salesPriorities.join('; ')}\n` : ''}
-${bundle.business.launchPipeline?.length ? `Launch pipeline:\n${bundle.business.launchPipeline.map(l => `  • ${l.name} — T-${l.daysUntil}d`).join('\n')}\n` : ''}
+${bundle.business.launchPipeline?.length ? `Launch pipeline:\n${bundle.business.launchPipeline.map((l) => `  • ${l.name} — T-${l.daysUntil}d`).join('\n')}\n` : ''}
 </business_state>
 
 </daily_context_bundle>
@@ -431,7 +431,6 @@ const WF1_GUARDRAILS = {
     agency: 180, // ~400 pieces
   },
 };
-
 
 // ── CommonJS exports ──
 module.exports.PLATFORM_GENERATION_SPECS = PLATFORM_GENERATION_SPECS;

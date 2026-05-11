@@ -19,19 +19,19 @@ function isUuid(v) {
 // ── Feature gates — which plans unlock each feature ──────────────────────────
 const PLAN_FEATURES = {
   // Agency-only
-  multi_workspace:  ['agency'],
-  white_label:      ['agency'],
-  api_access:       ['agency'],
+  multi_workspace: ['agency'],
+  white_label: ['agency'],
+  api_access: ['agency'],
   // Growth + Agency
-  paid_ads:         ['growth', 'agency'],
-  sms:              ['growth', 'agency'],
+  paid_ads: ['growth', 'agency'],
+  sms: ['growth', 'agency'],
   competitor_intel: ['growth', 'agency'],
-  analytics:        ['growth', 'agency'],
-  crm:              ['growth', 'agency'],
-  long_form:        ['growth', 'agency'],
-  linkedin:         ['growth', 'agency'],
-  twitter:          ['growth', 'agency'],
-  tiktok:           ['growth', 'agency'],
+  analytics: ['growth', 'agency'],
+  crm: ['growth', 'agency'],
+  long_form: ['growth', 'agency'],
+  linkedin: ['growth', 'agency'],
+  twitter: ['growth', 'agency'],
+  tiktok: ['growth', 'agency'],
 };
 
 // ── Fetch plan from Supabase ──────────────────────────────────────────────────
@@ -41,10 +41,9 @@ async function getBusinessPlan(business_id) {
   // breaking out of the value.
   if (!isUuid(business_id)) throw new Error('invalid business_id');
   const safeId = encodeURIComponent(business_id);
-  const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/businesses?select=plan&id=eq.${safeId}`,
-    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
-  );
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/businesses?select=plan&id=eq.${safeId}`, {
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+  });
   const data = await res.json();
   return data?.[0]?.plan || 'free';
 }
@@ -52,11 +51,7 @@ async function getBusinessPlan(business_id) {
 // ── Main middleware factory ────────────────────────────────────────────────────
 const planGate = (feature) => async (req, res, next) => {
   // Accept business_id from body, params, or query — in that priority
-  const business_id =
-    req.body?.business_id    ||
-    req.params?.business_id  ||
-    req.params?.id           ||
-    req.query?.business_id;
+  const business_id = req.body?.business_id || req.params?.business_id || req.params?.id || req.query?.business_id;
 
   if (!business_id) {
     return res.status(400).json({ error: 'business_id required', feature });
@@ -77,25 +72,24 @@ const planGate = (feature) => async (req, res, next) => {
 
     if (!allowedPlans.includes(plan)) {
       return res.status(403).json({
-        error:          'upgrade_required',
+        error: 'upgrade_required',
         feature,
-        current_plan:   plan,
+        current_plan: plan,
         required_plans: allowedPlans,
-        message:        `The "${feature}" feature requires the ${allowedPlans[0]} plan or higher. You are on the "${plan}" plan.`,
-        upgrade_url:    'https://maroa-ai-marketing-automator.lovable.app/billing'
+        message: `The "${feature}" feature requires the ${allowedPlans[0]} plan or higher. You are on the "${plan}" plan.`,
+        upgrade_url: 'https://maroa-ai-marketing-automator.lovable.app/billing',
       });
     }
 
     // Attach to request for use in downstream handlers
     req.business_plan = plan;
-    req.business_id   = business_id;
+    req.business_id = business_id;
     next();
-
   } catch (err) {
     // Fail closed — deny access to paid features if plan can't be verified
     console.error('[planGate] Error fetching plan — denying access:', err.message);
     return res.status(503).json({
-      error: { code: 'SERVICE_UNAVAILABLE', message: 'Unable to verify plan. Please try again.' }
+      error: { code: 'SERVICE_UNAVAILABLE', message: 'Unable to verify plan. Please try again.' },
     });
   }
 };
@@ -103,7 +97,7 @@ const planGate = (feature) => async (req, res, next) => {
 // ── Inline plan check (non-middleware helper) ─────────────────────────────────
 planGate.check = async (business_id, feature) => {
   const allowed = PLAN_FEATURES[feature] || [];
-  const plan    = await getBusinessPlan(business_id);
+  const plan = await getBusinessPlan(business_id);
   return { allowed: allowed.includes(plan), plan, required: allowed };
 };
 

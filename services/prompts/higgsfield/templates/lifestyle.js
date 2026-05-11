@@ -13,6 +13,6 @@ module.exports = {
     'Three-act micro-rhythm even in a calm sip moment',
     'Named lighting (golden hour from window left) — model knows where to put highlights',
     'Identity stays in Identity Block, all temporal language in Motion Block',
-    'Film-stock cue (Kodak Portra 400) anchors the warm grain look'
-  ]
+    'Film-stock cue (Kodak Portra 400) anchors the warm grain look',
+  ],
 };

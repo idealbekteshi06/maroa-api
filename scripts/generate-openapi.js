@@ -33,16 +33,16 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const SOURCES = [
-  path.join(ROOT, 'server.js'),
-  ...glob('routes/*.js'),
-];
+const SOURCES = [path.join(ROOT, 'server.js'), ...glob('routes/*.js')];
 
 function glob(pattern) {
   const dir = pattern.split('/')[0];
   const abs = path.join(ROOT, dir);
   if (!fs.existsSync(abs)) return [];
-  return fs.readdirSync(abs).filter((f) => f.endsWith('.js')).map((f) => path.join(abs, f));
+  return fs
+    .readdirSync(abs)
+    .filter((f) => f.endsWith('.js'))
+    .map((f) => path.join(abs, f));
 }
 
 // Match: app.METHOD('/path', ...)  AND   app.METHOD("/path", ...)
@@ -83,12 +83,27 @@ function buildOpenApi(routes) {
         summary: `${op.method.toUpperCase()} ${p}`,
         description: `Auto-generated from ${op.source}. Hand-edit this entry for accuracy.`,
         responses: {
-          '200': { description: 'Successful response' },
-          '400': { description: 'Validation error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } },
-          '401': { description: 'Unauthorized', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } },
-          '402': { description: 'Payment Required — cost cap reached', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } },
-          '429': { description: 'Rate limited', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } },
-          '500': { description: 'Server error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } },
+          200: { description: 'Successful response' },
+          400: {
+            description: 'Validation error',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } },
+          },
+          402: {
+            description: 'Payment Required — cost cap reached',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } },
+          },
+          429: {
+            description: 'Rate limited',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } },
+          },
+          500: {
+            description: 'Server error',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } },
+          },
         },
       };
       if (op.method !== 'get') {
@@ -127,7 +142,10 @@ function buildOpenApi(routes) {
               type: 'object',
               required: ['code', 'message'],
               properties: {
-                code: { type: 'string', description: 'Machine-readable error code (e.g. VALIDATION_ERROR, RATE_LIMITED, COST_CAP_REACHED)' },
+                code: {
+                  type: 'string',
+                  description: 'Machine-readable error code (e.g. VALIDATION_ERROR, RATE_LIMITED, COST_CAP_REACHED)',
+                },
                 message: { type: 'string' },
                 details: { type: 'object', additionalProperties: true, nullable: true },
                 timestamp: { type: 'string', format: 'date-time' },
@@ -165,12 +183,17 @@ function toYaml(obj, indent = 0) {
   if (typeof obj === 'object') {
     const keys = Object.keys(obj);
     if (keys.length === 0) return '{}';
-    return '\n' + keys.map((k) => {
-      const v = obj[k];
-      const rendered = toYaml(v, indent + 1);
-      if (rendered.startsWith('\n')) return `${pad}${k}:${rendered}`;
-      return `${pad}${k}: ${rendered}`;
-    }).join('\n');
+    return (
+      '\n' +
+      keys
+        .map((k) => {
+          const v = obj[k];
+          const rendered = toYaml(v, indent + 1);
+          if (rendered.startsWith('\n')) return `${pad}${k}:${rendered}`;
+          return `${pad}${k}: ${rendered}`;
+        })
+        .join('\n')
+    );
   }
   return JSON.stringify(obj);
 }

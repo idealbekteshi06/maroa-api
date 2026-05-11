@@ -13,7 +13,7 @@ const cro = require('../prompts/cro');
 function createEngine(deps) {
   const { sbGet, sbPost, sbPatch, callClaude, extractJSON, logger, Sentry } = deps;
   if (!sbGet || !sbPost || !sbPatch) throw new Error('cro engine: sbGet/sbPost/sbPatch required');
-  if (!callClaude || !extractJSON)     throw new Error('cro engine: callClaude + extractJSON required');
+  if (!callClaude || !extractJSON) throw new Error('cro engine: callClaude + extractJSON required');
 
   async function audit({ businessId, html, text }) {
     const tx = Sentry?.startTransaction?.({ name: 'cro.audit' });
@@ -26,9 +26,13 @@ function createEngine(deps) {
       if (!business?.id && !business?.user_id) throw new Error(`business ${businessId} not found`);
 
       const result = await cro.auditPage({
-        business, html, text,
+        business,
+        html,
+        text,
         plan: business.plan || 'free',
-        callClaude, extractJSON, logger,
+        callClaude,
+        extractJSON,
+        logger,
       });
 
       await sbPost('cro_audits', {
@@ -66,9 +70,12 @@ function createEngine(deps) {
     if (!business?.id && !business?.user_id) throw new Error(`business ${businessId} not found`);
 
     const result = await cro.rewritePage({
-      business, currentHero,
+      business,
+      currentHero,
       plan: business.plan || 'free',
-      callClaude, extractJSON, logger,
+      callClaude,
+      extractJSON,
+      logger,
     });
 
     // ─── Quality gate: every customer-facing rewrite goes through gate()

@@ -5,14 +5,15 @@ posting + Instagram + Threads.
 
 ## Files
 
-| File | What |
-|---|---|
-| `meta.js` | Meta OAuth (FB + IG + Threads). Authorization code → short-lived → long-lived (60d) token. Fetches ad accounts, pages, IG accounts. |
-| `google.js` | Google OAuth (Ads + userinfo). Authorization code → refresh_token. Lists accessible Ads customers. |
+| File        | What                                                                                                                                |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `meta.js`   | Meta OAuth (FB + IG + Threads). Authorization code → short-lived → long-lived (60d) token. Fetches ad accounts, pages, IG accounts. |
+| `google.js` | Google OAuth (Ads + userinfo). Authorization code → refresh_token. Lists accessible Ads customers.                                  |
 
 ## State token scheme
 
 Both providers sign state with HMAC(N8N_WEBHOOK_SECRET) and bind to:
+
 - `businessId` (UUID)
 - `userId` (UUID — the authenticated Supabase user who initiated)
 - 16-byte random nonce (replay protection)
@@ -47,10 +48,10 @@ registerGoogleOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger, verif
 
 ## Routes mounted
 
-- `GET  /webhook/oauth/meta/start`     — JWT-protected, redirects to FB consent
-- `GET  /webhook/oauth/meta/callback`  — exchanges code, persists tokens
-- `GET  /webhook/oauth/meta/health`    — token validity probe
-- `GET  /webhook/oauth/google/start`   — JWT-protected, redirects to Google consent
+- `GET  /webhook/oauth/meta/start` — JWT-protected, redirects to FB consent
+- `GET  /webhook/oauth/meta/callback` — exchanges code, persists tokens
+- `GET  /webhook/oauth/meta/health` — token validity probe
+- `GET  /webhook/oauth/google/start` — JWT-protected, redirects to Google consent
 - `GET  /webhook/oauth/google/callback`
 - `GET  /webhook/oauth/google/health`
 

@@ -12,14 +12,14 @@
  * ----------------------------------------------------------------------------
  */
 
-const i18nSeo       = require('./i18n-seo');
-const checks        = require('./citability-checks');
-const llmsTxt       = require('./llms-txt-generator');
+const i18nSeo = require('./i18n-seo');
+const checks = require('./citability-checks');
+const llmsTxt = require('./llms-txt-generator');
 const schemaBuilder = require('./schema-builder');
-const rewriter      = require('./content-rewriter');
-const entity        = require('./entity-extractor');
-const schema        = require('./output-schema');
-const sysPrompt     = require('./system-prompt');
+const rewriter = require('./content-rewriter');
+const entity = require('./entity-extractor');
+const schema = require('./output-schema');
+const sysPrompt = require('./system-prompt');
 
 /**
  * Build the deterministic baseline (always runs, fast, no LLM call).
@@ -27,7 +27,13 @@ const sysPrompt     = require('./system-prompt');
 function buildAuditBaseline({ business, html, text, llms_txt_present, llms_full_txt_present, plan = 'free' }) {
   const marketProfile = i18nSeo.buildSeoMarketProfile(business);
   const findings = checks.runChecks({
-    html, text, business, marketProfile, llms_txt_present, llms_full_txt_present, plan,
+    html,
+    text,
+    business,
+    marketProfile,
+    llms_txt_present,
+    llms_full_txt_present,
+    plan,
   });
 
   // Deterministic dimension scores from findings
@@ -52,9 +58,7 @@ function buildAuditBaseline({ business, html, text, llms_txt_present, llms_full_
   dims.citation_worthiness = Math.round((dims.citation_worthiness + extScore) / 2);
 
   // Weighted overall (equal weight v1)
-  const overall = Math.round(
-    Object.values(dims).reduce((a, b) => a + b, 0) / Object.keys(dims).length
-  );
+  const overall = Math.round(Object.values(dims).reduce((a, b) => a + b, 0) / Object.keys(dims).length);
 
   return { marketProfile, findings, dims, overall };
 }
@@ -64,8 +68,15 @@ function buildAuditBaseline({ business, html, text, llms_txt_present, llms_full_
  */
 async function auditSite(opts) {
   const {
-    business, html, text, llms_txt_present, llms_full_txt_present,
-    plan = 'free', callClaude, extractJSON, logger,
+    business,
+    html,
+    text,
+    llms_txt_present,
+    llms_full_txt_present,
+    plan = 'free',
+    callClaude,
+    extractJSON,
+    logger,
   } = opts || {};
   if (typeof callClaude !== 'function') throw new Error('auditSite: callClaude required');
   if (typeof extractJSON !== 'function') throw new Error('auditSite: extractJSON required');
@@ -87,15 +98,18 @@ async function auditSite(opts) {
   const user = sysPrompt.buildAuditUserMessage({
     business,
     marketProfile: baseline.marketProfile,
-    html, text,
+    html,
+    text,
     findings: baseline.findings,
-    llms_txt_present, llms_full_txt_present,
+    llms_txt_present,
+    llms_full_txt_present,
     plan,
   });
   let raw;
   try {
     raw = await callClaude({
-      system, user,
+      system,
+      user,
       model: sysPrompt.modelForPlan(plan),
       max_tokens: sysPrompt.maxTokensForPlan(plan, 'audit'),
       extra: { cacheSystem: true, temperature: 0.2 },
@@ -111,7 +125,11 @@ async function auditSite(opts) {
   }
 
   let parsed;
-  try { parsed = extractJSON(raw); } catch { parsed = null; }
+  try {
+    parsed = extractJSON(raw);
+  } catch {
+    parsed = null;
+  }
   const v = parsed ? schema.validateAuditOutput(parsed) : { valid: false, errors: ['parse_error'] };
   if (!v.valid) {
     logger?.warn?.('ai-seo', null, 'invalid LLM output', v.errors);
@@ -140,10 +158,7 @@ async function auditSite(opts) {
  * This is the PRODUCT side — actual artifacts the customer ships.
  */
 async function generateArtifacts(opts) {
-  const {
-    business, pages = [],
-    plan = 'free', callClaude, extractJSON, logger,
-  } = opts || {};
+  const { business, pages = [], plan = 'free', callClaude, extractJSON, logger } = opts || {};
   if (typeof callClaude !== 'function') throw new Error('generateArtifacts: callClaude required');
   if (typeof extractJSON !== 'function') throw new Error('generateArtifacts: extractJSON required');
 
@@ -158,12 +173,17 @@ async function generateArtifacts(opts) {
 
   const system = sysPrompt.buildGenerateSystemBlock();
   const user = sysPrompt.buildGenerateUserMessage({
-    business, marketProfile, pages, baseLlmsTxt, suggestedQuestions,
+    business,
+    marketProfile,
+    pages,
+    baseLlmsTxt,
+    suggestedQuestions,
   });
   let raw;
   try {
     raw = await callClaude({
-      system, user,
+      system,
+      user,
       model: sysPrompt.modelForPlan(plan),
       max_tokens: sysPrompt.maxTokensForPlan(plan, 'generate'),
       extra: { cacheSystem: true, temperature: 0.4 },
@@ -174,7 +194,11 @@ async function generateArtifacts(opts) {
   }
 
   let parsed;
-  try { parsed = extractJSON(raw); } catch { parsed = null; }
+  try {
+    parsed = extractJSON(raw);
+  } catch {
+    parsed = null;
+  }
   const v = parsed ? schema.validateGenerateOutput(parsed) : { valid: false, errors: ['parse_error'] };
 
   // ALWAYS include the deterministic baseline schemas — never fully trust LLM
@@ -190,7 +214,7 @@ async function generateArtifacts(opts) {
     return {
       llms_txt: baseLlmsTxt,
       llms_full_txt: null,
-      schema_blocks: baseSchemas.map(s => ({ type: s['@type'], page_url: business?.website, jsonld: s })),
+      schema_blocks: baseSchemas.map((s) => ({ type: s['@type'], page_url: business?.website, jsonld: s })),
       page_rewrites: [],
       internal_link_suggestions: [],
       llm_used: false,
@@ -199,12 +223,12 @@ async function generateArtifacts(opts) {
   }
 
   // Merge LLM output with deterministic schemas (LLM can't be trusted alone)
-  const llmSchemaTypes = (v.normalized.schema_blocks || []).map(s => s.type);
+  const llmSchemaTypes = (v.normalized.schema_blocks || []).map((s) => s.type);
   const merged = [
     ...v.normalized.schema_blocks,
     ...baseSchemas
-      .filter(s => !llmSchemaTypes.includes(s['@type']))
-      .map(s => ({ type: s['@type'], page_url: business?.website, jsonld: s })),
+      .filter((s) => !llmSchemaTypes.includes(s['@type']))
+      .map((s) => ({ type: s['@type'], page_url: business?.website, jsonld: s })),
   ];
 
   return {
@@ -231,7 +255,7 @@ function _deterministicOnly(business, pages, marketProfile) {
   return {
     llms_txt: llmsTxt.buildLlmsTxt({ business, pages, primaryLanguage: profile.primary_language }),
     llms_full_txt: null,
-    schema_blocks: baseSchemas.map(s => ({ type: s['@type'], page_url: business?.website, jsonld: s })),
+    schema_blocks: baseSchemas.map((s) => ({ type: s['@type'], page_url: business?.website, jsonld: s })),
     page_rewrites: [],
     internal_link_suggestions: [],
     llm_used: false,
@@ -242,12 +266,20 @@ function _shortCircuit({ audit_score, ai_search_readiness, reason, baseline, sch
   return {
     audit_score,
     dimension_scores: baseline?.dims || {},
-    critical_gaps: (baseline?.findings || []).filter(f => f.severity === 'critical').map(f => ({
-      id: f.check_id, severity: f.severity, fix: f.fix,
-    })),
-    warnings: (baseline?.findings || []).filter(f => f.severity === 'warning').map(f => ({
-      id: f.check_id, severity: f.severity, fix: f.fix,
-    })),
+    critical_gaps: (baseline?.findings || [])
+      .filter((f) => f.severity === 'critical')
+      .map((f) => ({
+        id: f.check_id,
+        severity: f.severity,
+        fix: f.fix,
+      })),
+    warnings: (baseline?.findings || [])
+      .filter((f) => f.severity === 'warning')
+      .map((f) => ({
+        id: f.check_id,
+        severity: f.severity,
+        fix: f.fix,
+      })),
     opportunities: [],
     ai_search_readiness,
     estimated_citation_potential: 'low',

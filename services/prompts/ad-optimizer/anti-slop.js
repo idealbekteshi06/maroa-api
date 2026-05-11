@@ -88,15 +88,14 @@ const ANTI_SLOP_RULES = [
  * Lists every rule so the LLM knows what NOT to do.
  */
 function buildAntiSlopSystemSection() {
-  const lines = [
-    'ANTI-CARGO-CULT RULES — never claim these without the listed evidence:',
-    '',
-  ];
+  const lines = ['ANTI-CARGO-CULT RULES — never claim these without the listed evidence:', ''];
   for (const rule of ANTI_SLOP_RULES) {
     lines.push(`- ${rule.message}`);
   }
   lines.push('');
-  lines.push('Cargo-cult marketing language reduces trust. Every quantitative claim MUST cite the underlying metric in the citations array.');
+  lines.push(
+    'Cargo-cult marketing language reduces trust. Every quantitative claim MUST cite the underlying metric in the citations array.'
+  );
   return lines.join('\n');
 }
 
@@ -111,16 +110,16 @@ function validateAuditResponse(audit) {
   // Concatenate all human-readable text fields for scanning.
   const text = [
     audit.decision_reason || '',
-    ...(audit.critical_issues || []).map(i => `${i.fix || ''} ${i.note || ''}`),
-    ...(audit.warnings || []).map(w => `${w.fix || ''} ${w.note || ''}`),
-    ...(audit.opportunities || []).map(o => `${o.note || ''}`),
+    ...(audit.critical_issues || []).map((i) => `${i.fix || ''} ${i.note || ''}`),
+    ...(audit.warnings || []).map((w) => `${w.fix || ''} ${w.note || ''}`),
+    ...(audit.opportunities || []).map((o) => `${o.note || ''}`),
   ].join(' ');
 
   for (const rule of ANTI_SLOP_RULES) {
     if (rule.pattern.test(text)) {
       const citations = audit.citations || [];
-      const has = (field) => citations.some(c => c[field] != null && c[field] !== '');
-      const missing = rule.requires.filter(req => !has(req));
+      const has = (field) => citations.some((c) => c[field] != null && c[field] !== '');
+      const missing = rule.requires.filter((req) => !has(req));
       if (missing.length) {
         violations.push({
           rule_id: rule.id,

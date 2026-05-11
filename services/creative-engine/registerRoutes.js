@@ -19,12 +19,23 @@
 
 function registerCreativeEngineRoutes(deps) {
   const {
-    app, apiError, logger, sentry,
-    sbGet, sbPost, sbPatch,
-    callClaude, brandVoice, higgsfield,
-    creativeEngine, measurementHealth,
-    metaInsights, googleAdsDiag, tiktokDiag,
-    competitorWatch, metaAdLibraryApi,
+    app,
+    apiError,
+    logger,
+    sentry,
+    sbGet,
+    sbPost,
+    sbPatch,
+    callClaude,
+    brandVoice,
+    higgsfield,
+    creativeEngine,
+    measurementHealth,
+    metaInsights,
+    googleAdsDiag,
+    tiktokDiag,
+    competitorWatch,
+    metaAdLibraryApi,
     citationTracker,
   } = deps;
 
@@ -38,7 +49,8 @@ function registerCreativeEngineRoutes(deps) {
   // ─── Cron fanout: generate variants for all eligible businesses ────────
   app.post('/webhook/creative-engine-generate-all', async (req, res) => {
     try {
-      const businesses = await sbGet('businesses',
+      const businesses = await sbGet(
+        'businesses',
         'is_active=eq.true&plan=in.(growth,agency)&select=id&limit=1000'
       ).catch(() => []);
       let generated = 0;
@@ -73,16 +85,21 @@ function registerCreativeEngineRoutes(deps) {
   app.post('/webhook/creative-engine-evaluate-all', async (req, res) => {
     try {
       // Only businesses that have variants in 'testing' status
-      const rows = await sbGet('ad_creative_variants',
-        'status=eq.testing&select=business_id&limit=2000'
-      ).catch(() => []);
+      const rows = await sbGet('ad_creative_variants', 'status=eq.testing&select=business_id&limit=2000').catch(
+        () => []
+      );
       const seen = new Set();
       const businessIds = [];
       for (const r of rows) {
-        if (!seen.has(r.business_id)) { seen.add(r.business_id); businessIds.push(r.business_id); }
+        if (!seen.has(r.business_id)) {
+          seen.add(r.business_id);
+          businessIds.push(r.business_id);
+        }
       }
 
-      let evaluated = 0, promoted = 0, killed = 0;
+      let evaluated = 0,
+        promoted = 0,
+        killed = 0;
       for (const bid of businessIds) {
         try {
           const r = await creativeEngine.evaluateTestingVariants({ businessId: bid, deps: buildEngineDeps() });
@@ -113,11 +130,14 @@ function registerCreativeEngineRoutes(deps) {
   // ─── Cron fanout: probe measurement health for all active businesses ───
   app.post('/webhook/measurement-health-probe-all', async (req, res) => {
     try {
-      const businesses = await sbGet('businesses',
-        'is_active=eq.true&select=id,daily_budget&limit=1000'
-      ).catch(() => []);
+      const businesses = await sbGet('businesses', 'is_active=eq.true&select=id,daily_budget&limit=1000').catch(
+        () => []
+      );
 
-      let probed = 0, healthy = 0, degraded = 0, broken = 0;
+      let probed = 0,
+        healthy = 0,
+        degraded = 0,
+        broken = 0;
       for (const b of businesses) {
         for (const platform of ['meta', 'google', 'tiktok']) {
           // Skip TikTok for businesses below the $50/day threshold
@@ -131,7 +151,10 @@ function registerCreativeEngineRoutes(deps) {
               else if (r.health_verdict === 'broken') broken += 1;
             }
           } catch (e) {
-            logger?.warn?.('/webhook/measurement-health-probe-all', b.id, 'probe failed', { platform, error: e.message });
+            logger?.warn?.('/webhook/measurement-health-probe-all', b.id, 'probe failed', {
+              platform,
+              error: e.message,
+            });
           }
         }
       }
@@ -159,10 +182,13 @@ function registerCreativeEngineRoutes(deps) {
       return apiError(res, 503, 'CITATION_TRACKER_DISABLED', 'citation-tracker not configured');
     }
     try {
-      const businesses = await sbGet('businesses',
+      const businesses = await sbGet(
+        'businesses',
         'is_active=eq.true&plan=in.(growth,agency)&select=id&limit=1000'
       ).catch(() => []);
-      let ran = 0, cited = 0, costUsd = 0;
+      let ran = 0,
+        cited = 0,
+        costUsd = 0;
       const trackerDeps = { sbGet, sbPost, sbPatch, logger };
       for (const b of businesses) {
         try {
@@ -211,17 +237,17 @@ function registerCreativeEngineRoutes(deps) {
       return apiError(res, 503, 'COMPETITOR_WATCH_DISABLED', 'competitor-watch not configured');
     }
     try {
-      const businesses = await sbGet('businesses',
-        'is_active=eq.true&select=id&limit=1000'
-      ).catch(() => []);
-      let scanned = 0, alerts = 0, critical = 0;
+      const businesses = await sbGet('businesses', 'is_active=eq.true&select=id&limit=1000').catch(() => []);
+      let scanned = 0,
+        alerts = 0,
+        critical = 0;
       const watchDeps = { sbGet, sbPost, logger, metaAdLibraryApi };
       for (const b of businesses) {
         try {
           const r = await competitorWatch.scanForBusiness({ businessId: b.id, deps: watchDeps });
           if (r?.ok) {
             scanned += 1;
-            for (const s of (r.signals || [])) {
+            for (const s of r.signals || []) {
               if (s.severity === 'alert') alerts += 1;
               else if (s.severity === 'critical') critical += 1;
             }

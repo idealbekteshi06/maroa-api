@@ -45,17 +45,18 @@ Inngest gives us:
 
 ## Alternatives considered
 
-| Option | Why we didn't pick it |
-|---|---|
-| Stay on n8n + add a debug layer | Doesn't solve the durability / cron / type issues. |
+| Option                          | Why we didn't pick it                                                                                                       |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Stay on n8n + add a debug layer | Doesn't solve the durability / cron / type issues.                                                                          |
 | Bull / BullMQ / Cloud Run Tasks | More infra to run (Redis, retries, dashboards). Inngest delivers the whole thing as a service for ~$20/month at our volume. |
-| Temporal | Excellent but ~2× the learning curve. Right answer at 100K customers, overkill at 50. |
-| AWS Step Functions | Locked us into AWS for serverless workflows. We're on Railway. |
-| Cron + Postgres job table | Fine for 3 jobs, ungovernable at 28. Would have to re-implement Inngest's reliability features. |
+| Temporal                        | Excellent but ~2× the learning curve. Right answer at 100K customers, overkill at 50.                                       |
+| AWS Step Functions              | Locked us into AWS for serverless workflows. We're on Railway.                                                              |
+| Cron + Postgres job table       | Fine for 3 jobs, ungovernable at 28. Would have to re-implement Inngest's reliability features.                             |
 
 ## Consequences
 
 **Positive:**
+
 - Every workflow change goes through `git diff` + PR review.
 - Failed jobs visible in Inngest dashboard with full step-level error.
 - New workflows are ~3× faster to add (no JSON wiring, just a JS function).
@@ -64,6 +65,7 @@ Inngest gives us:
 - Cost ceiling went down (no per-execution Pay; Inngest is per-function).
 
 **Negative:**
+
 - Non-engineers (future hires) can't tweak prompts without a deploy.
   Mitigation: the prompt modules are now versioned + the registry is
   designed to support remote config later.

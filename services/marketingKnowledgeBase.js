@@ -20,17 +20,19 @@ async function injectAllSkills(getEmbedding, pineconeUpsert) {
   for (const skill of skills) {
     try {
       const embedding = await getEmbedding(skill.content.slice(0, 8000));
-      await pineconeUpsert([{
-        id: `skill_${skill.id}`,
-        values: embedding,
-        metadata: {
-          type: 'marketing_skill',
-          skill_name: skill.name,
-          skill_category: skill.category,
-          task_types: skill.taskTypes.join(','),
-          content: skill.content.slice(0, 30000)
-        }
-      }]);
+      await pineconeUpsert([
+        {
+          id: `skill_${skill.id}`,
+          values: embedding,
+          metadata: {
+            type: 'marketing_skill',
+            skill_name: skill.name,
+            skill_category: skill.category,
+            task_types: skill.taskTypes.join(','),
+            content: skill.content.slice(0, 30000),
+          },
+        },
+      ]);
       console.log(`  ✓ ${skill.name}`);
     } catch (err) {
       console.error(`  ✗ ${skill.name}: ${err.message}`);
@@ -45,11 +47,11 @@ async function getRelevantSkills(getEmbedding, pineconeQuery, taskType, business
     const query = `${taskType} ${businessType || 'local business'} ${goal || 'marketing'} strategy`;
     const vector = await getEmbedding(query);
     const result = await pineconeQuery(vector, { type: { $eq: 'marketing_skill' } }, topK);
-    const matches = (result.matches || []).filter(m => m.score > 0.5 && m.metadata?.content);
-    return matches.map(m => ({
+    const matches = (result.matches || []).filter((m) => m.score > 0.5 && m.metadata?.content);
+    return matches.map((m) => ({
       name: m.metadata.skill_name,
       content: m.metadata.content,
-      score: m.score
+      score: m.score,
     }));
   } catch {
     return [];
@@ -90,7 +92,7 @@ PERFORMANCE RULES:
 - Match creative to audience awareness stage
 - Always include social proof when available
 - CTA must match objective: awareness → "Learn More", conversion → "Buy Now"
-- Local businesses: always name the city in ad copy`
+- Local businesses: always name the city in ad copy`,
     },
 
     {
@@ -124,7 +126,7 @@ LOCAL BUSINESS SOCIAL RULES:
 - Use local hashtags: #[city] #[neighborhood]
 - Post at peak times: 7-9am, 12-2pm, 6-9pm
 - Stories: show the real business
-- Always respond to comments within 2 hours`
+- Always respond to comments within 2 hours`,
     },
 
     {
@@ -155,7 +157,7 @@ LOCAL BUSINESS WRITING:
 - Reference local landmarks, events, seasons
 - Use the language customers actually speak
 - Short sentences. Local audiences scan, not read.
-- Every copy: "Why should I care? Why now? Why you?"`
+- Every copy: "Why should I care? Why now? Why you?"`,
     },
 
     {
@@ -189,7 +191,7 @@ LOCAL BUSINESS EMAIL RULES:
 - Max 200 words
 - One offer per email
 - Write in customer's primary language
-- Mobile-first: big CTA button`
+- Mobile-first: big CTA button`,
     },
 
     {
@@ -232,7 +234,7 @@ LOCAL AD COPY RULES:
 - Name the city: "Prishtina's #1 [service]"
 - Include specific offer
 - Phone number if service business
-- Social proof: "500+ happy clients in [city]"`
+- Social proof: "500+ happy clients in [city]"`,
     },
 
     {
@@ -254,7 +256,7 @@ JOBS TO BE DONE:
 People don't buy products — they hire them to get a job done.
 - Gym member wants confidence, not exercise
 - Restaurant customer wants experience, not food
-Frame product around outcome, not feature.`
+Frame product around outcome, not feature.`,
     },
 
     {
@@ -274,7 +276,7 @@ Week 2: Education — how you solve it
 Week 3: Social proof — results and testimonials
 Week 4: Offer — launch promotion with deadline
 
-RELAUNCH: Every new offer = mini-launch. New season = new campaign angle.`
+RELAUNCH: Every new offer = mini-launch. New season = new campaign angle.`,
     },
 
     {
@@ -300,7 +302,7 @@ DUNNING (failed payment):
 Day 0: Friendly notice
 Day 3: Update payment link
 Day 7: Access at risk
-Day 14: Final notice`
+Day 14: Final notice`,
     },
 
     {
@@ -327,7 +329,7 @@ Day 1: Did you complete it?
 Day 2: Quick win in 5 minutes
 Day 3: Similar business success story
 Day 5: Key feature highlight
-Day 7: Personal check-in`
+Day 7: Personal check-in`,
     },
 
     {
@@ -352,7 +354,7 @@ UPGRADE TRIGGERS:
 - User hits limit
 - Tries premium feature
 - Achieves success
-- 30 days before renewal`
+- 30 days before renewal`,
     },
 
     {
@@ -378,7 +380,7 @@ FOLLOW-UP (5 emails, 3 weeks):
 LOCAL OUTREACH:
 - Reference their city, neighborhood
 - Mention something specific (their Instagram, a review)
-- Keep it conversational`
+- Keep it conversational`,
     },
 
     {
@@ -412,7 +414,7 @@ Weekly: One Reel or TikTok
 SEO LOCAL:
 - "[Service] in [City]" in every page title
 - GMB: post 3x/week, respond to all reviews
-- Neighborhood names, landmarks as keywords`
+- Neighborhood names, landmarks as keywords`,
     },
 
     {
@@ -429,7 +431,7 @@ LOCAL TACTICS:
 - "Bring a friend" — both get discount
 - Google review incentive
 - WhatsApp referral to 3 friends
-- Cross-referral with complementary local business`
+- Cross-referral with complementary local business`,
     },
 
     {
@@ -466,7 +468,7 @@ LOCAL LANDING PAGE:
 - Real photos (no stock)
 - Local phone number
 - Google Maps embed
-- Local reviews`
+- Local reviews`,
     },
 
     {
@@ -489,8 +491,8 @@ LOCAL ADVANTAGE:
 - You understand local market, language, culture
 - You're accessible: local support, local team
 - "X businesses in [city] trust us"
-- International tools don't understand local dynamics — you do`
-    }
+- International tools don't understand local dynamics — you do`,
+    },
   ];
 }
 

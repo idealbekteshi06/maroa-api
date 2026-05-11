@@ -111,10 +111,7 @@ async function runOnePhase({ run, deps }) {
     status: isComplete ? 'completed' : 'running',
     completed_at: isComplete ? new Date().toISOString() : null,
     phase_results: newPhaseResults,
-    display_state: buildDisplayState(
-      { ...run, current_phase: isComplete ? 'complete' : next },
-      phaseResult.data
-    ),
+    display_state: buildDisplayState({ ...run, current_phase: isComplete ? 'complete' : next }, phaseResult.data),
   };
   await sbPatch?.('cold_start_runs', `id=eq.${run.id}`, updates).catch(() => {});
   await mirrorOnboardingState(run.business_id, updates.display_state, deps);
@@ -134,9 +131,11 @@ async function persistFailure({ run, deps, reason }) {
 }
 
 async function mirrorOnboardingState(businessId, displayState, deps) {
-  await deps.sbPatch?.('businesses', `id=eq.${businessId}`, {
-    onboarding_state: displayState,
-  }).catch(() => {});
+  await deps
+    .sbPatch?.('businesses', `id=eq.${businessId}`, {
+      onboarding_state: displayState,
+    })
+    .catch(() => {});
 }
 
 /**

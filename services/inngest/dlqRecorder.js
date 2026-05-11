@@ -30,7 +30,9 @@
 const https = require('https');
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/[^\x20-\x7E]/g, '').trim();
-const SUPABASE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '').replace(/[^\x20-\x7E]/g, '').trim();
+const SUPABASE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '')
+  .replace(/[^\x20-\x7E]/g, '')
+  .trim();
 
 function postRow(table, row) {
   return new Promise((resolve) => {
@@ -56,7 +58,10 @@ function postRow(table, row) {
       res.on('end', () => resolve({ ok: res.statusCode === 201, status: res.statusCode }));
     });
     req.on('error', (e) => resolve({ ok: false, error: e.message }));
-    req.on('timeout', () => { req.destroy(new Error('timeout')); resolve({ ok: false, error: 'timeout' }); });
+    req.on('timeout', () => {
+      req.destroy(new Error('timeout'));
+      resolve({ ok: false, error: 'timeout' });
+    });
     req.write(body);
     req.end();
   });
