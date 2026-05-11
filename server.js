@@ -338,6 +338,33 @@ app.use('/webhook/video-generate-runway', aiRateLimit);
 app.use('/webhook/master-agent', aiRateLimit);
 app.use('/webhook/ai-brain-run', aiRateLimit);
 
+// ─── Cost guard — per-business monthly $ cap on LLM endpoints ───────────────
+// Mounted on the same paths as aiRateLimit (any route that spends real
+// Anthropic dollars). Rate limit prevents spike-of-requests; cost guard
+// prevents a single customer from grinding through their monthly cap on
+// expensive long prompts.
+//
+// Soft-fail in costGuard means a Supabase outage allows the request rather
+// than 402-ing every customer simultaneously. Real abuse still gets blocked.
+const { costGuardMiddleware } = require('./lib/costGuard');
+const costGuard = costGuardMiddleware({ sbGet });
+app.use('/api/ideas', costGuard);
+app.use('/api/lead-magnets', costGuard);
+app.use('/api/research', costGuard);
+app.use('/api/sales', costGuard);
+app.use('/api/community', costGuard);
+app.use('/api/pricing', costGuard);
+app.use('/api/schema', costGuard);
+app.use('/api/ai-seo', costGuard);
+app.use('/api/strategy', costGuard);
+app.use('/api/onboarding-cro', costGuard);
+app.use('/webhook/content-generate', costGuard);
+app.use('/webhook/video-script-generate', costGuard);
+app.use('/webhook/master-agent', costGuard);
+app.use('/webhook/ai-brain-run', costGuard);
+app.use('/webhook/cold-start-trigger', costGuard);
+app.use('/webhook/instant-content', costGuard);
+
 // Body-shape validation for critical webhooks.
 app.use('/webhook/instant-content', zodValidate(businessIdBody));
 app.use('/webhook/content-approved', zodValidate(businessIdBody));
@@ -703,12 +730,28 @@ async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOver
       if (r.status === 200) {
         if (extra.businessId && !extra.skipUsageLog) {
           setImmediate(() => {
-            sbGet('businesses', `id=eq.${extra.businessId}&select=user_id`)
+            sbGet('businesses', `id=eq.${encodeURIComponent(extra.businessId)}&select=user_id`)
               .then(rows => {
                 const uid = rows[0]?.user_id || extra.businessId;
                 return recordOrchestrationTaskRun(uid, 'ai_call');
               })
               .catch(() => {});
+          });
+        }
+        // Real cost tracking — wire into observability.costTracker.track().
+        // Without this, llm_cost_logs stays empty and lib/costGuard is
+        // decorative (always reports $0 used). Now every successful call
+        // writes a row with skill + model + tokens + cost.
+        if (r.body?.usage) {
+          setImmediate(() => {
+            observability.costTracker.track({
+              businessId: extra.businessId || null,
+              skill: extra.skill || (typeof taskTypeOrModel === 'string' ? taskTypeOrModel : 'unknown'),
+              model,
+              usage: r.body.usage,
+              sbPost,
+              logger,
+            }).catch(() => {});
           });
         }
         // Surface cache hit/miss for observability
@@ -3748,13 +3791,14 @@ Write a post with: hook (first line stops scrolling), value body (3-5 lines), CT
 Plain text, no markdown, no asterisks. Max 1300 characters.
 Return only valid JSON: {"post_text":"...","content_theme":"..."}`;
 
-      const aiResp = await apiRequest('POST', 'https://api.anthropic.com/v1/messages',
-        { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-        { model: 'claude-opus-4-7', max_tokens: 700, messages: [{ role: 'user', content: prompt }] });
-
-      const raw = aiResp.body?.content?.[0]?.text || '{}';
-      const parsed = extractJSON(raw) || {};
-      postText = parsed.post_text || raw;
+      // Routed through callClaude so cost tracking, prompt caching,
+      // retry/backoff, and budget enforcement all apply. Skill tagged so
+      // llm_cost_logs surfaces "linkedin_post" spend specifically.
+      const parsed = await callClaude(prompt, 'claude-opus-4-7', 700, {
+        businessId: business_id,
+        skill: 'linkedin_post',
+      });
+      postText = parsed.post_text || parsed._raw || '';
 
       // Save to generated_content
       await sbPost('generated_content', {
@@ -3944,12 +3988,10 @@ Direct, engaging, ends with soft CTA. Max 2 hashtags.
 Business: ${biz.business_name}, Tone: ${biz.brand_tone || 'professional'}, Audience: ${biz.target_audience || 'business owners'}.
 Return only valid JSON: {"tweet":"...","content_theme":"..."}`;
 
-      const aiResp = await apiRequest('POST', 'https://api.anthropic.com/v1/messages',
-        { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-        { model: 'claude-opus-4-7', max_tokens: 500, messages: [{ role: 'user', content: prompt }] });
-
-      const raw = aiResp.body?.content?.[0]?.text || '{}';
-      const parsed = extractJSON(raw) || {};
+      const parsed = await callClaude(prompt, 'claude-opus-4-7', 500, {
+        businessId: business_id,
+        skill: 'twitter_post',
+      });
 
       tweetText = parsed.tweet     || '';
       tweets    = parsed.tweets    || [];
@@ -4139,12 +4181,10 @@ Also write:
 
 Return only valid JSON: {"hook":"...","script":"...","caption":"...","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5"],"content_theme":"..."}`;
 
-    const aiResp = await apiRequest('POST', 'https://api.anthropic.com/v1/messages',
-      { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-      { model: 'claude-opus-4-7', max_tokens: 600, messages: [{ role: 'user', content: prompt }] });
-
-    const raw = aiResp.body?.content?.[0]?.text || '{}';
-    const parsed = extractJSON(raw) || {};
+    const parsed = await callClaude(prompt, 'claude-opus-4-7', 600, {
+      businessId: business_id,
+      skill: 'tiktok_video_script',
+    });
 
     const fullCaption = `${parsed.caption || ''} ${(parsed.hashtags || []).join(' ')}`.trim();
 
