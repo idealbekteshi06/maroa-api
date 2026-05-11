@@ -473,6 +473,9 @@ module.exports = function createHiggsfieldService(deps) {
     content.push({ type: 'text', text: prompt });
     const body = { model, max_tokens, messages: [{ role: 'user', content }] };
     if (opts.system) body.system = opts.system;
+    // TODO(callClaude-migration): wire callClaude as a dep to this service
+    // and route through it. Tracked in PUNCHLIST item 7.
+    // eslint-disable-next-line no-restricted-syntax
     const r = await apiRequest('POST', 'https://api.anthropic.com/v1/messages', {
       'x-api-key': ANTHROPIC_KEY,
       'anthropic-version': '2023-06-01',
@@ -494,6 +497,8 @@ module.exports = function createHiggsfieldService(deps) {
       messages: [{ role: 'user', content: prompt }]
     };
     if (extra.system) body.system = extra.system;
+    // TODO(callClaude-migration): wire callClaude as a dep to this service.
+    // eslint-disable-next-line no-restricted-syntax
     const r = await apiRequest('POST', 'https://api.anthropic.com/v1/messages', {
       'x-api-key': ANTHROPIC_KEY,
       'anthropic-version': '2023-06-01',

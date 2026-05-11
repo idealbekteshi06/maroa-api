@@ -28,6 +28,10 @@
       {
         "selector": "CallExpression[callee.property.name='use'][arguments.0.type='Literal'][arguments.0.value=/\\s/]",
         "message": "Route path contains whitespace — typo. Use kebab-case like /api/launch-prompts."
+      },
+      {
+        "selector": "CallExpression[callee.name='apiRequest'][arguments.1.type='Literal'][arguments.1.value=/api\\.anthropic\\.com/]",
+        "message": "Don't call api.anthropic.com directly — route through callClaude() so cost tracking, retries, prompt caching, and budget enforcement all apply. See docs/adr/0003-cost-discipline-via-callclaude-facade.md"
       }
     ]
   },

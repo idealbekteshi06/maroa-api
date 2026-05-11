@@ -817,6 +817,7 @@ async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOver
   while (attempt < retries) {
     attempt++;
     try {
+      // eslint-disable-next-line no-restricted-syntax -- this IS callClaude's implementation
       const r = await apiRequest('POST', 'https://api.anthropic.com/v1/messages', headers, body);
 
       if (r.status === 200) {
@@ -2146,6 +2147,7 @@ app.get('/debug', requireAdminSecret, async (req, res) => {
   try { const r = await sbGet('businesses', 'select=id&limit=1'); out.supabase = `ok (${r.length} row)`; }
   catch (e) { out.supabase = `ERROR: ${e.message}`; }
   try {
+    // eslint-disable-next-line no-restricted-syntax -- /debug health probe, 5-token ping, intentionally bypasses callClaude
     const r = await apiRequest('POST', 'https://api.anthropic.com/v1/messages',
       { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
       { model: 'claude-sonnet-4-5', max_tokens: 5, messages: [{ role: 'user', content: 'Hi' }] });
@@ -8970,6 +8972,10 @@ app.post('/webhook/score-image', async (req, res) => {
   const { business_id, image_url, content_type = 'social_post' } = req.body;
   if (!business_id || !image_url) return res.status(400).json({ error: 'business_id and image_url required' });
   try {
+    // TODO(callClaude-migration): port this Claude vision call to use
+    // callClaude with extra.imageBlocks so cost-tracking + budget gates
+    // apply. Tracked in PUNCHLIST item 7 (consuming-service migration).
+    // eslint-disable-next-line no-restricted-syntax
     const r = await apiRequest('POST', 'https://api.anthropic.com/v1/messages', {
       'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json'
     }, {

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    ":dependencyDashboard"
+  ],
+  "timezone": "UTC",
+  "schedule": ["before 6am on monday"],
+  "labels": ["dependencies"],
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "rangeStrategy": "bump",
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["patch"],
+      "matchCurrentVersion": "!/^0\\./",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "description": "Patch updates on stable packages (≥1.0) auto-merge after CI passes"
+    },
+    {
+      "matchUpdateTypes": ["minor", "major"],
+      "automerge": false,
+      "description": "Minor + major updates require manual review"
+    },
+    {
+      "matchPackagePatterns": ["^@anthropic", "^anthropic"],
+      "groupName": "Anthropic SDK",
+      "automerge": false,
+      "description": "Anthropic SDK pinned manually — review CHANGELOG each bump"
+    },
+    {
+      "matchPackagePatterns": ["^@sentry", "^express", "^@supabase", "^inngest", "^paddle"],
+      "automerge": false,
+      "description": "Critical-path packages reviewed manually"
+    },
+    {
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security", "dependencies"]
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"],
+    "automerge": true
+  },
+  "rebaseWhen": "behind-base-branch",
+  "dependencyDashboardOSVVulnerabilitySummary": "all"
+}
