@@ -40,11 +40,15 @@ const PLAN_FEATURES = {
 // fix for the IDOR vector flagged by the May-11 Antigravity review:
 // previously planGate verified the business had the right plan but never
 // verified the caller had the right business.
-async function getBusinessPlanAndOwner(business_id) {
+async function getBusinessPlanAndOwner(business_id, token) {
+  // Defensive — caller is expected to UUID-validate, but never let an
+  // unvalidated id touch the filter. encodeURIComponent stops `&`/`,`/`(` from
+  // breaking out of the value.
   if (!isUuid(business_id)) throw new Error('invalid business_id');
   const safeId = encodeURIComponent(business_id);
+  const authHeader = token ? `Bearer ${token}` : `Bearer ${SUPABASE_KEY}`;
   const res = await fetch(`${SUPABASE_URL}/rest/v1/businesses?select=plan,user_id&id=eq.${safeId}`, {
-    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+    headers: { apikey: SUPABASE_KEY, Authorization: authHeader },
   });
   const data = await res.json();
   const row = data?.[0] || null;
@@ -78,7 +82,11 @@ const planGate = (feature) => async (req, res, next) => {
   }
 
   try {
-    const { plan, user_id: ownerId } = await getBusinessPlanAndOwner(business_id);
+    const authHeader = req.get('authorization') || '';
+    const tokenMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+    const token = tokenMatch ? tokenMatch[1] : req.query?.token || null;
+
+    const { plan, user_id: ownerId } = await getBusinessPlanAndOwner(business_id, token);
 
     // ─── IDOR protection ─────────────────────────────────────────────────
     // Verify the AUTHENTICATED caller actually owns this business_id. The

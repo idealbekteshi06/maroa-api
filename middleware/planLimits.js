@@ -74,6 +74,35 @@ function sbRequest(method, path, body, extraHeaders = {}) {
   });
 }
 
+async function sbCountExact(table, queryWithoutSelect) {
+  return new Promise((resolve, reject) => {
+    const path = `/rest/v1/${table}?${queryWithoutSelect}&select=id`;
+    const url = new URL(SUPABASE_URL + path);
+    const req = https.request(
+      {
+        hostname: url.hostname,
+        port: 443,
+        path: url.pathname + url.search,
+        method: 'HEAD',
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+          Prefer: 'count=exact',
+        },
+      },
+      (res) => {
+        res.resume();
+        const cr = res.headers['content-range'];
+        const m = typeof cr === 'string' && cr.match(/\/(\d+)\s*$/);
+        resolve(m ? parseInt(m[1], 10) : 0);
+      }
+    );
+    req.setTimeout(10000, () => req.destroy(new Error('Supabase request timeout')));
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 // Parse PostgREST's Content-Range header. Format: "0-9/47" or "*/0".
 // Returns the integer count, or null if unparseable.
 function parseContentRangeCount(contentRange) {
@@ -130,13 +159,10 @@ async function checkPlanLimit(req, res, next) {
     // Now: HEAD request + Prefer: count=exact. PostgREST returns the
     // count in the Content-Range header without sending any rows.
     // Same correctness, bounded memory.
-    const countRes = await sbRequest(
-      'HEAD',
-      `/rest/v1/usage_logs?select=id&user_id=eq.${safeUserId}&action=eq.${safeAction}&created_at=gte.${encodeURIComponent(monthStart)}`,
-      null,
-      { Prefer: 'count=exact' }
-    );
-    const count = parseContentRangeCount(countRes.contentRange) || 0;
+    const count = await sbCountExact(
+      'usage_logs',
+      `user_id=eq.${safeUserId}&action=eq.${safeAction}&created_at=gte.${encodeURIComponent(monthStart)}`
+    ).catch(() => 0);
 
     const limitKey =
       action === 'generate_image'

@@ -15290,12 +15290,22 @@ async function gracefulShutdown(signal) {
   const deadlineMs = 25000;
   const deadline = Date.now() + deadlineMs;
 
+  // Arm the 30s deadman switch IMMEDIATELY so we never hang indefinitely
+  armShutdownDeadman();
+
   // 1. Stop accepting new requests immediately. server.close() lets
   //    in-flight requests finish before invoking the callback.
   server.close((err) => {
     if (err) log('shutdown', `server.close error: ${err.message}`);
     else log('shutdown', 'HTTP server closed');
   });
+
+  // 1b. Drop idle keep-alive connections so the server can actually close
+  //     once active requests finish.
+  if (typeof server.closeIdleConnections === 'function') {
+    server.closeIdleConnections();
+    log('shutdown', 'Idle keep-alive connections closed');
+  }
 
   // 2. Close every SSE connection so clients reconnect against the
   //    next instance instead of hanging until TCP timeout.

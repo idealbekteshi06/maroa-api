@@ -381,28 +381,27 @@ function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger
     if (!isUuid(businessId)) return apiError(res, 400, 'INVALID_REQUEST', 'businessId must be a valid UUID');
     if (typeof verifyUserJwt !== 'function') return apiError(res, 503, 'NOT_CONFIGURED', 'verifyUserJwt not wired');
 
+    if (typeof verifyUserJwt !== 'function') return apiError(res, 503, 'NOT_CONFIGURED', 'verifyUserJwt not wired');
     const token = readBearer(req);
-    if (!token) return apiError(res, 401, 'UNAUTHORIZED', 'Bearer token or ?token= required');
+    if (!token) return apiError(res, 401, 'UNAUTHORIZED', 'Bearer token required');
     const user = await verifyUserJwt(token).catch(() => null);
     if (!user?.id) return apiError(res, 401, 'UNAUTHORIZED', 'invalid JWT');
     const owns = await userOwnsBusiness(user.id, businessId);
-    if (!owns) {
-      logger?.warn?.('/webhook/oauth/meta/health', businessId, 'auth user does not own business', { user_id: user.id });
-      return apiError(res, 403, 'FORBIDDEN', 'authenticated user does not own this business');
-    }
+    if (!owns) return apiError(res, 403, 'FORBIDDEN', 'authenticated user does not own this business');
 
     try {
       const rows = await sbGet(
         'businesses',
-        `id=eq.${encodeURIComponent(businessId)}&select=meta_access_token,meta_token_expires_at,ad_account_id,facebook_page_id,instagram_account_id,meta_connected_at`
+        `id=eq.${businessId}&select=meta_access_token,meta_access_token_enc,meta_token_expires_at,ad_account_id,facebook_page_id,instagram_account_id,meta_connected_at`
       ).catch(() => []);
       const b = rows?.[0];
-      if (!b?.meta_access_token) return res.json({ connected: false });
+      const tokenToUse = oauthCrypto.readToken(b, 'meta_access_token');
+      if (!tokenToUse) return res.json({ connected: false });
 
       // Verify with Meta — graph /me/permissions returns 401 if revoked
       const probe = await graphCall({
         path: '/me/permissions',
-        accessToken: b.meta_access_token,
+        accessToken: tokenToUse,
       });
       if (!probe.ok) {
         return res.json({
