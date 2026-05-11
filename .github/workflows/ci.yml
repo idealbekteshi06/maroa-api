@@ -51,15 +51,33 @@ jobs:
       # ─── 5. Syntax check on every JS file (catches stupid typos fast) ───
       - name: Syntax check entrypoints
         run: |
+          set -e
           node --check server.js
-          for f in services/**/*.js services/**/**/*.js; do
-            node --check "$f" || exit 1
-          done
+          find services lib middleware scripts -name '*.js' -print0 \
+            | xargs -0 -n1 node --check
+
+      # ─── 6. Migration sanity (no gaps, naming, latest referenced) ───────
+      - name: Migration sanity check
+        run: npm run check-migrations
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout (full history for diff scan)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   notify-failure:
     name: Notify on failure
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, secret-scan]
     if: failure()
     steps:
       - name: Log failure

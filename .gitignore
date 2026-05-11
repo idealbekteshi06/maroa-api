@@ -14,8 +14,9 @@ test_everything.js
 # n8n workflow JSONs (too many secrets hardcoded)
 n8n-workflows/
 
-# Claude project knowledge
-CLAUDE.md
+# CLAUDE.md is intentionally tracked — it's the knowledge base for new
+# engineers (and Claude itself). LEARNINGS.md is its sibling. Both must
+# stay in sync with reality; CI will fail if either drifts.
 
 # Runtime
 workflow_ids.txt
