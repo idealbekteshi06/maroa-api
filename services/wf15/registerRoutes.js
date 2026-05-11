@@ -7,6 +7,8 @@
 
 'use strict';
 
+const { limits } = require('../../lib/rateLimiters');
+
 function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logger }) {
   // ─── GET/POST /webhook/wf15-conversations ──────────────────
   async function listHandler(req, res) {
@@ -38,7 +40,7 @@ function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logge
   app.post('/webhook/wf15-conversation-get', getConvHandler);
 
   // ─── POST /webhook/wf15-conversation-create ────────────────
-  app.post('/webhook/wf15-conversation-create', async (req, res) => {
+  app.post('/webhook/wf15-conversation-create', limits.standardMutate, async (req, res) => {
     const { businessId, initialMessage } = req.body || {};
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
     try {
@@ -50,7 +52,7 @@ function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logge
   });
 
   // ─── POST /webhook/wf15-send-message (SSE streaming) ───────
-  app.post('/webhook/wf15-send-message', async (req, res) => {
+  app.post('/webhook/wf15-send-message', limits.expensive, async (req, res) => {
     const { businessId, conversationId, content, attachmentIds } = req.body || {};
     if (!businessId || !conversationId || !content) return apiError(res, 400, 'INVALID_REQUEST', 'businessId + conversationId + content required');
 
@@ -99,7 +101,7 @@ function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logge
   });
 
   // ─── POST /webhook/wf15-tool-decision ──────────────────────
-  app.post('/webhook/wf15-tool-decision', async (req, res) => {
+  app.post('/webhook/wf15-tool-decision', limits.expensive, async (req, res) => {
     const { businessId, toolCallId, decision, edits } = req.body || {};
     if (!businessId || !toolCallId || !decision) return apiError(res, 400, 'INVALID_REQUEST', 'required fields missing');
     try {
@@ -111,7 +113,7 @@ function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logge
   });
 
   // ─── POST /webhook/wf15-explain ─────────────────────────────
-  app.post('/webhook/wf15-explain', async (req, res) => {
+  app.post('/webhook/wf15-explain', limits.expensive, async (req, res) => {
     const { businessId, messageId } = req.body || {};
     if (!businessId || !messageId) return apiError(res, 400, 'INVALID_REQUEST', 'required fields missing');
     try {
@@ -142,7 +144,7 @@ function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logge
   // ─── POST /webhook/wf15-upload-attachment ──────────────────
   // Note: full multipart-form handling would require multer; this stub
   // accepts JSON metadata for now and returns an attachment id.
-  app.post('/webhook/wf15-upload-attachment', async (req, res) => {
+  app.post('/webhook/wf15-upload-attachment', limits.standardMutate, async (req, res) => {
     const { businessId, modality, url, mimeType, name, transcription, ocrText, scrapedSummary } = req.body || {};
     if (!businessId || !modality || !url) return apiError(res, 400, 'INVALID_REQUEST', 'businessId, modality, url required');
     try {

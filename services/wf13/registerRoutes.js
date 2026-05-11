@@ -7,9 +7,11 @@
 
 'use strict';
 
+const { limits } = require('../../lib/rateLimiters');
+
 function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logger }) {
   // ─── POST /webhook/wf13-generate-brief ──────────────────────
-  app.post('/webhook/wf13-generate-brief', async (req, res) => {
+  app.post('/webhook/wf13-generate-brief', limits.expensive, async (req, res) => {
     const { businessId, weekStart } = req.body || {};
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
     try {
@@ -77,7 +79,7 @@ function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logge
   app.post('/webhook/wf13-brief-history', historyHandler);
 
   // ─── POST /webhook/wf13-brief-decision ─────────────────────
-  app.post('/webhook/wf13-brief-decision', async (req, res) => {
+  app.post('/webhook/wf13-brief-decision', limits.standardMutate, async (req, res) => {
     const { businessId, briefId, decision, editedSections, reason } = req.body || {};
     if (!businessId || !briefId || !decision) return apiError(res, 400, 'INVALID_REQUEST', 'required fields missing');
     try {
@@ -126,7 +128,7 @@ function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logge
   });
 
   // ─── POST /webhook/wf13-delivery-settings ──────────────────
-  app.post('/webhook/wf13-delivery-settings', async (req, res) => {
+  app.post('/webhook/wf13-delivery-settings', limits.standardMutate, async (req, res) => {
     const body = req.body || {};
     if (!body.businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
     try {
@@ -183,7 +185,7 @@ function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logge
   app.post('/webhook/wf13-delivery-settings-get', settingsGetHandler);
 
   // ─── POST /webhook/wf13-plan-action-decision ──────────────
-  app.post('/webhook/wf13-plan-action-decision', async (req, res) => {
+  app.post('/webhook/wf13-plan-action-decision', limits.standardMutate, async (req, res) => {
     const { businessId, briefId, actionId, decision } = req.body || {};
     if (!businessId || !briefId || !actionId || !decision) return apiError(res, 400, 'INVALID_REQUEST', 'required fields missing');
     try {
@@ -198,7 +200,7 @@ function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logge
   });
 
   // ─── POST /webhook/wf13-run-weekly (Sunday cron target) ───
-  app.post('/webhook/wf13-run-weekly', async (req, res) => {
+  app.post('/webhook/wf13-run-weekly', limits.crontarget, async (req, res) => {
     const { businessId, force } = req.body || {};
     try {
       if (businessId) {

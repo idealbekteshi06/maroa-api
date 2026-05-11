@@ -123,6 +123,41 @@ app.use((req, res, next) => {
 const paddleWebhookRawBody = express.raw({ type: 'application/json' });
 app.post('/webhook/paddle-webhook', paddleWebhookRawBody, paddleWebhookHandler);
 
+// ─── Stripe webhook (parallel to Paddle — pick one or both per region) ──────
+// MUST use raw body so signature verification can hash the exact bytes
+// Stripe sent. The JSON parser is mounted AFTER this in the middleware chain.
+const stripeWebhookRawBody = express.raw({ type: 'application/json' });
+const stripeService = require('./services/stripe');
+app.post('/webhook/stripe-webhook', stripeWebhookRawBody, async (req, res) => {
+  const secret = (process.env.STRIPE_WEBHOOK_SECRET || '').trim();
+  if (!secret) {
+    return res.status(503).json({ error: { code: 'NOT_CONFIGURED', message: 'STRIPE_WEBHOOK_SECRET not set' } });
+  }
+  const sig = req.headers['stripe-signature'];
+  const rawBody = req.body;
+  if (!sig || !Buffer.isBuffer(rawBody)) {
+    return res.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'Missing signature or raw body' } });
+  }
+  if (!stripeService.verifyStripeSignature(rawBody, sig, secret)) {
+    logger.warn('/webhook/stripe-webhook', null, 'signature verification failed', { request_id: req.requestId });
+    return res.status(400).json({ error: { code: 'INVALID_SIGNATURE', message: 'Signature verification failed' } });
+  }
+  let event;
+  try { event = JSON.parse(rawBody.toString()); } catch {
+    return res.status(400).json({ error: { code: 'INVALID_JSON', message: 'Could not parse body' } });
+  }
+  // Acknowledge fast so Stripe doesn't retry. Handle async.
+  res.json({ received: true, request_id: req.requestId });
+  stripeService.handleStripeEvent({
+    event,
+    sbGet, sbPatch, sbPost,
+    sendEmail,
+    logger,
+    internalSecret: N8N_WEBHOOK_SECRET,
+    port: process.env.PORT || 3000,
+  }).catch((e) => logger.error('/webhook/stripe-webhook', null, 'async handler failed', { error: e.message }));
+});
+
 app.use(express.json({ limit: '10mb' }));
 
 // ─── Distributed-tracing: request-correlation IDs ──────────────────────────
@@ -160,6 +195,11 @@ app.post('/webhook/cost-report', async (req, res) => {
 function requireN8nWebhookSecret(req, res, next) {
   const pathOnly = req.originalUrl.split('?')[0];
   if (pathOnly === '/webhook/paddle-webhook') return next();
+  if (pathOnly === '/webhook/stripe-webhook') return next();   // Stripe sig auth instead
+  if (pathOnly === '/webhook/oauth/meta/start') return next();   // public — redirect to FB
+  if (pathOnly === '/webhook/oauth/meta/callback') return next();
+  if (pathOnly === '/webhook/oauth/google/start') return next();
+  if (pathOnly === '/webhook/oauth/google/callback') return next();
   if (pathOnly === '/webhook/email-approve') return next();
   if (pathOnly === '/webhook/dashboard-events') return next();
   if (pathOnly === '/webhook/data-deletion-request') return next();
@@ -342,6 +382,7 @@ function isInternalMaroaWebhookUrl(urlString) {
     const u = new URL(urlString);
     const p = u.pathname;
     if (p === '/webhook/paddle-webhook') return false;
+    if (p === '/webhook/stripe-webhook') return false;
     if (!p.startsWith('/webhook/')) return false;
     const h = u.hostname.toLowerCase();
     return h === 'localhost' || h === '127.0.0.1' || h === 'maroa-api-production.up.railway.app';
