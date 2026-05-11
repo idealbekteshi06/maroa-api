@@ -3731,10 +3731,16 @@ app.post('/webhook/org-white-label-update', planGate('white_label'), async (req,
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// BUILD 3 — LINKEDIN AUTOPILOT
-// Modelled exactly on /meta-oauth-exchange
+// BUILD 3 — LINKEDIN AUTOPILOT (carved into routes/linkedin-publishing.js)
 // ═════════════════════════════════════════════════════════════════════════════
+require('./routes/linkedin-publishing').register({
+  app, sbGet, sbPost, sbPatch, callClaude, log, logError, getBrandExamples, env,
+});
 
+// Legacy stub kept until follow-up cleanup removes the dead block below.
+const _LINKEDIN_CARVED = true;
+/* eslint-disable */
+function _legacy_linkedin_unused() {
 const LINKEDIN_CLIENT_ID     = (process.env.LINKEDIN_CLIENT_ID     || '').replace(/[^\x20-\x7E]/g,'').trim();
 const LINKEDIN_CLIENT_SECRET = (process.env.LINKEDIN_CLIENT_SECRET || '').replace(/[^\x20-\x7E]/g,'').trim();
 const LINKEDIN_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
@@ -3938,11 +3944,19 @@ Return only valid JSON: {"post_text":"...","content_theme":"..."}`;
     await logError(business_id, 'linkedin-publish', err.message, req.body);
   }
 });
+} // _legacy_linkedin_unused — see routes/linkedin-publishing.js
+/* eslint-enable */
 
 // ═════════════════════════════════════════════════════════════════════════════
-// BUILD 4 — X (TWITTER) AUTOPILOT — OAuth 2.0 PKCE
+// BUILD 4 — X (TWITTER) AUTOPILOT (carved into routes/twitter-publishing.js)
 // ═════════════════════════════════════════════════════════════════════════════
+require('./routes/twitter-publishing').register({
+  app, sbGet, sbPost, sbPatch, callClaude, log, logError, getBrandExamples, env,
+});
 
+const _TWITTER_CARVED = true;
+/* eslint-disable */
+function _legacy_twitter_unused() {
 const TWITTER_CLIENT_ID     = (process.env.TWITTER_CLIENT_ID     || '').replace(/[^\x20-\x7E]/g,'').trim();
 const TWITTER_CLIENT_SECRET = (process.env.TWITTER_CLIENT_SECRET || '').replace(/[^\x20-\x7E]/g,'').trim();
 const TWITTER_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
@@ -4123,11 +4137,19 @@ Return only valid JSON: {"tweet":"...","content_theme":"..."}`;
     await logError(business_id, 'twitter-publish', err.message, req.body);
   }
 });
+} // _legacy_twitter_unused — see routes/twitter-publishing.js
+/* eslint-enable */
 
 // ═════════════════════════════════════════════════════════════════════════════
-// BUILD 5 — TIKTOK AUTOPILOT
+// BUILD 5 — TIKTOK AUTOPILOT (carved into routes/tiktok-publishing.js)
 // ═════════════════════════════════════════════════════════════════════════════
+require('./routes/tiktok-publishing').register({
+  app, sbGet, sbPost, sbPatch, callClaude, log, logError, getBrandExamples, env,
+});
 
+const _TIKTOK_CARVED = true;
+/* eslint-disable */
+function _legacy_tiktok_unused() {
 const TIKTOK_CLIENT_KEY    = (process.env.TIKTOK_CLIENT_KEY    || '').replace(/[^\x20-\x7E]/g,'').trim();
 const TIKTOK_CLIENT_SECRET = (process.env.TIKTOK_CLIENT_SECRET || '').replace(/[^\x20-\x7E]/g,'').trim();
 const TIKTOK_REDIRECT_URI  = 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
@@ -4315,6 +4337,8 @@ Return only valid JSON: {"hook":"...","script":"...","caption":"...","hashtags":
     await logError(business_id, 'tiktok-publish', err.message, req.body);
   }
 });
+} // _legacy_tiktok_unused — see routes/tiktok-publishing.js
+/* eslint-enable */
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SPRINT 2.1 — Unified Analytics Dashboard
