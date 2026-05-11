@@ -191,6 +191,18 @@ app.use((req, res, next) => {
   next();
 });
 
+// ─── Abuse pattern detector (sliding window per IP) ───────────────────────
+// Catches credential probing, validation floods, route scanners,
+// business-id enumeration, webhook-signature scanners. Logs warnings
+// + fires Sentry events. Does NOT block requests — that's rate-limiter's
+// job. See lib/abuseDetector.js.
+const _abuseDetector = require('./lib/abuseDetector').createDetector({
+  logger,
+  sentry: process.env.SENTRY_DSN ? Sentry : null,
+});
+app.use(_abuseDetector.middleware);
+setInterval(_abuseDetector.sweep, 5 * 60 * 1000).unref();
+
 const paddleWebhookRawBody = express.raw({ type: 'application/json' });
 app.post('/webhook/paddle-webhook', paddleWebhookRawBody, paddleWebhookHandler);
 
