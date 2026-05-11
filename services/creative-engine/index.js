@@ -180,7 +180,7 @@ async function generateOneVariant({ business, brandDNA, seedPattern, variantInde
       // Don't actually trigger live generation here — flagged as queued so
       // the publishing layer (which has API budget gating) handles it.
       // assetUrl remains null until the asset job completes.
-    } catch {}
+    } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
   }
 
   return {

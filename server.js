@@ -683,7 +683,7 @@ async function _loadBrandVoiceBlock(businessId) {
   if (anchor) {
     try {
       block = require('./services/prompts/brand-voice').formatAnchorForPrompt(anchor);
-    } catch {}
+    } catch { /* soft-fail */ }
   }
   _brandVoiceCache.set(businessId, { block, expiresAt: Date.now() + _BRAND_VOICE_TTL_MS });
   return block;
@@ -1070,16 +1070,16 @@ async function alertOnRepeatedFailure(userId, endpoint) {
 function extractJSON(text) {
   if (!text) return null;
   // 1. Direct parse
-  try { return JSON.parse(text); } catch {}
+  try { return JSON.parse(text); } catch { /* soft-fail */ }
   // 2. Strip ALL markdown code fences (global, not just start/end)
   const cleaned = text.replace(/```(?:json|javascript|js)?\s*/g, '').replace(/```/g, '').trim();
-  try { return JSON.parse(cleaned); } catch {}
+  try { return JSON.parse(cleaned); } catch { /* soft-fail */ }
   // 3. Find JSON array (greedy — outermost brackets)
   const arrMatch = cleaned.match(/\[[\s\S]*\]/);
-  if (arrMatch) { try { return JSON.parse(arrMatch[0]); } catch {} }
+  if (arrMatch) { try { return JSON.parse(arrMatch[0]); } catch { /* soft-fail */ } }
   // 4. Find JSON object (greedy — outermost braces)
   const objMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (objMatch) { try { return JSON.parse(objMatch[0]); } catch {} }
+  if (objMatch) { try { return JSON.parse(objMatch[0]); } catch { /* soft-fail */ } }
   // 5. Repair truncated JSON array — find last complete object and close the array
   const arrStart = cleaned.indexOf('[');
   if (arrStart !== -1) {
@@ -1088,7 +1088,7 @@ function extractJSON(text) {
     const lastBrace = truncated.lastIndexOf('}');
     if (lastBrace > 0) {
       const repaired = truncated.slice(0, lastBrace + 1) + ']';
-      try { return JSON.parse(repaired); } catch {}
+      try { return JSON.parse(repaired); } catch { /* soft-fail */ }
     }
   }
   return null;
@@ -1568,7 +1568,7 @@ async function buildImagePrompt(basePrompt, contentType, plan, profile) {
       const enhanced = typeof result === 'string' ? result : (result?._raw || structured);
       log('buildImagePrompt', `[AGENCY] ${enhanced.slice(0, 120)}...`);
       return enhanced;
-    } catch {}
+    } catch { /* soft-fail */ }
   }
 
   log('buildImagePrompt', `[${(plan || 'default').toUpperCase()}] ${structured.slice(0, 120)}...`);
@@ -1580,8 +1580,8 @@ async function generateSmartImage(businessId, prompt, contentType = 'social_post
   const startTime = Date.now();
   // Fetch profile for business-type-aware image prompts
   let profile = null;
-  try { const r = await sbGet('business_profiles', `user_id=eq.${businessId}&select=business_type,physical_locations,audience_description`).catch(() => []); profile = r[0]; } catch {}
-  if (!profile) { try { const r = await sbGet('businesses', `id=eq.${businessId}&select=industry,location,target_audience`); if (r[0]) profile = { business_type: r[0].industry, physical_locations: r[0].location ? [{ city: r[0].location }] : [], audience_description: r[0].target_audience }; } catch {} }
+  try { const r = await sbGet('business_profiles', `user_id=eq.${businessId}&select=business_type,physical_locations,audience_description`).catch(() => []); profile = r[0]; } catch { /* soft-fail */ }
+  if (!profile) { try { const r = await sbGet('businesses', `id=eq.${businessId}&select=industry,location,target_audience`); if (r[0]) profile = { business_type: r[0].industry, physical_locations: r[0].location ? [{ city: r[0].location }] : [], audience_description: r[0].target_audience }; } catch { /* soft-fail */ } }
 
   const enhanced  = await buildImagePrompt(prompt, contentType, plan, profile);
   const models    = getModelOrder(plan, contentType);
@@ -1689,7 +1689,7 @@ async function fireWebhooks(businessId, eventType, data) {
       apiRequest('POST', sub.webhook_url, { 'Content-Type': 'application/json', 'X-Maroa-Secret': sub.secret || '' },
         { event: eventType, business_id: businessId, timestamp: new Date().toISOString(), data }).catch(() => {});
     }
-  } catch {}
+  } catch { /* soft-fail */ }
 }
 
 // ─── Simple rate limiter ─────────────────────────────────────────────────────
@@ -1785,7 +1785,7 @@ async function storeMemory(userId, memoryType, action, contentSnippet, platform,
       platform: platform || 'general',
       learned_pattern: (pattern || '').slice(0, 500)
     }).catch(() => {});
-  } catch {}
+  } catch { /* soft-fail */ }
 }
 
 async function getMemoryContext(userId) {
@@ -1849,13 +1849,13 @@ async function detectOpportunities(userId, profile) {
       const { getKosovoAlbaniaHolidays } = require('./services/masterPromptBuilder');
       const holidays = getKosovoAlbaniaHolidays(new Date());
       if (holidays.length) ops.push({ type: 'holiday', priority: 'high', title: holidays[0], action: 'Create holiday-themed content' });
-    } catch {}
+    } catch { /* soft-fail */ }
     // Check competitor activity
     const intel = await sbGet('business_intelligence', `user_id=eq.${userId}&source_module=eq.competitors&order=updated_at.desc&limit=1`).catch(() => []);
     if (intel.length && (Date.now() - new Date(intel[0].updated_at).getTime()) < 86400000) {
       ops.push({ type: 'competitor', priority: 'high', title: 'Competitor activity detected', action: intel[0].insight_value?.slice(0, 100) || 'Create counter-content' });
     }
-  } catch {}
+  } catch { /* soft-fail */ }
   return ops.sort((a, b) => ({ urgent: 0, high: 1, medium: 2 }[a.priority] || 3) - ({ urgent: 0, high: 1, medium: 2 }[b.priority] || 3));
 }
 
@@ -1901,7 +1901,7 @@ const sseClients = new Map();
 function sendSSE(businessId, eventType, data) {
   const client = sseClients.get(businessId);
   if (client && !client.writableEnded) {
-    try { client.write(`data: ${JSON.stringify({ type: eventType, timestamp: new Date().toISOString(), ...data })}\n\n`); } catch {}
+    try { client.write(`data: ${JSON.stringify({ type: eventType, timestamp: new Date().toISOString(), ...data })}\n\n`); } catch { /* soft-fail */ }
   }
 }
 
@@ -2057,7 +2057,7 @@ async function logError(businessId, workflowName, errorMessage, retryPayload = n
     await sbPost('errors', { business_id: businessId, workflow_name: workflowName,
       error_message: errorMessage, retry_payload: retryPayload ? JSON.stringify(retryPayload) : null });
     if (businessId) setImmediate(() => alertOnRepeatedFailure(businessId, workflowName).catch(() => {}));
-  } catch {}
+  } catch { /* soft-fail */ }
 }
 
 // ─── UUID validation helper ──────────────────────────────────────────────────
@@ -2350,7 +2350,7 @@ async function generateInstantContent(bizId, emailOverride) {
       try {
         const { buildMasterPrompt: bmp } = require('./services/masterPromptBuilder');
         masterSystemPrompt = bmp(profile, 'social_post') + (perfThemesBlock ? `\n\n${perfThemesBlock}\n\n` : '\n\n');
-      } catch {}
+      } catch { /* soft-fail */ }
       log('generateContent', `Master prompt fallback (skills unavailable): ${e.message}`);
     }
   } else if (perfThemesBlock) {
@@ -2382,7 +2382,7 @@ async function generateInstantContent(bizId, emailOverride) {
     if (compReports[0]?.recommendation) {
       competitorReport = `LATEST COMPETITOR REPORT RECOMMENDATION:\n${compReports[0].recommendation}\n\n`;
     }
-  } catch {}
+  } catch { /* soft-fail */ }
 
   const prompt =
     `${masterSystemPrompt}${brandContext}${competitorReport}You are the AI marketing brain for ${biz.business_name}. Here is everything you know:\n\n` +
@@ -2510,7 +2510,7 @@ async function generateInstantContent(bizId, emailOverride) {
         started_at: new Date().toISOString()
       });
       abTestId = testRow?.id || null;
-    } catch {}
+    } catch { /* soft-fail */ }
   }
 
   // Save to generated_content (Variant A — winner)
@@ -2552,7 +2552,7 @@ async function generateInstantContent(bizId, emailOverride) {
         pre_post_score: runnerUp.score,
         scheduled_for: new Date(Date.now() + 10 * 60 * 60 * 1000).toISOString() // evening
       });
-    } catch {}
+    } catch { /* soft-fail */ }
   }
 
   log('generateContent', `✅ saved row ${saved?.id} score=${score} theme="${content.content_theme}" img=${imgResult.source}`);
@@ -2608,7 +2608,7 @@ app.post('/webhook/instant-content', async (req, res) => {
 <p><a href="https://maroa.ai" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Approve Content</a></p>`;
         await sendEmail(email, `Your ${result.content_theme || 'weekly'} content is ready!`, html);
       }
-      try { storeInsight(business_id, 'content', 'content_performance', 'top_content_type', `${result.content_theme || 'general'}: ${(result.instagram_caption || '').slice(0, 80)}`); } catch {}
+      try { storeInsight(business_id, 'content', 'content_performance', 'top_content_type', `${result.content_theme || 'general'}: ${(result.instagram_caption || '').slice(0, 80)}`); } catch { /* soft-fail */ }
       logger.info('/webhook/instant-content', business_id, 'generation complete', { theme: result.content_theme, request_id: req.requestId });
     } catch (err) {
       logger.error('/webhook/instant-content', business_id, 'generation failed', err, { request_id: req.requestId });
@@ -2744,7 +2744,7 @@ app.post('/webhook/account-connected', async (req, res) => {
           const r = await apiRequest('POST', `http://localhost:${PORT}/webhook/create-campaigns`,
             { 'Content-Type': 'application/json' }, { business_id });
           log('/webhook/account-connected', `Campaigns triggered: ${r.status}`);
-        } catch {}
+        } catch { /* soft-fail */ }
       });
     }
 
@@ -2827,7 +2827,7 @@ app.post('/webhook/create-campaigns', async (req, res) => {
       }
     }
 
-    try { storeInsight(business_id, 'ads', 'ad_strategy', 'campaign_count', `${savedIds.length} campaigns created`); } catch {}
+    try { storeInsight(business_id, 'ads', 'ad_strategy', 'campaign_count', `${savedIds.length} campaigns created`); } catch { /* soft-fail */ }
     log('/webhook/create-campaigns', `✅ Created ${savedIds.length} campaigns`);
 
     if (biz.email) {
@@ -3037,7 +3037,7 @@ app.post('/webhook/competitor-check', async (req, res) => {
         content_to_steal      : insights.content_to_steal      || '',
         positioning_tip       : insights.positioning_tip       || ''
       });
-      try { storeInsight(business_id, 'competitors', 'competitive_intelligence', 'competitor_weakness', insights.gap_opportunity || ''); storeInsight(business_id, 'competitors', 'competitive_intelligence', 'our_advantage', insights.positioning_tip || ''); } catch {}
+      try { storeInsight(business_id, 'competitors', 'competitive_intelligence', 'competitor_weakness', insights.gap_opportunity || ''); storeInsight(business_id, 'competitors', 'competitive_intelligence', 'our_advantage', insights.positioning_tip || ''); } catch { /* soft-fail */ }
       log('/webhook/competitor-check', `✅ Insights saved for ${biz.business_name}`);
     }
 
@@ -3145,7 +3145,7 @@ app.post('/webhook/generate-landing-page', async (req, res) => {
         status        : 'draft'
       });
       savedId = saved?.id;
-    } catch {}
+    } catch { /* soft-fail */ }
 
     // Send email with HTML
     if (biz.email) {
@@ -3248,7 +3248,7 @@ app.post('/meta-oauth-exchange', async (req, res) => {
       const llResp = await apiRequest('GET',
         `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${APP_ID}&client_secret=${APP_SECRET}&fb_exchange_token=${userToken}`);
       if (llResp.body?.access_token) longToken = llResp.body.access_token;
-    } catch {}
+    } catch { /* soft-fail */ }
 
     // 3. Get pages + page access token
     const pagesResp = await apiRequest('GET',
@@ -3298,7 +3298,7 @@ app.post('/meta-oauth-exchange', async (req, res) => {
         await apiRequest('POST', `http://localhost:${PORT}/webhook/account-connected`,
           { 'Content-Type': 'application/json' },
           { business_id, meta_access_token: pageToken, facebook_page_id: pageId });
-      } catch {}
+      } catch { /* soft-fail */ }
     });
 
     log('/meta-oauth-exchange', `✅ Saved page=${pageId} ig=${igId || 'none'} for business_id=${business_id}`);
@@ -3429,7 +3429,7 @@ app.post('/api/content/generate', async (req, res) => {
   try {
     const rl = await checkRateLimit(`gen:${businessId || userId || req.ip}`);
     if (!rl.success) return apiError(res, 429, 'RATE_LIMITED', 'Too many generation requests — please wait 1 minute.');
-  } catch {}
+  } catch { /* soft-fail */ }
 
   try {
     const bizRows = await sbGet('businesses', `id=eq.${businessId}&select=id,business_name,industry,brand_tone`);
@@ -3442,11 +3442,11 @@ app.post('/api/content/generate', async (req, res) => {
       try {
         const html = `<h2>Your weekly content is ready!</h2><p>Theme: <strong>${result.content_theme || 'Weekly Content'}</strong></p><p><a href="https://maroa.ai/dashboard?tab=content">Review &amp; Approve Content</a></p>`;
         await sendEmail(email, `Your ${result.content_theme || 'weekly'} content is ready!`, html);
-      } catch {}
+      } catch { /* soft-fail */ }
     }
   } catch (err) {
     console.error('[/api/content/generate]', err.message);
-    try { await logError(businessId, 'instant-content-sync', err.message, req.body); } catch {}
+    try { await logError(businessId, 'instant-content-sync', err.message, req.body); } catch { /* soft-fail */ }
     return apiError(res, 500, 'GENERATION_FAILED', err.message || 'Content generation failed');
   }
 });
@@ -3822,7 +3822,7 @@ app.post('/webhook/linkedin-oauth-exchange', async (req, res) => {
       if (orgData?.elements?.[0]) {
         orgId = String(orgData.elements[0]['organization~']?.id || '');
       }
-    } catch {}
+    } catch { /* soft-fail */ }
 
     // 4. Save to Supabase
     const updates = {
@@ -4230,7 +4230,7 @@ app.post('/webhook/tiktok-oauth-exchange', async (req, res) => {
       );
       const ud = await userResp.json();
       userId = ud?.data?.user?.open_id || null;
-    } catch {}
+    } catch { /* soft-fail */ }
 
     // 3. Save to Supabase
     await sbPatch('businesses', `id=eq.${business_id}`, {
@@ -5224,7 +5224,7 @@ Return exactly this JSON:
   </a>
 </div>`;
     await sendEmail(biz.email, `Your Meta ad campaign is ready for review — ${biz.business_name}`, html);
-    try { storeInsight(business_id, 'meta_ads', 'ad_strategy', 'ad_angle', `${campaignObj}: ${rawCreatives[0]?.headline || ''}`); storeInsight(business_id, 'meta_ads', 'ad_strategy', 'ads_created', `${adsCreated.length} ads, budget $${campBudget}/day`); } catch {}
+    try { storeInsight(business_id, 'meta_ads', 'ad_strategy', 'ad_angle', `${campaignObj}: ${rawCreatives[0]?.headline || ''}`); storeInsight(business_id, 'meta_ads', 'ad_strategy', 'ads_created', `${adsCreated.length} ads, budget $${campBudget}/day`); } catch { /* soft-fail */ }
     log('/webhook/meta-campaign-create', `✅ Meta campaign ${metaCampaignId} — ${adsCreated.length} ads created`);
 
   } catch (err) {
@@ -5316,7 +5316,7 @@ app.post('/webhook/meta-campaign-optimize', async (req, res) => {
         const revenue     = conversions * (biz.avg_order_value || 50);
         const roas        = spend > 0 ? revenue / spend : 0;
         campData.push({ id: camp.id, meta_id: camp.meta_campaign_id, meta_ad_set_id: camp.meta_ad_set_id, token: camp.meta_access_token, name: camp.last_decision_reason || camp.campaign_type || 'campaign', daily_budget: camp.daily_budget || 10, impressions, clicks, spend, ctr, frequency, conversions, roas });
-      } catch {}
+      } catch { /* soft-fail */ }
     }
 
     const totalSpend   = campData.reduce((s,c) => s + c.spend, 0);
@@ -5380,9 +5380,9 @@ Return ONLY valid JSON:
         business_id, recommendation: result.summary || '', reason: JSON.stringify(reallocations),
         spend: totalSpend, roas: parseFloat(portfolioRoas), logged_at: new Date().toISOString()
       });
-    } catch {}
+    } catch { /* soft-fail */ }
 
-    try { storeInsight(business_id, 'meta_ads', 'ad_strategy', 'portfolio_health', result.portfolio_health || ''); storeInsight(business_id, 'meta_ads', 'ad_strategy', 'optimization_summary', result.summary || ''); } catch {}
+    try { storeInsight(business_id, 'meta_ads', 'ad_strategy', 'portfolio_health', result.portfolio_health || ''); storeInsight(business_id, 'meta_ads', 'ad_strategy', 'optimization_summary', result.summary || ''); } catch { /* soft-fail */ }
     log('/webhook/meta-campaign-optimize', `✅ Portfolio optimized: ${result.summary || ''}`);
   } catch (err) {
     console.error('[meta-campaign-optimize ERROR]', err.message);
@@ -5870,7 +5870,7 @@ app.post('/webhook/contact-create', async (req, res) => {
         });
         enrolled = true;
       }
-    } catch {}
+    } catch { /* soft-fail */ }
 
     res.json({ success: true, contact_id, enrolled_in_sequence: enrolled });
   } catch (err) {
@@ -6062,7 +6062,7 @@ Return ONLY valid JSON:
             next_send_at: new Date().toISOString()
           });
         }
-      } catch {}
+      } catch { /* soft-fail */ }
 
       // Send alert email to business owner
       if (biz?.email && contact) {
@@ -6075,7 +6075,7 @@ Return ONLY valid JSON:
     }
 
     await sbPatch('contacts', `id=eq.${contact_id}`, updates);
-    try { if (intentLevel === 'ready_to_buy' || aiScore >= 75) storeInsight(business_id, 'leads', 'lead_intelligence', 'lead_quality_pattern', `Score ${aiScore}, intent: ${intentLevel}, source: ${contact?.source || 'unknown'}`); } catch {}
+    try { if (intentLevel === 'ready_to_buy' || aiScore >= 75) storeInsight(business_id, 'leads', 'lead_intelligence', 'lead_quality_pattern', `Score ${aiScore}, intent: ${intentLevel}, source: ${contact?.source || 'unknown'}`); } catch { /* soft-fail */ }
     res.json({
       success: true, new_score: aiScore, old_score,
       intent_level: intentLevel, recommended_action: recommendedAction,
@@ -6162,7 +6162,7 @@ app.post('/webhook/competitor-analyze', async (req, res) => {
       if (!biz) return;
 
       let competitors = [];
-      try { competitors = JSON.parse(biz.competitors || '[]'); } catch {}
+      try { competitors = JSON.parse(biz.competitors || '[]'); } catch { /* soft-fail */ }
       if (!competitors.length) {
         // Fall back to SerpAPI to find top competitors
         if (SERPAPI_KEY) {
@@ -6171,7 +6171,7 @@ app.post('/webhook/competitor-analyze', async (req, res) => {
               `https://serpapi.com/search.json?q=${encodeURIComponent(`${biz.industry} competitors ${biz.location || ''}`)}&num=5&api_key=${SERPAPI_KEY}`);
             const organic = sr.body?.organic_results || [];
             competitors = organic.slice(0, 3).map(r => r.displayed_link || r.link).filter(Boolean);
-          } catch {}
+          } catch { /* soft-fail */ }
         }
         if (!competitors.length) competitors = [`top ${biz.industry} company`];
       }
@@ -6189,13 +6189,13 @@ app.post('/webhook/competitor-analyze', async (req, res) => {
             const sr = await apiRequest('GET',
               `https://serpapi.com/search.json?q=${encodeURIComponent(compName)}&num=5&api_key=${SERPAPI_KEY}`);
             serpData = sr.body || {};
-          } catch {}
+          } catch { /* soft-fail */ }
           // SerpAPI: ad search
           try {
             const ar = await apiRequest('GET',
               `https://serpapi.com/search.json?q=${encodeURIComponent(`${compName} ads`)}&num=5&api_key=${SERPAPI_KEY}`);
             adData = ar.body || {};
-          } catch {}
+          } catch { /* soft-fail */ }
         }
 
         const keyword_rankings = (serpData.organic_results || []).slice(0, 5).map(r => ({
@@ -6211,7 +6211,7 @@ app.post('/webhook/competitor-analyze', async (req, res) => {
             business_id, competitor_name: compName,
             snapshot_date: today, keyword_rankings, active_ads
           });
-        } catch {}
+        } catch { /* soft-fail */ }
 
         snapshots.push({ name: compName, keyword_rankings, active_ads });
       }
@@ -6254,7 +6254,7 @@ Analyze and return ONLY valid JSON:
           content_to_steal:      (analysis.new_offers || []).join('; ').slice(0, 300),
           positioning_tip:       analysis.recommendation || ''
         });
-      } catch {}
+      } catch { /* soft-fail */ }
 
       log('/webhook/competitor-analyze',
         `✅ ${snapshots.length} competitors analyzed | report: ${report?.id}`);
@@ -6392,7 +6392,7 @@ Return ONLY valid JSON:
         try {
           const imgResult = await generateSmartImage(business_id, `Professional blog header image for: ${content.title}. ${biz.industry} themed, modern, clean.`, 'blog_featured', biz.plan || 'free');
           featured_image_url = imgResult?.url || null;
-        } catch {}
+        } catch { /* soft-fail */ }
       }
 
       // Save to content_pieces
@@ -6515,7 +6515,7 @@ app.post('/webhook/seo-audit', async (req, res) => {
       }
 
       let competitors = [];
-      try { competitors = JSON.parse(biz.competitors || '[]'); } catch {}
+      try { competitors = JSON.parse(biz.competitors || '[]'); } catch { /* soft-fail */ }
 
       let created = 0;
       const saveRec = async (type, current_value, recommended_value, target_keyword, priority, estimated_impact, url) => {
@@ -6633,7 +6633,7 @@ Return ONLY the raw JSON-LD object (no markdown, no \`\`\`).`;
       })();
 
       await Promise.all([kwGapPromise, metaPromise, schemaPromise]);
-      try { storeInsight(business_id, 'seo', 'seo_intelligence', 'recommendations_created', `${created} SEO recommendations`); } catch {}
+      try { storeInsight(business_id, 'seo', 'seo_intelligence', 'recommendations_created', `${created} SEO recommendations`); } catch { /* soft-fail */ }
       log('/webhook/seo-audit', `✅ ${business_id} — ${created} recommendations created`);
     } catch (err) {
       console.error('[seo-audit ERROR]', err.message);
@@ -6842,7 +6842,7 @@ Return ONLY valid JSON:
       try {
         const img = await generateImage(thumbPrompt, `${biz.industry} social media`);
         thumbnail_url = img?.url ? await saveImageToSupabase(img.url, business_id) : null;
-      } catch {}
+      } catch { /* soft-fail */ }
 
       // Save to video_generations
       const row = await sbPost('video_generations', {
@@ -6951,7 +6951,7 @@ app.get('/webhook/video-status', async (req, res) => {
         if (r.body?.status === 'SUCCEEDED' && r.body?.output?.[0]) {
           completedUrls.push({ scene: t.scene, url: r.body.output[0] });
         }
-      } catch {}
+      } catch { /* soft-fail */ }
     }
 
     const allDone = completedUrls.length === taskIds.length && taskIds.length > 0;
@@ -7294,7 +7294,7 @@ Return ONLY valid JSON: { "response_text": "..." }`;
       await sendEmail(biz.email, `Review response draft ready — ${stars}⭐ from ${review.reviewer_name || 'customer'}`, html).catch(() => {});
     }
 
-    try { const praise = stars >= 4 ? (review.review_text || '').slice(0, 100) : ''; const complaint = stars <= 2 ? (review.review_text || '').slice(0, 100) : ''; if (praise) storeInsight(business_id, 'reviews', 'customer_voice', 'top_praise', praise); if (complaint) storeInsight(business_id, 'reviews', 'customer_voice', 'top_complaint', complaint); } catch {}
+    try { const praise = stars >= 4 ? (review.review_text || '').slice(0, 100) : ''; const complaint = stars <= 2 ? (review.review_text || '').slice(0, 100) : ''; if (praise) storeInsight(business_id, 'reviews', 'customer_voice', 'top_praise', praise); if (complaint) storeInsight(business_id, 'reviews', 'customer_voice', 'top_complaint', complaint); } catch { /* soft-fail */ }
     res.json({ review_id, response_draft: response_text, rating: stars });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -7333,7 +7333,7 @@ app.post('/webhook/review-response-publish', async (req, res) => {
           { 'Authorization': `Bearer ${biz.google_access_token}`, 'Content-Type': 'application/json' },
           { comment: responseText });
         if ([200, 201].includes(gmbResp.status)) published_via_api = true;
-      } catch {}
+      } catch { /* soft-fail */ }
     }
 
     await sbPatch('reviews', `id=eq.${review_id}`,
@@ -7475,7 +7475,7 @@ app.post('/webhook/ad-creative-generate', async (req, res) => {
         const errors = vbg(adProfile, 'paid_ad');
         if (errors.length > 0) return res.status(400).json({ error: 'profile_incomplete', message: errors[0], all_errors: errors });
         masterAdPrompt = bmp(adProfile, 'paid_ad') + '\n\n';
-      } catch {}
+      } catch { /* soft-fail */ }
     }
 
     // Pull existing creatives to avoid repetition
@@ -7773,7 +7773,7 @@ Based on ALL data, return ONLY valid JSON with your decisions:
             try {
               await sbPatch('ad_campaigns', `id=eq.${cid}`, { status: 'paused', last_decision: 'AI Agent paused — low ROAS', last_optimized_at: new Date().toISOString() });
               actions_taken.push(`paused_campaign:${cid}`);
-            } catch {}
+            } catch { /* soft-fail */ }
           }
         }
       }
@@ -7785,7 +7785,7 @@ Based on ALL data, return ONLY valid JSON with your decisions:
             try {
               await sbPatch('ad_campaigns', `id=eq.${item.id}`, { daily_budget: item.new_daily, last_decision: `AI Agent budget → $${item.new_daily}`, last_optimized_at: new Date().toISOString() });
               actions_taken.push(`budget_change:${item.id}→$${item.new_daily}`);
-            } catch {}
+            } catch { /* soft-fail */ }
           }
         }
       }
@@ -8053,7 +8053,7 @@ Return ONLY valid JSON:
         performance_before: JSON.stringify({ thisWeek, lastWeek })
       }).catch(() => {});
 
-      try { storeInsight(business_id, 'strategy', 'content_strategy', 'content_themes', (result.best_performing_themes || []).join(', ')); storeInsight(business_id, 'strategy', 'content_strategy', 'weekly_focus', result.marketing_strategy ? result.marketing_strategy.slice(0, 200) : ''); } catch {}
+      try { storeInsight(business_id, 'strategy', 'content_strategy', 'content_themes', (result.best_performing_themes || []).join(', ')); storeInsight(business_id, 'strategy', 'content_strategy', 'weekly_focus', result.marketing_strategy ? result.marketing_strategy.slice(0, 200) : ''); } catch { /* soft-fail */ }
       log('/webhook/weekly-strategy-update', `✅ Strategy evolved for ${biz.business_name}`);
     } catch (err) {
       console.error('[weekly-strategy-update ERROR]', err.message);
@@ -8195,7 +8195,7 @@ async function updateBusinessMemory(businessId, learning, currentState) {
       await sbPatch('businesses', `id=eq.${businessId}`, {
         audience_insights: JSON.stringify({ ...existing, latest_pattern: learning.pattern_detected, updated_at: new Date().toISOString() })
       });
-    } catch {}
+    } catch { /* soft-fail */ }
   }
 }
 
@@ -8340,7 +8340,7 @@ app.post('/webhook/measure-content-performance', async (req, res) => {
               await pineconeUpsert([{ id: content.id, values: vector, metadata: { businessId: business_id, contentType: 'social_post', text: text.slice(0, 1000), score: perfScore } }]);
             }
           }
-        } catch {}
+        } catch { /* soft-fail */ }
       } else if (perfScore <= 2) {
         low++;
         await sbPost('learning_logs', { business_id, decision_date: new Date().toISOString(), decision_data: JSON.stringify({ learning: { avoid_this: content.content_theme, score: perfScore } }), performance_before: JSON.stringify({ impressions, engaged }) }).catch(() => {});
@@ -8491,7 +8491,7 @@ Return ONLY valid JSON:
         worst_performing_themes: JSON.stringify(result.worst_content_types || [])
       });
 
-      try { storeInsight(business_id, 'audience', 'audience_intelligence', 'best_day', result.best_day_to_post || ''); storeInsight(business_id, 'audience', 'audience_intelligence', 'growth_trajectory', result.growth_trajectory || ''); storeInsight(business_id, 'audience', 'audience_intelligence', 'key_insight', result.key_insight || ''); } catch {}
+      try { storeInsight(business_id, 'audience', 'audience_intelligence', 'best_day', result.best_day_to_post || ''); storeInsight(business_id, 'audience', 'audience_intelligence', 'growth_trajectory', result.growth_trajectory || ''); storeInsight(business_id, 'audience', 'audience_intelligence', 'key_insight', result.key_insight || ''); } catch { /* soft-fail */ }
       log('/webhook/analyze-audience', `✅ Audience analysis complete for ${biz.business_name}`);
     } catch (err) {
       console.error('[analyze-audience ERROR]', err.message);
@@ -8555,7 +8555,7 @@ Return ONLY valid JSON:
         competitive_moat: JSON.stringify(result)
       });
 
-      try { storeInsight(business_id, 'moat', 'competitive_intelligence', 'moat_strategy', result.moat_strategy || ''); storeInsight(business_id, 'moat', 'competitive_intelligence', 'content_gaps', (result.content_opportunities || []).slice(0, 3).map(o => o.topic || o).join('; ')); } catch {}
+      try { storeInsight(business_id, 'moat', 'competitive_intelligence', 'moat_strategy', result.moat_strategy || ''); storeInsight(business_id, 'moat', 'competitive_intelligence', 'content_gaps', (result.content_opportunities || []).slice(0, 3).map(o => o.topic || o).join('; ')); } catch { /* soft-fail */ }
       log('/webhook/build-competitive-moat', `✅ Moat built for ${biz.business_name}: ${(result.content_opportunities || []).length} opportunities`);
     } catch (err) {
       console.error('[build-competitive-moat ERROR]', err.message);
@@ -8821,7 +8821,7 @@ Return ONLY valid JSON:
         strategy_updated_at: new Date().toISOString()
       });
 
-      try { storeInsight(business_id, 'growth', 'growth_strategy', 'top_lever', result.recommended_action?.lever || ''); storeInsight(business_id, 'growth', 'growth_strategy', 'bottleneck', result.bottleneck || ''); } catch {}
+      try { storeInsight(business_id, 'growth', 'growth_strategy', 'top_lever', result.recommended_action?.lever || ''); storeInsight(business_id, 'growth', 'growth_strategy', 'bottleneck', result.bottleneck || ''); } catch { /* soft-fail */ }
       log('/webhook/growth-engine', `✅ Growth engine: ${result.recommended_action?.lever} for ${biz.business_name}`);
     } catch (err) {
       console.error('[growth-engine ERROR]', err.message);
@@ -8925,7 +8925,7 @@ app.post('/webhook/publish-approved-content', async (req, res) => {
               { 'Content-Type': 'application/json' },
               { message: piece.facebook_post || piece.instagram_caption, access_token: biz.meta_access_token, ...(piece.image_url ? { link: piece.image_url } : {}) });
             if (fbResp.body?.id) platforms.push('facebook');
-          } catch {}
+          } catch { /* soft-fail */ }
         }
 
         // Instagram
@@ -8942,7 +8942,7 @@ app.post('/webhook/publish-approved-content', async (req, res) => {
                 { creation_id: step1.body.id, access_token: biz.meta_access_token });
               if (step2.body?.id) platforms.push('instagram');
             }
-          } catch {}
+          } catch { /* soft-fail */ }
         }
 
         // LinkedIn
@@ -8955,7 +8955,7 @@ app.post('/webhook/publish-approved-content', async (req, res) => {
             const liResp = await apiRequest('POST', 'https://api.linkedin.com/v2/ugcPosts',
               { 'Authorization': `Bearer ${biz.linkedin_access_token}`, 'Content-Type': 'application/json', 'X-Restli-Protocol-Version': '2.0.0' }, ugc);
             if (liResp.body?.id) platforms.push('linkedin');
-          } catch {}
+          } catch { /* soft-fail */ }
         }
 
         if (platforms.length > 0) {
@@ -8998,7 +8998,7 @@ app.post('/webhook/generate-image', async (req, res) => {
           business_id, photo_url: result.url, photo_type: content_type,
           description: prompt.slice(0, 200), is_active: true
         }).catch(() => {});
-        try { storeInsight(business_id, 'images', 'visual_strategy', 'image_model', result.model_used || 'unknown'); } catch {}
+        try { storeInsight(business_id, 'images', 'visual_strategy', 'image_model', result.model_used || 'unknown'); } catch { /* soft-fail */ }
         log('/webhook/generate-image', `✅ ${result.model_used}: ${result.url}`);
       }
     } catch (err) {
@@ -9115,7 +9115,7 @@ app.post('/webhook/whatsapp-weekly-digest', async (req, res) => {
         sbGet('generated_content', `business_id=eq.${business_id}&created_at=gte.${weekAgo}&status=eq.published&select=content_theme,performance_score`)
       ]);
       const bestTheme = content.sort((a,b) => (b.performance_score||0)-(a.performance_score||0))[0]?.content_theme || 'various topics';
-      let brain = {}; try { brain = JSON.parse(biz.ai_brain_decisions || '{}'); } catch {}
+      let brain = {}; try { brain = JSON.parse(biz.ai_brain_decisions || '{}'); } catch { /* soft-fail */ }
       const msg = `📊 *Your AI Marketing Week — ${biz.business_name}*\n\n✅ Posts published: ${content.length}\n👥 New leads: ${contacts.length}\n🎯 Best post: ${bestTheme}\n💡 Focus: ${brain.content_strategy || brain.highest_leverage_action?.what || 'growing your brand'}\n\nYour AI is running. Nothing to do. 🤖`;
       await sendWhatsApp(biz.whatsapp_number, msg);
     } catch (err) { console.error('[whatsapp-digest ERROR]', err.message); }
@@ -9512,7 +9512,7 @@ Return ONLY valid JSON:
       const forecast = await callClaude(prompt, 'strategy', 1500);
       await sbPatch('businesses', `id=eq.${business_id}`, { revenue_forecast: JSON.stringify(forecast) });
       sendSSE(business_id, 'forecast_updated', { summary: forecast.forecast_summary });
-      try { storeInsight(business_id, 'forecast', 'revenue_intelligence', 'forecast_30d', forecast.forecast_30d?.revenue || '0'); storeInsight(business_id, 'forecast', 'revenue_intelligence', 'forecast_summary', forecast.forecast_summary || ''); } catch {}
+      try { storeInsight(business_id, 'forecast', 'revenue_intelligence', 'forecast_30d', forecast.forecast_30d?.revenue || '0'); storeInsight(business_id, 'forecast', 'revenue_intelligence', 'forecast_summary', forecast.forecast_summary || ''); } catch { /* soft-fail */ }
       log('/webhook/revenue-forecast', `✅ Forecast for ${biz.business_name}`);
     } catch (err) { console.error('[revenue-forecast ERROR]', err.message); await logError(business_id, 'revenue-forecast', err.message).catch(() => {}); }
   });
@@ -9527,7 +9527,7 @@ app.post('/webhook/spy-competitor-ads', async (req, res) => {
     try {
       const biz = (await sbGet('businesses', `id=eq.${business_id}&select=business_name,industry,competitors,meta_access_token`))[0];
       if (!biz?.meta_access_token) return;
-      let competitors = []; try { competitors = JSON.parse(biz.competitors || '[]'); } catch {}
+      let competitors = []; try { competitors = JSON.parse(biz.competitors || '[]'); } catch { /* soft-fail */ }
       for (const comp of competitors.slice(0, 3)) {
         const name = typeof comp === 'string' ? comp : (comp.name || comp);
         try {
@@ -9541,9 +9541,9 @@ app.post('/webhook/spy-competitor-ads', async (req, res) => {
               ad_headline: (ad.ad_creative_link_titles || []).join(' ').slice(0, 500)
             }).catch(() => {});
           }
-        } catch {}
+        } catch { /* soft-fail */ }
       }
-      try { storeInsight(business_id, 'competitor_ads', 'competitive_intelligence', 'competitor_ad_count', `${competitors.length} competitors monitored`); } catch {}
+      try { storeInsight(business_id, 'competitor_ads', 'competitive_intelligence', 'competitor_ad_count', `${competitors.length} competitors monitored`); } catch { /* soft-fail */ }
       log('/webhook/spy-competitor-ads', `✅ Spied on ${competitors.length} competitors for ${biz.business_name}`);
     } catch (err) { console.error('[spy-competitor-ads ERROR]', err.message); }
   });
@@ -9645,7 +9645,7 @@ async function getProfile(userId) {
     profile = profileArr[0] || null;
     biz = bizArr1[0] || null;
     if (!biz) { const bizArr2 = await sbGet('businesses', `user_id=eq.${userId}&select=*`).catch(() => []); biz = bizArr2[0] || null; }
-  } catch {}
+  } catch { /* soft-fail */ }
 
   // If detailed profile exists, merge businesses data into gaps
   if (profile) {
@@ -9733,7 +9733,7 @@ app.post('/api/calendar/generate', async (req, res) => {
       const season = typeof getSeason === 'function' ? getSeason(new Date()) : 'current';
       const prods = Array.isArray(p.products) ? p.products.map(pr => pr.name).join(', ') : 'main service';
       const result = await callClaude(`You are a content calendar strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nLanguage: ${p.primary_language || 'English'}\nGoal: ${p.primary_goal}\nBudget: ${p.monthly_budget}\nProducts: ${prods}\nSeason: ${season}\nUpcoming holidays: ${holidays || 'none soon'}\n${intel}\n\nCreate a 30-day content calendar following content pillar framework:\n- 30% educational\n- 20% social proof\n- 20% behind the scenes\n- 20% engagement\n- 10% promotional\n\nReturn ONLY valid JSON:\n{"calendar":[{"day":1,"type":"educational|social_proof|behind_scenes|engagement|promotional","platform":"instagram|facebook|both","topic":"specific topic","caption_idea":"brief idea","hashtags":"3-5 relevant hashtags"}],"posting_frequency":"X posts per week","best_days":["string"]}`, 'strategy', 3000, claudeBiz(userId));
-      try { storeInsight(userId, 'calendar', 'content_strategy', 'posting_plan', `${(result.calendar || []).length} days planned, ${result.posting_frequency || ''}`); } catch {}
+      try { storeInsight(userId, 'calendar', 'content_strategy', 'posting_plan', `${(result.calendar || []).length} days planned, ${result.posting_frequency || ''}`); } catch { /* soft-fail */ }
       log('/api/calendar/generate', `✅ 30-day calendar for ${p.business_name}`);
     } catch (err) { console.error('[calendar]', err.message); }
   });
@@ -9808,7 +9808,7 @@ app.get('/api/health/:userId', async (req, res) => {
     const themes = [...new Set(thisWeek.map(c => c.content_theme).filter(Boolean))];
 
     let profileScore = 0;
-    try { const { calculateProfileScore } = require('./services/masterPromptBuilder'); profileScore = p ? calculateProfileScore(p) : 0; } catch {}
+    try { const { calculateProfileScore } = require('./services/masterPromptBuilder'); profileScore = p ? calculateProfileScore(p) : 0; } catch { /* soft-fail */ }
     const postingScore = Math.min(20, published.length * 5);
     const varietyScore = Math.min(20, themes.length * 7);
     const engagementScore = Math.min(20, intel.length * 2);
@@ -9836,7 +9836,7 @@ app.post('/api/campaigns/instant', validate('campaign'), async (req, res) => {
       const intel = await buildIntelligenceContext(userId);
       const mem = await getMemoryContext(userId);
       const result = await callClaude(`You are a campaign strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nGoal: ${goal}\nDuration: ${duration} days\nBudget: ${p.monthly_budget}\nLanguage: ${p.primary_language}\nProducts: ${(p.products || []).map(pr => pr.name).join(', ')}\n${intel}\n${mem}\n\nCreate a complete ${duration}-day campaign:\n- ${duration} social posts (one per day, specific topic and caption)\n- 2 emails (start and end of campaign)\n- 1 ad copy (Meta)\n- Campaign hashtag\n- Best posting schedule\n\nReturn ONLY valid JSON:\n{"campaign_name":"string","theme":"string","posts":[{"day":1,"platform":"string","topic":"string","caption":"string"}],"emails":[{"type":"start|end","subject":"string","body":"string"}],"ad":{"headline":"string","body":"string"},"hashtag":"string"}`, 'strategy', 4000, claudeBiz(userId));
-      try { storeInsight(userId, 'campaigns', 'campaign_strategy', 'active_campaign', result.campaign_name || goal); } catch {}
+      try { storeInsight(userId, 'campaigns', 'campaign_strategy', 'active_campaign', result.campaign_name || goal); } catch { /* soft-fail */ }
       log('/api/campaigns/instant', `✅ ${duration}-day campaign: ${result.campaign_name || goal}`);
     } catch (err) { console.error('[campaigns/instant]', err.message); }
   });
@@ -9868,7 +9868,7 @@ app.post('/api/compete/counter', async (req, res) => {
       const p = await getProfile(userId);
       if (!p) return;
       const result = await callClaude(`A competitor of ${p.business_name} just did this: "${competitorAction}"\n\nBusiness: ${p.business_type} in ${pCity(p)}\nOur USP: ${p.usp}\nOur advantage: ${p.we_do_better}\nLanguage: ${p.primary_language}\n\nGenerate counter-strategy:\n- 3 social posts positioning us as the better choice\n- 1 email to existing customers reinforcing loyalty\n- 1 ad copy countering their move\n\nReturn ONLY valid JSON:\n{"posts":["string"],"email":{"subject":"string","body":"string"},"ad":{"headline":"string","body":"string"},"strategy":"string"}`, 'strategy', 2000, claudeBiz(userId));
-      try { storeInsight(userId, 'compete', 'competitive_intelligence', 'counter_strategy', result.strategy || competitorAction); } catch {}
+      try { storeInsight(userId, 'compete', 'competitive_intelligence', 'counter_strategy', result.strategy || competitorAction); } catch { /* soft-fail */ }
       log('/api/compete/counter', `✅ Counter-strategy for ${p.business_name}`);
     } catch (err) { console.error('[compete/counter]', err.message); }
   });
@@ -9905,7 +9905,7 @@ app.post('/api/reviews/auto-respond', async (req, res) => {
     const stars = rating || 5;
     const tone = stars >= 4 ? 'warm, grateful, subtly promotional' : 'empathetic, solution-focused, recovery-minded';
     const result = await callClaude(`Write a review response for ${p?.business_name || 'the business'}.\nReview (${stars} stars): "${reviewText}"\nPlatform: ${platform || 'google'}\nTone: ${tone}\nLanguage: ${p?.primary_language || 'English'}\n\nRules:\n- ${stars >= 4 ? 'Thank warmly, mention specific detail, invite back' : 'Apologize sincerely, offer solution, invite offline resolution'}\n- Max 100 words\n- Never templated — unique to this review\n\nReturn ONLY valid JSON:\n{"response":"string","tone":"string","suggested_action":"string"}`, 'short_copy', 400, claudeBiz(userId));
-    try { if (stars <= 2) storeInsight(userId, 'reviews', 'customer_voice', 'complaint_pattern', reviewText.slice(0, 100)); } catch {}
+    try { if (stars <= 2) storeInsight(userId, 'reviews', 'customer_voice', 'complaint_pattern', reviewText.slice(0, 100)); } catch { /* soft-fail */ }
     res.json(result);
   } catch (err) {
     if (err?.code === 'AI_BUDGET_EXCEEDED' || err?.status === 402) {
@@ -10034,7 +10034,7 @@ app.post('/api/ideas/generate', async (req, res) => {
       log('/api/ideas/generate', `Claude returned: type=${typeof result}, isArray=${Array.isArray(result)}, hasRaw=${!!result?._raw}, keys=${Object.keys(result||{}).slice(0,5)}`);
       if (result?._raw) { const parsed = extractJSON(result._raw); if (parsed) { log('/api/ideas/generate', `Re-parsed _raw: type=${typeof parsed}, isArray=${Array.isArray(parsed)}`); result = parsed; } }
       const ideas = Array.isArray(result) ? result : Array.isArray(result?.ideas) ? result.ideas : [];
-      if (!ideas.length) { const sample = JSON.stringify(result).slice(0, 400); log('/api/ideas/generate', `No ideas parsed — result: ${sample}`); try { await sbPost('errors', { business_id: userId, workflow_name: 'ideas-generate-parse', error_message: 'No ideas parsed: ' + sample }); } catch {} return; }
+      if (!ideas.length) { const sample = JSON.stringify(result).slice(0, 400); log('/api/ideas/generate', `No ideas parsed — result: ${sample}`); try { await sbPost('errors', { business_id: userId, workflow_name: 'ideas-generate-parse', error_message: 'No ideas parsed: ' + sample }); } catch { /* soft-fail */ } return; }
       for (const idea of ideas.slice(0, 10)) {
         if (!idea?.idea || typeof idea.idea !== 'string') continue; // skip unparsed entries
         await sbPost('marketing_ideas', { user_id: userId, idea: idea.idea, category: idea.category || 'general', priority: idea.priority || 'medium', estimated_impact: idea.estimated_impact || '', how_to_execute: idea.how_to_execute || '', budget_required: idea.budget_required || '', time_to_results: idea.time_to_results || '' }).catch(() => {});
@@ -10047,7 +10047,7 @@ app.post('/api/ideas/generate', async (req, res) => {
       const msg = err?.message || String(err);
       console.error('[ideas] ERROR:', msg);
       log('/api/ideas/generate', `CAUGHT ERROR: ${msg.slice(0, 200)}`);
-      try { await sbPost('errors', { business_id: userId, workflow_name: 'ideas-generate', error_message: msg.slice(0, 500) }); } catch {}
+      try { await sbPost('errors', { business_id: userId, workflow_name: 'ideas-generate', error_message: msg.slice(0, 500) }); } catch { /* soft-fail */ }
     }
   });
 });
@@ -10331,7 +10331,7 @@ app.post('/api/orchestrator/run/:userId', async (req, res) => {
             apiRequest('POST', `${SELF}${ep}`, { 'Content-Type': 'application/json' }, { business_id: userId, userId }).catch(() => {});
             executed.push(task.type);
           }
-        } catch {}
+        } catch { /* soft-fail */ }
       }
       const report = `Executed ${executed.length}/${tasks.length} tasks: ${executed.join(', ')}`;
       await sbPost('orchestration_logs', { user_id: userId, tasks_planned: JSON.stringify(tasks), tasks_executed: JSON.stringify(executed), report }).catch(() => {});
@@ -10442,7 +10442,7 @@ app.post('/api/orchestrator/run-all', async (req, res) => {
               last_orchestrator_run: new Date().toISOString(),
               orchestrator_run_count_today: (u.orchestrator_run_count_today || 0) + 1
             });
-          } catch {}
+          } catch { /* soft-fail */ }
 
           log('/api/orchestrator/run-all', `${processed}: ${u.business_name || uid} [${plan}]`);
         } catch (err) {
@@ -10569,7 +10569,7 @@ app.post('/api/onboarding/save', async (req, res) => {
           sbPatch('businesses', `user_id=eq.${userId}`, bizUpdate).catch(() => {})
         );
       }
-    } catch {}
+    } catch { /* soft-fail */ }
 
     // Store in Pinecone (non-blocking — don't fail the request)
     buildAndStorePineconeProfile(userId, profilePayload, getEmbedding, pineconeUpsert)
@@ -10589,7 +10589,7 @@ app.get('/api/onboarding/profile/:userId', async (req, res) => {
   try {
     // Try business_profiles first (detailed onboarding data)
     let profile = null;
-    try { const r = await sbGet('business_profiles', `user_id=eq.${uid}&select=*`); profile = r[0] || null; } catch {}
+    try { const r = await sbGet('business_profiles', `user_id=eq.${uid}&select=*`); profile = r[0] || null; } catch { /* soft-fail */ }
 
     // Also fetch from businesses table (core data)
     let biz = null;
@@ -10597,7 +10597,7 @@ app.get('/api/onboarding/profile/:userId', async (req, res) => {
       let r = await sbGet('businesses', `id=eq.${uid}&select=*`);
       if (!r.length) r = await sbGet('businesses', `user_id=eq.${uid}&select=*`);
       biz = r[0] || null;
-    } catch {}
+    } catch { /* soft-fail */ }
 
     if (!profile && !biz) return res.status(404).json({ error: 'Profile not found' });
 
@@ -10672,23 +10672,23 @@ async function resolveContextEntities(paramId) {
     let r = await sbGet('businesses', `id=eq.${paramId}&select=${bizCols}`);
     if (!r.length) r = await sbGet('businesses', `user_id=eq.${paramId}&select=${bizCols}`);
     biz = r[0] || null;
-  } catch {}
+  } catch { /* soft-fail */ }
   let profile = null;
   try {
     const pr = await sbGet('business_profiles', `user_id=eq.${paramId}&select=*`);
     profile = pr[0] || null;
-  } catch {}
+  } catch { /* soft-fail */ }
   if (!profile && biz?.user_id) {
     try {
       const pr = await sbGet('business_profiles', `user_id=eq.${biz.user_id}&select=*`);
       profile = pr[0] || null;
-    } catch {}
+    } catch { /* soft-fail */ }
   }
   if (!profile && biz?.id) {
     try {
       const pr = await sbGet('business_profiles', `user_id=eq.${biz.id}&select=*`);
       profile = pr[0] || null;
-    } catch {}
+    } catch { /* soft-fail */ }
   }
   const businessId = biz?.id || null;
   const contextUserId = profile?.user_id || biz?.user_id || biz?.id || paramId;
@@ -10959,7 +10959,7 @@ app.post('/webhook/ai-chat', async (req, res) => {
     try {
       const p = await getProfile(business_id);
       if (p) bizCtx = `Business: ${p.business_name}, Type: ${p.business_type}, City: ${pCity(p)}, Language: ${p.primary_language || 'English'}, Goal: ${p.primary_goal || 'grow'}, USP: ${p.usp || ''}`;
-    } catch {}
+    } catch { /* soft-fail */ }
 
     const systemPrompt = `You are an expert AI marketing assistant for maroa.ai. Help small business owners with marketing strategy, content ideas, and growth. ${bizCtx}. Be concise, practical, and specific. Respond in the same language the user writes in.`;
 
@@ -11013,7 +11013,7 @@ app.post('/webhook/ai-chat', async (req, res) => {
               if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
                 res.write(`data: ${JSON.stringify({ text: parsed.delta.text })}\n\n`);
               }
-            } catch {}
+            } catch { /* soft-fail */ }
           }
         }
       });
@@ -12036,7 +12036,7 @@ app.get('/api/data-deletion-status', async (req, res) => {
         completed_at: null,
       });
     }
-  } catch {}
+  } catch { /* soft-fail */ }
 
   res.json({ status: 'not_found', message: 'No deletion request found for this code.' });
 });

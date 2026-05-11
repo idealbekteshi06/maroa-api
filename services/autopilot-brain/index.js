@@ -283,7 +283,7 @@ async function runDaily({ businessId, deps }) {
       `business_id=eq.${businessId}&order=created_at.desc&limit=1&select=anchor`
     ).catch(() => []);
     brandVoice = anchorRows?.[0]?.anchor || null;
-  } catch {}
+  } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
 
   let brief = composeBrief({ snapshot, decisions, conflicts, brandVoice });
 

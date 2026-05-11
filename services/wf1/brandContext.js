@@ -72,7 +72,7 @@ function parseList(v) {
     try {
       const parsed = JSON.parse(v);
       if (Array.isArray(parsed)) return parsed;
-    } catch {}
+    } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
     return v.split(/[;,\n]/).map(s => s.trim()).filter(Boolean);
   }
   return [];

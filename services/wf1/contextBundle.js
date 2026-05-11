@@ -89,7 +89,7 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
             actual30d: 0, // unknown without historical tracking
           }));
         }
-      } catch {}
+      } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
     }
 
     return { voiceProfile, historicalWinners, antiPatterns, pillarMixStatus };
@@ -206,7 +206,7 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
           relevance: 6,
         });
       }
-    } catch {}
+    } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
 
     try {
       const nq = `${brandCtx.industry} news ${brandCtx.primaryMarkets?.[0] || ''}`;
@@ -218,7 +218,7 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
           relevance: 5,
         });
       }
-    } catch {}
+    } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
 
     return {
       todayLocalDate,
@@ -330,7 +330,7 @@ function createContextBundleBuilder({ sbGet, serpSearch, countryIntelligence, lo
           daysUntil: Math.max(0, Math.round((new Date(l.date).getTime() - Date.now()) / 86400000)),
         }));
       }
-    } catch {}
+    } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
 
     return {
       activeCampaigns,

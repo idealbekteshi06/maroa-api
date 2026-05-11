@@ -157,7 +157,7 @@ function buildMasterPrompt(p, taskType = 'general') {
   // International context
   let intlCtx = '';
   let countryName = '';
-  try { const ci = require('./countryIntelligence'); const cd = ci.getCountryIntelligence(ci.detectCountry(p)); countryName = cd.name; intlCtx = ci.buildInternationalContext(p); } catch {}
+  try { const ci = require('./countryIntelligence'); const cd = ci.getCountryIntelligence(ci.detectCountry(p)); countryName = cd.name; intlCtx = ci.buildInternationalContext(p); } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
 
   let base = `You are the AI marketing engine for ${p.business_name || 'this business'}, a ${p.business_type || 'local business'} based in ${primaryCity}.
 
@@ -353,7 +353,7 @@ async function buildMasterPromptWithSkills(profile, taskType, getEmbedding, pine
     // Try Pinecone first
     const { getRelevantSkills, getAllSkillKnowledge } = require('./marketingKnowledgeBase');
     let skills = [];
-    try { skills = await getRelevantSkills(getEmbedding, pineconeQuery, taskType, profile.business_type, profile.primary_goal, 2); } catch {}
+    try { skills = await getRelevantSkills(getEmbedding, pineconeQuery, taskType, profile.business_type, profile.primary_goal, 2); } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
 
     // Fallback: pick skills directly from code if Pinecone returned nothing
     if (!skills.length) {
@@ -368,7 +368,7 @@ async function buildMasterPromptWithSkills(profile, taskType, getEmbedding, pine
         `[${s.name.toUpperCase()}]\n${s.content}`
       ).join('\n\n')}\n═══ APPLY THESE FRAMEWORKS ═══`;
     }
-  } catch {}
+  } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
 
   let intelligenceSection = '';
   try {
@@ -376,7 +376,7 @@ async function buildMasterPromptWithSkills(profile, taskType, getEmbedding, pine
       const ctx = await buildIntelligenceCtx(profile.user_id);
       if (ctx) intelligenceSection = '\n\n' + ctx;
     }
-  } catch {}
+  } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
 
   let memorySection = '';
   try {
@@ -384,7 +384,7 @@ async function buildMasterPromptWithSkills(profile, taskType, getEmbedding, pine
       const mem = await getMemoryCtx(profile.user_id);
       if (mem) memorySection = '\n' + mem;
     }
-  } catch {}
+  } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
 
   return basePrompt + skillsSection + intelligenceSection + memorySection;
 }

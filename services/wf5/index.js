@@ -39,7 +39,7 @@ function createWf5(deps) {
         const hits = await serpSearch(`${Object.keys(competitors).slice(0, 3).join(' ')} marketing`, 3);
         newsCycle = hits.map(h => ({ headline: h.title, source: (() => { try { return new URL(h.link).hostname; } catch { return 'news'; } })() }));
       }
-    } catch {}
+    } catch (e) { /* soft-fail — see ADR-0003 for empty-catch cleanup plan */ }
 
     return {
       competitors: Object.values(competitors),
