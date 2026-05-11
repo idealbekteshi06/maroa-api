@@ -198,6 +198,41 @@ function toYaml(obj, indent = 0) {
   return JSON.stringify(obj);
 }
 
+/**
+ * Load hand-curated per-route summaries + descriptions from
+ * docs/openapi-overrides.json. The override file maps "METHOD /path"
+ * → { summary, description, tags, requestBody, responses } that get
+ * deep-merged onto the auto-generated entry.
+ *
+ * This is how we ship hand-curated documentation without losing it on
+ * every regeneration. Edit the JSON file, run `npm run generate-openapi`,
+ * commit both files.
+ */
+function loadOverrides() {
+  const p = path.join(ROOT, 'docs', 'openapi-overrides.json');
+  if (!fs.existsSync(p)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf8'));
+  } catch (e) {
+    console.warn(`[generate-openapi] failed to parse overrides: ${e.message}`);
+    return {};
+  }
+}
+
+function mergeOverrides(spec, overrides) {
+  let count = 0;
+  for (const [key, override] of Object.entries(overrides)) {
+    const m = /^(get|post|put|patch|delete)\s+(.+)$/i.exec(key.trim());
+    if (!m) continue;
+    const method = m[1].toLowerCase();
+    const routePath = m[2];
+    if (!spec.paths[routePath] || !spec.paths[routePath][method]) continue;
+    Object.assign(spec.paths[routePath][method], override);
+    count++;
+  }
+  return count;
+}
+
 function main() {
   const routes = SOURCES.flatMap(extractRoutes).map(classifyRoute);
   const dedup = [];
@@ -211,6 +246,11 @@ function main() {
   console.log(`Discovered ${dedup.length} unique routes across ${SOURCES.length} files.`);
 
   const spec = buildOpenApi(dedup);
+
+  const overrides = loadOverrides();
+  const merged = mergeOverrides(spec, overrides);
+  if (merged) console.log(`Applied ${merged} hand-curated overrides from docs/openapi-overrides.json.`);
+
   const yaml = toYaml(spec).trimStart();
 
   const outDir = path.join(ROOT, 'docs');
