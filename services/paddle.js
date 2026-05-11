@@ -75,18 +75,34 @@ async function cancelSubscription(subscriptionId, effectiveFrom = 'next_billing_
   return r.body?.data;
 }
 
-function verifyWebhookSignature(rawBody, signature, secret) {
+// 5-minute replay tolerance. Paddle includes `ts=<unix-seconds>;h1=<hex>` in
+// the signature header. We require BOTH a valid HMAC AND a recent timestamp.
+// Without this check, a single captured webhook can be replayed forever —
+// each replay would re-grant plans, re-fire cold-start, double-count usage.
+const PADDLE_REPLAY_WINDOW_SECONDS = 300;
+
+function verifyWebhookSignature(rawBody, signature, secret, now = Date.now()) {
   if (!signature || !secret) return false;
   // Paddle sends ts;h1=hash format
   const parts = signature.split(';');
   const tsStr = parts.find(p => p.startsWith('ts='));
   const h1Str = parts.find(p => p.startsWith('h1='));
   if (!tsStr || !h1Str) return false;
-  const ts = tsStr.replace('ts=', '');
-  const h1 = h1Str.replace('h1=', '');
-  const payload = `${ts}:${rawBody}`;
+  const tsRaw = tsStr.replace('ts=', '').trim();
+  const h1 = h1Str.replace('h1=', '').trim();
+  const tsSeconds = Number(tsRaw);
+  if (!Number.isFinite(tsSeconds) || tsSeconds <= 0) return false;
+  // Reject anything older than 5 minutes OR more than 5 minutes in the
+  // future (clock skew tolerance both directions).
+  const ageSec = Math.abs(now / 1000 - tsSeconds);
+  if (ageSec > PADDLE_REPLAY_WINDOW_SECONDS) return false;
+
+  const payload = `${tsRaw}:${rawBody}`;
   const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-  return crypto.timingSafeEqual(Buffer.from(h1), Buffer.from(expected));
+  const a = Buffer.from(h1, 'hex');
+  const b = Buffer.from(expected, 'hex');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }
 
 module.exports = {

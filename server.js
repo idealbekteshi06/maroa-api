@@ -199,6 +199,19 @@ app.post('/webhook/stripe-webhook', stripeWebhookRawBody, async (req, res) => {
   try { event = JSON.parse(rawBody.toString()); } catch {
     return res.status(400).json({ error: { code: 'INVALID_JSON', message: 'Could not parse body' } });
   }
+
+  // Stripe idempotency — same event.id can arrive multiple times during
+  // failover. Block duplicates before async dispatch.
+  if (event?.id) {
+    const dedup = await require('./lib/webhookEvents').markProcessed({
+      provider: 'stripe', eventId: event.id, sbPost, logger,
+    });
+    if (!dedup.firstTime) {
+      logger.info('/webhook/stripe-webhook', null, 'duplicate event — skipping', { event_id: event.id });
+      return res.json({ received: true, duplicate: true, request_id: req.requestId });
+    }
+  }
+
   // Acknowledge fast so Stripe doesn't retry. Handle async.
   res.json({ received: true, request_id: req.requestId });
   stripeService.handleStripeEvent({
@@ -9031,11 +9044,25 @@ async function paddleWebhookHandler(req, res) {
   }
   const valid = paddle.verifyWebhookSignature(rawBody.toString(), sig, PADDLE_WEBHOOK_SECRET);
   if (!valid) {
-    logger.warn('/webhook/paddle-webhook', null, 'Paddle signature verification failed', { request_id: req.requestId });
+    logger.warn('/webhook/paddle-webhook', null, 'Paddle signature/timestamp verification failed', { request_id: req.requestId });
     return apiError(res, 400, 'INVALID_SIGNATURE', 'Webhook signature verification failed');
   }
   let event;
   try { event = JSON.parse(rawBody.toString()); } catch { return apiError(res, 400, 'INVALID_JSON', 'Could not parse webhook body'); }
+
+  // Idempotency: Paddle can deliver the same notification twice. Block
+  // duplicates before any side-effect (plan grant, cold-start fire, email).
+  const eventId = event?.notification_id || event?.event_id || event?.data?.id;
+  if (eventId) {
+    const dedup = await require('./lib/webhookEvents').markProcessed({
+      provider: 'paddle', eventId, sbPost, logger,
+    });
+    if (!dedup.firstTime) {
+      logger.info('/webhook/paddle-webhook', null, 'duplicate event — skipping', { event_id: eventId });
+      return res.json({ received: true, duplicate: true });
+    }
+  }
+
   res.json({ received: true });
   try {
     const eventType = event?.event_type;
