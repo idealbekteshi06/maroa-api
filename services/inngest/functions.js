@@ -24,6 +24,7 @@
  */
 
 const { inngest } = require('./client');
+const { dlqHandler } = require('./dlqRecorder');
 
 const PORT = process.env.PORT || 3000;
 const INTERNAL_BASE =
@@ -67,6 +68,7 @@ const adOptimizerDaily = inngest.createFunction(
     name: 'Ad optimizer · daily audit',
     retries: 3,
     concurrency: { limit: 1 },
+    onFailure: dlqHandler({ functionId: 'ad-optimizer-daily', eventName: 'cron' }),
     triggers: [{ cron: 'TZ=UTC 0 8 * * *' }],
   },
   async ({ step }) => {
@@ -130,6 +132,7 @@ const contentPublishFeedback24h = inngest.createFunction(
     // One feedback check per (business, content). Concurrency keyed on
     // contentId so multiple posts from same business can run in parallel.
     concurrency: { limit: 1, key: 'event.data.contentId' },
+    onFailure: dlqHandler({ functionId: 'content-publish-feedback-24h', eventName: 'maroa/content.publish.feedback-24h' }),
     triggers: [{ event: 'maroa/content.publish.feedback-24h' }],
   },
   async ({ event, step }) => {

@@ -8,6 +8,10 @@
 // Must run before any module that reads process.env at import time.
 const env = require('./lib/env').parse();
 
+// OpenTelemetry — opt-in via OTEL_ENABLED=true. Must init BEFORE any
+// instrumented module is required (the SDK monkey-patches at require-time).
+require('./lib/otel').init();
+
 const Sentry = require('@sentry/node');
 if (env.SENTRY_DSN) {
   // PII scrubber — strip auth headers, tokens, secrets, and user emails from
