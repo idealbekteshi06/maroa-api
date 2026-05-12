@@ -1,0 +1,88 @@
+name: Load Test (nightly)
+
+# Capacity smoke against production. We don't have a staging env yet, so this
+# runs against prod with dryRun:true bodies that exercise the request path
+# (auth + routing + DB read) without writing customer data. If p99 drifts
+# above 5s or 5xx rate climbs above 1%, we know about it before customers do.
+#
+# Triggers:
+#   - nightly cron (catches gradual regression)
+#   - manual workflow_dispatch (post-deploy verification)
+#   - PR with label `load-test` (opt-in for risky PRs)
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # 03:00 UTC nightly (off-peak)
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Target URL (defaults to prod)'
+        required: false
+        default: 'https://maroa-api-production.up.railway.app'
+      concurrency:
+        description: 'Concurrent virtual users'
+        required: false
+        default: '50'
+      duration_s:
+        description: 'Duration in seconds'
+        required: false
+        default: '60'
+  pull_request:
+    types: [labeled]
+
+jobs:
+  load:
+    # PR-triggered runs only on the explicit `load-test` label to avoid
+    # hammering prod from every PR.
+    if: github.event_name != 'pull_request' || github.event.label.name == 'load-test'
+    name: Run load test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Run load test
+        env:
+          MAROA_STAGING_URL: ${{ github.event.inputs.url || 'https://maroa-api-production.up.railway.app' }}
+          MAROA_STAGING_WEBHOOK_SECRET: ${{ secrets.N8N_WEBHOOK_SECRET }}
+          LOAD_CONCURRENCY: ${{ github.event.inputs.concurrency || '50' }}
+          LOAD_DURATION_S: ${{ github.event.inputs.duration_s || '60' }}
+        run: npm run load-test
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-report-${{ github.run_id }}
+          path: load-test-report.json
+          retention-days: 30
+
+      - name: Evaluate thresholds
+        if: always()
+        run: |
+          if [ ! -f load-test-report.json ]; then
+            echo "::error::load-test-report.json missing"
+            exit 1
+          fi
+          P99=$(node -e "console.log(JSON.parse(require('fs').readFileSync('load-test-report.json')).p99_ms || 0)")
+          ERR=$(node -e "console.log(JSON.parse(require('fs').readFileSync('load-test-report.json')).error_rate || 0)")
+          echo "p99: ${P99}ms, error_rate: ${ERR}"
+          if [ "$(echo "$P99 > 5000" | bc)" = "1" ]; then
+            echo "::error::p99 ${P99}ms exceeds 5000ms threshold"
+            exit 1
+          fi
+          if [ "$(echo "$ERR > 0.01" | bc)" = "1" ]; then
+            echo "::error::error_rate ${ERR} exceeds 1% threshold"
+            exit 1
+          fi

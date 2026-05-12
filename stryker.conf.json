@@ -1,0 +1,35 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/api/schema/stryker-core.json",
+  "_comment": "Stryker mutates ONLY the money/security-critical files. Mutating everything would take hours; this completes in <5min. Add more entries as confidence grows.",
+  "packageManager": "npm",
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "node --test tests/oauth-crypto.test.js tests/budget-counter.test.js tests/abuse-detector.test.js tests/stripe-webhook.test.js tests/circuit-breaker.test.js"
+  },
+  "reporters": ["clear-text", "progress", "html", "json"],
+  "htmlReporter": {
+    "fileName": "reports/mutation/mutation.html"
+  },
+  "jsonReporter": {
+    "fileName": "reports/mutation/mutation.json"
+  },
+  "mutate": [
+    "lib/oauthCrypto.js",
+    "lib/budgetCounter.js",
+    "lib/abuseDetector.js",
+    "lib/circuitBreaker.js",
+    "lib/webhookEvents.js",
+    "lib/costGuard.js",
+    "middleware/planGate.js",
+    "middleware/planLimits.js"
+  ],
+  "thresholds": {
+    "high": 85,
+    "low": 70,
+    "break": 60
+  },
+  "coverageAnalysis": "off",
+  "concurrency": 4,
+  "timeoutMS": 10000,
+  "disableTypeChecks": "**/*.{js,ts,jsx,tsx}"
+}

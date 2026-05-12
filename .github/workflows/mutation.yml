@@ -1,0 +1,89 @@
+name: Mutation Testing
+
+# Mutation testing on money + security critical paths. If a mutant survives,
+# it means a test exists but doesn't actually exercise the line — silent
+# coverage. Catches the kind of "the test still passes if I delete the line"
+# regression that breaks production.
+#
+# Only runs on PRs that touch the critical files, plus weekly to catch drift.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lib/oauthCrypto.js'
+      - 'lib/budgetCounter.js'
+      - 'lib/abuseDetector.js'
+      - 'lib/circuitBreaker.js'
+      - 'lib/webhookEvents.js'
+      - 'lib/costGuard.js'
+      - 'middleware/planGate.js'
+      - 'middleware/planLimits.js'
+      - 'tests/oauth-crypto.test.js'
+      - 'tests/budget-counter.test.js'
+      - 'tests/abuse-detector.test.js'
+      - 'tests/circuit-breaker.test.js'
+      - 'tests/stripe-webhook.test.js'
+      - 'stryker.conf.json'
+  schedule:
+    # Weekly Monday 04:00 UTC — catches new test drift across the whole base
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+jobs:
+  mutation:
+    name: Stryker (critical paths only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install production deps
+        run: npm ci
+
+      # Stryker is installed on-demand to avoid bloating npm ci on every CI run.
+      - name: Run mutation tests
+        run: npm run test:mutation
+        env:
+          NODE_ENV: test
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: reports/mutation/
+          retention-days: 14
+
+      - name: Comment PR with mutation score
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            try {
+              const report = JSON.parse(fs.readFileSync('reports/mutation/mutation.json', 'utf8'));
+              const score = report.metrics?.mutationScore?.toFixed(1) || 'n/a';
+              const killed = report.metrics?.killed || 0;
+              const survived = report.metrics?.survived || 0;
+              const body = `🧬 **Mutation score:** ${score}% (killed: ${killed}, survived: ${survived})\n\nThreshold: 60% break / 70% low / 85% high. See artifact \`mutation-report\` for the HTML report.`;
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body
+              });
+            } catch (err) {
+              core.warning(`Could not parse mutation report: ${err.message}`);
+            }

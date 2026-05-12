@@ -1,0 +1,53 @@
+name: SAST
+
+# Static analysis security testing. Catches IDOR, injection, crypto misuse,
+# and dependency confusion BEFORE merge. Antigravity (manual review) caught
+# 9 real bugs in 2026-05; this gauntlet catches those classes per-PR.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Daily 06:00 UTC re-scan to catch new CVEs in transitive deps.
+    - cron: '0 6 * * *'
+
+jobs:
+  semgrep:
+    name: Semgrep (OWASP + Node + custom)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # Semgrep needs to write annotations on the PR
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+
+    container:
+      image: returntocorp/semgrep
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Curated rulesets cover OWASP Top 10 + Node-specific bug patterns
+      # + JWT/JS gotchas. Custom rules in .semgrep/ catch Maroa-specific
+      # anti-patterns (PostgREST filter injection, swallowed crypto errors,
+      # missing webhook idempotency).
+      - name: Semgrep scan
+        run: |
+          semgrep ci \
+            --config "p/security-audit" \
+            --config "p/owasp-top-ten" \
+            --config "p/javascript" \
+            --config "p/nodejs" \
+            --config "p/secrets" \
+            --config "p/jwt" \
+            --config "./.semgrep/" \
+            --error \
+            --severity ERROR \
+            --severity WARNING
+        env:
+          SEMGREP_RULES: ''

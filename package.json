@@ -23,7 +23,9 @@
     "eval-prompts": "node scripts/eval-prompts.js",
     "eval-prompts:live": "node scripts/eval-prompts.js --live",
     "encrypt-oauth-tokens": "node scripts/encrypt-oauth-tokens.js",
-    "ops:audit": "npm run check-migrations && npm run lint && npm test && npm audit --audit-level=high && npm run eval-prompts"
+    "ops:audit": "npm run check-migrations && npm run lint && npm test && npm audit --audit-level=high && npm run eval-prompts",
+    "test:mutation": "npx --yes -p @stryker-mutator/core@8 stryker run",
+    "test:mutation:quick": "npx --yes -p @stryker-mutator/core@8 stryker run --mutate 'lib/oauthCrypto.js,lib/budgetCounter.js'"
   },
   "engines": {
     "node": ">=18.0.0"

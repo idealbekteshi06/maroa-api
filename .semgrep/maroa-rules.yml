@@ -1,0 +1,110 @@
+rules:
+  # ─── Crypto downgrade: catching decrypt() errors and falling back to
+  # plaintext is exactly the bug Antigravity caught in oauthCrypto.js.
+  # Forbid the pattern in any file that handles tokens or secrets.
+  - id: maroa-no-silent-decrypt-fallback
+    message: >
+      Catching crypto decrypt errors and falling back to plaintext is a
+      downgrade attack vector. If decrypt() throws, propagate the error.
+      See lib/oauthCrypto.js readToken() for the correct pattern.
+    languages: [javascript]
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: |
+              try { ... $X.decrypt(...); ... } catch { return $LEGACY; }
+          - pattern: |
+              try { ... decrypt(...); ... } catch (...) { return $LEGACY; }
+      - metavariable-regex:
+          metavariable: $LEGACY
+          regex: '.*(plaintext|legacy|raw|original).*'
+
+  # ─── PostgREST filter injection: any user-controlled value flowing into
+  # a `?col=eq.${value}` filter MUST be UUID-validated + encoded first.
+  # The pattern below catches obvious unquoted interpolation. False
+  # positives are common — review case-by-case.
+  - id: maroa-postgrest-filter-injection
+    message: >
+      User input flows into a PostgREST filter clause without UUID validation
+      or encodeURIComponent. Either validate at the boundary (UUID_RE.test)
+      or use sbGet helpers that handle escaping. See middleware/planGate.js.
+    languages: [javascript]
+    severity: WARNING
+    patterns:
+      - pattern-either:
+          - pattern: sbGet($TABLE, `...=eq.${$REQ.params.$X}...`)
+          - pattern: sbGet($TABLE, `...=eq.${$REQ.body.$X}...`)
+          - pattern: sbGet($TABLE, `...=eq.${$REQ.query.$X}...`)
+          - pattern: sbPatch($TABLE, `...=eq.${$REQ.params.$X}...`, ...)
+          - pattern: sbPatch($TABLE, `...=eq.${$REQ.body.$X}...`, ...)
+          - pattern: sbDelete($TABLE, `...=eq.${$REQ.params.$X}...`)
+
+  # ─── Webhook handler missing idempotency: any POST handler under
+  # /webhook/* that calls sbPost should call markProcessed() first.
+  # Manual review needed — too many false positives to error on.
+  - id: maroa-webhook-missing-idempotency
+    message: >
+      Webhook handler appears to write to the database without calling
+      lib/webhookEvents.markProcessed() first. Verify dedup is in place,
+      otherwise retries from Paddle/Stripe will double-fire side effects.
+    languages: [javascript]
+    severity: INFO
+    pattern: |
+      app.post('/webhook/...', ..., async ($REQ, $RES) => { ... sbPost(...) ... });
+    pattern-not-inside: |
+      app.post('/webhook/...', ..., async ($REQ, $RES) => { ... markProcessed(...) ... });
+
+  # ─── Hardcoded API keys / secrets: catches the obvious leak pattern.
+  # Backs up gitleaks with a stricter regex for our specific vendors.
+  - id: maroa-hardcoded-vendor-key
+    message: >
+      Hardcoded vendor API key. Never commit. Rotate immediately if this
+      is shipping. Read from env via the validated `env` object.
+    languages: [javascript]
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern-regex: '(sk-ant-[A-Za-z0-9_-]{20,})'
+          - pattern-regex: '(sk-proj-[A-Za-z0-9_-]{20,})'
+          - pattern-regex: '(eyJhbGciOiJIUzI1NiI[A-Za-z0-9_.-]{50,})' # Supabase service keys
+          - pattern-regex: '(EAAB[A-Za-z0-9]{60,})' # Meta tokens
+          - pattern-regex: '(r8_[A-Za-z0-9]{30,})' # Replicate
+
+  # ─── process.env outside env.js: violates the Single Env Source rule.
+  # All env reads should go through the validated `env` zod object so the
+  # process boot-fails on missing vars.
+  - id: maroa-process-env-outside-env-module
+    message: >
+      Read env vars from the validated `env` import, not `process.env`.
+      Boot must fail fast if a required var is missing — see CLAUDE.md
+      Rule 1. Exempt: lib/env.js, scripts/, and one-time bootstrap.
+    languages: [javascript]
+    severity: WARNING
+    pattern: process.env.$VAR
+    paths:
+      exclude:
+        - lib/env.js
+        - scripts/
+        - tests/
+        - migrations/
+        - '*.config.js'
+
+  # ─── Raw Anthropic apiRequest: violates the One callClaude rule. All
+  # Anthropic calls must go through callClaude() for retries + caching +
+  # cost tracking + budget enforcement.
+  - id: maroa-raw-anthropic-call
+    message: >
+      Direct call to api.anthropic.com bypasses callClaude() which handles
+      retries, prompt caching, cost tracking, and budget enforcement. See
+      CLAUDE.md Rule 2.
+    languages: [javascript]
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern-regex: 'fetch\([^)]*api\.anthropic\.com'
+          - pattern-regex: 'apiRequest\([^)]*anthropic\.com'
+    paths:
+      exclude:
+        - services/anthropic-client.js
+        - lib/callClaude.js
+        - tests/
