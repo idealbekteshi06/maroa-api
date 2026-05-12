@@ -275,6 +275,11 @@ app.use(requestIdMiddleware);
 const observability = require('./services/observability');
 app.use(observability.metricsMiddleware());
 
+// SLO monitor: every 60s, evaluate the SLO catalog against live metrics
+// and fire a Sentry alert tagged `slo_violation` if anything is breaching.
+// No-op in tests (NODE_ENV=test). See services/observability/slos.js.
+require('./services/observability/slos').startSloMonitor();
+
 // ─── Liveness + readiness probes (load balancers + Inngest hit these) ──────
 const { registerHealthRoutes } = require('./lib/healthCheck');
 registerHealthRoutes({ app, sbGet, logger });
@@ -12437,330 +12442,441 @@ app.post('/api/reviews/auto-respond', async (req, res) => {
   }
 });
 
-// ── MODULE 1: Referral Program ──────────────────────────────────────────────
-app.post('/api/referral/setup', async (req, res) => {
-  const { userId } = req.body;
-  if (!userId) return res.status(400).json({ error: 'userId required' });
-  res.json({ received: true, message: 'Generating referral program' });
-  setImmediate(async () => {
-    try {
-      const p = await getProfile(userId);
-      if (!p) return;
-      const code = crypto.randomBytes(4).toString('hex');
-      const result = await callClaude(
-        `You are a referral program expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAvg spend: ${p.avg_spend || 'moderate'}\nLanguage: ${p.primary_language || 'English'}\n\nDesign a double-sided referral reward program.\nReturn ONLY valid JSON:\n{"reward_for_referrer":"string","reward_for_referee":"string","trigger_moments":["string"],"share_message":"string (${p.primary_language}, max 160 chars)","email_subject":"string","email_body":"string"}`,
-        'email',
-        1000,
-        claudeBiz(userId)
-      );
-      await sbPost('referral_programs', {
-        user_id: userId,
-        referral_code: code,
-        reward_type: 'discount',
-        reward_value: result.reward_for_referee || '20%',
-        is_active: true,
-      });
-      storeInsight(
-        userId,
-        'referral',
-        'program',
-        'reward_structure',
-        `${result.reward_for_referrer || ''} / ${result.reward_for_referee || ''}`
-      );
-      log('/api/referral/setup', `✅ Referral program created for ${p.business_name}`);
-    } catch (err) {
-      console.error('[referral/setup]', err.message);
-    }
-  });
-});
-app.get('/api/referral/status/:userId', async (req, res) => {
-  try {
-    const r = await sbGet('referral_programs', `user_id=eq.${req.params.userId}&select=*`);
-    res.json(r[0] || { active: false });
-  } catch (err) {
-    res.status(500).json({ error: safePublicError(err) });
-  }
-});
-app.post('/api/referral/track', async (req, res) => {
-  const { referral_code, referred_email } = req.body;
-  if (!referral_code) return res.status(400).json({ error: 'referral_code required' });
-  try {
-    const progs = await sbGet('referral_programs', `referral_code=eq.${referral_code}&select=user_id`);
-    if (!progs[0]) return res.status(404).json({ error: 'Invalid referral code' });
-    await sbPost('referrals', { referrer_id: progs[0].user_id, referred_email, status: 'pending' });
-    res.json({ tracked: true });
-  } catch (err) {
-    res.status(500).json({ error: safePublicError(err) });
-  }
+// ── MODULE 1: Referral Program (carved into routes/referral.js) ─────────────
+require('./routes/referral').register({
+  app,
+  getProfile,
+  callClaude,
+  pCity,
+  claudeBiz,
+  sbGet,
+  sbPost,
+  storeInsight,
+  log,
+  safePublicError,
 });
 
-// ── MODULE 2: Lead Magnets ──────────────────────────────────────────────────
-app.post('/api/lead-magnets/generate', async (req, res) => {
-  const { userId } = req.body;
-  if (!userId) return res.status(400).json({ error: 'userId required' });
-  res.json({ received: true, message: 'Generating lead magnet' });
-  setImmediate(async () => {
-    try {
-      if (await checkOrchestrationIdempotency(userId, 'lead_magnets_generate')) {
-        log('/api/lead-magnets/generate', `skip idempotent userId=${userId}`);
-        return;
+const _REFERRAL_CARVED = true;
+/* eslint-disable */
+function _legacy_referral_unused() {
+  app.post('/api/referral/setup', async (req, res) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+    res.json({ received: true, message: 'Generating referral program' });
+    setImmediate(async () => {
+      try {
+        const p = await getProfile(userId);
+        if (!p) return;
+        const code = crypto.randomBytes(4).toString('hex');
+        const result = await callClaude(
+          `You are a referral program expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAvg spend: ${p.avg_spend || 'moderate'}\nLanguage: ${p.primary_language || 'English'}\n\nDesign a double-sided referral reward program.\nReturn ONLY valid JSON:\n{"reward_for_referrer":"string","reward_for_referee":"string","trigger_moments":["string"],"share_message":"string (${p.primary_language}, max 160 chars)","email_subject":"string","email_body":"string"}`,
+          'email',
+          1000,
+          claudeBiz(userId)
+        );
+        await sbPost('referral_programs', {
+          user_id: userId,
+          referral_code: code,
+          reward_type: 'discount',
+          reward_value: result.reward_for_referee || '20%',
+          is_active: true,
+        });
+        storeInsight(
+          userId,
+          'referral',
+          'program',
+          'reward_structure',
+          `${result.reward_for_referrer || ''} / ${result.reward_for_referee || ''}`
+        );
+        log('/api/referral/setup', `✅ Referral program created for ${p.business_name}`);
+      } catch (err) {
+        console.error('[referral/setup]', err.message);
       }
-      const p = await getProfile(userId);
-      if (!p) return;
-      const result = await callClaude(
-        `You are a lead magnet strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAudience: ${p.audience_description || 'local customers'}, age ${p.audience_age_min || 18}-${p.audience_age_max || 65}\nPain point: ${p.pain_point || 'not specified'}\nLanguage: ${p.primary_language || 'English'}\n\nGenerate the BEST lead magnet. Solve ONE specific problem. High value, consumable in 10 min.\nReturn ONLY valid JSON:\n{"title":"string","type":"checklist|guide|template","headline":"string","subheadline":"string","content":"string (full content)","cta_button":"string"}`,
-        'campaign',
-        2000,
-        claudeBiz(userId)
-      );
-      await sbPost('lead_magnets', {
-        user_id: userId,
-        title: result.title || 'Lead Magnet',
-        type: result.type || 'guide',
-        content: JSON.stringify(result),
-        is_active: true,
-      });
-      storeInsight(userId, 'lead_magnets', 'content', 'lead_magnet_topic', result.title || 'lead magnet');
-      storeInsight(userId, 'lead_magnets', 'content', 'lead_magnet_type', result.type || 'guide');
-      await recordOrchestrationTaskRun(userId, 'lead_magnets_generate');
-      log('/api/lead-magnets/generate', `✅ Lead magnet: ${result.title}`);
+    });
+  });
+  app.get('/api/referral/status/:userId', async (req, res) => {
+    try {
+      const r = await sbGet('referral_programs', `user_id=eq.${req.params.userId}&select=*`);
+      res.json(r[0] || { active: false });
     } catch (err) {
-      console.error('[lead-magnets]', err.message);
+      res.status(500).json({ error: safePublicError(err) });
     }
   });
-});
-app.get('/api/lead-magnets/:userId', async (req, res) => {
-  try {
-    const r = await sbGet('lead_magnets', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=10`);
-    res.json({ magnets: r });
-  } catch (err) {
-    res.status(500).json({ error: safePublicError(err) });
-  }
-});
-
-// ── MODULE 3: Launch Strategy ───────────────────────────────────────────────
-app.post('/api/launch/create', async (req, res) => {
-  const { userId, productName, launchDate, productDescription } = req.body;
-  if (!userId || !productName) return res.status(400).json({ error: 'userId and productName required' });
-  res.json({ received: true, message: 'Building launch campaign' });
-  setImmediate(async () => {
+  app.post('/api/referral/track', async (req, res) => {
+    const { referral_code, referred_email } = req.body;
+    if (!referral_code) return res.status(400).json({ error: 'referral_code required' });
     try {
-      const p = await getProfile(userId);
-      if (!p) return;
-      const result = await callClaude(
-        `You are a launch strategist for ${p.business_name} launching: ${productName}\nDescription: ${productDescription || 'new product'}\nLaunch date: ${launchDate || 'in 2 weeks'}\nBusiness: ${p.business_type} in ${pCity(p)}\nLanguage: ${p.primary_language}\nBudget: ${p.monthly_budget}\nAudience: ${p.audience_description}\n\nUsing ORB launch framework, create complete launch plan:\n- PRE-LAUNCH: 3 teaser posts + 1 email\n- LAUNCH DAY: announcement post + launch email + ad copy\n- POST-LAUNCH: 2 social proof posts + follow-up email\n\nReturn ONLY valid JSON:\n{"pre_launch":{"posts":["string"],"email":{"subject":"string","body":"string"}},"launch_day":{"post":"string","email":{"subject":"string","body":"string"},"ad_copy":"string"},"post_launch":{"posts":["string"],"email":{"subject":"string","body":"string"}}}`,
-        'strategy',
-        3000,
-        claudeBiz(userId)
-      );
-      await sbPost('launch_campaigns', {
-        user_id: userId,
-        product_name: productName,
-        launch_date: launchDate || new Date(Date.now() + 14 * 86400000).toISOString(),
-        phase: 'pre_launch',
-        content_plan: JSON.stringify(result),
-      });
-      storeInsight(userId, 'launch', 'campaign', 'product_launching', productName);
-      log('/api/launch/create', `✅ Launch plan for ${productName}`);
+      const progs = await sbGet('referral_programs', `referral_code=eq.${referral_code}&select=user_id`);
+      if (!progs[0]) return res.status(404).json({ error: 'Invalid referral code' });
+      await sbPost('referrals', { referrer_id: progs[0].user_id, referred_email, status: 'pending' });
+      res.json({ tracked: true });
     } catch (err) {
-      console.error('[launch]', err.message);
+      res.status(500).json({ error: safePublicError(err) });
     }
   });
-});
-app.get('/api/launch/:userId', async (req, res) => {
-  try {
-    const r = await sbGet('launch_campaigns', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=5`);
-    res.json({ campaigns: r });
-  } catch (err) {
-    res.status(500).json({ error: safePublicError(err) });
-  }
+}
+/* eslint-enable */
+
+// ── MODULE 2: Lead Magnets (carved into routes/lead-magnets.js) ─────────────
+require('./routes/lead-magnets').register({
+  app,
+  getProfile,
+  callClaude,
+  pCity,
+  claudeBiz,
+  sbGet,
+  sbPost,
+  storeInsight,
+  checkOrchestrationIdempotency,
+  recordOrchestrationTaskRun,
+  log,
+  safePublicError,
 });
 
-// ── MODULE 4: Customer Research ─────────────────────────────────────────────
-app.post('/api/research/analyze', async (req, res) => {
-  const { userId, reviews, feedback } = req.body;
-  if (!userId) return res.status(400).json({ error: 'userId required' });
-  res.json({ received: true, message: 'Analyzing customer insights' });
-  setImmediate(async () => {
-    try {
-      const p = await getProfile(userId);
-      if (!p) return;
-      const reviewText = Array.isArray(reviews)
-        ? reviews.join('\n')
-        : feedback || 'No reviews provided — analyze based on typical customers for this business type';
-      const result = await callClaude(
-        `You are a customer research expert analyzing ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nCurrent audience: ${p.audience_description}\nReviews/feedback:\n${reviewText}\n\nExtract:\n1. JOBS TO BE DONE (functional, emotional, social)\n2. Top 3 PAIN POINTS with emotional language\n3. TRIGGER EVENTS\n4. DESIRED OUTCOMES in customer words\n5. KEY PHRASES to use in marketing\n\nReturn ONLY valid JSON:\n{"jobs_to_be_done":["string"],"pain_points":["string"],"trigger_events":["string"],"desired_outcomes":["string"],"key_phrases":["string"],"improved_audience_description":"string","content_recommendations":["string"]}`,
-        'research',
-        1500,
-        claudeBiz(userId)
-      );
-      await sbPost('customer_insights', {
-        user_id: userId,
-        source: reviews ? 'reviews' : 'ai_analysis',
-        insight_type: 'full_analysis',
-        content: JSON.stringify(result),
-        actionable_suggestion: (result.content_recommendations || []).join('; '),
-      });
-      storeInsight(
-        userId,
-        'research',
-        'customer',
-        'top_pain_points',
-        (result.pain_points || []).slice(0, 3).join('; ')
-      );
-      storeInsight(
-        userId,
-        'research',
-        'customer',
-        'customer_language',
-        (result.key_phrases || []).slice(0, 5).join('; ')
-      );
-      storeInsight(
-        userId,
-        'research',
-        'customer',
-        'trigger_events',
-        (result.trigger_events || []).slice(0, 3).join('; ')
-      );
-      log('/api/research/analyze', `✅ Customer insights for ${p.business_name}`);
-    } catch (err) {
-      console.error('[research]', err.message);
-    }
-  });
-});
-
-// ── MODULE 5: Marketing Ideas Engine ────────────────────────────────────────
-app.post('/api/ideas/generate', async (req, res) => {
-  const { userId } = req.body;
-  if (!userId) return res.status(400).json({ error: 'userId required' });
-  res.json({ received: true, message: 'Generating 10 marketing ideas' });
-  setImmediate(async () => {
-    try {
-      if (await checkOrchestrationIdempotency(userId, 'ideas_generate')) {
-        log('/api/ideas/generate', `skip idempotent userId=${userId}`);
-        return;
-      }
-      const p = await getProfile(userId);
-      if (!p) {
-        log('/api/ideas/generate', `ABORT: no profile found for userId=${userId}`);
-        await logError(userId, 'ideas-generate', 'No profile found for userId=' + userId).catch(() => {});
-        return;
-      }
-      log('/api/ideas/generate', `Profile found: ${p.business_name} (${p.business_type})`);
-      let result = await callClaude(
-        `You are a marketing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nBudget: ${p.monthly_budget}\nGoal: ${p.primary_goal}\nLanguage: ${p.primary_language}\n\nGenerate 5 SPECIFIC marketing ideas ranked by impact. Keep each idea brief (1-2 sentences each).\n\nReturn ONLY valid JSON array (no markdown, no code fences):\n[{"idea":"string","category":"string","priority":"high|medium|low","estimated_impact":"string","how_to_execute":"3 brief steps","budget_required":"string","time_to_results":"string"}]`,
-        'idea',
-        4000,
-        claudeBiz(userId)
-      );
-      // Handle _raw fallback — re-extract JSON from raw text
-      log(
-        '/api/ideas/generate',
-        `Claude returned: type=${typeof result}, isArray=${Array.isArray(result)}, hasRaw=${!!result?._raw}, keys=${Object.keys(result || {}).slice(0, 5)}`
-      );
-      if (result?._raw) {
-        const parsed = extractJSON(result._raw);
-        if (parsed) {
-          log('/api/ideas/generate', `Re-parsed _raw: type=${typeof parsed}, isArray=${Array.isArray(parsed)}`);
-          result = parsed;
+const _LEAD_MAGNETS_CARVED = true;
+/* eslint-disable */
+function _legacy_lead_magnets_unused() {
+  app.post('/api/lead-magnets/generate', async (req, res) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+    res.json({ received: true, message: 'Generating lead magnet' });
+    setImmediate(async () => {
+      try {
+        if (await checkOrchestrationIdempotency(userId, 'lead_magnets_generate')) {
+          log('/api/lead-magnets/generate', `skip idempotent userId=${userId}`);
+          return;
         }
+        const p = await getProfile(userId);
+        if (!p) return;
+        const result = await callClaude(
+          `You are a lead magnet strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nAudience: ${p.audience_description || 'local customers'}, age ${p.audience_age_min || 18}-${p.audience_age_max || 65}\nPain point: ${p.pain_point || 'not specified'}\nLanguage: ${p.primary_language || 'English'}\n\nGenerate the BEST lead magnet. Solve ONE specific problem. High value, consumable in 10 min.\nReturn ONLY valid JSON:\n{"title":"string","type":"checklist|guide|template","headline":"string","subheadline":"string","content":"string (full content)","cta_button":"string"}`,
+          'campaign',
+          2000,
+          claudeBiz(userId)
+        );
+        await sbPost('lead_magnets', {
+          user_id: userId,
+          title: result.title || 'Lead Magnet',
+          type: result.type || 'guide',
+          content: JSON.stringify(result),
+          is_active: true,
+        });
+        storeInsight(userId, 'lead_magnets', 'content', 'lead_magnet_topic', result.title || 'lead magnet');
+        storeInsight(userId, 'lead_magnets', 'content', 'lead_magnet_type', result.type || 'guide');
+        await recordOrchestrationTaskRun(userId, 'lead_magnets_generate');
+        log('/api/lead-magnets/generate', `✅ Lead magnet: ${result.title}`);
+      } catch (err) {
+        console.error('[lead-magnets]', err.message);
       }
-      const ideas = Array.isArray(result) ? result : Array.isArray(result?.ideas) ? result.ideas : [];
-      if (!ideas.length) {
-        const sample = JSON.stringify(result).slice(0, 400);
-        log('/api/ideas/generate', `No ideas parsed — result: ${sample}`);
+    });
+  });
+  app.get('/api/lead-magnets/:userId', async (req, res) => {
+    try {
+      const r = await sbGet('lead_magnets', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=10`);
+      res.json({ magnets: r });
+    } catch (err) {
+      res.status(500).json({ error: safePublicError(err) });
+    }
+  });
+}
+/* eslint-enable */
+
+// ── MODULE 3: Launch Strategy (carved into routes/launch.js) ────────────────
+require('./routes/launch').register({
+  app,
+  getProfile,
+  callClaude,
+  pCity,
+  claudeBiz,
+  sbGet,
+  sbPost,
+  storeInsight,
+  log,
+  safePublicError,
+});
+
+const _LAUNCH_CARVED = true;
+/* eslint-disable */
+function _legacy_launch_unused() {
+  app.post('/api/launch/create', async (req, res) => {
+    const { userId, productName, launchDate, productDescription } = req.body;
+    if (!userId || !productName) return res.status(400).json({ error: 'userId and productName required' });
+    res.json({ received: true, message: 'Building launch campaign' });
+    setImmediate(async () => {
+      try {
+        const p = await getProfile(userId);
+        if (!p) return;
+        const result = await callClaude(
+          `You are a launch strategist for ${p.business_name} launching: ${productName}\nDescription: ${productDescription || 'new product'}\nLaunch date: ${launchDate || 'in 2 weeks'}\nBusiness: ${p.business_type} in ${pCity(p)}\nLanguage: ${p.primary_language}\nBudget: ${p.monthly_budget}\nAudience: ${p.audience_description}\n\nUsing ORB launch framework, create complete launch plan:\n- PRE-LAUNCH: 3 teaser posts + 1 email\n- LAUNCH DAY: announcement post + launch email + ad copy\n- POST-LAUNCH: 2 social proof posts + follow-up email\n\nReturn ONLY valid JSON:\n{"pre_launch":{"posts":["string"],"email":{"subject":"string","body":"string"}},"launch_day":{"post":"string","email":{"subject":"string","body":"string"},"ad_copy":"string"},"post_launch":{"posts":["string"],"email":{"subject":"string","body":"string"}}}`,
+          'strategy',
+          3000,
+          claudeBiz(userId)
+        );
+        await sbPost('launch_campaigns', {
+          user_id: userId,
+          product_name: productName,
+          launch_date: launchDate || new Date(Date.now() + 14 * 86400000).toISOString(),
+          phase: 'pre_launch',
+          content_plan: JSON.stringify(result),
+        });
+        storeInsight(userId, 'launch', 'campaign', 'product_launching', productName);
+        log('/api/launch/create', `✅ Launch plan for ${productName}`);
+      } catch (err) {
+        console.error('[launch]', err.message);
+      }
+    });
+  });
+  app.get('/api/launch/:userId', async (req, res) => {
+    try {
+      const r = await sbGet('launch_campaigns', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=5`);
+      res.json({ campaigns: r });
+    } catch (err) {
+      res.status(500).json({ error: safePublicError(err) });
+    }
+  });
+}
+/* eslint-enable */
+
+// ── MODULE 4: Customer Research (carved into routes/research.js) ────────────
+require('./routes/research').register({
+  app,
+  getProfile,
+  callClaude,
+  pCity,
+  claudeBiz,
+  sbPost,
+  storeInsight,
+  log,
+});
+
+const _RESEARCH_CARVED = true;
+/* eslint-disable */
+function _legacy_research_unused() {
+  app.post('/api/research/analyze', async (req, res) => {
+    const { userId, reviews, feedback } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+    res.json({ received: true, message: 'Analyzing customer insights' });
+    setImmediate(async () => {
+      try {
+        const p = await getProfile(userId);
+        if (!p) return;
+        const reviewText = Array.isArray(reviews)
+          ? reviews.join('\n')
+          : feedback || 'No reviews provided — analyze based on typical customers for this business type';
+        const result = await callClaude(
+          `You are a customer research expert analyzing ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nCurrent audience: ${p.audience_description}\nReviews/feedback:\n${reviewText}\n\nExtract:\n1. JOBS TO BE DONE (functional, emotional, social)\n2. Top 3 PAIN POINTS with emotional language\n3. TRIGGER EVENTS\n4. DESIRED OUTCOMES in customer words\n5. KEY PHRASES to use in marketing\n\nReturn ONLY valid JSON:\n{"jobs_to_be_done":["string"],"pain_points":["string"],"trigger_events":["string"],"desired_outcomes":["string"],"key_phrases":["string"],"improved_audience_description":"string","content_recommendations":["string"]}`,
+          'research',
+          1500,
+          claudeBiz(userId)
+        );
+        await sbPost('customer_insights', {
+          user_id: userId,
+          source: reviews ? 'reviews' : 'ai_analysis',
+          insight_type: 'full_analysis',
+          content: JSON.stringify(result),
+          actionable_suggestion: (result.content_recommendations || []).join('; '),
+        });
+        storeInsight(
+          userId,
+          'research',
+          'customer',
+          'top_pain_points',
+          (result.pain_points || []).slice(0, 3).join('; ')
+        );
+        storeInsight(
+          userId,
+          'research',
+          'customer',
+          'customer_language',
+          (result.key_phrases || []).slice(0, 5).join('; ')
+        );
+        storeInsight(
+          userId,
+          'research',
+          'customer',
+          'trigger_events',
+          (result.trigger_events || []).slice(0, 3).join('; ')
+        );
+        log('/api/research/analyze', `✅ Customer insights for ${p.business_name}`);
+      } catch (err) {
+        console.error('[research]', err.message);
+      }
+    });
+  });
+}
+/* eslint-enable */
+
+// ── MODULE 5: Marketing Ideas Engine (carved into routes/ideas.js) ──────────
+require('./routes/ideas').register({
+  app,
+  getProfile,
+  callClaude,
+  pCity,
+  claudeBiz,
+  sbGet,
+  sbPost,
+  sbPatch,
+  storeInsight,
+  checkOrchestrationIdempotency,
+  recordOrchestrationTaskRun,
+  extractJSON,
+  logError,
+  log,
+  safePublicError,
+});
+
+const _IDEAS_CARVED = true;
+/* eslint-disable */
+function _legacy_ideas_unused() {
+  app.post('/api/ideas/generate', async (req, res) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+    res.json({ received: true, message: 'Generating 10 marketing ideas' });
+    setImmediate(async () => {
+      try {
+        if (await checkOrchestrationIdempotency(userId, 'ideas_generate')) {
+          log('/api/ideas/generate', `skip idempotent userId=${userId}`);
+          return;
+        }
+        const p = await getProfile(userId);
+        if (!p) {
+          log('/api/ideas/generate', `ABORT: no profile found for userId=${userId}`);
+          await logError(userId, 'ideas-generate', 'No profile found for userId=' + userId).catch(() => {});
+          return;
+        }
+        log('/api/ideas/generate', `Profile found: ${p.business_name} (${p.business_type})`);
+        let result = await callClaude(
+          `You are a marketing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nBudget: ${p.monthly_budget}\nGoal: ${p.primary_goal}\nLanguage: ${p.primary_language}\n\nGenerate 5 SPECIFIC marketing ideas ranked by impact. Keep each idea brief (1-2 sentences each).\n\nReturn ONLY valid JSON array (no markdown, no code fences):\n[{"idea":"string","category":"string","priority":"high|medium|low","estimated_impact":"string","how_to_execute":"3 brief steps","budget_required":"string","time_to_results":"string"}]`,
+          'idea',
+          4000,
+          claudeBiz(userId)
+        );
+        // Handle _raw fallback — re-extract JSON from raw text
+        log(
+          '/api/ideas/generate',
+          `Claude returned: type=${typeof result}, isArray=${Array.isArray(result)}, hasRaw=${!!result?._raw}, keys=${Object.keys(result || {}).slice(0, 5)}`
+        );
+        if (result?._raw) {
+          const parsed = extractJSON(result._raw);
+          if (parsed) {
+            log('/api/ideas/generate', `Re-parsed _raw: type=${typeof parsed}, isArray=${Array.isArray(parsed)}`);
+            result = parsed;
+          }
+        }
+        const ideas = Array.isArray(result) ? result : Array.isArray(result?.ideas) ? result.ideas : [];
+        if (!ideas.length) {
+          const sample = JSON.stringify(result).slice(0, 400);
+          log('/api/ideas/generate', `No ideas parsed — result: ${sample}`);
+          try {
+            await sbPost('errors', {
+              business_id: userId,
+              workflow_name: 'ideas-generate-parse',
+              error_message: 'No ideas parsed: ' + sample,
+            });
+          } catch {
+            /* soft-fail */
+          }
+          return;
+        }
+        for (const idea of ideas.slice(0, 10)) {
+          if (!idea?.idea || typeof idea.idea !== 'string') continue; // skip unparsed entries
+          await sbPost('marketing_ideas', {
+            user_id: userId,
+            idea: idea.idea,
+            category: idea.category || 'general',
+            priority: idea.priority || 'medium',
+            estimated_impact: idea.estimated_impact || '',
+            how_to_execute: idea.how_to_execute || '',
+            budget_required: idea.budget_required || '',
+            time_to_results: idea.time_to_results || '',
+          }).catch(() => {});
+        }
+        const topIdeas = ideas
+          .filter((i) => i.priority === 'high')
+          .slice(0, 3)
+          .map((i) => i.idea)
+          .join('; ');
+        storeInsight(userId, 'ideas', 'strategy', 'top_priority_ideas', topIdeas || ideas[0]?.idea || '');
+        await recordOrchestrationTaskRun(userId, 'ideas_generate');
+        log('/api/ideas/generate', `✅ ${ideas.length} marketing ideas generated`);
+      } catch (err) {
+        const msg = err?.message || String(err);
+        console.error('[ideas] ERROR:', msg);
+        log('/api/ideas/generate', `CAUGHT ERROR: ${msg.slice(0, 200)}`);
         try {
           await sbPost('errors', {
             business_id: userId,
-            workflow_name: 'ideas-generate-parse',
-            error_message: 'No ideas parsed: ' + sample,
+            workflow_name: 'ideas-generate',
+            error_message: msg.slice(0, 500),
           });
         } catch {
           /* soft-fail */
         }
-        return;
       }
-      for (const idea of ideas.slice(0, 10)) {
-        if (!idea?.idea || typeof idea.idea !== 'string') continue; // skip unparsed entries
-        await sbPost('marketing_ideas', {
-          user_id: userId,
-          idea: idea.idea,
-          category: idea.category || 'general',
-          priority: idea.priority || 'medium',
-          estimated_impact: idea.estimated_impact || '',
-          how_to_execute: idea.how_to_execute || '',
-          budget_required: idea.budget_required || '',
-          time_to_results: idea.time_to_results || '',
-        }).catch(() => {});
-      }
-      const topIdeas = ideas
-        .filter((i) => i.priority === 'high')
-        .slice(0, 3)
-        .map((i) => i.idea)
-        .join('; ');
-      storeInsight(userId, 'ideas', 'strategy', 'top_priority_ideas', topIdeas || ideas[0]?.idea || '');
-      await recordOrchestrationTaskRun(userId, 'ideas_generate');
-      log('/api/ideas/generate', `✅ ${ideas.length} marketing ideas generated`);
+    });
+  });
+  app.get('/api/ideas/:userId', async (req, res) => {
+    try {
+      const r = await sbGet('marketing_ideas', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=20`);
+      res.json({ ideas: r });
     } catch (err) {
-      const msg = err?.message || String(err);
-      console.error('[ideas] ERROR:', msg);
-      log('/api/ideas/generate', `CAUGHT ERROR: ${msg.slice(0, 200)}`);
-      try {
-        await sbPost('errors', {
-          business_id: userId,
-          workflow_name: 'ideas-generate',
-          error_message: msg.slice(0, 500),
-        });
-      } catch {
-        /* soft-fail */
-      }
+      res.status(500).json({ error: safePublicError(err) });
     }
   });
-});
-app.get('/api/ideas/:userId', async (req, res) => {
-  try {
-    const r = await sbGet('marketing_ideas', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=20`);
-    res.json({ ideas: r });
-  } catch (err) {
-    res.status(500).json({ error: safePublicError(err) });
-  }
-});
-app.patch('/api/ideas/:ideaId', async (req, res) => {
-  try {
-    await sbPatch('marketing_ideas', `id=eq.${req.params.ideaId}`, req.body);
-    res.json({ updated: true });
-  } catch (err) {
-    res.status(500).json({ error: safePublicError(err) });
-  }
+  app.patch('/api/ideas/:ideaId', async (req, res) => {
+    try {
+      await sbPatch('marketing_ideas', `id=eq.${req.params.ideaId}`, req.body);
+      res.json({ updated: true });
+    } catch (err) {
+      res.status(500).json({ error: safePublicError(err) });
+    }
+  });
+}
+/* eslint-enable */
+
+// ── MODULE 6: AI SEO (carved into routes/ai-seo.js) ─────────────────────────
+require('./routes/ai-seo').register({
+  app,
+  getProfile,
+  callClaude,
+  pCity,
+  claudeBiz,
+  sbPost,
+  storeInsight,
+  log,
 });
 
-// ── MODULE 6: AI SEO ────────────────────────────────────────────────────────
-app.post('/api/ai-seo/optimize', async (req, res) => {
-  const { userId } = req.body;
-  if (!userId) return res.status(400).json({ error: 'userId required' });
-  res.json({ received: true, message: 'Generating AI SEO content' });
-  setImmediate(async () => {
-    try {
-      const p = await getProfile(userId);
-      if (!p) return;
-      const result = await callClaude(
-        `You are an AI SEO expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nUSP: ${p.usp}\nLanguage: ${p.primary_language}\n\nOptimize for ChatGPT, Perplexity, Google AI Overviews:\n1. Create 10 FAQ entries (question as users ask AI + direct citable answer)\n2. Write 3 authority paragraphs (specific numbers, structured for extraction)\n3. Generate local search queries\n\nReturn ONLY valid JSON:\n{"faqs":[{"question":"string","answer":"string"}],"authority_paragraphs":["string"],"target_queries":["string"]}`,
-        'research',
-        2000,
-        claudeBiz(userId)
-      );
-      await sbPost('ai_seo_content', {
-        user_id: userId,
-        content_type: 'full_optimization',
-        optimized_content: JSON.stringify(result),
-      });
-      storeInsight(userId, 'ai_seo', 'seo', 'target_queries', (result.target_queries || []).slice(0, 5).join('; '));
-      log('/api/ai-seo/optimize', `✅ AI SEO content for ${p.business_name}`);
-    } catch (err) {
-      console.error('[ai-seo]', err.message);
-    }
+const _AI_SEO_CARVED = true;
+/* eslint-disable */
+function _legacy_ai_seo_unused() {
+  app.post('/api/ai-seo/optimize', async (req, res) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+    res.json({ received: true, message: 'Generating AI SEO content' });
+    setImmediate(async () => {
+      try {
+        const p = await getProfile(userId);
+        if (!p) return;
+        const result = await callClaude(
+          `You are an AI SEO expert for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nUSP: ${p.usp}\nLanguage: ${p.primary_language}\n\nOptimize for ChatGPT, Perplexity, Google AI Overviews:\n1. Create 10 FAQ entries (question as users ask AI + direct citable answer)\n2. Write 3 authority paragraphs (specific numbers, structured for extraction)\n3. Generate local search queries\n\nReturn ONLY valid JSON:\n{"faqs":[{"question":"string","answer":"string"}],"authority_paragraphs":["string"],"target_queries":["string"]}`,
+          'research',
+          2000,
+          claudeBiz(userId)
+        );
+        await sbPost('ai_seo_content', {
+          user_id: userId,
+          content_type: 'full_optimization',
+          optimized_content: JSON.stringify(result),
+        });
+        storeInsight(userId, 'ai_seo', 'seo', 'target_queries', (result.target_queries || []).slice(0, 5).join('; '));
+        log('/api/ai-seo/optimize', `✅ AI SEO content for ${p.business_name}`);
+      } catch (err) {
+        console.error('[ai-seo]', err.message);
+      }
+    });
   });
-});
+}
+/* eslint-enable */
 
 // ── MODULE 7: Schema Markup ─────────────────────────────────────────────────
 app.post('/api/schema/generate', async (req, res) => {
