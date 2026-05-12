@@ -35,7 +35,14 @@ function createEngine({
   contextBundleBuilder,
   guardrails,
   buildBrandContext,
+  // Closed-loop creative system libraries — injected for testability.
+  // See ADR-0005. Fall back to require() so production wiring just works.
+  groundingContext,
+  adversarialCritic,
+  metrics,
 }) {
+  const _grounding = groundingContext || require('../../lib/groundingContext');
+  const _critic = adversarialCritic || require('../../lib/adversarialCritic');
   // ── Resolve brand context for a given business_id ─────────────────────
   async function resolveBrandContext(businessId) {
     const [bizRows, profileRows] = await Promise.all([
@@ -334,6 +341,28 @@ function createEngine({
 
     let { system, user } = buildPlatformGenerationPrompt(brandContextReady, conceptBrief);
 
+    // ─── Closed-loop creative system grounding ────────────────────────
+    // Prepend the business's own wins+losses+VoC+cohort+brand-voice to
+    // the system prompt. The model writes from real signal, not a generic
+    // template. Cached 5min so concepts in the same daily batch share work.
+    // See ADR-0005 + CLAUDE.md Rule 6.
+    try {
+      const surface = concept.platform === 'email' ? 'email' : 'social_post';
+      const grounding = await _grounding.buildGroundingContext({
+        sbGet,
+        businessId,
+        surface,
+        intent: concept.funnel_stage === 'consideration' ? 'awareness' : 'conversion',
+        limit: 3,
+      });
+      const block = grounding.toPromptBlock();
+      if (block) {
+        system = `${block}\n${system}`;
+      }
+    } catch (e) {
+      logger?.warn?.('/wf1/engine.grounding', businessId, 'grounding skipped', { error: e.message });
+    }
+
     // If this concept came from an Agency-tier creative-director run, thread the
     // upstream visual/audio/camera direction into the Sonnet prompt so the
     // platform-native asset honours the strategic concept.
@@ -355,6 +384,59 @@ function createEngine({
       returnRaw: true,
     });
     const parsed = extractJSON(raw) || {};
+
+    // ─── Adversarial Critic on the caption ────────────────────────────
+    // Captions are the highest-stakes text we ship — they're what users
+    // actually read. Run the Critic loop with role='caption' (tuned to
+    // social-media first-line discipline). Plan-gated:
+    //   free   → skip (cost discipline)
+    //   growth → critic body only
+    //   agency → critic body + hook
+    // Failures keep the original caption (fail-safe). See ADR-0005.
+    try {
+      const planRows = await sbGet('businesses', `id=eq.${businessId}&select=plan`).catch(() => []);
+      const plan = (planRows[0]?.plan || 'free').toLowerCase();
+      if ((plan === 'growth' || plan === 'agency') && parsed.caption) {
+        const result = await _critic.reflexion({
+          callClaude,
+          draft: String(parsed.caption),
+          role: 'caption',
+          businessId,
+          skill: 'wf1_caption_critic',
+          criticModel: 'claude-haiku-4-5',
+          rewriteModel: 'claude-sonnet-4-5',
+          maxRewriteRounds: 1,
+          rewriteMaxTokens: 600,
+          metrics,
+          logger,
+        });
+        if (result.improved && result.final) {
+          parsed.caption = result.final;
+          parsed._critic_severity = result.criticVerdict?.severity;
+        }
+      }
+      if (plan === 'agency' && parsed.hook) {
+        const result = await _critic.reflexion({
+          callClaude,
+          draft: String(parsed.hook),
+          role: 'social_post',
+          extraCriteria: 'Hook only — first 7 words must earn the rest of the caption.',
+          businessId,
+          skill: 'wf1_hook_critic',
+          criticModel: 'claude-haiku-4-5',
+          rewriteModel: 'claude-sonnet-4-5',
+          maxRewriteRounds: 1,
+          rewriteMaxTokens: 200,
+          metrics,
+          logger,
+        });
+        if (result.improved && result.final) {
+          parsed.hook = result.final;
+        }
+      }
+    } catch (e) {
+      logger?.warn?.('/wf1/engine.critic', businessId, 'critic loop failed (kept original)', { error: e.message });
+    }
 
     // Phase 4: quality gate — second Claude call (Haiku) to score the asset.
     const qualityResult = await scoreAsset({

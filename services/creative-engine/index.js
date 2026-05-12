@@ -47,7 +47,10 @@ const KILL_CONSECUTIVE_DAYS = 3;
  * Returns the row to insert into ad_creative_variants (status='queued').
  */
 async function generateDailyVariants({ businessId, deps }) {
-  const { sbGet, sbPost, callClaude, higgsfield, brandVoice, logger } = deps;
+  const { sbGet, sbPost, callClaude, higgsfield, brandVoice, logger, metrics } = deps;
+  const groundingContext = deps.groundingContext || require('../../lib/groundingContext');
+  const nBestReranker = deps.nBestReranker || require('../../lib/nBestReranker');
+  const adversarialCritic = deps.adversarialCritic || require('../../lib/adversarialCritic');
 
   const businessRows = await sbGet('businesses', `id=eq.${businessId}&select=*`).catch(() => []);
   const business = businessRows?.[0];
@@ -86,20 +89,96 @@ async function generateDailyVariants({ businessId, deps }) {
     `industry=eq.${encodeURIComponent(business.industry || '')}&budget_tier=eq.${budgetTier}&order=median_roas_lift.desc&limit=3&select=*`
   ).catch(() => []);
 
-  const variants = [];
-  for (let i = 0; i < variantsPerDay; i += 1) {
-    const seedPattern = patterns[i % Math.max(1, patterns.length)] || null;
-    const variant = await generateOneVariant({
+  // ─── Closed-loop creative system: grounding → oversample → N-best → critic ──
+  //
+  // STEP 1: Build grounding context ONCE for this business. The library
+  // caches for 5min, so subsequent variant calls in this batch are free.
+  // Surface = ad_copy because that's what the engine produces.
+  const grounding = await groundingContext.buildGroundingContext({
+    sbGet,
+    businessId,
+    surface: 'ad_copy',
+    intent: 'conversion',
+    limit: 3,
+  });
+
+  // STEP 2: OVERSAMPLE candidates 2×. Generate without critic — we'll
+  // critic only the picks. This gives 2× creative diversity to the judge
+  // without paying the 2× critic cost on candidates that won't ship.
+  const oversample = Math.min(variantsPerDay * 2, 10); // hard cap at 10 to bound cost
+  const candidates = [];
+  const candidateTasks = Array.from({ length: oversample }, (_, i) =>
+    generateOneVariantCandidate({
       business,
       brandDNA,
-      seedPattern,
+      grounding,
+      seedPattern: patterns[i % Math.max(1, patterns.length)] || null,
       variantIndex: i,
       deps,
     }).catch((e) => {
-      logger?.warn?.('creative-engine.generate', businessId, `variant ${i} failed`, { error: e.message });
+      logger?.warn?.('creative-engine.generate', businessId, `candidate ${i} failed`, { error: e.message });
       return null;
+    })
+  );
+  const candidateResults = await Promise.all(candidateTasks);
+  for (const c of candidateResults) {
+    if (c) candidates.push(c);
+  }
+
+  // STEP 3: N-best — Haiku judges all candidate bodies, picks top variantsPerDay.
+  // Failure mode: judge unavailable → first variantsPerDay candidates ship
+  // (insertion order). Still better than no judge ranking.
+  let picked = [];
+  if (candidates.length <= variantsPerDay) {
+    picked = candidates;
+  } else {
+    let bodyIdx = 0;
+    const indexedDrafts = candidates.map((c) => String(c.body || ''));
+    const winners = await nBestReranker.nBestPick({
+      callClaude,
+      generateDraft: async () => indexedDrafts[bodyIdx++] || null,
+      n: indexedDrafts.length,
+      topK: variantsPerDay,
+      role: 'ad_copy',
+      judgeCriteria: [
+        '- Specificity (real numbers, real customer phrases from the grounding)',
+        '- Hook strength: do the first 5 words earn the rest?',
+        '- Avoidance of clichés / corporate / AI-coded phrasing',
+        "- Match to the brand voice (don't drift)",
+        '- Match to the active VoC pain points if any are present',
+      ].join('\n'),
+      businessId,
+      skill: 'creative_engine_body_judge',
+      metrics,
+      logger,
     });
-    if (variant) variants.push(variant);
+    // Map winning bodies back to the full variant JSONs.
+    for (const w of winners) {
+      const match = candidates.find((c) => c.body === w.draft);
+      if (match) {
+        match._judge_score = w.score;
+        match._judge_rationale = w.rationale;
+        picked.push(match);
+      }
+    }
+    // Fallback if mapping somehow lost candidates — fill from insertion order
+    if (picked.length < variantsPerDay) {
+      for (const c of candidates) {
+        if (picked.length >= variantsPerDay) break;
+        if (!picked.includes(c)) picked.push(c);
+      }
+    }
+  }
+
+  // STEP 4: Critic loop on the picks. Plan-gated as before:
+  //   growth = body only, agency = body + headline, free already filtered.
+  const variants = [];
+  for (const v of picked) {
+    const finalized = await applyCriticLoop({ variant: v, business, deps, adversarialCritic }).catch((e) => {
+      logger?.warn?.('creative-engine.critic-loop', business.id, 'critic loop failed', { error: e.message });
+      return v;
+    });
+    variants.push(finalized);
   }
 
   // Persist
@@ -123,11 +202,21 @@ async function generateDailyVariants({ businessId, deps }) {
   return { ok: true, generated: variants.length, plan_tier: plan };
 }
 
-async function generateOneVariant({ business, brandDNA, seedPattern, variantIndex, deps }) {
-  const { callClaude, higgsfield } = deps;
+/**
+ * Generate a single VARIANT CANDIDATE. No critic here — the orchestrator runs
+ * critic only on the candidates the N-best judge picks, to avoid paying for
+ * critic-on-losers. Returns the JSON variant or null on parse failure.
+ */
+async function generateOneVariantCandidate({ business, brandDNA, grounding, seedPattern, variantIndex, deps }) {
+  const { callClaude } = deps;
 
-  // Compose the LLM prompt for copy
-  const system = [
+  // Compose the LLM prompt for copy.
+  // The grounding block (if non-empty) is prepended to the system prompt
+  // so the model has wins/losses/VoC/cohort/brand all in front of it
+  // BEFORE it generates a single token.
+  const groundingBlock = grounding?.toPromptBlock?.() || '';
+  const systemParts = [
+    groundingBlock ? `${groundingBlock}\n` : '',
     'You produce a single ad variant for an SMB. Output JSON only:',
     '{ "format": "image|video|carousel|text_only",',
     '  "headline": "≤ 40 chars",',
@@ -135,10 +224,12 @@ async function generateOneVariant({ business, brandDNA, seedPattern, variantInde
     '  "cta": "≤ 20 chars",',
     '  "creative_brief": "what to show in the visual" }',
     '',
-    'Anchor every choice to the brand voice. Apply ONE explicit psychological',
-    'principle (Cialdini, Kahneman, or Ariely). Reference the seed pattern if',
-    'provided.',
-  ].join('\n');
+    'Anchor every choice to the brand voice from the grounding context above.',
+    'Apply ONE explicit psychological principle (Cialdini, Kahneman, or Ariely).',
+    'Reference the seed pattern if provided.',
+    'Imitate the structural patterns from WINS. Avoid the patterns in LOSSES.',
+  ];
+  const system = systemParts.filter(Boolean).join('\n');
 
   const userTask = JSON.stringify({
     business_name: business.business_name,
@@ -176,22 +267,18 @@ async function generateOneVariant({ business, brandDNA, seedPattern, variantInde
   }
   if (!copyVariant) return null;
 
-  // For visual formats, request Higgsfield asset generation. Fire-and-forget
-  // — the asset polls back via existing higgsfield request status mechanism.
-  // We store the request_id so the Inngest evaluator can pick it up later.
+  // For visual formats, request Higgsfield asset generation. Fire-and-forget —
+  // the asset polls back via the existing Higgsfield request status path.
+  const { higgsfield } = deps;
   let assetUrl = null;
   let modelUsed = null;
   let requestId = null;
-
   if (copyVariant.format !== 'text_only' && higgsfield?.generateWithModel) {
     try {
       const cap = copyVariant.format === 'video' ? 'short_reel' : 'product_photo_4k';
       modelUsed = higgsfield.modelForCapability?.(cap) || 'soul 2.0';
-      // Don't actually trigger live generation here — flagged as queued so
-      // the publishing layer (which has API budget gating) handles it.
-      // assetUrl remains null until the asset job completes.
     } catch (e) {
-      /* soft-fail — see ADR-0003 for empty-catch cleanup plan */
+      /* soft-fail — see ADR-0003 */
     }
   }
 
@@ -205,8 +292,79 @@ async function generateOneVariant({ business, brandDNA, seedPattern, variantInde
     higgsfield_request_id: requestId,
     decision_reason: seedPattern
       ? `Seeded from cohort pattern "${seedPattern.pattern_signature}" (lift ${seedPattern.median_roas_lift ?? '?'})`
-      : `Variant ${variantIndex + 1} — generated from brand voice + industry baseline`,
+      : `Variant ${variantIndex + 1} — grounded + brand voice + industry baseline`,
   };
+}
+
+/**
+ * Run the Adversarial Critic loop on a picked variant. Plan-gated:
+ *   growth → body critique only
+ *   agency → body + headline critique
+ *   free   → never reached (filtered upstream)
+ *
+ * Critic failure ships the original copy untouched.
+ */
+async function applyCriticLoop({ variant, business, deps, adversarialCritic }) {
+  const { callClaude, logger, metrics } = deps;
+  const critic = adversarialCritic || require('../../lib/adversarialCritic');
+  const copyVariant = variant;
+  const plan = (business.plan || 'free').toLowerCase();
+  const critiqueBody = plan === 'growth' || plan === 'agency';
+  const critiqueHeadline = plan === 'agency';
+
+  if (critiqueBody && copyVariant.body) {
+    try {
+      const result = await critic.reflexion({
+        callClaude,
+        draft: String(copyVariant.body),
+        role: 'ad_copy',
+        businessId: business.id,
+        skill: 'creative_engine_body_critic',
+        criticModel: 'claude-haiku-4-5',
+        rewriteModel: 'claude-sonnet-4-5',
+        maxRewriteRounds: 1,
+        rewriteMaxTokens: 200,
+        metrics,
+        logger,
+      });
+      if (result.improved && result.final) {
+        copyVariant.body = result.final.slice(0, 125);
+        copyVariant._critic_severity = result.criticVerdict?.severity;
+      }
+    } catch (e) {
+      logger?.warn?.('creative-engine.critic', business.id, 'body critique failed (kept original)', {
+        error: e.message,
+      });
+    }
+  }
+
+  if (critiqueHeadline && copyVariant.headline) {
+    try {
+      const result = await critic.reflexion({
+        callClaude,
+        draft: String(copyVariant.headline),
+        role: 'ad_copy',
+        extraCriteria: 'Headline only — must be ≤40 characters and earn the click in 5 words or fewer.',
+        businessId: business.id,
+        skill: 'creative_engine_headline_critic',
+        criticModel: 'claude-haiku-4-5',
+        rewriteModel: 'claude-sonnet-4-5',
+        maxRewriteRounds: 1,
+        rewriteMaxTokens: 80,
+        metrics,
+        logger,
+      });
+      if (result.improved && result.final) {
+        copyVariant.headline = result.final.slice(0, 40);
+      }
+    } catch (e) {
+      logger?.warn?.('creative-engine.critic', business.id, 'headline critique failed (kept original)', {
+        error: e.message,
+      });
+    }
+  }
+
+  return copyVariant;
 }
 
 function bucketBudgetTier(daily) {

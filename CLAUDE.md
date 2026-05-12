@@ -192,6 +192,19 @@ just `businessId` — that's account-takeover-able. The current scheme
 (`services/oauth/{meta,google}.js`) signs
 `businessId|userId|nonce|ts|hmac`.
 
+**Rule 6 — Customer-facing generation goes through the closed-loop creative
+system.** Don't write raw `callClaude` for customer-facing copy. Use:
+
+- `lib/groundingContext.js` to inject wins+losses+VoC+cohort+brand into the prompt
+- `lib/nBestReranker.js` to oversample candidates and judge-pick top-K
+- `lib/adversarialCritic.js` to critique + rewrite before shipping
+- `lib/performanceMemory.js` for pgvector-backed semantic search over past
+  outcomes — pass `semanticQuery` + `performanceMemory` to `buildGroundingContext()`
+  and the wins/losses become RAG-quality (vs recency-based fallback).
+  See ADR-0005. The pattern is already in `services/creative-engine/index.js`
+  — mirror it. Output specificity from grounded prompts beats raw model
+  quality every time, and the cost is bounded (~$0.03/business/day).
+
 ---
 
 ## 7. Local dev quickstart
