@@ -452,48 +452,32 @@ app.use('/api/reviews/auto-respond', requireValidUserId);
 app.use('/api/referral/setup', requireValidUserId);
 app.use('/api/signup-cro/analyze', requireValidUserId);
 
-// Auth guard for routes that use user_id (body), :userId (params), or userId (body)
-function requireAnyUserId(req, res, next) {
-  // 1. Try to extract userId from Supabase JWT in Authorization header
-  const authHeader = req.get('authorization') || '';
-  const match = authHeader.match(/^Bearer\s+(.+)$/i);
-  if (match) {
-    const { createClient } = require('@supabase/supabase-js');
-    const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim();
-    const SUPABASE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '').trim();
-    if (SUPABASE_URL && SUPABASE_KEY) {
-      const admin = createClient(SUPABASE_URL, SUPABASE_KEY, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      });
-      return admin.auth
-        .getUser(match[1].trim())
-        .then(({ data, error }) => {
-          if (error || !data?.user) {
-            return apiError(res, 401, 'UNAUTHORIZED', 'Invalid auth token');
-          }
-          req.user = data.user;
-          // Inject userId into request so downstream handlers work unchanged
-          if (!req.params) req.params = {};
-          req.params.userId = data.user.id;
-          if (!req.body) req.body = {};
-          if (!req.body.userId) req.body.userId = data.user.id;
-          if (!req.body.user_id) req.body.user_id = data.user.id;
-          next();
-        })
-        .catch(() => apiError(res, 401, 'UNAUTHORIZED', 'Auth verification failed'));
-    }
+// Auth guard for routes that use user_id/userId.
+// Closes the IDOR risk surfaced in the 2026-05-13 audit: previously the
+// fallback path accepted any well-formed UUID without ownership verification.
+// Now requires a Bearer JWT (verified via Supabase admin) and refuses when
+// the request's userId disagrees with the token's user.id.
+// Legacy UUID-only access is gated behind LEGACY_USERID_FALLBACK_ALLOWED.
+// See middleware/authenticateUserId.js for the full contract.
+const { makeAuthenticateUserId } = require('./middleware/authenticateUserId');
+function _supabaseAdminGetUser(token) {
+  const { createClient } = require('@supabase/supabase-js');
+  const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim();
+  const SUPABASE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '').trim();
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    return Promise.resolve({ data: null, error: new Error('auth_not_configured') });
   }
-
-  // 2. Fallback: legacy body/params/query userId (for backward compat with n8n calls)
-  const uid = req.body?.userId || req.body?.user_id || req.params?.userId || req.query?.userId;
-  if (!uid || typeof uid !== 'string' || uid.length < 10) {
-    return apiError(res, 400, 'VALIDATION_ERROR', 'Valid user ID required');
-  }
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uid)) {
-    return apiError(res, 400, 'VALIDATION_ERROR', 'user ID must be a valid UUID');
-  }
-  next();
+  const admin = createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  return admin.auth.getUser(token);
 }
+const requireAnyUserId = makeAuthenticateUserId({
+  supabaseAdminGetUser: _supabaseAdminGetUser,
+  metrics: observability && observability.metrics,
+  env: process.env,
+  apiError,
+});
 app.use('/api/onboarding/save', requireAnyUserId);
 app.use('/api/onboarding/profile', requireAnyUserId);
 app.use('/api/onboarding/score', requireAnyUserId);
@@ -2608,16 +2592,10 @@ function safePublicError(err) {
   return 'Service temporarily unavailable';
 }
 
-function requireValidUserId(req, res, next) {
-  const { userId } = req.body || {};
-  if (!userId || typeof userId !== 'string' || userId.length < 10) {
-    return apiError(res, 400, 'VALIDATION_ERROR', 'Valid userId required');
-  }
-  if (!isUUID(userId)) {
-    return apiError(res, 400, 'VALIDATION_ERROR', 'userId must be a valid UUID');
-  }
-  next();
-}
+// requireValidUserId was previously a UUID-only gate. After the 2026-05-13
+// audit it now goes through the same JWT + ownership check as requireAnyUserId.
+// Keeping the name as an alias so the 14 existing call sites work unchanged.
+const requireValidUserId = requireAnyUserId;
 
 app.use((req, res, next) => {
   const originalJson = res.json.bind(res);
