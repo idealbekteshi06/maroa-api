@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: #ffffff;
+    --foreground: #1d1d1f;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-feature-settings: 'ss01' on, 'ss02' on, 'cv01' on, 'cv02' on, 'cv11' on;
+    text-wrap: pretty;
+  }
+
+  /* Apple-style focus rings — subtle, never harsh */
+  :focus-visible {
+    outline: 2px solid theme('colors.accent.500');
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Selection — restrained */
+  ::selection {
+    background-color: theme('colors.accent.500');
+    color: white;
+  }
+
+  /* Crisp headings */
+  h1, h2, h3, h4, h5, h6 {
+    text-wrap: balance;
+  }
+}
+
+@layer components {
+  .container-prose {
+    @apply max-w-3xl mx-auto px-4 sm:px-6;
+  }
+
+  .grain {
+    /* Subtle paper-grain texture for hero sections */
+    background-image: radial-gradient(circle at 1px 1px, rgba(0,0,0,0.018) 1px, transparent 0);
+    background-size: 24px 24px;
+  }
+}
+
+@layer utilities {
+  .text-pretty {
+    text-wrap: pretty;
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+}
