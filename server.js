@@ -300,6 +300,17 @@ app.use(observability.metricsMiddleware());
     logger,
   });
   require('./services/observability/slos').startSloMonitor({ router: _alertRouter });
+
+  // Wave 59 S5: quarterly taxonomy refresh — registered with the internal
+  // dispatcher so the Inngest cron can invoke it without an HTTP round-trip.
+  // No public HTTP route — this is internal-only.
+  const internalDispatcher = require('./lib/internalDispatcher');
+  const taxonomyRefresh = require('./services/taxonomy-refresh');
+  internalDispatcher.register('/webhook/taxonomy-refresh-run', async () =>
+    taxonomyRefresh.refreshTaxonomy({
+      deps: { callClaude, alertRouter: _alertRouter, logger },
+    })
+  );
 }
 
 // ─── Liveness + readiness probes (load balancers + Inngest hit these) ──────

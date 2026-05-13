@@ -653,6 +653,40 @@ const wf13WeeklySynthesis = inngest.createFunction(
   }
 );
 
+// ─── Wave 59 S5: Quarterly taxonomy refresh ──────────────────────────────
+// Every 90 days (Mon 09:00 UTC). Claude proposes adds/removes/merges for
+// lib/taxonomy/industries.js + expert_sources.js. Posts the diff to Slack
+// via alertRouter. NEVER auto-applies — humans review + open a PR.
+//
+// We don't have a `/webhook/taxonomy-refresh-run` endpoint yet because this
+// service is server-side-only. Future webhook route can wire it for manual
+// trigger. For now the Inngest step calls into the service directly via
+// the internal dispatcher (Wave 56 pattern).
+const taxonomyRefreshQuarterly = inngest.createFunction(
+  withDLQ({
+    id: 'taxonomy-refresh-quarterly',
+    name: 'Taxonomy refresh · quarterly AI review',
+    retries: 1,
+    concurrency: { limit: 1 },
+    // Every 90 days at Mon 09:00 UTC. Approximation: first Monday of
+    // Jan/Apr/Jul/Oct. (Inngest doesn't natively support "every 90 days"
+    // — this firing pattern is close enough.)
+    triggers: [{ cron: 'TZ=UTC 0 9 1-7 1,4,7,10 1' }],
+  }),
+  async ({ step }) => {
+    const result = await step.run('refresh', async () => callInternal('/webhook/taxonomy-refresh-run', {}));
+    return {
+      ok: true,
+      industries_changes:
+        (result?.industries_diff?.additions?.length || 0) +
+        (result?.industries_diff?.removals?.length || 0) +
+        (result?.industries_diff?.merges?.length || 0),
+      expert_sources_changes:
+        (result?.expert_sources_diff?.additions?.length || 0) + (result?.expert_sources_diff?.removals?.length || 0),
+    };
+  }
+);
+
 const functions = [
   // Domain crons (originally migrated from n8n)
   adOptimizerDaily,
@@ -699,6 +733,9 @@ const functions = [
   manualAdAudit,
   manualPacingRun,
   manualScorecardRun,
+
+  // Wave 59 S5: quarterly AI-assisted taxonomy refresh (proposes via Slack only)
+  taxonomyRefreshQuarterly,
 ];
 
 module.exports = { functions, callInternal };
