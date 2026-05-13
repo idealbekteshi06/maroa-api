@@ -94,9 +94,27 @@ function _loopbackPost(urlString, body) {
   });
 }
 
+// In-process dispatcher — eliminates HTTP loopback when routes are
+// registered. Falls back to HTTP for unregistered routes (backwards
+// compatible during incremental migration). See lib/internalDispatcher.js.
+const _internalDispatcher = require('../../lib/internalDispatcher');
+
 async function callInternal(path, body) {
   const url = `${INTERNAL_BASE}${path}`;
   const isLoopback = url.startsWith('http://127.0.0.1:') || url.startsWith('http://localhost:');
+
+  // ─── Try in-process dispatch first (loopback case only) ─────────────────
+  // Same-process Inngest invocations skip HTTP entirely — no TCP, no JSON
+  // round-trip, no port exhaustion. Routes opt in by calling
+  // internalDispatcher.register() at boot. Handler throws propagate naturally
+  // (matching the HTTP 5xx → throw contract that Inngest retries handle).
+  if (isLoopback) {
+    const inProcess = await _internalDispatcher.dispatch(path, body);
+    if (!inProcess?._notRegistered) {
+      return inProcess;
+    }
+    // _notRegistered → fall through to HTTP loopback below
+  }
 
   // Loopback path uses pooled keep-alive agent; non-loopback (staging
   // override etc.) falls through to fetch which is fine at lower volumes.

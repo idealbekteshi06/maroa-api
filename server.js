@@ -271,14 +271,36 @@ app.use(express.json({ limit: '10mb' }));
 const { requestIdMiddleware } = require('./lib/tracing');
 app.use(requestIdMiddleware);
 
+// ─── Security headers — HSTS / X-Frame-Options / CSP / etc. ───────────────
+// Applied globally so even 404 + error responses get the headers. The
+// status-page route opts into the more-permissive 'page' CSP profile via
+// res.locals.cspMode = 'page'. See lib/securityHeaders.js.
+const { securityHeaders } = require('./lib/securityHeaders');
+app.use(securityHeaders({ env: process.env.NODE_ENV }));
+
 // ─── Observability — metrics middleware (auto-tracks all HTTP requests) ──
 const observability = require('./services/observability');
 app.use(observability.metricsMiddleware());
 
 // SLO monitor: every 60s, evaluate the SLO catalog against live metrics
-// and fire a Sentry alert tagged `slo_violation` if anything is breaching.
-// No-op in tests (NODE_ENV=test). See services/observability/slos.js.
-require('./services/observability/slos').startSloMonitor();
+// and route violations to Sentry + Slack + Email + PagerDuty (per severity)
+// via the alert router. No-op in tests (NODE_ENV=test).
+// See services/observability/slos.js + lib/alertRouter.js.
+{
+  const { createAlertRouter } = require('./lib/alertRouter');
+  // sendEmail is the existing utility loaded earlier in this file (search
+  // for `function sendEmail` or `const sendEmail`). It might or might not
+  // be defined yet at this point in module load — pass a thunk so it's
+  // resolved at alert time, not boot time.
+  const _alertRouter = createAlertRouter({
+    sendEmail: async (to, subject, html) => {
+      if (typeof sendEmail === 'function') return sendEmail(to, subject, html);
+      return { sent: false, reason: 'sendEmail not yet bound' };
+    },
+    logger,
+  });
+  require('./services/observability/slos').startSloMonitor({ router: _alertRouter });
+}
 
 // ─── Liveness + readiness probes (load balancers + Inngest hit these) ──────
 const { registerHealthRoutes } = require('./lib/healthCheck');

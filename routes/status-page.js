@@ -247,6 +247,9 @@ function register({ app }) {
   // Mount at /status — public, no auth, no rate limit. The page itself
   // polls /readyz which DOES have rate-limit + auth (where applicable).
   app.get('/status', (req, res) => {
+    // Opt into the 'page' CSP profile (allows inline scripts/styles for the
+    // status page's setInterval poll). See lib/securityHeaders.js.
+    if (res.locals) res.locals.cspMode = 'page';
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'public, max-age=60');
     res.send(STATUS_HTML);

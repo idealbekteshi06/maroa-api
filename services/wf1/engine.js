@@ -43,6 +43,7 @@ function createEngine({
 }) {
   const _grounding = groundingContext || require('../../lib/groundingContext');
   const _critic = adversarialCritic || require('../../lib/adversarialCritic');
+  const _strategicThinking = require('../../lib/strategicThinking');
   // ── Resolve brand context for a given business_id ─────────────────────
   async function resolveBrandContext(businessId) {
     const [bizRows, profileRows] = await Promise.all([
@@ -198,14 +199,24 @@ function createEngine({
       }
     }
 
-    // Claude Opus call. We pass the system prompt via `extra.system` so
-    // callClaude preserves it. Expected ~3000 tokens out.
+    // Claude Opus call with strategic-thinking wrapper.
+    // wf1 Phase 2 is the highest-stakes generation in the system — it
+    // sets the day's content theme for every downstream concept + asset.
+    // Native extended-thinking on Opus 4.7 has the model plan before
+    // generating. Falls back to <strategy> tag prompting if the API
+    // rejects the param. See lib/strategicThinking.js + ADR-0005.
     const startedAt = Date.now();
-    const raw = await callClaude(augmentedUser, 'claude-opus-4-7', 3500, {
+    const thinkingResult = await _strategicThinking.strategize({
+      callClaude,
       system: augmentedSystem,
+      user: augmentedUser,
+      model: 'claude-opus-4-7',
+      max_tokens: 3500,
       businessId,
-      returnRaw: true,
+      skill: 'wf1_strategic_decision',
+      thinkingBudget: 2000,
     });
+    const raw = thinkingResult.output || thinkingResult.raw || '';
     const durationMs = Date.now() - startedAt;
 
     const parsed = extractJSON(raw) || {};

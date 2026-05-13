@@ -20,6 +20,8 @@
 
 'use strict';
 
+const internalDispatcher = require('../../lib/internalDispatcher');
+
 function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger }) {
   // ─── POST /webhook/wf1-strategic-decision ──────────────────────────
   app.post('/webhook/wf1-strategic-decision', async (req, res) => {
@@ -244,16 +246,22 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
   });
 
   // ─── POST /webhook/wf1-run-daily (cron target) ─────────────────────
+  // Highest-volume cron in the system — runs daily for every business.
+  // Registered with the in-process dispatcher so Inngest skips loopback.
+  // See ADR-0006.
+  async function runWf1Daily({ businessId, force }) {
+    if (businessId) {
+      return wf1.dailyRun.runForBusiness({ businessId, force: !!force });
+    }
+    return wf1.dailyRun.runForAllBusinesses({ force: !!force });
+  }
+  internalDispatcher.register('/webhook/wf1-run-daily', (body) => runWf1Daily(body || {}));
+
   app.post('/webhook/wf1-run-daily', async (req, res) => {
-    const { businessId, force } = req.body || {};
+    const { businessId } = req.body || {};
     try {
-      if (businessId) {
-        const r = await wf1.dailyRun.runForBusiness({ businessId, force: !!force });
-        res.json(r);
-      } else {
-        const r = await wf1.dailyRun.runForAllBusinesses({ force: !!force });
-        res.json(r);
-      }
+      const r = await runWf1Daily(req.body || {});
+      res.json(r);
     } catch (e) {
       logger?.error('/webhook/wf1-run-daily', businessId, 'cron failed', e);
       apiError(res, 500, 'WF1_CRON_FAILED', e.message);

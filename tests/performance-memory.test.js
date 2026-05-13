@@ -172,10 +172,24 @@ test('performanceMemory: PGVECTOR mode falls back to LRU when RPC unavailable', 
 
 // ─── embed() ────────────────────────────────────────────────────────────────
 
-test('performanceMemory: embed returns null on missing callClaude', async () => {
+test('performanceMemory: embed delegates to provider registry (stub when no OPENAI_API_KEY)', async () => {
+  // Embed no longer requires callClaude — it delegates to lib/embeddingProviders/
+  // which always has the stub provider as a fallback.
+  const prev = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  require('../lib/embeddingProviders')._resetCache();
   const m = createPerformanceMemory({});
   const e = await m.embed('test');
-  assert.strictEqual(e, null);
+  assert.ok(e instanceof Float32Array, 'should return a stub embedding even without callClaude');
+  assert.strictEqual(e.length, 384);
+  if (prev) process.env.OPENAI_API_KEY = prev;
+  require('../lib/embeddingProviders')._resetCache();
+});
+
+test('performanceMemory: embed returns null on empty input', async () => {
+  const m = createPerformanceMemory({});
+  assert.strictEqual(await m.embed(''), null);
+  assert.strictEqual(await m.embed(null), null);
 });
 
 test('performanceMemory: stub embedding is deterministic + 384-dim + L2-normalized', async () => {

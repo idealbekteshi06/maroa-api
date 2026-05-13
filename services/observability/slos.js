@@ -175,31 +175,79 @@ function getViolations() {
 }
 
 /**
- * Fire a Sentry message tagged with `slo_violation` when any SLO is breaching.
- * Sentry alert rules should be configured to page on this tag.
+ * Fire alerts when any SLO is breaching. Routes through lib/alertRouter
+ * which fans out to Sentry + Slack + Email + PagerDuty based on severity.
+ *
+ * Severity mapping:
+ *   - `budget_enforcement` violation       → critical (pages on-call)
+ *   - `oauth_token_decrypt_success`        → critical
+ *   - `api_availability` < 99.9%           → error
+ *   - everything else                      → warning
+ *
+ * Per-key dedup is handled by alertRouter (5min on Slack/Email, native
+ * dedup on Sentry/PagerDuty), so calling this every 60s won't spam.
  *
  * Call from a 60s interval in server.js (after Sentry init).
+ *
+ * @param {object} router Optional injected alertRouter (for tests).
+ *   Production wires it from server.js boot.
  */
-function emitSentryAlerts() {
-  if (!Sentry) return;
+async function emitSloAlerts(router) {
   const violations = getViolations();
+  const _router = router || _getDefaultRouter();
+  if (!_router) {
+    // No router wired — fall back to direct Sentry capture
+    if (!Sentry) return violations.length;
+    for (const v of violations) {
+      Sentry.captureMessage(`SLO violation: ${v.slo_id}`, {
+        level: 'warning',
+        tags: { slo_violation: 'true', slo_id: v.slo_id },
+        extra: v,
+      });
+    }
+    return violations.length;
+  }
   for (const v of violations) {
-    Sentry.captureMessage(`SLO violation: ${v.slo_id}`, {
-      level: 'warning',
-      tags: {
-        slo_violation: 'true',
-        slo_id: v.slo_id,
-      },
-      extra: v,
-    });
+    const severity =
+      v.slo_id === 'budget_enforcement' || v.slo_id === 'oauth_token_decrypt_success'
+        ? 'critical'
+        : v.slo_id === 'api_availability'
+          ? 'error'
+          : 'warning';
+    await _router
+      .alert({
+        key: `slo:${v.slo_id}`,
+        severity,
+        title: `SLO violation: ${v.slo_id}`,
+        message: `${v.description}\nCurrent: ${v.current}\nThreshold: ${v.threshold}`,
+        extra: v,
+      })
+      .catch(() => {
+        /* router internally logs */
+      });
   }
   return violations.length;
 }
 
-function startSloMonitor({ intervalMs = 60_000 } = {}) {
-  // Skip in tests / when Sentry is absent.
-  if (!Sentry || process.env.NODE_ENV === 'test') return null;
-  const handle = setInterval(emitSentryAlerts, intervalMs);
+// Backwards-compat alias for older callers that still use `emitSentryAlerts`.
+const emitSentryAlerts = emitSloAlerts;
+
+let _defaultRouter = null;
+function _setDefaultRouter(r) {
+  _defaultRouter = r;
+}
+function _getDefaultRouter() {
+  return _defaultRouter;
+}
+
+function startSloMonitor({ intervalMs = 60_000, router } = {}) {
+  // Skip in tests. In prod, run even without Sentry — Slack/Email/PagerDuty
+  // may still be wired via the alertRouter.
+  if (process.env.NODE_ENV === 'test') return null;
+  if (router) _setDefaultRouter(router);
+  const handle = setInterval(() => {
+    emitSloAlerts().catch(() => {});
+  }, intervalMs);
   handle.unref?.();
   return handle;
 }
@@ -208,5 +256,7 @@ module.exports = {
   SLOS,
   getViolations,
   emitSentryAlerts,
+  emitSloAlerts,
   startSloMonitor,
+  _setDefaultRouter,
 };
