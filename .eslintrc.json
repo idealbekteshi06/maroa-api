@@ -43,6 +43,7 @@
     "n8n-workflows/",
     "maroa-ai-marketing-automator/",
     "mcp-server/",
+    "frontend/",
     "scripts/sync_foundation.mjs",
     "*.min.js"
   ],
