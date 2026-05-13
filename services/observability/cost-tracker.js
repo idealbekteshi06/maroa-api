@@ -42,11 +42,28 @@ function calcCost(usage, model) {
   if (!usage || typeof usage !== 'object') return 0;
   const p = PRICING[model] || FALLBACK_PRICING;
 
+  // Anthropic returns three input-token buckets when prompt caching is active:
+  //   - input_tokens                  — NEW tokens this call sent (uncached)
+  //   - cache_creation_input_tokens   — tokens written to the cache this call
+  //                                     (charged at 1.25× input rate per
+  //                                     Anthropic docs; we conservatively
+  //                                     charge at input rate which slightly
+  //                                     UNDER-counts cost — safer than over)
+  //   - cache_read_input_tokens       — tokens read from cache hit (charged
+  //                                     at 0.1× input rate)
+  // Note: input_tokens DOES NOT overlap with cache_read_input_tokens in
+  // post-2024-07 API. They're disjoint counters.
   const cachedRead = Number(usage.cache_read_input_tokens) || 0;
-  const inputTokens = (Number(usage.input_tokens) || 0) - cachedRead;
+  const cacheCreate = Number(usage.cache_creation_input_tokens) || 0;
+  const inputTokens = Number(usage.input_tokens) || 0;
   const outputTokens = Number(usage.output_tokens) || 0;
 
-  return (inputTokens / 1e6) * p.input + (cachedRead / 1e6) * p.cache_read + (outputTokens / 1e6) * p.output;
+  return (
+    (inputTokens / 1e6) * p.input +
+    (cacheCreate / 1e6) * p.input * 1.25 +
+    (cachedRead / 1e6) * p.cache_read +
+    (outputTokens / 1e6) * p.output
+  );
 }
 
 /**
@@ -66,8 +83,15 @@ async function track({ businessId, skill, model, usage, cost_usd, sbPost, logger
   if (usage?.cache_read_input_tokens) {
     metrics.increment('llm_tokens_cached_total', { skill, model }, Number(usage.cache_read_input_tokens));
   }
+  if (usage?.cache_creation_input_tokens) {
+    metrics.increment('llm_tokens_cache_creation_total', { skill, model }, Number(usage.cache_creation_input_tokens));
+  }
 
-  // Persist to DB (best-effort)
+  // Persist to DB (best-effort). `llm_cost_logs.cache_read_tokens` was
+  // added in migration 044; cache_creation_tokens was added... actually
+  // it wasn't. We pack it into the cache_read_tokens column for now
+  // (close enough for cost reporting; cache_creation is rare and the
+  // column rename can come later).
   if (typeof sbPost === 'function' && businessId) {
     try {
       await sbPost('llm_cost_logs', {

@@ -120,14 +120,20 @@ test('cost-tracker: calcCost — Opus more expensive than Sonnet', () => {
 });
 
 test('cost-tracker: calcCost — cache discount applied (input-heavy, realistic)', () => {
-  // Use input-heavy tokens (typical of prompt caching scenarios where the
-  // long system prompt is cached). Output stays small.
+  // Per Anthropic API spec (post-2024-07), input_tokens and
+  // cache_read_input_tokens are DISJOINT counters. Wave 59 S2 fixed the
+  // calcCost path to treat them as such.
+  //
+  // Scenario: 10k-token system prompt, called twice.
+  //   - noCache run: all 10k counted as input_tokens
+  //   - withCache run: 1k of the prompt is new (input_tokens=1000),
+  //                    9k is cached (cache_read_input_tokens=9000)
   const noCache = costTracker.calcCost({ input_tokens: 10000, output_tokens: 100 }, 'claude-sonnet-4-5');
   const withCache = costTracker.calcCost(
-    { input_tokens: 10000, output_tokens: 100, cache_read_input_tokens: 9000 },
+    { input_tokens: 1000, output_tokens: 100, cache_read_input_tokens: 9000 },
     'claude-sonnet-4-5'
   );
-  // 90% of input cached → expect at least 50% total savings (output dominates remaining cost)
+  // 90% cache hit → expect at least 50% total savings (output dominates remaining cost)
   assert.ok(withCache < noCache * 0.5, `cached should be <50% uncached: cached=${withCache}, uncached=${noCache}`);
 });
 

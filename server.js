@@ -916,10 +916,30 @@ async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOver
   userContent = docBlocks.length === 0 ? prompt : [...docBlocks, { type: 'text', text: prompt }];
 
   const body = { model, max_tokens: maxTokens, messages: [{ role: 'user', content: userContent }] };
-  if (extra.system) {
-    // Anthropic prompt caching — set extra.cacheSystem:true to mark the system
-    // prompt as cacheable (≥1024 tokens, 5-min TTL). Saves 50-90% on repeated
-    // calls with the same system prompt (creative-director, image-vetter, etc).
+
+  // Anthropic prompt caching — three shapes accepted (Wave 59 S2):
+  //
+  //   1. extra.systemBlocks: array of {type:'text', text:'...', cache_control?:...}
+  //      Fine-grained: caller decides which segments to cache. Used by the
+  //      closed-loop creative system (grounding library → toCacheableBlocks)
+  //      so the corpus block caches independently of customer-specific context.
+  //
+  //   2. extra.system + extra.cacheSystem:true: legacy single-segment shape.
+  //      Wraps the entire system prompt in one cache_control block.
+  //
+  //   3. extra.system (string only): no caching.
+  //
+  // Anthropic caches segments with cache_control set, with a 5-min TTL.
+  // First call pays full price; subsequent calls within window pay 10%.
+  if (Array.isArray(extra.systemBlocks) && extra.systemBlocks.length) {
+    body.system = extra.systemBlocks
+      .filter((b) => b && b.text && String(b.text).trim())
+      .map((b) => ({
+        type: 'text',
+        text: String(b.text),
+        ...(b.cache_control ? { cache_control: b.cache_control } : {}),
+      }));
+  } else if (extra.system) {
     if (extra.cacheSystem) {
       body.system = [{ type: 'text', text: extra.system, cache_control: { type: 'ephemeral' } }];
     } else {
@@ -933,7 +953,11 @@ async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOver
     'Content-Type': 'application/json',
   };
   const betas = [];
-  if (extra.cacheSystem || extra.cacheDocuments) betas.push('prompt-caching-2024-07-31');
+  const _systemBlocksHaveCache =
+    Array.isArray(extra.systemBlocks) && extra.systemBlocks.some((b) => b && b.cache_control);
+  if (extra.cacheSystem || extra.cacheDocuments || _systemBlocksHaveCache) {
+    betas.push('prompt-caching-2024-07-31');
+  }
   if ((extra.fileIds && extra.fileIds.length) || extra.documentBlocks?.some?.((b) => b?.source?.type === 'file'))
     betas.push('files-api-2025-04-14');
   if (extra.extraBetas) betas.push(...(Array.isArray(extra.extraBetas) ? extra.extraBetas : [extra.extraBetas]));
