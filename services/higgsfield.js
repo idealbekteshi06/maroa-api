@@ -18,6 +18,13 @@ module.exports = function createHiggsfieldService(deps) {
     SERPAPI_KEY,
     SUPABASE_URL,
     SUPABASE_KEY,
+    // Wave 60+ (audit 2026-05-13 P2): callClaude is now an optional dep.
+    // When supplied, claudeVision/claudeText route through it so retries,
+    // prompt-cache, and (if caller passes businessId) cost-tracking + budget
+    // gates all apply. Falls back to direct apiRequest if not supplied so
+    // tests + tooling that instantiate higgsfield without server.js context
+    // keep working.
+    callClaude,
   } = deps;
 
   const CONTENT_IMAGES_BUCKET = 'content-images';
@@ -466,23 +473,43 @@ module.exports = function createHiggsfieldService(deps) {
       .join('\n');
   }
 
+  // Vision + text helpers — same signatures as before, but route through
+  // callClaude when available so cost-tracking, retries, prompt-cache, and
+  // budget gates apply uniformly. Callers can pass opts.businessId to opt
+  // into the cost+budget pipeline.
+  //
+  // Pre-2026-05-13 these called api.anthropic.com directly via apiRequest,
+  // which silently bypassed all of the above. P2 of the audit fixed it.
   async function claudeVision(prompt, imageUrls, opts = {}) {
     if (!ANTHROPIC_KEY) throw new Error('ANTHROPIC_KEY not configured');
-    const model = opts.model || 'claude-sonnet-4-5';
-    const max_tokens = opts.max_tokens || 4096;
-    const content = [];
+    const imageBlocks = [];
     for (const url of imageUrls || []) {
       if (!url || typeof url !== 'string') continue;
-      content.push({
-        type: 'image',
-        source: { type: 'url', url },
+      imageBlocks.push({ type: 'image', source: { type: 'url', url } });
+    }
+    const model = opts.model || 'claude-sonnet-4-5';
+    const maxTokens = opts.max_tokens || 4096;
+
+    if (typeof callClaude === 'function') {
+      // Route through callClaude. returnRaw:true matches the previous return
+      // contract (raw string). businessId + skill flow if caller supplied.
+      return callClaude(prompt, model, maxTokens, {
+        system: opts.system,
+        imageBlocks,
+        returnRaw: true,
+        businessId: opts.businessId,
+        skill: opts.skill || 'higgsfield_vision',
+        timeoutMs: opts.timeoutMs,
       });
     }
-    content.push({ type: 'text', text: prompt });
-    const body = { model, max_tokens, messages: [{ role: 'user', content }] };
+
+    // Fallback: standalone callers (tests, scripts) without callClaude wired.
+    const body = {
+      model,
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: prompt }] }],
+    };
     if (opts.system) body.system = opts.system;
-    // TODO(callClaude-migration): wire callClaude as a dep to this service
-    // and route through it. Tracked in PUNCHLIST item 7.
     // eslint-disable-next-line no-restricted-syntax
     const r = await apiRequest(
       'POST',
@@ -505,13 +532,29 @@ module.exports = function createHiggsfieldService(deps) {
 
   async function claudeText(prompt, taskType, maxTok, extra = {}) {
     if (!ANTHROPIC_KEY) throw new Error('ANTHROPIC_KEY not configured');
+    const model = extra.model || 'claude-sonnet-4-5';
+    const maxTokens = maxTok || 4096;
+
+    if (typeof callClaude === 'function') {
+      // Preserve the prior return semantics: returnRaw → raw string,
+      // otherwise extractJSON-or-{_raw}. callClaude's positional-call path
+      // already does exactly this (server.js:1018-1019).
+      return callClaude(prompt, model, maxTokens, {
+        system: extra.system,
+        returnRaw: !!extra.returnRaw,
+        businessId: extra.businessId,
+        skill: extra.skill || taskType || 'higgsfield_text',
+        timeoutMs: extra.timeoutMs,
+      });
+    }
+
+    // Fallback for standalone callers.
     const body = {
-      model: extra.model || 'claude-sonnet-4-5',
-      max_tokens: maxTok || 4096,
+      model,
+      max_tokens: maxTokens,
       messages: [{ role: 'user', content: prompt }],
     };
     if (extra.system) body.system = extra.system;
-    // TODO(callClaude-migration): wire callClaude as a dep to this service.
     // eslint-disable-next-line no-restricted-syntax
     const r = await apiRequest(
       'POST',

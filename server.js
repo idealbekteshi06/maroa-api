@@ -1386,6 +1386,9 @@ const higgsfieldAI = createHiggsfieldService({
   SERPAPI_KEY,
   SUPABASE_URL,
   SUPABASE_KEY,
+  // 2026-05-13 audit P2: wire callClaude so claudeVision + claudeText
+  // route through it (cost-tracking, retries, prompt-cache, budget gates).
+  callClaude,
 });
 
 // ─── Workflow #1 — Daily Content Engine ──────────────────────────────────────
@@ -11032,43 +11035,26 @@ app.post('/webhook/score-image', async (req, res) => {
   const { business_id, image_url, content_type = 'social_post' } = req.body;
   if (!business_id || !image_url) return res.status(400).json({ error: 'business_id and image_url required' });
   try {
-    // TODO(callClaude-migration): port this Claude vision call to use
-    // callClaude with extra.imageBlocks so cost-tracking + budget gates
-    // apply. Tracked in PUNCHLIST item 7 (consuming-service migration).
-    // eslint-disable-next-line no-restricted-syntax
-    const r = await apiRequest(
-      'POST',
-      'https://api.anthropic.com/v1/messages',
+    // 2026-05-13 audit P2: route through callClaude so cost-tracking,
+    // retries, and budget gates apply. Image block goes via extra.imageBlocks.
+    const raw = await callClaude(
+      `Score this marketing image for a ${content_type} post. Rate 1-10 on: professional quality, visual appeal, marketing effectiveness. Return ONLY valid JSON: {"overall_score":1-10,"recommendation":"use"|"regenerate"|"reject","feedback":"one sentence"}`,
+      'claude-sonnet-4-5',
+      300,
       {
-        'x-api-key': ANTHROPIC_KEY,
-        'anthropic-version': '2023-06-01',
-        'Content-Type': 'application/json',
-      },
-      {
-        model: 'claude-sonnet-4-5',
-        max_tokens: 300,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'url', url: image_url } },
-              {
-                type: 'text',
-                text: `Score this marketing image for a ${content_type} post. Rate 1-10 on: professional quality, visual appeal, marketing effectiveness. Return ONLY valid JSON: {"overall_score":1-10,"recommendation":"use"|"regenerate"|"reject","feedback":"one sentence"}`,
-              },
-            ],
-          },
-        ],
+        businessId: business_id,
+        skill: 'score_image',
+        imageBlocks: [{ type: 'image', source: { type: 'url', url: image_url } }],
+        returnRaw: true,
       }
     );
-    if (r.status !== 200)
-      return res
-        .status(502)
-        .json({ overall_score: 5, recommendation: 'use', feedback: 'Could not score image — using fallback' });
-    const raw = r.body?.content?.[0]?.text || '';
     const parsed = extractJSON(raw) || { overall_score: 5, recommendation: 'use', feedback: 'Could not parse score' };
     res.json(parsed);
   } catch (err) {
+    // Budget-exceeded errors get a 402 propagated; everything else falls back.
+    if (err && err.status === 402) {
+      return res.status(402).json({ error: err.code || 'AI_BUDGET_EXCEEDED', message: err.message });
+    }
     res.status(500).json({ overall_score: 5, recommendation: 'use', feedback: 'Image scoring failed' });
   }
 });
