@@ -403,6 +403,7 @@ app.use('/webhook/video-script-generate', aiRateLimit);
 app.use('/webhook/video-generate-runway', aiRateLimit);
 app.use('/webhook/master-agent', aiRateLimit);
 app.use('/webhook/ai-brain-run', aiRateLimit);
+app.use('/webhook/agency-generate', aiRateLimit); // Wave 60 master pipeline
 
 // ─── Cost guard — per-business monthly $ cap on LLM endpoints ───────────────
 // Mounted on the same paths as aiRateLimit (any route that spends real
@@ -430,6 +431,7 @@ app.use('/webhook/master-agent', costGuard);
 app.use('/webhook/ai-brain-run', costGuard);
 app.use('/webhook/cold-start-trigger', costGuard);
 app.use('/webhook/instant-content', costGuard);
+app.use('/webhook/agency-generate', costGuard); // Wave 60 master pipeline
 
 // Body-shape validation for critical webhooks.
 app.use('/webhook/instant-content', zodValidate(businessIdBody));
@@ -15226,6 +15228,24 @@ require('./routes/meta-compliance').register({
   sendEmail,
   apiError,
   logger,
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// WAVE 60 — AGENCY-GRADE MASTER PIPELINE (routes/agency-generate.js)
+// Feature-flagged by env.AGENCY_PIPELINE_ENABLED. Off by default so deploy
+// is safe. Flip on once the runbook (docs/runbooks/wave-60-deployment.md)
+// is green.
+// ═════════════════════════════════════════════════════════════════════════════
+require('./routes/agency-generate').register({
+  app,
+  env,
+  callClaude,
+  sbPost,
+  metrics: observability && observability.metrics,
+  logger,
+  aiRateLimit,
+  costGuard,
+  requireAuthOrWebhookSecret,
 });
 
 const _META_COMPLIANCE_CARVED = true;
