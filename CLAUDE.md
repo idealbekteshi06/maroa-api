@@ -207,6 +207,42 @@ system.** Don't write raw `callClaude` for customer-facing copy. Use:
 
 ---
 
+## 6a. Cold-Start Corpus — Industry-Aware Grounding
+
+(Engineering name: "marketing corpus pre-trainer". Customer-facing name:
+"industry expertise on day 1.")
+
+A pre-trained global corpus (`marketing_corpus` table, migration 062) seeded
+from public sources — Meta Ad Library expert brands, Google Places top
+cohorts, award winners (Cannes/Effie/D&AD/One Show). Lets new customers
+retrieve from world-class examples on day 1 instead of an empty table.
+
+**Load-bearing constraints (Wave 59 hardening — do not break):**
+
+- **Quality floor: 0.55.** Rows scoring below `qualityScorer.ACCEPTABLE_THRESHOLD`
+  are dropped, not stored at low score. Prevents mediocre examples from
+  polluting retrieval.
+- **Eligibility gate: brand + runtime.** Meta ads must be from an expert
+  brand (or award winner) AND have runtime ≥ 60 days before they reach
+  the classifier. Saves Haiku cost on rows we'd reject anyway.
+- **Award tier: 0.95.** Brands in `expertSources.AWARD_WINNERS` always
+  get top-tier score regardless of other signals.
+- **Tier-gated injection: free=0, growth=2, agency=5.** Free tier never
+  sees corpus rows — pure monetization + cost lever. Unknown plan = free.
+- **Cold-start switch: 50 published pieces.** Once a customer has shipped
+  ≥ `COLD_START_THRESHOLD` of their own content, corpus turns off — their
+  own performance data is the better signal.
+- **Prompt caching: enabled.** Corpus block tagged `cache_control:ephemeral`
+  via `ctx.toCacheableBlocks()`. 90% input-cost reduction on repeat calls
+  within the 5-min TTL.
+- **Taxonomy refresh: quarterly, Slack-only.** `services/taxonomy-refresh`
+  proposes adds/removes via Claude → posts to Slack. NEVER auto-merges —
+  humans review + open a PR.
+
+See ADR-0008 for the full architecture.
+
+---
+
 ## 7. Local dev quickstart
 
 See [README.md](./README.md) for the canonical version. Short form:

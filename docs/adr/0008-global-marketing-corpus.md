@@ -111,6 +111,37 @@ Estimated initial seed cost: **~$50** for 50,000 expert-tagged examples spanning
 | Award + publication archive index         | none                      | 4 award archives + 5 publications catalogued |
 | Onboarding-to-quality time                | 90+ days                  | day 1                                        |
 
+## Naming & Framing (Wave 59 S6)
+
+There's a deliberate split between how engineers talk about this feature
+and how customers + marketing copy talk about it. Internal accuracy ≠
+external resonance.
+
+| Audience   | Term                                     | Why                                                                   |
+| ---------- | ---------------------------------------- | --------------------------------------------------------------------- |
+| Engineers  | "Marketing corpus pre-trainer"           | What it is technically — pre-populates RAG corpus from public sources |
+| Engineers  | "Cold-start corpus"                      | Why it exists — fills the gap before a customer has their own history |
+| Customers  | "Industry expertise on day 1"            | The outcome — what they actually get                                  |
+| Customers  | "Writes like an expert in your industry" | The promise — concrete, falsifiable                                   |
+| Customers  | "Never starts from a blank page"         | The pain it removes                                                   |
+| Sales copy | "Day-1 results without a 30-day warm-up" | The time-to-value framing                                             |
+
+Phrases we DO NOT use externally (these damage credibility on review):
+
+- "Most advanced marketing AI" — vague, unverifiable, lazy
+- "Revolutionary AI system" — AI-tell phrase the Critic loop flags
+- "Cutting-edge marketing engine" — same
+- "World-class AI" — same
+- "Trained on millions of ads" — implies model training; we're doing
+  RAG corpus seeding. Different thing.
+
+If a customer asks how it works, the honest answer is:
+"We pre-seeded our system with examples from real ads, award winners,
+and top-rated businesses in your industry. So instead of writing from
+scratch, Maroa starts with patterns that have already worked."
+
+That's accurate, falsifiable, and resonates better than any superlative.
+
 ## References
 
 - `migrations/062_marketing_corpus.sql`

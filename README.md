@@ -4,6 +4,14 @@ AI-powered marketing automation for small businesses. This repo is the
 Node.js + Express + Inngest backend that powers everything behind
 [maroa.ai](https://maroa.ai).
 
+**What Maroa does for customers:**
+
+- Never starts from a blank page — knows your industry on day 1
+- Writes like an expert in your industry, not a generic chatbot
+- Day-1 results without a 30-day warm-up
+- Critic loop catches weak hooks + clichés before anything ships
+- Costs less than a single sponsored Instagram post per month to operate
+
 If you're new here, read [CLAUDE.md](./CLAUDE.md) for the architectural
 map and [LEARNINGS.md](./LEARNINGS.md) for the decision log.
 
