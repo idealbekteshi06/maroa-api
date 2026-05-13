@@ -89,8 +89,25 @@ async function generateDailyVariants({ businessId, deps }) {
     `industry=eq.${encodeURIComponent(business.industry || '')}&budget_tier=eq.${budgetTier}&order=median_roas_lift.desc&limit=3&select=*`
   ).catch(() => []);
 
-  // ─── Closed-loop creative system: grounding → oversample → N-best → critic ──
+  // ─── Closed-loop creative system: stage route → grounding → oversample → N-best → critic ──
   //
+  // STEP 0 (Wave 60 S2): route through the awareness × funnel matrix.
+  // Creative engine produces BOFU ad copy by default; awareness comes
+  // from the business's segmentation if available, otherwise defaults to
+  // product_aware (the most common ad-targeting tier).
+  const stageRouter = deps.stageRouter || require('../../lib/stageRouter');
+  const route = stageRouter.routeContent({
+    awareness: business.default_awareness_stage || 'product_aware',
+    funnel: business.default_funnel_stage || 'bofu',
+    channel: 'meta-ads-image',
+    industry: business.industry,
+  });
+  if (!route.ok) {
+    logger?.warn?.('creative-engine.stage-router', businessId, 'invalid cell — falling back', {
+      refusal: route.refusal,
+    });
+  }
+
   // STEP 1: Build grounding context ONCE for this business. The library
   // caches for 5min, so subsequent variant calls in this batch are free.
   // Surface = ad_copy because that's what the engine produces.

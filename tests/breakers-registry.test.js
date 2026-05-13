@@ -45,9 +45,10 @@ test('breakers: fire() executes wrapped function and returns result on success',
 test('breakers: fire() propagates wrapped function errors', async () => {
   breakers._resetAll();
   await assert.rejects(
-    () => breakers.fire('meta-marketing', async () => {
-      throw new Error('downstream_failed');
-    }),
+    () =>
+      breakers.fire('meta-marketing', async () => {
+        throw new Error('downstream_failed');
+      }),
     /downstream_failed/
   );
 });
@@ -121,10 +122,7 @@ test('breakers: configureBreakers null inputs do not error', () => {
 });
 
 test('breakers: BREAKER_CONFIG is frozen + immutable (cannot be tampered at runtime)', () => {
-  assert.throws(
-    () => {
-      breakers.BREAKER_CONFIG.paddle = { threshold: 999 };
-    },
-    /(read-only|TypeError|Cannot assign)/
-  );
+  assert.throws(() => {
+    breakers.BREAKER_CONFIG.paddle = { threshold: 999 };
+  }, /(read-only|TypeError|Cannot assign)/);
 });
