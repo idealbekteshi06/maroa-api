@@ -100,6 +100,9 @@ async function generateDailyVariants({ businessId, deps }) {
     surface: 'ad_copy',
     intent: 'conversion',
     limit: 3,
+    // Wave 59 S3: tier-gate the corpus section (free=0, growth=2, agency=5).
+    // `plan` was fetched as part of the business row above.
+    plan,
   });
 
   // STEP 2: OVERSAMPLE candidates 2×. Generate without critic — we'll

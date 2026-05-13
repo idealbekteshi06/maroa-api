@@ -20,7 +20,7 @@ test('grounding S2: empty context returns empty cacheable blocks', async () => {
 test('grounding S2: non-corpus context returns one uncached block', async () => {
   gc._resetCache();
   const sbGet = async (table) => {
-    if (table === 'businesses') return [{ id: 'biz1', industry: 'cafe', country: 'US' }];
+    if (table === 'businesses') return [{ id: 'biz1', industry: 'cafe', country: 'US', plan: 'agency' }];
     if (table === 'brand_voice_anchors') return [{ anchor: { tone_descriptors: 'warm, direct' } }];
     return [];
   };
@@ -42,7 +42,7 @@ test('grounding S2: corpus block is tagged with cache_control: ephemeral', async
     findSimilar: async () => [],
   };
   const sbGet = async (table) => {
-    if (table === 'businesses') return [{ id: 'biz1', industry: 'cafe', country: 'US' }];
+    if (table === 'businesses') return [{ id: 'biz1', industry: 'cafe', country: 'US', plan: 'agency' }];
     if (table === 'marketing_corpus') {
       return [
         {
@@ -78,7 +78,7 @@ test('grounding S2: corpus + non-corpus segregation', async () => {
   gc._resetCache();
   const stubMemory = { findSimilar: async () => [] };
   const sbGet = async (table) => {
-    if (table === 'businesses') return [{ id: 'biz1', industry: 'cafe', country: 'US' }];
+    if (table === 'businesses') return [{ id: 'biz1', industry: 'cafe', country: 'US', plan: 'agency' }];
     if (table === 'brand_voice_anchors') return [{ anchor: { tone_descriptors: 'warm' } }];
     if (table === 'marketing_corpus') {
       return [
@@ -117,7 +117,7 @@ test('grounding S2: drops empty segments', async () => {
   gc._resetCache();
   const stubMemory = { findSimilar: async () => [] };
   const sbGet = async (table) => {
-    if (table === 'businesses') return [{ id: 'biz1', industry: 'cafe', country: 'US' }];
+    if (table === 'businesses') return [{ id: 'biz1', industry: 'cafe', country: 'US', plan: 'agency' }];
     if (table === 'marketing_corpus') {
       return [{ id: 'mc1', body: 'Expert ad body', industry: 'cafe', region: 'US', quality_score: 0.9 }];
     }
@@ -139,7 +139,7 @@ test('grounding S2: drops empty segments', async () => {
 test('grounding S2: toPromptBlock backwards-compatible single string still works', async () => {
   gc._resetCache();
   const sbGet = async (table) => {
-    if (table === 'businesses') return [{ id: 'biz1', industry: 'cafe', country: 'US' }];
+    if (table === 'businesses') return [{ id: 'biz1', industry: 'cafe', country: 'US', plan: 'agency' }];
     if (table === 'brand_voice_anchors') return [{ anchor: { tone_descriptors: 'warm' } }];
     return [];
   };
