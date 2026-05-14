@@ -2597,8 +2597,12 @@ function safePublicError(err) {
 
 // requireValidUserId was previously a UUID-only gate. After the 2026-05-13
 // audit it now goes through the same JWT + ownership check as requireAnyUserId.
-// Keeping the name as an alias so the 14 existing call sites work unchanged.
-const requireValidUserId = requireAnyUserId;
+// Keeping the name as a hoisted function so the 14 existing call sites work
+// unchanged — function declarations are hoisted, const is not, and call sites
+// at line ~440 use this name BEFORE module-load reaches line 2601.
+function requireValidUserId(req, res, next) {
+  return requireAnyUserId(req, res, next);
+}
 
 app.use((req, res, next) => {
   const originalJson = res.json.bind(res);
