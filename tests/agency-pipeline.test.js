@@ -225,6 +225,87 @@ test('agency-pipeline: callClaude throw surfaces as refusal', async () => {
   assert.ok(/generation failure/i.test(r.refusal_reason));
 });
 
+// ─── decisionLog mirror ─────────────────────────────────────────────────
+
+test('agency-pipeline: mirrors successful run into decision_logs', async () => {
+  const decisions = [];
+  const fakeDecisionLog = {
+    proposeDecision: async (d) => {
+      const row = { id: `d-${decisions.length + 1}`, ...d };
+      decisions.push(row);
+      return row;
+    },
+    recordExecution: async (id, payload) => {
+      const i = decisions.findIndex((d) => d.id === id);
+      if (i >= 0) Object.assign(decisions[i], payload);
+    },
+  };
+  const fakeClaude = async () => 'A nice Instagram caption.';
+  const r = await runAgencyPipeline(
+    {
+      businessId: 'biz-1',
+      goal: 'Write an Instagram post',
+      channel: 'instagram-post',
+      industry: 'cafe',
+    },
+    { callClaude: fakeClaude, decisionLog: fakeDecisionLog }
+  );
+  assert.strictEqual(r.refused, false);
+  assert.strictEqual(decisions.length, 1);
+  assert.strictEqual(decisions[0].agentName, 'agency-pipeline');
+  assert.strictEqual(decisions[0].executed, true);
+  assert.ok(r.decision_log_id);
+});
+
+test('agency-pipeline: mirror records refused=true on compliance block', async () => {
+  const decisions = [];
+  const fakeDecisionLog = {
+    proposeDecision: async (d) => {
+      const row = { id: `d-${decisions.length + 1}`, ...d };
+      decisions.push(row);
+      return row;
+    },
+    recordExecution: async (id, payload) => {
+      const i = decisions.findIndex((d) => d.id === id);
+      if (i >= 0) Object.assign(decisions[i], payload);
+    },
+  };
+  const fakeClaude = async () => 'Guaranteed mortgage approval — no credit check.';
+  await runAgencyPipeline(
+    {
+      businessId: 'b1',
+      goal: 'Mortgage ad',
+      channel: 'meta-ads-image',
+      industry: 'mortgage_broker',
+    },
+    { callClaude: fakeClaude, decisionLog: fakeDecisionLog }
+  );
+  assert.strictEqual(decisions.length, 1);
+  assert.strictEqual(decisions[0].autoSafeBand, 'red');
+  assert.strictEqual(decisions[0].executed, false);
+  assert.strictEqual(decisions[0].refused, true);
+});
+
+test('agency-pipeline: decisionLog failure does NOT crash the pipeline', async () => {
+  const flakyDecisionLog = {
+    proposeDecision: async () => {
+      throw new Error('decision log offline');
+    },
+  };
+  const fakeClaude = async () => 'Some caption.';
+  const r = await runAgencyPipeline(
+    {
+      businessId: 'b1',
+      goal: 'Write a caption',
+      channel: 'instagram-post',
+      industry: 'cafe',
+    },
+    { callClaude: fakeClaude, decisionLog: flakyDecisionLog }
+  );
+  assert.strictEqual(r.ok, true);
+  assert.ok(r.reasoning_trace.some((t) => /decision_logs mirror failed/i.test(t)));
+});
+
 test('agency-pipeline: unregulated industry passes through with empty compliance', async () => {
   const fakeClaude = async () => 'A caption about our craft chocolate brand.';
   const r = await runAgencyPipeline(

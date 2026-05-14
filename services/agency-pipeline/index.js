@@ -65,7 +65,14 @@ async function runAgencyPipeline(job = {}, deps = {}) {
   const log = (msg) => trace.push(`[${Date.now() - start}ms] ${msg}`);
 
   const { businessId, goal, channel, industry, customer_history, current_content, customer_type } = job;
-  const { callClaude, persistRun = async () => {} } = deps;
+  const {
+    callClaude,
+    persistRun = async () => {},
+    // 2026-05-14: mirror agency_pipeline_runs into universal decision_logs so
+    // the War Room UI (Phase 3) and per-workspace feed read from one source.
+    // Optional — falls back silently if not wired.
+    decisionLog,
+  } = deps;
 
   if (!goal) {
     return _earlyExit({
@@ -391,6 +398,59 @@ async function runAgencyPipeline(job = {}, deps = {}) {
     });
   } catch (e) {
     log(`persist failed (non-fatal): ${e.message}`);
+  }
+
+  // ── 7a. MIRROR INTO decision_logs (universal audit) ──────────────────
+  // The War Room UI reads from decision_logs. Mirror the agency-pipeline
+  // outcome so it shows up alongside ad-optimizer, content-generate, etc.
+  // Soft-fail: any error here is non-fatal — agency_pipeline_runs is the
+  // canonical record.
+  if (decisionLog && typeof decisionLog.proposeDecision === 'function') {
+    try {
+      const decision = await decisionLog.proposeDecision({
+        businessId,
+        agentName: 'agency-pipeline',
+        decisionType: 'generate_content',
+        decisionSubtype: route.channel || 'unknown_channel',
+        inputs: {
+          goal,
+          channel: route.channel,
+          industry,
+          awareness: detection.awareness,
+          funnel: detection.funnel,
+          specialist: specialist.id,
+        },
+        trigger: 'user-request',
+        recommendationText:
+          `${specialist.name} produced ${route.channel || 'content'} for ` +
+          `${detection.awareness}×${detection.funnel}` +
+          (refused ? ` — REFUSED: ${refusalReason}` : ''),
+        confidence: detection.confidence || 0.5,
+        expectedUpside: methodologyScore.aggregate_score
+          ? { text: `Methodology score ${methodologyScore.aggregate_score.toFixed(2)}` }
+          : null,
+        risk: refused ? refusalReason : `manip_risk=${manipulationRiskTotal}/${effectiveCeiling}`,
+        costUsd: 0, // agency-pipeline charges via callClaude cost tracker; this row is audit only
+        manipulationRisk: manipulationRiskTotal,
+        autoSafeBand: refused ? 'red' : (manipulationRiskTotal >= effectiveCeiling * 0.8 ? 'yellow' : 'green'),
+      });
+      if (decision?.id) {
+        await decisionLog.recordExecution(decision.id, {
+          executed: !refused,
+          executionDetails: {
+            specialist: specialist.id,
+            methodologies: methodologyIds,
+            generation_chars: generation ? generation.length : 0,
+          },
+          refused,
+          refusalReason,
+        });
+        result.decision_log_id = decision.id;
+        log(`mirrored to decision_logs (id=${decision.id})`);
+      }
+    } catch (e) {
+      log(`decision_logs mirror failed (non-fatal): ${e.message}`);
+    }
   }
 
   return result;

@@ -49,6 +49,9 @@ function register({
   aiRateLimit,
   costGuard,
   requireAuthOrWebhookSecret,
+  // Optional — universal decision-log mirror. When supplied, every
+  // agency-pipeline run also writes to decision_logs for the War Room.
+  decisionLog,
 }) {
   const ENABLED = String(env.AGENCY_PIPELINE_ENABLED || '').match(/^(1|true|yes|on)$/i);
 
@@ -113,7 +116,14 @@ function register({
 
     let result;
     try {
-      result = await pipeline.runAgencyPipeline(body, { callClaude, persistRun });
+      result = await pipeline.runAgencyPipeline(body, {
+        callClaude,
+        persistRun,
+        // Universal decision-log mirror (lib/decisionLog.js). When supplied
+        // by server.js it gets the live sb deps; when unwired (tests/scripts)
+        // the pipeline skips the mirror gracefully.
+        decisionLog,
+      });
     } catch (e) {
       if (metrics?.increment) {
         metrics.increment('agency_pipeline_calls_total', { outcome: 'error' });

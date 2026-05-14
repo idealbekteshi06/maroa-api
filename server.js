@@ -12355,6 +12355,25 @@ require('./routes/meta-compliance').register({
 // is safe. Flip on once the runbook (docs/runbooks/wave-60-deployment.md)
 // is green.
 // ═════════════════════════════════════════════════════════════════════════════
+// Universal decision logger — writes to decision_logs for the War Room UI.
+// Constructed once + shared across consumers.
+const _decisionLog = (() => {
+  try {
+    const { makeDecisionLogger } = require('./lib/decisionLog');
+    return makeDecisionLogger({
+      sbGet,
+      sbPost,
+      sbPatch,
+      logger,
+      metrics: observability && observability.metrics,
+    });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[decisionLog] failed to construct:', e.message);
+    return null;
+  }
+})();
+
 require('./routes/agency-generate').register({
   app,
   env,
@@ -12365,6 +12384,7 @@ require('./routes/agency-generate').register({
   aiRateLimit,
   costGuard,
   requireAuthOrWebhookSecret,
+  decisionLog: _decisionLog,
 });
 
 const _META_COMPLIANCE_CARVED = true;
