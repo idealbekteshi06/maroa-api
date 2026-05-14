@@ -503,6 +503,20 @@ app.use('/api/launch', requireAnyUserId);
 app.use('/api/seo-pages', requireAnyUserId);
 app.use('/api/social', requireAnyUserId);
 
+// ─── Audit fix 2026-05-14 — gaps caught by tests/route-auth-registry.test.js ───
+// These prefixes had inline route definitions that bypassed both auth
+// mounts. The route-auth-registry test fails if any /api/* route doesn't
+// classify into an auth tier. With LEGACY_USERID_FALLBACK_ALLOWED=1
+// during the transition, existing callers continue working; once the
+// flag is flipped off these become strict JWT.
+app.use('/api/content', requireAnyUserId);          // /api/content/generate, /api/content/feedback, /api/content/repurpose
+app.use('/api/cron-health', requireAnyUserId);      // /api/cron-health/:businessId
+app.use('/api/business', requireAnyUserId);         // /api/business/:businessId/brand-voice
+app.use('/api/generate', requireAnyUserId);         // /api/generate
+app.use('/api/schema', requireAnyUserId);           // /api/schema/:userId (READ side of schema)
+app.use('/api/pricing', requireAnyUserId);          // /api/pricing/:userId (READ side of pricing)
+app.use('/api/sales', requireAnyUserId);            // /api/sales/objection-handler + future siblings
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 // All values come from the validated `env` object (see lib/env.js). No prod-URL
 // defaults — boot fails in lib/env.js if a required var is missing.
