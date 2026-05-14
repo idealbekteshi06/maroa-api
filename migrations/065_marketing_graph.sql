@@ -391,7 +391,7 @@ BEGIN
     EXECUTE format('DROP POLICY IF EXISTS %I_self_read ON %I', t, t);
     EXECUTE format(
       'CREATE POLICY %I_self_read ON %I FOR SELECT USING ('
-      ||   'business_id IN (SELECT id FROM businesses WHERE owner_user_id = auth.uid())'
+      ||   'business_id IN (SELECT id FROM businesses WHERE user_id = auth.uid())'
       ||')',
       t, t
     );
