@@ -69,8 +69,10 @@ CREATE POLICY agency_pipeline_runs_self_read
   ON agency_pipeline_runs
   FOR SELECT
   USING (
+    -- canonical column is `user_id` per migration 000_schema_bootstrap.sql:129
+    -- and the existing pattern in 060_subscriptions_rls.sql:73.
     business_id IN (
-      SELECT id FROM businesses WHERE owner_user_id = auth.uid()
+      SELECT id FROM businesses WHERE user_id = auth.uid()
     )
   );
 
