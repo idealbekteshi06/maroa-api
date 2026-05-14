@@ -37,6 +37,14 @@
 BEGIN;
 
 -- ═══════════════════════════════════════════════════════════════════════
+-- Extensions — declared first so any index that needs them parses cleanly.
+-- (Originally this lived at the bottom; that fails because the trgm index
+-- on claims_library at section 3 references gin_trgm_ops before the
+-- extension is enabled. Fixed 2026-05-14.)
+-- ═══════════════════════════════════════════════════════════════════════
+CREATE EXTENSION IF NOT EXISTS pg_trgm;   -- used by claims_library trgm index
+
+-- ═══════════════════════════════════════════════════════════════════════
 -- 1. ENTITIES — typed nodes in the marketing graph
 -- ═══════════════════════════════════════════════════════════════════════
 -- Every distinct marketing-meaningful thing a business has: a product,
@@ -351,11 +359,6 @@ CREATE INDEX IF NOT EXISTS decision_logs_pending_approval_idx
 CREATE INDEX IF NOT EXISTS decision_logs_refused_idx
   ON decision_logs (business_id, refused, created_at DESC)
   WHERE refused = true;
-
--- ═══════════════════════════════════════════════════════════════════════
--- Extensions used above
--- ═══════════════════════════════════════════════════════════════════════
-CREATE EXTENSION IF NOT EXISTS pg_trgm;   -- used by claims_library trgm index
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- Row-level security — same pattern as agency_pipeline_runs (064)
