@@ -22,10 +22,57 @@
 const adOptimizer = require('../prompts/ad-optimizer');
 
 function createEngine(deps) {
-  const { sbGet, sbPost, sbPatch, callClaude, extractJSON, logger, Sentry } = deps;
+  const { sbGet, sbPost, sbPatch, callClaude, extractJSON, logger, Sentry, decisionLog } = deps;
 
   if (!sbGet || !sbPost || !sbPatch) throw new Error('WF2 engine: sbGet/sbPost/sbPatch required');
   if (!callClaude || !extractJSON) throw new Error('WF2 engine: callClaude + extractJSON required');
+
+  // ── Mirror every audit decision into decision_logs ──────────────────────
+  // Wires this agent into the universal decision log so the War Room UI can
+  // surface ad-optimizer activity alongside content + cro + voc etc.
+  // Soft-fail by design: if decisionLog isn't wired (e.g. unit tests, or
+  // pre-migration deploys), the mirror is a no-op.
+  async function _mirrorToDecisionLog({ businessId, campaign, audit, action_taken, dryRun }) {
+    if (!decisionLog) return;
+    try {
+      // Severity bands match decisionLog's auto-safe ladder:
+      //  - 'pause' → red (interrupts spend; needs human eyes)
+      //  - 'scale'/'optimize' → yellow (changes budget; notify)
+      //  - 'keep'/'refresh_creative' → green (informational)
+      const decision = String(audit.decision || 'keep').toLowerCase();
+      const auto_safe_band =
+        decision === 'pause' ? 'red'
+        : decision === 'scale' || decision === 'optimize' ? 'yellow'
+        : 'green';
+
+      await decisionLog.proposeDecision({
+        agentName: 'ad-optimizer',
+        businessId,
+        decisionType: 'campaign_audit',
+        decisionSubtype: decision,
+        recommendationText: audit.decision_reason || `Ad optimizer chose: ${decision}`,
+        confidence: typeof audit.audit_score === 'number' ? audit.audit_score / 100 : null,
+        manipulationRisk: 0, // ad audits don't manipulate; safe by construction
+        autoSafeBand: auto_safe_band,
+        executed: !dryRun && action_taken !== 'noop' && action_taken !== 'kept',
+        refused: false,
+        targetEntity: { type: 'campaign', id: campaign?.id || null, name: campaign?.name || null },
+        budgetImpactUsd: typeof audit.new_daily_budget === 'number' && typeof campaign?.daily_budget === 'number'
+          ? Number((audit.new_daily_budget - campaign.daily_budget).toFixed(2))
+          : 0,
+        metadata: {
+          market_tier: audit.market_tier || null,
+          budget_tier: audit.budget_tier || null,
+          short_circuited: !!audit.short_circuited,
+          gates: audit.gates || null,
+          action_taken,
+        },
+      });
+    } catch (e) {
+      // Mirror failure must NEVER interrupt the audit pipeline.
+      logger?.warn?.('wf2.engine', businessId, 'decisionLog mirror failed', { error: e.message });
+    }
+  }
 
   /**
    * Audit a single campaign end-to-end.
@@ -160,6 +207,9 @@ function createEngine(deps) {
           logger?.warn?.('wf2.engine', businessId, 'campaign patch failed', e);
         });
       }
+
+      // Mirror to universal decision_logs (fail-safe; never throws)
+      await _mirrorToDecisionLog({ businessId, campaign, audit, action_taken, dryRun });
 
       Sentry?.addBreadcrumb?.({
         category: 'wf2',

@@ -646,6 +646,22 @@ async function sbDelete(table, filter) {
   return true;
 }
 
+// ─── Universal decision logger (lib/decisionLog) ────────────────────────
+// Constructed here (above all agent factories) so every service that
+// wants to mirror into decision_logs can take a single shared instance.
+// Soft-fail: if the lib or migration 065 isn't ready, all agents skip
+// the mirror silently.
+const _decisionLog = (() => {
+  try {
+    const { makeDecisionLogger } = require('./lib/decisionLog');
+    return makeDecisionLogger({ sbGet, sbPost, sbPatch, logger: typeof logger !== 'undefined' ? logger : null });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[decisionLog] failed to construct:', e.message);
+    return null;
+  }
+})();
+
 const PLAN_TOKEN_BUDGETS = {
   starter: { daily_tokens: 200000, max_tokens_per_call: 4000, calls_per_day: 100 },
   growth: { daily_tokens: 500000, max_tokens_per_call: 6000, calls_per_day: 200 },
@@ -1496,6 +1512,7 @@ const adOptimizer = createAdOptimizer({
   extractJSON,
   logger,
   Sentry: typeof Sentry !== 'undefined' ? Sentry : null,
+  decisionLog: _decisionLog,
 });
 
 // ─── AI-SEO (NEW capability — get sites cited by ChatGPT/Perplexity/Claude) ─
@@ -12108,24 +12125,9 @@ require('./routes/meta-compliance').register({
 // is safe. Flip on once the runbook (docs/runbooks/wave-60-deployment.md)
 // is green.
 // ═════════════════════════════════════════════════════════════════════════════
-// Universal decision logger — writes to decision_logs for the War Room UI.
-// Constructed once + shared across consumers.
-const _decisionLog = (() => {
-  try {
-    const { makeDecisionLogger } = require('./lib/decisionLog');
-    return makeDecisionLogger({
-      sbGet,
-      sbPost,
-      sbPatch,
-      logger,
-      metrics: observability && observability.metrics,
-    });
-  } catch (e) {
-    // eslint-disable-next-line no-console
-    console.warn('[decisionLog] failed to construct:', e.message);
-    return null;
-  }
-})();
+// (Universal decision logger _decisionLog is constructed at top of file,
+// just after the sbGet/sbPost/sbPatch helpers, so it's available to
+// every agent factory that wants to mirror into decision_logs.)
 
 require('./routes/agency-generate').register({
   app,
@@ -12138,6 +12140,53 @@ require('./routes/agency-generate').register({
   costGuard,
   requireAuthOrWebhookSecret,
   decisionLog: _decisionLog,
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// WORKSPACES (multi-tenant) + WAR ROOM FEED — depend on migration 066.
+// Constructed inside a try/catch so a missing migration doesn't crash boot;
+// the route modules themselves bail early if the service is null.
+// ═════════════════════════════════════════════════════════════════════════════
+const _workspaces = (() => {
+  try {
+    const { makeWorkspacesService } = require('./lib/workspaces');
+    return makeWorkspacesService({ sbGet, sbPost, sbPatch });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[workspaces] failed to construct:', e.message);
+    return null;
+  }
+})();
+
+const _warRoomFeed = (() => {
+  try {
+    const { makeWarRoomFeed } = require('./lib/warRoomFeed');
+    return makeWarRoomFeed({ sbGet, workspaces: _workspaces });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[warRoomFeed] failed to construct:', e.message);
+    return null;
+  }
+})();
+
+require('./routes/workspaces').register({
+  app,
+  workspaces: _workspaces,
+  requireAnyUserId,
+  apiError,
+  safePublicError,
+  log,
+});
+
+require('./routes/war-room').register({
+  app,
+  warRoomFeed: _warRoomFeed,
+  workspaces: _workspaces,
+  requireAnyUserId,
+  sbGet,
+  apiError,
+  safePublicError,
+  log,
 });
 
 const _META_COMPLIANCE_CARVED = true;
