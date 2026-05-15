@@ -9,9 +9,9 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <header className="container py-6">
           <Logo />
         </header>
-        <div className="flex-1 flex items-center justify-center px-6 py-12">
+        <main id="main" className="flex-1 flex items-center justify-center px-6 py-12">
           <div className="w-full max-w-md">{children}</div>
-        </div>
+        </main>
         <footer className="container py-6 text-xs text-ink-400 flex flex-wrap gap-4">
           <Link href="/privacy" className="hover:text-ink-700">Privacy</Link>
           <Link href="/terms" className="hover:text-ink-700">Terms</Link>
