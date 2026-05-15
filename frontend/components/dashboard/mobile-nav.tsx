@@ -28,7 +28,7 @@ export function MobileNav() {
       aria-label="Primary"
       className={cn(
         'lg:hidden fixed bottom-0 inset-x-0 z-30',
-        'bg-white/95 backdrop-blur-xl border-t border-ink-200/60',
+        'bg-white/95 dark:bg-ink-950/95 backdrop-blur-xl border-t border-ink-200/60 dark:border-ink-800',
         // iOS safe-area inset
         'pb-[max(env(safe-area-inset-bottom),0px)]',
       )}
@@ -44,7 +44,9 @@ export function MobileNav() {
                 className={cn(
                   'flex flex-col items-center justify-center gap-1',
                   'min-h-14 px-2 py-2 text-xs font-medium transition-colors',
-                  active ? 'text-ink-700' : 'text-ink-400 hover:text-ink-700',
+                  active
+                    ? 'text-ink-700 dark:text-ink-100'
+                    : 'text-ink-400 hover:text-ink-700 dark:hover:text-ink-100',
                 )}
               >
                 <item.icon

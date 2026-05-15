@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Menu, X } from 'lucide-react';
 import { Logo } from './logo';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/theme/theme-toggle';
 import { cn } from '@/lib/cn';
 
 const NAV_LINKS = [
@@ -36,7 +37,9 @@ export function Nav() {
     <header
       className={cn(
         'sticky top-0 z-40 w-full transition-all duration-300',
-        scrolled ? 'border-b border-ink-200/60 bg-white/80 backdrop-blur-xl' : 'bg-transparent',
+        scrolled
+          ? 'border-b border-ink-200/60 dark:border-ink-800 bg-white/80 dark:bg-ink-950/80 backdrop-blur-xl'
+          : 'bg-transparent',
       )}
     >
       <div className="container flex h-16 items-center justify-between">
@@ -48,7 +51,7 @@ export function Nav() {
             <Link
               key={link.href}
               href={link.href}
-              className="px-4 py-2 text-sm font-medium text-ink-700 hover:text-ink-900 hover:bg-ink-100 rounded-full transition-colors"
+              className="px-4 py-2 text-sm font-medium text-ink-700 dark:text-ink-100 hover:text-ink-900 dark:hover:text-white hover:bg-ink-100 dark:hover:bg-ink-800 rounded-full transition-colors"
             >
               {link.label}
             </Link>
@@ -56,6 +59,7 @@ export function Nav() {
         </nav>
 
         <div className="hidden md:flex items-center gap-2">
+          <ThemeToggle className="mr-2" />
           <Button href="/login" variant="ghost" size="sm">
             Log in
           </Button>
@@ -68,7 +72,7 @@ export function Nav() {
         <button
           type="button"
           onClick={() => setMobileOpen((o) => !o)}
-          className="md:hidden p-2 -mr-2 text-ink-700 hover:bg-ink-100 rounded-full transition-colors"
+          className="md:hidden p-2 -mr-2 text-ink-700 dark:text-ink-100 hover:bg-ink-100 dark:hover:bg-ink-800 rounded-full transition-colors"
           aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
           aria-expanded={mobileOpen}
         >
@@ -78,18 +82,22 @@ export function Nav() {
 
       {/* Mobile menu sheet */}
       {mobileOpen && (
-        <div className="md:hidden fixed inset-0 top-16 bg-white animate-fade-in">
+        <div className="md:hidden fixed inset-0 top-16 bg-white dark:bg-ink-950 animate-fade-in">
           <nav className="container flex flex-col py-6 gap-1" aria-label="Mobile">
             {NAV_LINKS.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
                 onClick={() => setMobileOpen(false)}
-                className="px-4 py-3 text-lg font-medium text-ink-700 hover:bg-ink-100 rounded-xl transition-colors"
+                className="px-4 py-3 text-lg font-medium text-ink-700 dark:text-ink-100 hover:bg-ink-100 dark:hover:bg-ink-800 rounded-xl transition-colors"
               >
                 {link.label}
               </Link>
             ))}
+            <div className="mt-6 px-4 flex items-center justify-between">
+              <span className="text-sm text-ink-400">Theme</span>
+              <ThemeToggle />
+            </div>
             <div className="mt-4 flex flex-col gap-3 px-4">
               <Button href="/login" variant="outline" size="lg" onClick={() => setMobileOpen(false)}>
                 Log in

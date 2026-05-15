@@ -1,6 +1,9 @@
 import type { Config } from 'tailwindcss';
 
 const config: Config = {
+  // Class-based dark mode — set on <html> by our ThemeProvider. Lets us
+  // do both system-preference and manual toggle with no flash on load.
+  darkMode: 'class',
   content: [
     './app/**/*.{ts,tsx}',
     './components/**/*.{ts,tsx}',

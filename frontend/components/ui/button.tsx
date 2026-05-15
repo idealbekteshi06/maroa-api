@@ -8,16 +8,24 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        // Solid black — primary CTA (Apple-style)
-        primary: 'bg-ink-700 text-white hover:bg-ink-900 active:bg-ink-900 shadow-subtle hover:shadow-card',
-        // Apple "Buy" blue — for highest-conversion CTAs
+        // Solid black on light → solid white on dark (Apple invert)
+        primary:
+          'bg-ink-700 text-white hover:bg-ink-900 active:bg-ink-900 shadow-subtle hover:shadow-card ' +
+          'dark:bg-white dark:text-ink-900 dark:hover:bg-ink-100 dark:active:bg-ink-200',
+        // Apple "Buy" blue — for highest-conversion CTAs (same on both)
         accent: 'bg-accent-500 text-white hover:bg-accent-600 active:bg-accent-700 shadow-subtle hover:shadow-card',
         // Outline — secondary CTA
-        outline: 'border border-ink-300 text-ink-700 bg-white hover:bg-ink-50 hover:border-ink-400',
+        outline:
+          'border border-ink-300 text-ink-700 bg-white hover:bg-ink-50 hover:border-ink-400 ' +
+          'dark:border-ink-700 dark:text-ink-100 dark:bg-ink-900 dark:hover:bg-ink-800 dark:hover:border-ink-600',
         // Ghost — tertiary action
-        ghost: 'text-ink-700 hover:bg-ink-100',
+        ghost:
+          'text-ink-700 hover:bg-ink-100 ' +
+          'dark:text-ink-100 dark:hover:bg-ink-800',
         // Link — inline text-like action
-        link: 'text-accent-500 hover:text-accent-600 underline-offset-4 hover:underline',
+        link:
+          'text-accent-500 hover:text-accent-600 underline-offset-4 hover:underline ' +
+          'dark:text-accent-400 dark:hover:text-accent-300',
       },
       size: {
         sm: 'h-9 px-4 text-sm rounded-full',

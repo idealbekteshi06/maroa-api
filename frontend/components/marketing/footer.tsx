@@ -23,7 +23,7 @@ const FOOTER_NAV = {
 
 export function Footer() {
   return (
-    <footer className="mt-32 border-t border-ink-200/60 bg-ink-50">
+    <footer className="mt-32 border-t border-ink-200/60 dark:border-ink-800 bg-ink-50 dark:bg-ink-950">
       <div className="container py-16">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-10">
           <div className="col-span-2 md:col-span-1">
@@ -35,13 +35,13 @@ export function Footer() {
 
           {Object.entries(FOOTER_NAV).map(([heading, links]) => (
             <div key={heading}>
-              <h3 className="text-sm font-semibold text-ink-700">{heading}</h3>
+              <h3 className="text-sm font-semibold text-ink-700 dark:text-ink-100">{heading}</h3>
               <ul className="mt-4 space-y-3">
                 {links.map((link) => (
                   <li key={link.href}>
                     <Link
                       href={link.href}
-                      className="text-sm text-ink-400 hover:text-ink-700 transition-colors"
+                      className="text-sm text-ink-400 hover:text-ink-700 dark:hover:text-ink-100 transition-colors"
                     >
                       {link.label}
                     </Link>
@@ -52,7 +52,7 @@ export function Footer() {
           ))}
         </div>
 
-        <div className="mt-16 pt-8 border-t border-ink-200/60 flex flex-col-reverse md:flex-row md:items-center md:justify-between gap-4">
+        <div className="mt-16 pt-8 border-t border-ink-200/60 dark:border-ink-800 flex flex-col-reverse md:flex-row md:items-center md:justify-between gap-4">
           <p className="text-sm text-ink-400">
             © {new Date().getFullYear()} Maroa.ai. All rights reserved.
           </p>

@@ -8,6 +8,12 @@
     --foreground: #1d1d1f;
   }
 
+  .dark {
+    --background: #0a0a0b;
+    --foreground: #f5f5f7;
+    color-scheme: dark;
+  }
+
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
