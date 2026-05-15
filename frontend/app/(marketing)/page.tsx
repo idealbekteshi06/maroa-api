@@ -1,15 +1,43 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ArrowRight, Check, Sparkles, Zap, Shield, BarChart3, Globe2 } from 'lucide-react';
+import { ArrowRight, Check, Sparkles, Zap, Shield, BarChart3, Globe2, Users, Briefcase, Store } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { HeroPreview } from '@/components/marketing/hero-preview';
 
 export const metadata: Metadata = {
-  title: 'Marketing that knows your industry on day one',
+  title: 'AI marketing for freelancers, agencies & small businesses',
   description:
-    'Maroa writes content and runs ads that match your business from your very first post. No 30-day warm-up. Built for cafés, plumbers, dental clinics, gyms — every small business.',
+    'Maroa runs the whole marketing machine — content, ads, CRO, SEO, reporting — across your clients or your business. Daily decisions, full reasoning trace, compliance built in.',
   alternates: { canonical: '/' },
 };
+
+const MODES = [
+  {
+    icon: Store,
+    label: 'Solo business',
+    body: 'One business, autopilot. Approve a week of content in two minutes Monday morning.',
+    href: '/features',
+  },
+  {
+    icon: Briefcase,
+    label: 'Freelancer',
+    body: '5–20 clients, one inbox. Generate, send for approval, publish — no client babysitting.',
+    href: '/for-freelancers',
+  },
+  {
+    icon: Users,
+    label: 'Agency',
+    body: 'Workspaces, roles, white-label reports, multi-client calendar. Scale without hiring.',
+    href: '/for-agencies',
+  },
+  {
+    icon: Shield,
+    label: 'Enterprise',
+    body: 'Brand governance, SSO, audit logs, custom model routing. Same engine, regulated controls.',
+    href: '/contact',
+  },
+];
 
 const SOCIAL_PROOF = [
   { number: '28', label: 'Proven copywriting frameworks' },
@@ -81,17 +109,17 @@ export default function LandingPage() {
         <div className="container">
           <div className="mx-auto max-w-4xl text-center animate-fade-in-up">
             <p className="text-eyebrow uppercase text-ink-400 mb-6">
-              Marketing automation, built for small businesses
+              The marketing operating system
             </p>
-            <h1 className="text-display-xl text-ink-700">
-              Never start
-              <br />
-              from a blank page.
+            <h1 className="text-display-xl text-ink-700 dark:text-ink-50">
+              Your AI marketing team.
+              <br className="hidden sm:block" />
+              <span className="text-ink-400">For every client.</span>
             </h1>
             <p className="mt-6 text-xl sm:text-2xl text-ink-400 max-w-2xl mx-auto leading-relaxed text-pretty">
-              Maroa writes content and runs ads that match your industry from your very first post.
-              <br className="hidden sm:block" />
-              No 30-day warm-up.
+              Maroa runs the whole machine — content, ads, CRO, SEO, reporting — across
+              your clients or your own business. Daily decisions. Full reasoning trace.
+              Compliance built in.
             </p>
             <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
               <Button href="/signup" variant="primary" size="xl">
@@ -108,19 +136,38 @@ export default function LandingPage() {
           </div>
         </div>
 
-        {/* Hero product mockup — subtle, no over-decoration */}
-        <div className="container mt-20">
-          <div className="mx-auto max-w-5xl aspect-[16/9] rounded-3xl bg-gradient-to-br from-ink-100 to-ink-50 shadow-lifted border border-ink-200/60 overflow-hidden">
-            <div className="h-full w-full flex items-center justify-center">
-              <div className="text-center">
-                <div className="inline-flex items-center gap-2 px-4 py-2 bg-white rounded-full shadow-subtle text-sm font-medium text-ink-400">
-                  <span className="h-2 w-2 rounded-full bg-green-500"></span>
-                  Live preview coming soon
-                </div>
-                <p className="mt-4 text-ink-400 text-sm">Product screenshot placeholder</p>
+        {/* Hero product preview — rendered, not a placeholder. */}
+        <div className="container mt-16 sm:mt-20">
+          <HeroPreview />
+        </div>
+      </section>
+
+      {/* MODE STRIP — who this is for ───────────────────────────────────── */}
+      <section className="container mt-24 sm:mt-32">
+        <div className="max-w-3xl mx-auto text-center mb-12">
+          <p className="text-eyebrow uppercase text-ink-400 mb-4">Who Maroa is for</p>
+          <h2 className="text-display-md text-ink-700 dark:text-ink-50">
+            One engine. Four ways to run it.
+          </h2>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 max-w-6xl mx-auto">
+          {MODES.map((m) => (
+            <Link
+              key={m.label}
+              href={m.href}
+              className="block rounded-2xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 p-6 hover:border-accent-500 hover:shadow-card transition-all"
+            >
+              <div className="h-10 w-10 rounded-xl bg-ink-100 dark:bg-ink-800 flex items-center justify-center mb-4">
+                <m.icon className="h-5 w-5 text-ink-700 dark:text-ink-100" aria-hidden="true" />
               </div>
-            </div>
-          </div>
+              <h3 className="text-lg font-semibold text-ink-700 dark:text-ink-100">{m.label}</h3>
+              <p className="mt-2 text-sm text-ink-400 leading-relaxed">{m.body}</p>
+              <p className="mt-4 inline-flex items-center gap-1 text-xs font-medium text-accent-500">
+                See how
+                <ArrowRight className="h-3 w-3" />
+              </p>
+            </Link>
+          ))}
         </div>
       </section>
 
@@ -129,7 +176,7 @@ export default function LandingPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto">
           {SOCIAL_PROOF.map((item) => (
             <div key={item.label} className="text-center">
-              <p className="text-4xl sm:text-5xl font-semibold text-ink-700 tracking-tight">
+              <p className="text-4xl sm:text-5xl font-semibold text-ink-700 dark:text-ink-50 tracking-tight">
                 {item.number}
               </p>
               <p className="mt-2 text-sm text-ink-400 leading-snug">{item.label}</p>
