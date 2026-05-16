@@ -14,7 +14,10 @@ import { StaggerList } from '@/components/motion/stagger-list';
 import { FadeIn } from '@/components/motion/fade-in';
 import { MotionProvider } from '@/components/motion/motion-provider';
 import { useDashboardBadgesSetter } from '@/components/dashboard/sidebar-badges-context';
-import { CommandPaletteHandle } from '@/components/dashboard/command-palette';
+import {
+  CommandPaletteHandle,
+  useCommandPaletteDataSetter,
+} from '@/components/dashboard/command-palette';
 
 /**
  * The interactive War Room. Three explicit bands with different visual
@@ -98,6 +101,24 @@ export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) 
       settings: '!',
     });
   }, [publishBadges, pendingApprovalCount, effectiveFeed.clients.length]);
+
+  // Publish data for the ⌘K palette: workspace id, client roster (for the
+  // "jump to client" search), and the green-band decisions queued for
+  // bulk-approve.
+  const publishPaletteData = useCommandPaletteDataSetter();
+  useEffect(() => {
+    const greenBand = allDecisions
+      .filter((d) => d.required_approval && !d.refused && d.auto_safe_band === 'green')
+      .map((d) => ({ id: d.id, recommendation_text: d.recommendation_text }));
+    publishPaletteData({
+      workspaceId: effectiveFeed.workspace.id,
+      clients: effectiveFeed.clients.map((c) => ({
+        business_id: c.business_id,
+        client_name: c.client.client_name || c.business_id,
+      })),
+      greenBandDecisions: greenBand,
+    });
+  }, [publishPaletteData, effectiveFeed.workspace.id, effectiveFeed.clients, allDecisions]);
 
   return (
     <MotionProvider>
@@ -412,10 +433,8 @@ function PlanCard({ plan }: { plan: string }) {
 function EmptyPriorities() {
   return (
     <div className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-10 text-center">
-      <div className="relative mx-auto h-14 w-14 mb-5" aria-hidden="true">
-        <span className="absolute inset-0 rounded-full border border-ink-200 dark:border-ink-700" />
-        <span className="absolute inset-1.5 rounded-full border border-ink-200 dark:border-ink-700" />
-        <span className="absolute top-1/2 left-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-green-500 agent-pulse" />
+      <div className="mx-auto mb-5 w-24 h-24 flex items-center justify-center" aria-hidden="true">
+        <EmptyInboxIllustration />
       </div>
       <p className="text-base font-semibold text-ink-700 dark:text-ink-100">All clear</p>
       <p className="mt-1 text-sm text-ink-400 max-w-sm mx-auto">
@@ -429,6 +448,50 @@ function EmptyPriorities() {
         <ArrowRight className="h-3 w-3" />
       </Link>
     </div>
+  );
+}
+
+/**
+ * Empty-inbox micro-illustration — three stacked "card" rectangles fading
+ * up the pile, with the topmost rendered as a check inside a circular halo.
+ * Pure SVG, dark-mode safe via currentColor.
+ */
+function EmptyInboxIllustration() {
+  return (
+    <svg
+      width="96"
+      height="96"
+      viewBox="0 0 96 96"
+      fill="none"
+      className="text-ink-300 dark:text-ink-700"
+      role="presentation"
+    >
+      {/* Bottom card — most faded */}
+      <rect x="14" y="58" width="68" height="10" rx="3" fill="currentColor" opacity="0.35" />
+      {/* Middle card */}
+      <rect x="10" y="46" width="76" height="10" rx="3" fill="currentColor" opacity="0.55" />
+      {/* Top card — most defined */}
+      <rect
+        x="6"
+        y="32"
+        width="84"
+        height="12"
+        rx="3.5"
+        fill="currentColor"
+        opacity="0.85"
+      />
+      {/* Halo + check above the stack */}
+      <circle cx="48" cy="18" r="14" fill="none" stroke="#34C759" strokeWidth="1.5" opacity="0.35" />
+      <circle cx="48" cy="18" r="9.5" fill="#34C759" opacity="0.12" />
+      <path
+        d="M43 18.5 L46.4 22 L53.5 14.5"
+        stroke="#34C759"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
   );
 }
 

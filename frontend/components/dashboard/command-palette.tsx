@@ -5,40 +5,69 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
-import { Search, CheckCircle2, Users, FileBarChart } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import {
+  Search,
+  CheckCircle2,
+  Users,
+  FileBarChart,
+  Loader2,
+  CheckCheck,
+} from 'lucide-react';
 
 /**
- * Command palette — seed of a real ⌘K experience.
+ * Command palette — Cmd/Ctrl + K invocation, three real actions.
  *
  *   • <CommandPaletteProvider> sits in the dashboard layout, owns the open
- *     state, binds the Cmd/Ctrl + K global shortcut once, and renders the
- *     <dialog> shell (native showModal → free focus trap + escape).
+ *     state + the data slot (workspaceId, clients, green-band decisions
+ *     queued for bulk-approve), binds the global shortcut, renders the
+ *     <dialog> shell.
  *   • <CommandPaletteHandle> renders the "⌘ K" pill anywhere on the page
- *     and opens the dialog on click. Used in the War Room header.
- *
- * The three suggestion rows are stubs ("coming soon"). Full handler logic
- * lives in a future pass — this commit only ships the surface.
+ *     and opens the dialog on click.
+ *   • Pages push payload into the data slot via setPaletteData() so the
+ *     suggestions become live for whichever surface is mounted.
  */
+
+type GreenBandDecision = { id: string; recommendation_text: string };
+type ClientLite = { business_id: string; client_name: string };
+
+export type CommandPaletteData = {
+  workspaceId: string | null;
+  clients: ClientLite[];
+  greenBandDecisions: GreenBandDecision[];
+};
 
 type Ctx = {
   open: () => void;
   close: () => void;
   isOpen: boolean;
+  data: CommandPaletteData;
+  setPaletteData: (d: Partial<CommandPaletteData>) => void;
+};
+
+const EMPTY_DATA: CommandPaletteData = {
+  workspaceId: null,
+  clients: [],
+  greenBandDecisions: [],
 };
 
 const PaletteContext = createContext<Ctx>({
   open: () => {},
   close: () => {},
   isOpen: false,
+  data: EMPTY_DATA,
+  setPaletteData: () => {},
 });
 
 export function CommandPaletteProvider({ children }: { children: ReactNode }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [isOpen, setIsOpen] = useState(false);
+  const [data, setData] = useState<CommandPaletteData>(EMPTY_DATA);
 
   const open = useCallback(() => {
     const dlg = dialogRef.current;
@@ -53,24 +82,23 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
     setIsOpen(false);
   }, []);
 
+  const setPaletteData = useCallback((partial: Partial<CommandPaletteData>) => {
+    setData((prev) => ({ ...prev, ...partial }));
+  }, []);
+
   // Global Cmd/Ctrl + K binding — single listener at the layout level.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        if (dialogRef.current?.open) {
-          close();
-        } else {
-          open();
-        }
+        if (dialogRef.current?.open) close();
+        else open();
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, close]);
 
-  // Backdrop click closes; the native <dialog::backdrop> isn't part of the
-  // child tree so we attach to the dialog element and compare target.
   useEffect(() => {
     const dlg = dialogRef.current;
     if (!dlg) return;
@@ -81,8 +109,6 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
     return () => dlg.removeEventListener('click', onClick);
   }, [close]);
 
-  // Mirror native close (escape, .close()) into local state so the pill's
-  // aria-expanded attribute stays accurate.
   useEffect(() => {
     const dlg = dialogRef.current;
     if (!dlg) return;
@@ -91,51 +117,188 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
     return () => dlg.removeEventListener('close', onClose);
   }, []);
 
+  const value: Ctx = useMemo(
+    () => ({ open, close, isOpen, data, setPaletteData }),
+    [open, close, isOpen, data, setPaletteData],
+  );
+
   return (
-    <PaletteContext.Provider value={{ open, close, isOpen }}>
+    <PaletteContext.Provider value={value}>
       {children}
       <dialog
         ref={dialogRef}
         aria-label="Command palette"
         className="palette-dialog max-w-2xl w-full mx-auto p-0 rounded-2xl border border-ink-200/60 dark:border-ink-700/60 bg-white dark:bg-ink-900 shadow-lifted backdrop:bg-ink-950/40 backdrop:backdrop-blur-sm"
       >
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-ink-200/60 dark:border-ink-800">
-          <Search className="h-4 w-4 text-ink-400 flex-shrink-0" />
-          <input
-            type="text"
-            placeholder="Search clients, decisions, agents…"
-            className="flex-1 bg-transparent outline-none text-sm text-ink-700 dark:text-ink-100 placeholder:text-ink-400"
-            autoFocus
-          />
-          <kbd className="text-[10px] font-mono text-ink-400 border border-ink-200 dark:border-ink-700 rounded px-1.5 py-0.5">
-            Esc
-          </kbd>
-        </div>
-        <ul className="p-2">
-          {SUGGESTIONS.map((s) => (
-            <li key={s.label}>
-              <button
-                type="button"
-                disabled
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-ink-700 dark:text-ink-100 hover:bg-ink-50 dark:hover:bg-ink-800/60 transition-colors text-left disabled:cursor-not-allowed"
-              >
-                <s.icon className="h-4 w-4 text-ink-400 flex-shrink-0" />
-                <span className="flex-1">{s.label}</span>
-                <span className="text-[10px] text-ink-400 italic">(coming soon)</span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <PaletteBody onClose={close} isOpen={isOpen} />
       </dialog>
     </PaletteContext.Provider>
   );
 }
 
-const SUGGESTIONS = [
-  { label: 'Approve all green-band decisions', icon: CheckCircle2 },
-  { label: 'Jump to client…', icon: Users },
-  { label: "Open today's report", icon: FileBarChart },
-];
+/**
+ * Inner body — split from provider so the input state, search filter, and
+ * bulk-approve runtime can mount/unmount with the dialog.
+ */
+function PaletteBody({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  const { data } = useContext(PaletteContext);
+  const router = useRouter();
+  const [query, setQuery] = useState('');
+  const [bulkState, setBulkState] = useState<'idle' | 'running' | 'done'>('idle');
+  const [bulkResult, setBulkResult] = useState<{ ok: number; fail: number } | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Reset query + bulk state every time the palette closes so the next
+  // open starts clean.
+  useEffect(() => {
+    if (!isOpen) {
+      setQuery('');
+      setBulkState('idle');
+      setBulkResult(null);
+    } else {
+      // Give the dialog a tick to mount, then focus the input.
+      const id = setTimeout(() => inputRef.current?.focus(), 0);
+      return () => clearTimeout(id);
+    }
+  }, [isOpen]);
+
+  const greenBandCount = data.greenBandDecisions.length;
+  const canBulkApprove = bulkState === 'idle' && greenBandCount > 0 && !!data.workspaceId;
+
+  const trimmed = query.trim().toLowerCase();
+  const clientMatches = useMemo(() => {
+    if (!trimmed) return data.clients.slice(0, 5);
+    return data.clients
+      .filter((c) => c.client_name.toLowerCase().includes(trimmed))
+      .slice(0, 5);
+  }, [data.clients, trimmed]);
+
+  async function runBulkApprove() {
+    if (!canBulkApprove) return;
+    setBulkState('running');
+    setBulkResult(null);
+    const ws = data.workspaceId!;
+    const results = await Promise.allSettled(
+      data.greenBandDecisions.map((d) =>
+        fetch(
+          `/api/war-room/${encodeURIComponent(ws)}/decisions/${encodeURIComponent(d.id)}/approve`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+          },
+        ).then((r) => {
+          if (!r.ok && r.status !== 409) throw new Error(`HTTP ${r.status}`);
+          return r;
+        }),
+      ),
+    );
+    const ok = results.filter((r) => r.status === 'fulfilled').length;
+    setBulkResult({ ok, fail: results.length - ok });
+    setBulkState('done');
+    // Hand control back to the page so it can refresh.
+    router.refresh();
+  }
+
+  function jumpToClient(businessId: string) {
+    router.push(`/dashboard/client/${encodeURIComponent(businessId)}`);
+    onClose();
+  }
+
+  function openReport() {
+    router.push('/dashboard/reports');
+    onClose();
+  }
+
+  return (
+    <>
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-ink-200/60 dark:border-ink-800">
+        <Search className="h-4 w-4 text-ink-400 flex-shrink-0" />
+        <input
+          ref={inputRef}
+          type="text"
+          placeholder="Search clients or pick an action…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="flex-1 bg-transparent outline-none text-sm text-ink-700 dark:text-ink-100 placeholder:text-ink-400"
+        />
+        <kbd className="text-[10px] font-mono text-ink-400 border border-ink-200 dark:border-ink-700 rounded px-1.5 py-0.5">
+          Esc
+        </kbd>
+      </div>
+      <div className="p-2 max-h-[60vh] overflow-y-auto">
+        {/* ── Actions ───────────────────────────────────────────────────── */}
+        <p className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-ink-400 font-medium">
+          Actions
+        </p>
+        <ul>
+          <li>
+            <button
+              type="button"
+              onClick={runBulkApprove}
+              disabled={!canBulkApprove}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-ink-700 dark:text-ink-100 hover:bg-ink-50 dark:hover:bg-ink-800/60 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {bulkState === 'running' ? (
+                <Loader2 className="h-4 w-4 text-accent-500 flex-shrink-0 animate-spin" />
+              ) : bulkState === 'done' ? (
+                <CheckCheck className="h-4 w-4 text-green-500 flex-shrink-0" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4 text-ink-400 flex-shrink-0" />
+              )}
+              <span className="flex-1">
+                {bulkState === 'done' && bulkResult
+                  ? `Approved ${bulkResult.ok}${bulkResult.fail > 0 ? `, ${bulkResult.fail} failed` : ''}`
+                  : `Approve all green-band decisions`}
+              </span>
+              {bulkState === 'idle' && (
+                <span className="text-[10px] text-ink-400 tabular-nums">
+                  {greenBandCount > 0 ? `${greenBandCount} ready` : 'none queued'}
+                </span>
+              )}
+            </button>
+          </li>
+          <li>
+            <button
+              type="button"
+              onClick={openReport}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-ink-700 dark:text-ink-100 hover:bg-ink-50 dark:hover:bg-ink-800/60 transition-colors text-left"
+            >
+              <FileBarChart className="h-4 w-4 text-ink-400 flex-shrink-0" />
+              <span className="flex-1">Open today&apos;s report</span>
+              <kbd className="text-[10px] font-mono text-ink-400">↵</kbd>
+            </button>
+          </li>
+        </ul>
+        {/* ── Jump to client ────────────────────────────────────────────── */}
+        <p className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider text-ink-400 font-medium">
+          {trimmed ? 'Matching clients' : 'Recent clients'}
+        </p>
+        {clientMatches.length === 0 ? (
+          <p className="px-3 py-2 text-sm text-ink-400">
+            {trimmed ? `No clients match "${query}".` : 'No clients yet.'}
+          </p>
+        ) : (
+          <ul>
+            {clientMatches.map((c) => (
+              <li key={c.business_id}>
+                <button
+                  type="button"
+                  onClick={() => jumpToClient(c.business_id)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-ink-700 dark:text-ink-100 hover:bg-ink-50 dark:hover:bg-ink-800/60 transition-colors text-left"
+                >
+                  <Users className="h-4 w-4 text-ink-400 flex-shrink-0" />
+                  <span className="flex-1 truncate">{c.client_name}</span>
+                  <span className="text-[10px] text-ink-400 font-mono">jump</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </>
+  );
+}
 
 export function CommandPaletteHandle() {
   const { open, isOpen } = useContext(PaletteContext);
@@ -154,4 +317,10 @@ export function CommandPaletteHandle() {
       </kbd>
     </button>
   );
+}
+
+/** Convenience hook so pages can publish data without importing the
+    context type. Use inside an effect after the page's data loads. */
+export function useCommandPaletteDataSetter() {
+  return useContext(PaletteContext).setPaletteData;
 }

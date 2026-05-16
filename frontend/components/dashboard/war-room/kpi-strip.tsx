@@ -12,99 +12,72 @@ import {
   ChevronDown,
   Minus,
 } from 'lucide-react';
-import type { WorkspaceFeed } from '@/lib/types/war-room';
+import type { WorkspaceFeed, KpiHistory, KpiHistoryKey } from '@/lib/types/war-room';
 import { STATE_DOTS } from '@/lib/design-tokens';
 
 type Trend = 'up' | 'down' | 'flat';
 
 type Kpi = {
+  key: KpiHistoryKey;
   label: string;
   value: number;
-  trend?: string;
+  trendCopy?: string;
   icon: typeof Users2;
   tone?: 'default' | 'warn' | 'success';
-  /** 7-day mock history. The last entry is `value`; earlier entries jitter
-      around it so the line reads as a real-ish series. Wire to the API
-      next pass. */
-  history: number[];
-  trendDir: Trend;
-  deltaPct: number;
 };
-
-function jitterHistory(target: number, seed: number, dir: Trend): number[] {
-  // Stable pseudo-random so the line doesn't reshuffle on every render.
-  let s = seed * 9301 + 49297;
-  const rand = () => {
-    s = (s * 9301 + 49297) % 233280;
-    return s / 233280;
-  };
-  const out: number[] = [];
-  // Build a smooth-ish progression toward `target` based on direction.
-  const baseStart =
-    dir === 'up' ? Math.max(0, target * 0.78) : dir === 'down' ? target * 1.22 : target;
-  for (let i = 0; i < 7; i++) {
-    const t = i / 6;
-    const base = baseStart + (target - baseStart) * t;
-    const jitter = (rand() - 0.5) * (target > 0 ? target * 0.12 : 1);
-    out.push(Math.max(0, Math.round(base + jitter)));
-  }
-  // Force the final point to equal the canonical value.
-  out[6] = target;
-  return out;
-}
 
 function buildKpis(feed: WorkspaceFeed): Kpi[] {
   const { summary } = feed;
-  const refusals7d = feed.clients
-    .flatMap((c) => c.recent_decisions)
-    .filter((d) => d.refused && new Date(d.created_at) > new Date(Date.now() - 7 * 86400000)).length;
+  const refusals7d =
+    feed.kpi_history?.refusals_7d?.reduce((a, b) => a + b, 0) ??
+    feed.clients
+      .flatMap((c) => c.recent_decisions)
+      .filter(
+        (d) =>
+          d.refused && new Date(d.created_at) > new Date(Date.now() - 7 * 86400000),
+      ).length;
 
-  const rows: Array<Omit<Kpi, 'history'>> = [
+  return [
     {
+      key: 'active_clients',
       label: 'Active clients',
       value: summary.clients_total,
-      trend: '+1 vs last week',
+      trendCopy: 'across workspace',
       icon: Users2,
-      trendDir: 'up',
-      deltaPct: 12,
     },
     {
+      key: 'creatives_total',
       label: 'Creatives live',
       value: summary.creatives_total,
-      trend: `${summary.decaying_or_dead} need refresh`,
+      trendCopy: `${summary.decaying_or_dead} need refresh`,
       icon: FileImage,
-      tone: summary.decaying_or_dead > summary.creatives_total * 0.3 ? 'warn' : 'default',
-      trendDir: 'up',
-      deltaPct: 8,
+      tone:
+        summary.decaying_or_dead > summary.creatives_total * 0.3 ? 'warn' : 'default',
     },
     {
+      key: 'experiments_running',
       label: 'Experiments running',
       value: summary.experiments_running,
-      trend: summary.experiments_running > 0 ? 'collecting data' : 'idle',
+      trendCopy: summary.experiments_running > 0 ? 'collecting data' : 'idle',
       icon: FlaskConical,
-      trendDir: 'flat',
-      deltaPct: 0,
     },
     {
+      key: 'pending_approvals',
       label: 'Awaiting approval',
       value: summary.pending_approvals,
-      trend: summary.pending_approvals > 0 ? 'action required' : 'all clear',
+      trendCopy:
+        summary.pending_approvals > 0 ? 'action required' : 'all clear',
       icon: ListChecks,
       tone: summary.pending_approvals > 0 ? 'warn' : 'success',
-      trendDir: summary.pending_approvals > 0 ? 'up' : 'down',
-      deltaPct: summary.pending_approvals > 0 ? 25 : -33,
     },
     {
+      key: 'refusals_7d',
       label: 'Refusals (7d)',
       value: refusals7d,
-      trend: 'compliance + ethics',
+      trendCopy: 'compliance + ethics',
       icon: AlertOctagon,
-      trendDir: refusals7d > 0 ? 'up' : 'flat',
-      deltaPct: refusals7d > 0 ? 100 : 0,
     },
   ];
-
-  return rows.map((r, i) => ({ ...r, history: jitterHistory(r.value, i + 1, r.trendDir) }));
 }
 
 const TONE = {
@@ -113,32 +86,59 @@ const TONE = {
   success: 'text-green-700 dark:text-green-400',
 };
 
-export function KpiStrip({ feed, emptyMode = false }: { feed: WorkspaceFeed; emptyMode?: boolean }) {
+/** Pulls per-key series from the backend-provided history, falling back to
+    a flat array at the current value when history is missing for a key. */
+function seriesFor(history: KpiHistory | undefined, key: KpiHistoryKey, current: number): number[] {
+  const real = history?.[key];
+  if (Array.isArray(real) && real.length === 7) return real;
+  return Array.from({ length: 7 }, () => current);
+}
+
+function trendOf(history: KpiHistory | undefined, key: KpiHistoryKey): Trend {
+  return history?.trend?.[key] ?? 'flat';
+}
+
+function deltaOf(history: KpiHistory | undefined, key: KpiHistoryKey): number {
+  return history?.delta_pct?.[key] ?? 0;
+}
+
+export function KpiStrip({
+  feed,
+  emptyMode = false,
+}: {
+  feed: WorkspaceFeed;
+  emptyMode?: boolean;
+}) {
   const kpis = buildKpis(feed);
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
-      {kpis.map((kpi, i) => (
-        <div
-          key={kpi.label}
-          className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-4"
-        >
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-xs uppercase tracking-wider text-ink-400">{kpi.label}</p>
-            <kpi.icon className="h-4 w-4 text-ink-400" />
-          </div>
-          <p
-            className={`text-2xl font-semibold tracking-tight tabular-nums ${
-              emptyMode ? 'text-ink-400' : TONE[kpi.tone || 'default']
-            }`}
+      {kpis.map((kpi, i) => {
+        const points = seriesFor(feed.kpi_history, kpi.key, kpi.value);
+        const trend = trendOf(feed.kpi_history, kpi.key);
+        const delta = deltaOf(feed.kpi_history, kpi.key);
+        return (
+          <div
+            key={kpi.label}
+            className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-4"
           >
-            <CountUp target={kpi.value} delayMs={i * 80} emptyMode={emptyMode} />
-          </p>
-          <div className="mt-2">
-            <Sparkline points={kpi.history} trend={kpi.trendDir} emptyMode={emptyMode} />
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs uppercase tracking-wider text-ink-400">{kpi.label}</p>
+              <kpi.icon className="h-4 w-4 text-ink-400" />
+            </div>
+            <p
+              className={`text-2xl font-semibold tracking-tight tabular-nums ${
+                emptyMode ? 'text-ink-400' : TONE[kpi.tone || 'default']
+              }`}
+            >
+              <CountUp target={kpi.value} delayMs={i * 80} emptyMode={emptyMode} />
+            </p>
+            <div className="mt-2">
+              <Sparkline points={points} trend={trend} emptyMode={emptyMode} />
+            </div>
+            <DeltaPill delta={delta} trend={trend} emptyMode={emptyMode} />
           </div>
-          <DeltaPill delta={kpi.deltaPct} trend={kpi.trendDir} emptyMode={emptyMode} />
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -164,7 +164,7 @@ function Sparkline({
   const padX = 2;
   const padY = 3;
 
-  if (emptyMode) {
+  if (emptyMode || points.length === 0) {
     return (
       <svg
         viewBox={`0 0 ${w} ${h}`}
@@ -223,8 +223,6 @@ function Sparkline({
       preserveAspectRatio="none"
     >
       <path d={d} fill="none" stroke={stroke} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-      {/* Hover affordance — points + last-x guideline. Hidden by default,
-          revealed by sparkline-svg:hover via CSS (see globals.css). */}
       <g className="sparkline-hover">
         {xy.map((p, i) => (
           <circle key={i} cx={p.x} cy={p.y} r={1.4} fill={stroke} />

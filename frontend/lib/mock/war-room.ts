@@ -267,6 +267,30 @@ export const mockWorkspaceFeed: WorkspaceFeed = {
     decaying_or_dead: 30,
     pending_approvals: 2,
   },
+  // 7-day history matching the summary's current values at index 6. Lets
+  // the dashboard render sparklines pre-auth or when the API omits the
+  // augmentation. Numbers chosen to read as plausible mid-growth motion.
+  kpi_history: {
+    active_clients:      [2, 2, 2, 3, 3, 3, 3],
+    creatives_total:     [78, 81, 84, 86, 89, 92, 94],
+    experiments_running: [0, 1, 1, 1, 0, 1, 1],
+    pending_approvals:   [4, 3, 4, 3, 2, 2, 2],
+    refusals_7d:         [0, 1, 0, 2, 0, 1, 0],
+    delta_pct: {
+      active_clients: 50,
+      creatives_total: 21,
+      experiments_running: 0,
+      pending_approvals: -50,
+      refusals_7d: 0,
+    },
+    trend: {
+      active_clients: 'up',
+      creatives_total: 'up',
+      experiments_running: 'flat',
+      pending_approvals: 'down',
+      refusals_7d: 'flat',
+    },
+  },
   generated_at: now(),
 };
 

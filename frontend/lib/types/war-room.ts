@@ -107,6 +107,18 @@ export type ClientFeed = {
   error?: string;
 };
 
+export type KpiHistoryKey =
+  | 'active_clients'
+  | 'creatives_total'
+  | 'experiments_running'
+  | 'pending_approvals'
+  | 'refusals_7d';
+
+export type KpiHistory = Record<KpiHistoryKey, number[]> & {
+  delta_pct: Record<KpiHistoryKey, number>;
+  trend: Record<KpiHistoryKey, 'up' | 'down' | 'flat'>;
+};
+
 export type WorkspaceFeed = {
   workspace: {
     id: string;
@@ -123,5 +135,9 @@ export type WorkspaceFeed = {
     decaying_or_dead: number;
     pending_approvals: number;
   };
+  /** 7-day history per KPI + week-over-week delta + trend direction. Added
+      by routes/war-room.js — see lib/warRoomKpiHistory.js. Optional because
+      legacy or degraded responses may omit it. */
+  kpi_history?: KpiHistory;
   generated_at: string;
 };

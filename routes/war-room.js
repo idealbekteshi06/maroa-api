@@ -1,5 +1,7 @@
 'use strict';
 
+const { buildKpiHistory } = require('../lib/warRoomKpiHistory');
+
 /**
  * routes/war-room.js — HTTP surface for the War Room Feed lib.
  *
@@ -72,6 +74,20 @@ function register({
 
       const feed = await warRoomFeed.getWorkspaceFeed(workspaceId);
       if (!feed) return apiError(res, 404, 'NOT_FOUND', 'Workspace feed unavailable');
+
+      // Augment with 7-day sparkline history. Pure read; never throws into
+      // the response — degrades to flat arrays on any per-table failure.
+      try {
+        const businessIds = (feed.clients || []).map((c) => c.business_id).filter(Boolean);
+        feed.kpi_history = await buildKpiHistory({
+          sbGet,
+          businessIds,
+          currentSummary: feed.summary || {},
+        });
+      } catch (e) {
+        log?.('/api/war-room', null, 'kpi_history error', { error: e.message });
+      }
+
       return res.json(feed);
     } catch (err) {
       log?.('/api/war-room', null, 'feed error', { error: err.message });
