@@ -141,7 +141,7 @@ export default function SettingsPage() {
                   <a
                     key={item.href}
                     href={item.href}
-                    className="group flex items-start gap-4 rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 hover:border-ink-300 dark:hover:border-ink-700 p-5 transition-colors"
+                    className="group flex items-start gap-4 rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 hover:border-ink-300 dark:hover:border-ink-700 p-5 transition-colors"
                   >
                     <SettingsItemContent item={item} />
                   </a>
@@ -149,7 +149,7 @@ export default function SettingsPage() {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className="group flex items-start gap-4 rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 hover:border-ink-300 dark:hover:border-ink-700 p-5 transition-colors"
+                    className="group flex items-start gap-4 rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 hover:border-ink-300 dark:hover:border-ink-700 p-5 transition-colors"
                   >
                     <SettingsItemContent item={item} />
                   </Link>
@@ -162,7 +162,7 @@ export default function SettingsPage() {
         {/* Danger zone */}
         <section>
           <p className="text-eyebrow uppercase text-red-700 dark:text-red-400 mb-4">Danger zone</p>
-          <div className="rounded-2xl border border-red-200/60 dark:border-red-500/20 bg-red-50/30 dark:bg-red-500/5 p-6">
+          <div className="rounded-xl border border-red-200/60 dark:border-red-500/20 bg-red-50/30 dark:bg-red-500/5 p-6">
             <h3 className="text-base font-semibold text-ink-700 dark:text-ink-100">Close account</h3>
             <p className="mt-1 text-sm text-ink-400 leading-relaxed max-w-2xl">
               Closes your account, exports a .zip of everything Maroa made for you, and deletes or

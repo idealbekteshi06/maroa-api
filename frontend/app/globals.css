@@ -40,7 +40,12 @@
   body {
     background: var(--background);
     color: var(--foreground);
-    font-feature-settings: 'ss01' on, 'ss02' on, 'cv01' on, 'cv02' on, 'cv11' on;
+    /* Inter Variable feature settings:
+       - cv11: single-story 'a' (Linear/Stripe look, not the SF double-story)
+       - ss01: alternate digit set with consistent baseline
+       - ss03: rounded square punctuation marks
+       Combined, these make Inter Variable look distinct from system stack. */
+    font-feature-settings: 'cv11' on, 'ss01' on, 'ss03' on;
     text-wrap: pretty;
   }
 

@@ -50,7 +50,7 @@ function SignUpInner() {
   if (sent) {
     return (
       <div className="text-center">
-        <div className="mx-auto h-14 w-14 rounded-2xl bg-accent-50 flex items-center justify-center mb-6">
+        <div className="mx-auto h-14 w-14 rounded-xl bg-accent-50 flex items-center justify-center mb-6">
           <Mail className="h-7 w-7 text-accent-500" aria-hidden="true" />
         </div>
         <h1 className="text-2xl font-semibold text-ink-700 mb-3">Check your inbox</h1>

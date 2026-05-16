@@ -135,7 +135,7 @@ export default function PricingPage() {
             <div
               key={plan.name}
               className={cn(
-                'relative rounded-3xl p-8 transition-all duration-300 flex flex-col',
+                'relative rounded-xl p-8 transition-all duration-300 flex flex-col',
                 plan.highlight
                   ? 'bg-ink-700 dark:bg-ink-800 text-white shadow-lifted scale-[1.02]'
                   : 'bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 shadow-subtle hover:shadow-card dark:hover:border-ink-700',
@@ -225,8 +225,8 @@ export default function PricingPage() {
           ))}
         </div>
 
-        <div className="mt-8 max-w-7xl mx-auto rounded-3xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 p-8 flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-10">
-          <div className="h-12 w-12 rounded-2xl bg-ink-100 dark:bg-ink-800 flex items-center justify-center flex-shrink-0">
+        <div className="mt-8 max-w-7xl mx-auto rounded-xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 p-8 flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-10">
+          <div className="h-12 w-12 rounded-xl bg-ink-100 dark:bg-ink-800 flex items-center justify-center flex-shrink-0">
             <Users className="h-6 w-6 text-ink-700 dark:text-ink-100" aria-hidden="true" />
           </div>
           <div className="flex-1 min-w-0">

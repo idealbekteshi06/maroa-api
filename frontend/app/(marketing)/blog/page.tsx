@@ -33,7 +33,7 @@ export default function BlogPage() {
       </div>
 
       {POSTS.length === 0 ? (
-        <div className="max-w-2xl mx-auto rounded-3xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 p-12 text-center">
+        <div className="max-w-2xl mx-auto rounded-xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 p-12 text-center">
           <h2 className="text-xl font-semibold text-ink-700 dark:text-ink-50 mb-3">
             No posts yet.
           </h2>

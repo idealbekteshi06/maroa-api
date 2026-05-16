@@ -49,7 +49,7 @@ export default function StatusPage() {
         </h1>
 
         <div
-          className={`rounded-2xl p-5 mb-12 flex items-center gap-3 ${
+          className={`rounded-xl p-5 mb-12 flex items-center gap-3 ${
             allOk
               ? 'bg-green-50 dark:bg-green-500/10 border border-green-200/60 dark:border-green-500/20'
               : 'bg-amber-50 dark:bg-amber-500/10 border border-amber-200/60 dark:border-amber-500/20'

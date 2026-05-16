@@ -155,7 +155,7 @@ export default function LandingPage() {
             <Link
               key={m.label}
               href={m.href}
-              className="block rounded-2xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 p-6 hover:border-accent-500 hover:shadow-card transition-all"
+              className="block rounded-xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 p-6 hover:border-accent-500 hover:shadow-card transition-all"
             >
               <div className="h-10 w-10 rounded-xl bg-ink-100 dark:bg-ink-800 flex items-center justify-center mb-4">
                 <m.icon className="h-5 w-5 text-ink-700 dark:text-ink-100" aria-hidden="true" />
@@ -202,7 +202,7 @@ export default function LandingPage() {
           {FEATURES.map((feature) => (
             <Card key={feature.title} className="p-2">
               <CardContent>
-                <div className="h-12 w-12 rounded-2xl bg-ink-100 dark:bg-ink-800 flex items-center justify-center mb-5">
+                <div className="h-12 w-12 rounded-xl bg-ink-100 dark:bg-ink-800 flex items-center justify-center mb-5">
                   <feature.icon className="h-6 w-6 text-ink-700 dark:text-ink-100" aria-hidden="true" />
                 </div>
                 <h3 className="text-lg font-semibold text-ink-700 dark:text-ink-100 mb-2">
@@ -277,7 +277,7 @@ export default function LandingPage() {
 
       {/* CTA BAND ─────────────────────────────────────────────────────────── */}
       <section className="container mt-32">
-        <div className="rounded-3xl bg-ink-700 dark:bg-ink-800 text-white px-8 py-16 sm:px-16 sm:py-24 text-center">
+        <div className="rounded-xl bg-ink-700 dark:bg-ink-800 text-white px-8 py-16 sm:px-16 sm:py-24 text-center">
           <h2 className="text-display-lg text-white">
             Stop dreading Monday morning.
           </h2>

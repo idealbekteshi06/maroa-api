@@ -25,7 +25,7 @@ export function ComingSoon({
       <h1 className="text-3xl font-semibold text-ink-700 dark:text-ink-50 tracking-tight">{title}</h1>
       <p className="mt-3 text-ink-400 max-w-2xl leading-relaxed">{description}</p>
 
-      <div className="mt-8 rounded-2xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 p-6">
+      <div className="mt-8 rounded-xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 p-6">
         <p className="text-sm font-medium text-ink-700 dark:text-ink-100 mb-4">Coming in this view:</p>
         <ul className="space-y-2">
           {bullets.map((b) => (

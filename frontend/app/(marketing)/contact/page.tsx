@@ -51,7 +51,7 @@ export default function ContactPage() {
           <a
             key={c.label}
             href={`mailto:${c.email}`}
-            className="block rounded-2xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 p-6 hover:border-accent-500 hover:shadow-card transition-all"
+            className="block rounded-xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 p-6 hover:border-accent-500 hover:shadow-card transition-all"
           >
             <div className="h-10 w-10 rounded-xl bg-ink-100 dark:bg-ink-800 flex items-center justify-center mb-4">
               <c.icon className="h-5 w-5 text-ink-700 dark:text-ink-100" aria-hidden="true" />

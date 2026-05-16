@@ -32,7 +32,7 @@ export default function ExperimentsPage() {
       </h2>
 
       {running.length === 0 ? (
-        <div className="rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-12 text-center">
+        <div className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-12 text-center">
           <FlaskConical className="h-8 w-8 text-ink-300 dark:text-ink-700 mx-auto mb-3" />
           <p className="text-ink-400">No active experiments.</p>
         </div>
@@ -41,7 +41,7 @@ export default function ExperimentsPage() {
           {running.map((e) => (
             <article
               key={e.id}
-              className="rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-5"
+              className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-5"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">

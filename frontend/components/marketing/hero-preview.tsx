@@ -14,7 +14,7 @@ import { Sparkles, AlertCircle, ShieldCheck, TrendingUp, Inbox } from 'lucide-re
 export function HeroPreview() {
   return (
     <div
-      className="mx-auto max-w-5xl rounded-2xl shadow-lifted border border-ink-200/60 dark:border-ink-700/60 overflow-hidden bg-white dark:bg-ink-900"
+      className="mx-auto max-w-5xl rounded-xl shadow-lifted border border-ink-200/60 dark:border-ink-700/60 overflow-hidden bg-white dark:bg-ink-900"
       aria-label="Maroa War Room preview"
     >
       {/* Window chrome */}

@@ -103,7 +103,7 @@ export default function ForFreelancersPage() {
           {REASONS.map((r) => (
             <div
               key={r.title}
-              className="rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-6"
+              className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-6"
             >
               <div className="h-10 w-10 rounded-xl bg-ink-100 dark:bg-ink-800 flex items-center justify-center mb-4">
                 <r.icon className="h-5 w-5 text-ink-700 dark:text-ink-100" aria-hidden="true" />
@@ -127,7 +127,7 @@ export default function ForFreelancersPage() {
           {MATH.map((m) => (
             <div
               key={m.metric}
-              className="rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-5"
+              className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-5"
             >
               <p className="text-xs uppercase tracking-wider text-ink-400 leading-snug">{m.metric}</p>
               <p className="text-2xl sm:text-3xl font-semibold tracking-tight text-ink-700 dark:text-ink-100 mt-2">
@@ -141,7 +141,7 @@ export default function ForFreelancersPage() {
 
       {/* CHECKLIST */}
       <section className="container mt-32">
-        <div className="max-w-3xl mx-auto rounded-3xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-8 sm:p-12">
+        <div className="max-w-3xl mx-auto rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-8 sm:p-12">
           <h2 className="text-2xl font-semibold text-ink-700 dark:text-ink-100 tracking-tight">
             What ships with the Freelancer plan
           </h2>
@@ -180,7 +180,7 @@ export default function ForFreelancersPage() {
 
       {/* CTA */}
       <section className="container mt-32">
-        <div className="rounded-3xl bg-ink-700 dark:bg-ink-800 text-white px-8 py-16 sm:px-16 sm:py-24 text-center">
+        <div className="rounded-xl bg-ink-700 dark:bg-ink-800 text-white px-8 py-16 sm:px-16 sm:py-24 text-center">
           <h2 className="text-display-md text-white">Add your first client in three minutes.</h2>
           <p className="mt-6 text-xl text-ink-100/80 max-w-2xl mx-auto leading-relaxed">
             See your content queue, your ads dashboard, and your approval inbox come to life — for

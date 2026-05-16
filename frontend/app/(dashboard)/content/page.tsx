@@ -92,7 +92,7 @@ export default function ContentPage() {
             <section
               key={col.id}
               aria-labelledby={`col-${col.id}`}
-              className="rounded-2xl bg-ink-50/60 dark:bg-ink-900/40 border border-ink-200/60 dark:border-ink-800 p-3"
+              className="rounded-xl bg-ink-50/60 dark:bg-ink-900/40 border border-ink-200/60 dark:border-ink-800 p-3"
             >
               <header className="flex items-center gap-2 px-2 py-2">
                 <col.icon className={`h-4 w-4 ${col.tone}`} />

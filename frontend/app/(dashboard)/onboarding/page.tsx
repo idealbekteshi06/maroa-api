@@ -100,7 +100,7 @@ export default function OnboardingPage() {
       </div>
 
       {/* Step content */}
-      <div className="bg-white border border-ink-200/60 rounded-3xl p-8 sm:p-10 shadow-subtle">
+      <div className="bg-white border border-ink-200/60 rounded-xl p-8 sm:p-10 shadow-subtle">
         {current === 'business' && (
           <Step
             title="Tell us about your business."

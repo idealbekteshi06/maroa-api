@@ -141,7 +141,7 @@ export default function AdsPage() {
         ].map((k) => (
           <div
             key={k.label}
-            className="rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-4"
+            className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-4"
           >
             <p className="text-xs uppercase tracking-wider text-ink-400">{k.label}</p>
             <p className="text-2xl font-semibold tracking-tight text-ink-700 dark:text-ink-100 mt-1">
@@ -169,7 +169,7 @@ function CampaignRow({ c }: { c: Campaign }) {
   const v = VERDICT_STYLES[c.verdict];
   const VIcon = v.icon;
   return (
-    <article className="rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 hover:border-ink-300 dark:hover:border-ink-700 transition-colors overflow-hidden">
+    <article className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 hover:border-ink-300 dark:hover:border-ink-700 transition-colors overflow-hidden">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 p-5 items-start">
         {/* Title + client */}
         <div className="lg:col-span-4 min-w-0">

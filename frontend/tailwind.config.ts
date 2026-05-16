@@ -50,24 +50,33 @@ const config: Config = {
         },
       },
       fontFamily: {
+        // Inter Variable leads; system stack is the fallback while the
+        // variable file loads. -apple-system keeps SF on macOS/iOS users
+        // if the font request fails entirely.
         sans: [
+          'Inter Variable',
+          'Inter',
           '-apple-system', 'BlinkMacSystemFont',
           'SF Pro Display', 'SF Pro Text',
-          'Inter', 'Helvetica Neue', 'Arial', 'sans-serif',
+          'Helvetica Neue', 'Arial', 'sans-serif',
         ],
         mono: ['SF Mono', 'Menlo', 'Monaco', 'monospace'],
       },
       fontSize: {
-        // Apple-style scale — generous, restrained
-        'display-xl': ['clamp(3rem, 6vw, 5.5rem)', { lineHeight: '1.05', letterSpacing: '-0.04em', fontWeight: '700' }],
-        'display-lg': ['clamp(2.5rem, 5vw, 4rem)', { lineHeight: '1.1', letterSpacing: '-0.03em', fontWeight: '600' }],
-        'display-md': ['clamp(2rem, 4vw, 3rem)', { lineHeight: '1.15', letterSpacing: '-0.025em', fontWeight: '600' }],
+        // Display scale — softened from the original -0.04em tracking that
+        // was too tight on mobile. Inter Variable handles the negative
+        // tracking better than SF and stays readable at viewport widths.
+        'display-xl': ['clamp(2.75rem, 5.5vw, 5rem)', { lineHeight: '1.05', letterSpacing: '-0.025em', fontWeight: '700' }],
+        'display-lg': ['clamp(2.25rem, 4.5vw, 3.75rem)', { lineHeight: '1.1', letterSpacing: '-0.02em', fontWeight: '600' }],
+        'display-md': ['clamp(1.875rem, 3.75vw, 2.75rem)', { lineHeight: '1.15', letterSpacing: '-0.015em', fontWeight: '600' }],
         'eyebrow': ['0.875rem', { lineHeight: '1.4', letterSpacing: '0.02em', fontWeight: '500' }],
       },
       borderRadius: {
-        xl: '14px',
-        '2xl': '20px',
-        '3xl': '28px',
+        // Mirrors RADIUS in lib/design-tokens.ts. Keep in sync.
+        sm: '6px',
+        md: '10px',
+        lg: '14px',
+        xl: '20px',
       },
       boxShadow: {
         // Soft, Apple-style elevation — never harsh

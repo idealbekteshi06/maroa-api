@@ -31,7 +31,7 @@ export default function ApprovalsPage() {
         ].map((k) => (
           <div
             key={k.label}
-            className="rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-4"
+            className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-4"
           >
             <p className="text-xs uppercase tracking-wider text-ink-400">{k.label}</p>
             <p
@@ -56,7 +56,7 @@ export default function ApprovalsPage() {
             <Link
               key={a.id}
               href={`/dashboard/approvals/${a.id}`}
-              className="flex items-start gap-4 rounded-2xl bg-white dark:bg-ink-900 border border-amber-200/60 dark:border-amber-500/20 hover:border-amber-300 dark:hover:border-amber-500/40 p-5 transition-colors"
+              className="flex items-start gap-4 rounded-xl bg-white dark:bg-ink-900 border border-amber-200/60 dark:border-amber-500/20 hover:border-amber-300 dark:hover:border-amber-500/40 p-5 transition-colors"
             >
               <div className="h-10 w-10 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200/60 dark:border-amber-500/20 flex items-center justify-center flex-shrink-0">
                 <Inbox className="h-5 w-5 text-amber-700 dark:text-amber-300" />
@@ -83,7 +83,7 @@ export default function ApprovalsPage() {
         })}
 
         {pending.length === 0 && (
-          <div className="rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-12 text-center">
+          <div className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-12 text-center">
             <CheckCircle2 className="h-8 w-8 text-green-500 mx-auto mb-3" />
             <p className="text-ink-700 dark:text-ink-100 font-medium">Inbox zero.</p>
             <p className="text-sm text-ink-400 mt-1">All clear. Nothing waiting for your signoff.</p>

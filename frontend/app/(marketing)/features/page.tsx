@@ -170,7 +170,7 @@ export default function FeaturesPage() {
               <div className={isReverse ? 'lg:order-1' : ''}>
                 <div className="relative">
                   <div
-                    className="absolute -inset-4 rounded-3xl bg-gradient-to-br from-accent-100/40 to-transparent dark:from-accent-500/10 dark:to-transparent blur-xl"
+                    className="absolute -inset-4 rounded-xl bg-gradient-to-br from-accent-100/40 to-transparent dark:from-accent-500/10 dark:to-transparent blur-xl"
                     aria-hidden="true"
                   />
                   <div className="relative">
@@ -184,7 +184,7 @@ export default function FeaturesPage() {
       </section>
 
       <section className="container mt-32">
-        <div className="rounded-3xl bg-ink-700 dark:bg-ink-800 text-white px-8 py-16 sm:px-16 sm:py-24 text-center">
+        <div className="rounded-xl bg-ink-700 dark:bg-ink-800 text-white px-8 py-16 sm:px-16 sm:py-24 text-center">
           <h2 className="text-display-md text-white">See it work for your business.</h2>
           <p className="mt-6 text-xl text-ink-100/80 max-w-2xl mx-auto leading-relaxed">
             Seven days free. No credit card. Cancel anytime.

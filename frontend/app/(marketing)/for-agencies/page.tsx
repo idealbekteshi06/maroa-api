@@ -105,7 +105,7 @@ export default function ForAgenciesPage() {
           {REASONS.map((r) => (
             <div
               key={r.title}
-              className="rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-6"
+              className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-6"
             >
               <div className="h-10 w-10 rounded-xl bg-ink-100 dark:bg-ink-800 flex items-center justify-center mb-4">
                 <r.icon className="h-5 w-5 text-ink-700 dark:text-ink-100" aria-hidden="true" />
@@ -125,7 +125,7 @@ export default function ForAgenciesPage() {
             How agencies compare today.
           </h2>
         </div>
-        <div className="max-w-4xl mx-auto rounded-3xl border border-ink-200/60 dark:border-ink-800 overflow-hidden">
+        <div className="max-w-4xl mx-auto rounded-xl border border-ink-200/60 dark:border-ink-800 overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-ink-50 dark:bg-ink-900">
               <tr>
@@ -154,7 +154,7 @@ export default function ForAgenciesPage() {
 
       {/* CTA */}
       <section className="container mt-32">
-        <div className="rounded-3xl bg-ink-700 dark:bg-ink-800 text-white px-8 py-16 sm:px-16 sm:py-24 text-center">
+        <div className="rounded-xl bg-ink-700 dark:bg-ink-800 text-white px-8 py-16 sm:px-16 sm:py-24 text-center">
           <h2 className="text-display-md text-white">Add your first three clients in ten minutes.</h2>
           <p className="mt-6 text-xl text-ink-100/80 max-w-2xl mx-auto leading-relaxed">
             See the difference between AI you babysit and a marketing OS that ships every day.

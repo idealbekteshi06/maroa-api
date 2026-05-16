@@ -45,7 +45,7 @@ export function FeatureProof({ kind }: { kind: ProofKind }) {
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-5 shadow-subtle">
+    <div className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-5 shadow-subtle">
       {children}
     </div>
   );

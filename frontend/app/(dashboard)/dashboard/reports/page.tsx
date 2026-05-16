@@ -33,7 +33,7 @@ export default function ReportsPage() {
           return (
             <article
               key={client.id}
-              className="rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-5"
+              className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-5"
             >
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-ink-700 dark:text-ink-100 truncate">
@@ -86,7 +86,7 @@ export default function ReportsPage() {
         />
       </div>
 
-      <div className="mt-8 rounded-2xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 p-6 max-w-3xl">
+      <div className="mt-8 rounded-xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 p-6 max-w-3xl">
         <div className="flex items-start gap-4">
           <div className="h-10 w-10 rounded-xl bg-ink-100 dark:bg-ink-800 flex items-center justify-center flex-shrink-0">
             <Mail className="h-5 w-5 text-ink-700 dark:text-ink-100" aria-hidden="true" />

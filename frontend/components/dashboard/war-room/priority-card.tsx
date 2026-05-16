@@ -43,7 +43,7 @@ export function PriorityCard({
   const band = BAND_STYLES[decision.auto_safe_band];
 
   return (
-    <article className="rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 hover:border-ink-300 dark:hover:border-ink-600 transition-colors p-5">
+    <article className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 hover:border-ink-300 dark:hover:border-ink-600 transition-colors p-5">
       <div className="flex items-start gap-4">
         <div className={cn('h-10 w-10 rounded-xl flex items-center justify-center border', band)}>
           <Icon className="h-5 w-5" strokeWidth={1.8} />

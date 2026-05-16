@@ -43,7 +43,7 @@ export default function ClientsPage() {
         ].map((k) => (
           <div
             key={k.label}
-            className="rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-4"
+            className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-4"
           >
             <p className="text-xs uppercase tracking-wider text-ink-400">{k.label}</p>
             <p className="text-2xl font-semibold tracking-tight text-ink-700 dark:text-ink-100 mt-1">
@@ -61,7 +61,7 @@ export default function ClientsPage() {
         {/* Add-new tile */}
         <Link
           href="/dashboard/clients/new"
-          className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-ink-200 dark:border-ink-800 p-8 text-center hover:border-accent-400 hover:bg-accent-50/30 dark:hover:bg-accent-500/5 transition-colors"
+          className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-ink-200 dark:border-ink-800 p-8 text-center hover:border-accent-400 hover:bg-accent-50/30 dark:hover:bg-accent-500/5 transition-colors"
         >
           <Plus className="h-6 w-6 text-ink-400 mb-2" />
           <p className="text-sm font-medium text-ink-700 dark:text-ink-100">Add a client</p>

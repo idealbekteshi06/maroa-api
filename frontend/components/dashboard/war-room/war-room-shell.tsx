@@ -76,7 +76,7 @@ export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) 
       {isDemo && loaded && (
         <div
           role="status"
-          className="mb-8 flex items-start gap-3 rounded-2xl border border-amber-200/60 dark:border-amber-500/20 bg-amber-50/60 dark:bg-amber-500/5 p-4"
+          className="mb-8 flex items-start gap-3 rounded-xl border border-amber-200/60 dark:border-amber-500/20 bg-amber-50/60 dark:bg-amber-500/5 p-4"
         >
           <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
           <div className="flex-1 min-w-0">
@@ -120,7 +120,7 @@ export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) 
             </div>
 
             {priorities.length === 0 ? (
-              <div className="rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-12 text-center">
+              <div className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-12 text-center">
                 <p className="text-ink-400">All clear. Nothing needs your attention right now.</p>
               </div>
             ) : (
@@ -171,7 +171,7 @@ export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) 
               </span>
             </h2>
             {feed.pending_approvals.length === 0 ? (
-              <div className="rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-6 text-center">
+              <div className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-6 text-center">
                 <p className="text-sm text-ink-400">Inbox zero.</p>
               </div>
             ) : (
@@ -207,7 +207,7 @@ export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) 
               Recent activity
             </h2>
             {recentActivity.length === 0 ? (
-              <div className="rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-6 text-center">
+              <div className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-6 text-center">
                 <p className="text-sm text-ink-400">No auto-actions yet.</p>
               </div>
             ) : (
@@ -230,7 +230,7 @@ export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) 
             )}
           </section>
 
-          <section className="rounded-2xl bg-ink-700 dark:bg-ink-800 text-white p-6">
+          <section className="rounded-xl bg-ink-700 dark:bg-ink-800 text-white p-6">
             <p className="text-xs uppercase tracking-wider text-ink-100/70 mb-2">Plan</p>
             <p className="text-lg font-semibold capitalize">{feed.workspace.plan_tier}</p>
             <p className="text-sm text-ink-100/80 mt-1">

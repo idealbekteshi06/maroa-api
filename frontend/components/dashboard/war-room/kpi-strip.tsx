@@ -62,7 +62,7 @@ export function KpiStrip({ feed }: { feed: WorkspaceFeed }) {
       {kpis.map((kpi) => (
         <div
           key={kpi.label}
-          className="rounded-2xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-4"
+          className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-4"
         >
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs uppercase tracking-wider text-ink-400">{kpi.label}</p>
