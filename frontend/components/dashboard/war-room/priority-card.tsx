@@ -9,6 +9,7 @@ import { DURATION, EASING_BEZIER, STATE_DOTS } from '@/lib/design-tokens';
 import type { DecisionLogRow } from '@/lib/types/war-room';
 import { DecisionActions } from './decision-actions';
 import { OptimisticCheck } from '@/components/motion/optimistic-check';
+import { useActionedDecisionIds } from '@/components/dashboard/command-palette';
 
 const BAND_STYLES: Record<DecisionLogRow['auto_safe_band'], string> = {
   green: 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300 border-green-200/60 dark:border-green-500/20',
@@ -58,6 +59,15 @@ export function PriorityCard({
   // strictly a visual revert — backend stays authoritative.
   const [actionsKey, setActionsKey] = useState(0);
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Subscribe to the palette's bulk-approve actioned set so the card can
+  // flip to Approved instantly when ⌘K → "Approve all green-band" fires
+  // — without waiting for the server data refresh.
+  const actionedIds = useActionedDecisionIds();
+  useEffect(() => {
+    if (action === 'idle' && actionedIds.has(decision.id)) {
+      setAction('approved');
+    }
+  }, [actionedIds, decision.id, action]);
   const Icon = AGENT_ICONS[decision.agent_name] || Sparkles;
   const band = BAND_STYLES[decision.auto_safe_band];
 

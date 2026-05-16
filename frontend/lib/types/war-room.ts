@@ -110,6 +110,7 @@ export type ClientFeed = {
 export type KpiHistoryKey =
   | 'active_clients'
   | 'creatives_total'
+  | 'decaying_or_dead'
   | 'experiments_running'
   | 'pending_approvals'
   | 'refusals_7d';

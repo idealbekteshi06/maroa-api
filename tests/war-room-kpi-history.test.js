@@ -205,6 +205,65 @@ test('buildKpiHistory: no business ids → flat series everywhere, no sb calls',
   assert.equal(h.trend.creatives_total, 'flat');
 });
 
+// ── integration: decaying_or_dead replays classifier per day ──────────────
+
+test('buildKpiHistory: decaying_or_dead reflects classifier replayed per day-end', async () => {
+  // Classifier thresholds (halfLifeDays = 21):
+  //   < 3d         → fresh
+  //   < 21d, perf>=0.5  → fresh
+  //   < 31.5d, perf>=0.4 → maturing
+  //   < 63d, perf>=0.3   → decaying
+  //   >= 63d            → dead
+  //
+  // Setup:
+  //   D — 35 days old today (perf=0.6). At index 0 (6 days ago) was 29d
+  //       → still maturing. Crosses 31.5d → decaying around index 3.
+  //   E — 70 days old today (perf=0.6). Dead at every index.
+  //
+  // Expected decaying-or-dead series:
+  //   [1, 1, 1, 2, 2, 2, 2]  (E dead all 7 days; D joins as decaying on
+  //   index 3 once age >= 31.5d).
+  const creativeAt = (daysAgo) => ({
+    id: `cr-${daysAgo}`,
+    business_id: 'b1',
+    created_at: new Date(FIXED_NOW - daysAgo * DAY_MS).toISOString(),
+    performance_score: 0.6,
+  });
+  const sbGet = makeFakeSb({
+    creative_assets: [creativeAt(35), creativeAt(70)],
+    experiments: [],
+    client_approvals: [],
+    decision_logs: [],
+    workspace_clients: [],
+  });
+
+  const h = await buildKpiHistory({
+    sbGet,
+    businessIds: ['b1'],
+    currentSummary: {
+      clients_total: 0,
+      creatives_total: 2,
+      experiments_running: 0,
+      pending_approvals: 0,
+      decaying_or_dead: 2,
+    },
+    now: FIXED_NOW,
+  });
+
+  assert.deepEqual(h.decaying_or_dead, [1, 1, 1, 2, 2, 2, 2]);
+  assert.equal(h.trend.decaying_or_dead, 'up');
+  assert.equal(h.delta_pct.decaying_or_dead, 100);
+});
+
+// ── integration: classifier backward compat — calling without `now` works ─
+
+test('classifyCreativeDecay: default `now` still works (backward compat)', () => {
+  // Imported via require for parity with prod call sites.
+  const { classifyCreativeDecay } = require('../lib/warRoomFeed');
+  const fresh = { created_at: new Date().toISOString() };
+  assert.equal(classifyCreativeDecay(fresh), 'fresh');
+});
+
 // ── integration: last point pinned to current summary ─────────────────────
 
 test('buildKpiHistory: most-recent point pinned to currentSummary even if rows drifted', async () => {

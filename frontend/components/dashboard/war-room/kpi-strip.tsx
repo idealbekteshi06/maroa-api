@@ -21,7 +21,10 @@ type Kpi = {
   key: KpiHistoryKey;
   label: string;
   value: number;
-  trendCopy?: string;
+  /** Sub-copy rendered under the delta pill — used to surface a secondary
+      metric (e.g. "30 need refresh · ↓ -12%" for Creatives Live). Only
+      set on cells where it carries real signal. */
+  subCopy?: string;
   icon: typeof Users2;
   tone?: 'default' | 'warn' | 'success';
 };
@@ -37,19 +40,32 @@ function buildKpis(feed: WorkspaceFeed): Kpi[] {
           d.refused && new Date(d.created_at) > new Date(Date.now() - 7 * 86400000),
       ).length;
 
+  // Decaying-or-dead now has real history — fold the week-over-week delta
+  // into the Creatives Live trend copy so the operator sees whether the
+  // refresh backlog is growing or shrinking.
+  const decayDelta = feed.kpi_history?.delta_pct?.decaying_or_dead;
+  const decayCopy = (() => {
+    if (summary.decaying_or_dead === 0) return 'all healthy';
+    if (typeof decayDelta !== 'number' || decayDelta === 0) {
+      return `${summary.decaying_or_dead} need refresh`;
+    }
+    const arrow = decayDelta < 0 ? '↓' : '↑';
+    const sign = decayDelta > 0 ? '+' : '';
+    return `${summary.decaying_or_dead} need refresh · ${arrow} ${sign}${decayDelta}%`;
+  })();
+
   return [
     {
       key: 'active_clients',
       label: 'Active clients',
       value: summary.clients_total,
-      trendCopy: 'across workspace',
       icon: Users2,
     },
     {
       key: 'creatives_total',
       label: 'Creatives live',
       value: summary.creatives_total,
-      trendCopy: `${summary.decaying_or_dead} need refresh`,
+      subCopy: decayCopy,
       icon: FileImage,
       tone:
         summary.decaying_or_dead > summary.creatives_total * 0.3 ? 'warn' : 'default',
@@ -58,15 +74,12 @@ function buildKpis(feed: WorkspaceFeed): Kpi[] {
       key: 'experiments_running',
       label: 'Experiments running',
       value: summary.experiments_running,
-      trendCopy: summary.experiments_running > 0 ? 'collecting data' : 'idle',
       icon: FlaskConical,
     },
     {
       key: 'pending_approvals',
       label: 'Awaiting approval',
       value: summary.pending_approvals,
-      trendCopy:
-        summary.pending_approvals > 0 ? 'action required' : 'all clear',
       icon: ListChecks,
       tone: summary.pending_approvals > 0 ? 'warn' : 'success',
     },
@@ -74,7 +87,6 @@ function buildKpis(feed: WorkspaceFeed): Kpi[] {
       key: 'refusals_7d',
       label: 'Refusals (7d)',
       value: refusals7d,
-      trendCopy: 'compliance + ethics',
       icon: AlertOctagon,
     },
   ];
@@ -136,6 +148,11 @@ export function KpiStrip({
               <Sparkline points={points} trend={trend} emptyMode={emptyMode} />
             </div>
             <DeltaPill delta={delta} trend={trend} emptyMode={emptyMode} />
+            {kpi.subCopy && !emptyMode && (
+              <p className="mt-0.5 text-[10px] text-ink-400 leading-snug truncate">
+                {kpi.subCopy}
+              </p>
+            )}
           </div>
         );
       })}

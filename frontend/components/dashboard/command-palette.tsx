@@ -19,6 +19,7 @@ import {
   Loader2,
   CheckCheck,
 } from 'lucide-react';
+import { fuzzyRank } from '@/lib/fuzzy-match';
 
 /**
  * Command palette — Cmd/Ctrl + K invocation, three real actions.
@@ -48,6 +49,11 @@ type Ctx = {
   isOpen: boolean;
   data: CommandPaletteData;
   setPaletteData: (d: Partial<CommandPaletteData>) => void;
+  /** IDs of decisions the palette has bulk-approved this session. Read by
+      PriorityCard so cards collapse to the "Approved" state immediately
+      while router.refresh() catches up. */
+  actionedIds: ReadonlySet<string>;
+  markActioned: (ids: string[]) => void;
 };
 
 const EMPTY_DATA: CommandPaletteData = {
@@ -62,12 +68,23 @@ const PaletteContext = createContext<Ctx>({
   isOpen: false,
   data: EMPTY_DATA,
   setPaletteData: () => {},
+  actionedIds: new Set<string>(),
+  markActioned: () => {},
 });
 
 export function CommandPaletteProvider({ children }: { children: ReactNode }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [data, setData] = useState<CommandPaletteData>(EMPTY_DATA);
+  const [actionedIds, setActionedIds] = useState<ReadonlySet<string>>(new Set<string>());
+  const markActioned = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    setActionedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  }, []);
 
   const open = useCallback(() => {
     const dlg = dialogRef.current;
@@ -118,8 +135,8 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value: Ctx = useMemo(
-    () => ({ open, close, isOpen, data, setPaletteData }),
-    [open, close, isOpen, data, setPaletteData],
+    () => ({ open, close, isOpen, data, setPaletteData, actionedIds, markActioned }),
+    [open, close, isOpen, data, setPaletteData, actionedIds, markActioned],
   );
 
   return (
@@ -141,7 +158,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
  * bulk-approve runtime can mount/unmount with the dialog.
  */
 function PaletteBody({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const { data } = useContext(PaletteContext);
+  const { data, markActioned } = useContext(PaletteContext);
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [bulkState, setBulkState] = useState<'idle' | 'running' | 'done'>('idle');
@@ -165,12 +182,13 @@ function PaletteBody({ isOpen, onClose }: { isOpen: boolean; onClose: () => void
   const greenBandCount = data.greenBandDecisions.length;
   const canBulkApprove = bulkState === 'idle' && greenBandCount > 0 && !!data.workspaceId;
 
-  const trimmed = query.trim().toLowerCase();
+  const trimmed = query.trim();
   const clientMatches = useMemo(() => {
     if (!trimmed) return data.clients.slice(0, 5);
-    return data.clients
-      .filter((c) => c.client_name.toLowerCase().includes(trimmed))
-      .slice(0, 5);
+    // Fuzzy ranker handles "stusm" → "Smile Studio", out-of-order chars,
+    // word-boundary bonuses, gap penalties. Substring matches always
+    // rank first.
+    return fuzzyRank(data.clients, trimmed, (c) => c.client_name).slice(0, 5);
   }, [data.clients, trimmed]);
 
   async function runBulkApprove() {
@@ -178,8 +196,9 @@ function PaletteBody({ isOpen, onClose }: { isOpen: boolean; onClose: () => void
     setBulkState('running');
     setBulkResult(null);
     const ws = data.workspaceId!;
+    const queued = data.greenBandDecisions;
     const results = await Promise.allSettled(
-      data.greenBandDecisions.map((d) =>
+      queued.map((d) =>
         fetch(
           `/api/war-room/${encodeURIComponent(ws)}/decisions/${encodeURIComponent(d.id)}/approve`,
           {
@@ -189,14 +208,27 @@ function PaletteBody({ isOpen, onClose }: { isOpen: boolean; onClose: () => void
           },
         ).then((r) => {
           if (!r.ok && r.status !== 409) throw new Error(`HTTP ${r.status}`);
-          return r;
+          return { id: d.id, ok: true };
         }),
       ),
     );
-    const ok = results.filter((r) => r.status === 'fulfilled').length;
-    setBulkResult({ ok, fail: results.length - ok });
+    const succeededIds: string[] = [];
+    let ok = 0;
+    let fail = 0;
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        ok++;
+        succeededIds.push(queued[i]!.id);
+      } else {
+        fail++;
+      }
+    });
+    setBulkResult({ ok, fail });
     setBulkState('done');
-    // Hand control back to the page so it can refresh.
+    // Optimistic visual update: PriorityCards keyed on these ids will
+    // immediately collapse to the Approved state via the actionedIds set
+    // we just published. router.refresh() then catches up the real data.
+    markActioned(succeededIds);
     router.refresh();
   }
 
@@ -323,4 +355,11 @@ export function CommandPaletteHandle() {
     context type. Use inside an effect after the page's data loads. */
 export function useCommandPaletteDataSetter() {
   return useContext(PaletteContext).setPaletteData;
+}
+
+/** Read which decision ids the palette has bulk-approved this session.
+    Consumed by PriorityCard to surface the Approved state instantly
+    while router.refresh() catches up the real data. */
+export function useActionedDecisionIds(): ReadonlySet<string> {
+  return useContext(PaletteContext).actionedIds;
 }
