@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ArrowRight, Check, Sparkles, Zap, Shield, BarChart3, Globe2, Users, Briefcase, Store } from 'lucide-react';
+import { ArrowRight, Check, Sparkles, Zap, Shield, BarChart3, Globe2, Users, Briefcase, Store, PlayCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { HeroPreview } from '@/components/marketing/hero-preview';
+import { AgentsWorking } from '@/components/marketing/agents-working';
 
 export const metadata: Metadata = {
   title: 'AI marketing for freelancers, agencies & small businesses',
@@ -105,16 +106,21 @@ export default function LandingPage() {
   return (
     <>
       {/* HERO ─────────────────────────────────────────────────────────────── */}
-      <section className="relative grain pt-12 sm:pt-20 lg:pt-28">
-        <div className="container">
+      <section className="hero-atmosphere relative grain pt-12 sm:pt-20 lg:pt-28 pb-12 sm:pb-16">
+        <div className="hero-grid" aria-hidden="true" />
+        <div className="container relative z-10">
           <div className="mx-auto max-w-4xl text-center animate-fade-in-up">
-            <p className="text-eyebrow uppercase text-ink-400 mb-6">
-              The marketing operating system
-            </p>
-            <h1 className="text-display-xl text-ink-700 dark:text-ink-50">
+            {/* Status pill — sets visual tone for the rest of the page. */}
+            <div className="mb-7 flex justify-center">
+              <div className="pill">
+                <span className="pill-dot agent-pulse" aria-hidden="true" />
+                <span>Live · 12 agents working across 3 clients</span>
+              </div>
+            </div>
+            <h1 className="text-display-xl text-ink-700 dark:text-ink-50 text-balance">
               Your AI marketing team.
               <br className="hidden sm:block" />
-              <span className="text-ink-400">For every client.</span>
+              <span className="headline-shimmer text-fill-transparent">For every client.</span>
             </h1>
             <p className="mt-6 text-xl sm:text-2xl text-ink-400 max-w-2xl mx-auto leading-relaxed text-pretty">
               Maroa runs the whole machine — content, ads, CRO, SEO, reporting — across
@@ -126,20 +132,38 @@ export default function LandingPage() {
                 Start free
                 <ArrowRight className="h-5 w-5" />
               </Button>
-              <Button href="/features" variant="ghost" size="xl">
-                See how it works
+              <Button href="/features#demo" variant="ghost" size="xl">
+                <PlayCircle className="h-5 w-5" />
+                Watch 2-min demo
               </Button>
             </div>
-            <p className="mt-6 text-sm text-ink-400">
-              7-day free trial · No credit card · Cancel anytime
+            {/* Trust strip — each token wrapped in a span so future tooltips
+                can hook in without breaking the layout. */}
+            <p className="mt-6 text-sm text-ink-400 flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+              <span>7-day free trial</span>
+              <span aria-hidden="true" className="text-ink-300 dark:text-ink-600">·</span>
+              <span>No credit card</span>
+              <span aria-hidden="true" className="text-ink-300 dark:text-ink-600">·</span>
+              <span>Cancel anytime</span>
             </p>
           </div>
         </div>
 
-        {/* Hero product preview — rendered, not a placeholder. */}
-        <div className="container mt-16 sm:mt-20">
-          <HeroPreview />
+        {/* Hero product preview — rendered, not a placeholder.
+            preview-floor sits behind via z-index -1. */}
+        <div className="container mt-16 sm:mt-20 relative z-10">
+          <div className="relative">
+            <span className="preview-floor" aria-hidden="true" />
+            <HeroPreview />
+          </div>
         </div>
+      </section>
+
+      {/* AGENTS BRIDGE ─────────────────────────────────────────────────────
+          Visual handoff from the hero's single big mock to the feature grid.
+          Without this band the page hits a hard cut. */}
+      <section className="container mt-12 sm:mt-16">
+        <AgentsWorking />
       </section>
 
       {/* MODE STRIP — who this is for ───────────────────────────────────── */}

@@ -27,18 +27,22 @@ import { DURATION, EASING_BEZIER, STATE_DOTS } from '@/lib/design-tokens';
  */
 
 type CardId = 'optimizer' | 'refusal' | 'competitor';
+type FeedCard = { uid: string; type: CardId };
 
-// Loop schedule (ms from loop start). Beats 1/4/6 reveal cards; 3/5/7
-// dismiss the prior card; 8 restarts. See PRD/spec for the full storyboard.
-const SCHEDULE: { at: number; do: 'show' | 'approve' | 'dismiss' | 'restart'; card?: CardId }[] = [
-  { at: 500,  do: 'show',     card: 'optimizer' },
-  { at: 3000, do: 'approve',  card: 'optimizer' },
-  { at: 3400, do: 'dismiss',  card: 'optimizer' },
-  { at: 4000, do: 'show',     card: 'refusal' },
-  { at: 7000, do: 'dismiss',  card: 'refusal' },
-  { at: 7400, do: 'show',     card: 'competitor' },
-  { at: 9400, do: 'dismiss',  card: 'competitor' },
-  { at: 9800, do: 'restart' },
+// Feed schedule (ms from loop start). Each `show` pushes a card; the feed
+// caps at MAX_FEED. The first optimizer card gets an `approve` beat
+// (border pulse + approved pill) — subsequent optimizer cards just appear
+// and accumulate, communicating "the engine is busy".
+const MAX_FEED = 3;
+const FEED_SCHEDULE: { at: number; do: 'show' | 'approve' | 'restart'; card?: CardId }[] = [
+  { at: 600,   do: 'show',    card: 'optimizer' },
+  { at: 2800,  do: 'approve' },
+  { at: 4500,  do: 'show',    card: 'refusal' },
+  { at: 7500,  do: 'show',    card: 'competitor' },
+  { at: 11000, do: 'show',    card: 'optimizer' },
+  { at: 14000, do: 'show',    card: 'refusal' },
+  { at: 17000, do: 'show',    card: 'competitor' },
+  { at: 20000, do: 'restart' },
 ];
 
 const ACTIVITY_ITEMS = [
@@ -53,10 +57,15 @@ const KPI_TARGETS = [94, 2, 1, 1] as const;
 export function HeroPreview() {
   const prefersReducedMotion = useReducedMotion();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [activeCard, setActiveCard] = useState<CardId | null>(null);
-  const [approving, setApproving] = useState(false);
+  // Newest card lives at the END of `cards` — feed renders bottom-to-top
+  // visually so newcomers appear at the top.
+  const [cards, setCards] = useState<FeedCard[]>([]);
+  // Approve beat fires once on the very first optimizer card only.
+  const [firstApprovingUid, setFirstApprovingUid] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const [isPageVisible, setIsPageVisible] = useState(true);
+  const uidCounter = useRef(0);
+  const isFirstLoopRef = useRef(true);
 
   // Pause/resume gates ────────────────────────────────────────────────────
   useEffect(() => {
@@ -82,9 +91,14 @@ export function HeroPreview() {
   // Loop scheduler ────────────────────────────────────────────────────────
   useEffect(() => {
     if (prefersReducedMotion) {
-      // Reduced-motion: just show beat 1 statically.
-      setActiveCard('optimizer');
-      setApproving(false);
+      // Reduced-motion: render the feed statically, full house, no loop.
+      const staticUid = 'static';
+      setCards([
+        { uid: `${staticUid}-opt`, type: 'optimizer' },
+        { uid: `${staticUid}-ref`, type: 'refusal' },
+        { uid: `${staticUid}-cmp`, type: 'competitor' },
+      ]);
+      setFirstApprovingUid(`${staticUid}-opt`);
       return;
     }
     if (!isVisible || !isPageVisible) return;
@@ -92,18 +106,26 @@ export function HeroPreview() {
     const timeouts: ReturnType<typeof setTimeout>[] = [];
 
     function schedule() {
-      SCHEDULE.forEach((beat) => {
+      FEED_SCHEDULE.forEach((beat) => {
         timeouts.push(
           setTimeout(() => {
-            if (beat.do === 'show') {
-              setActiveCard(beat.card ?? null);
-              setApproving(false);
+            if (beat.do === 'show' && beat.card) {
+              const uid = `c-${++uidCounter.current}`;
+              const cardType = beat.card;
+              // First optimizer of the first loop only — flag for the
+              // approve beat that follows.
+              if (cardType === 'optimizer' && isFirstLoopRef.current && firstApprovingUid === null) {
+                setFirstApprovingUid(uid);
+              }
+              setCards((prev) => {
+                const next = [...prev, { uid, type: cardType }];
+                return next.length > MAX_FEED ? next.slice(next.length - MAX_FEED) : next;
+              });
             } else if (beat.do === 'approve') {
-              setApproving(true);
-            } else if (beat.do === 'dismiss') {
-              setActiveCard((curr) => (curr === beat.card ? null : curr));
-              setApproving(false);
+              // Already flagged at show-time; nothing to do here. Kept for
+              // schedule clarity + future expansion.
             } else if (beat.do === 'restart') {
+              isFirstLoopRef.current = false;
               schedule();
             }
           }, beat.at),
@@ -115,6 +137,9 @@ export function HeroPreview() {
     return () => {
       timeouts.forEach(clearTimeout);
     };
+  // firstApprovingUid only matters at the moment we push the first card;
+  // intentionally excluded from deps so the loop doesn't re-arm when it flips.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefersReducedMotion, isVisible, isPageVisible]);
 
   return (
@@ -124,19 +149,55 @@ export function HeroPreview() {
       className="mx-auto max-w-5xl rounded-xl shadow-lifted border border-ink-200/60 dark:border-ink-700/60 overflow-hidden bg-white dark:bg-ink-900"
       aria-label="Maroa War Room preview"
     >
-      {/* Window chrome */}
-      <div className="flex items-center gap-2 px-4 py-3 bg-ink-50 dark:bg-ink-950/60 border-b border-ink-200/60 dark:border-ink-800">
-        <span className="h-3 w-3 rounded-full bg-red-400/80" aria-hidden="true" />
-        <span className="h-3 w-3 rounded-full bg-amber-400/80" aria-hidden="true" />
-        <span className="h-3 w-3 rounded-full bg-green-400/80" aria-hidden="true" />
-        <div className="mx-auto flex items-center gap-2 text-xs text-ink-400 font-mono">
+      {/* Tabbed window chrome — traffic lights + 3 browser tabs */}
+      <div className="flex items-center gap-3 px-4 pt-3 bg-ink-50 dark:bg-ink-950/60 border-b border-ink-200/60 dark:border-ink-800">
+        <div className="flex items-center gap-1.5 pb-3 flex-shrink-0">
+          <span className="h-3 w-3 rounded-full bg-red-400/80" aria-hidden="true" />
+          <span className="h-3 w-3 rounded-full bg-amber-400/80" aria-hidden="true" />
+          <span className="h-3 w-3 rounded-full bg-green-400/80" aria-hidden="true" />
+        </div>
+        <div className="flex items-end gap-1 overflow-hidden -mb-px">
+          {[
+            { label: 'War Room', active: true, status: 'green' as const },
+            { label: 'Smile Studio', active: false },
+            { label: 'Tirana Roastery', active: false },
+          ].map((tab) => (
+            <div
+              key={tab.label}
+              className={
+                'group flex items-center gap-2 px-3 py-2 text-xs rounded-t-md border-t border-l border-r transition-colors ' +
+                (tab.active
+                  ? 'border-ink-200/60 dark:border-ink-700/60 bg-white dark:bg-ink-900 text-ink-700 dark:text-ink-100 font-medium relative'
+                  : 'border-transparent text-ink-400 hover:text-ink-700 dark:hover:text-ink-200')
+              }
+            >
+              {tab.status === 'green' && (
+                <span
+                  className="h-1.5 w-1.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: STATE_DOTS.green }}
+                  aria-hidden="true"
+                />
+              )}
+              <span className="truncate max-w-[120px]">{tab.label}</span>
+              {tab.active && (
+                <span
+                  aria-hidden="true"
+                  className="absolute left-2 right-2 -bottom-px h-[2px] rounded-full"
+                  style={{ backgroundColor: STATE_DOTS.blue }}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="ml-auto flex items-center gap-1.5 pb-3 text-[10px] text-ink-400 font-mono flex-shrink-0">
           <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-          app.maroa.ai/dashboard
+          app.maroa.ai
         </div>
       </div>
 
       {/* Inner app frame */}
-      <div className="flex h-[420px] sm:h-[480px]">
+      <div className="relative flex h-[420px] sm:h-[480px]">
+        <FloatingToast active={isVisible && isPageVisible} reduced={!!prefersReducedMotion} />
         {/* Sidebar */}
         <div className="hidden sm:flex flex-col w-48 bg-ink-50/60 dark:bg-ink-950/40 border-r border-ink-200/60 dark:border-ink-800 p-4">
           <div className="flex items-center gap-2 mb-6 px-1">
@@ -199,26 +260,33 @@ export function HeroPreview() {
             ))}
           </div>
 
-          {/* Scripted card stage — single card visible at a time */}
-          <div className="relative min-h-[170px]">
-            <ShimmerEmptyState visible={activeCard === null} />
-            <AnimatePresence mode="wait">
-              {activeCard === 'optimizer' && (
-                <CardShell key="optimizer">
-                  <OptimizerCard approving={approving} />
-                </CardShell>
-              )}
-              {activeCard === 'refusal' && (
-                <CardShell key="refusal">
-                  <RefusalCard />
-                </CardShell>
-              )}
-              {activeCard === 'competitor' && (
-                <CardShell key="competitor">
-                  <CompetitorCard />
-                </CardShell>
-              )}
-            </AnimatePresence>
+          {/* Stacked feed — cards accumulate, max 3, newest at top */}
+          <div className="relative min-h-[280px]">
+            <ShimmerEmptyState visible={cards.length === 0} />
+            <div className="flex flex-col gap-2">
+              <AnimatePresence initial={false}>
+                {[...cards].reverse().map((card) => (
+                  <m.div
+                    key={card.uid}
+                    layout
+                    initial={{ opacity: 0, y: -16, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, height: 0, marginTop: 0, marginBottom: 0 }}
+                    transition={{
+                      duration: DURATION.moderate / 1000,
+                      ease: EASING_BEZIER.snappy,
+                      layout: { duration: DURATION.moderate / 1000, ease: EASING_BEZIER.snappy },
+                    }}
+                  >
+                    {card.type === 'optimizer' && (
+                      <OptimizerCard approving={card.uid === firstApprovingUid} />
+                    )}
+                    {card.type === 'refusal' && <RefusalCard />}
+                    {card.type === 'competitor' && <CompetitorCard />}
+                  </m.div>
+                ))}
+              </AnimatePresence>
+            </div>
           </div>
         </div>
 
@@ -257,20 +325,6 @@ export function HeroPreview() {
 
 // ─── Sub-components ─────────────────────────────────────────────────────────
 
-function CardShell({ children }: { children: React.ReactNode }) {
-  return (
-    <m.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: DURATION.moderate / 1000, ease: EASING_BEZIER.snappy }}
-      className="absolute inset-0"
-    >
-      {children}
-    </m.div>
-  );
-}
-
 function ShimmerEmptyState({ visible }: { visible: boolean }) {
   return (
     <m.div
@@ -287,41 +341,28 @@ function ShimmerEmptyState({ visible }: { visible: boolean }) {
 function OptimizerCard({ approving }: { approving: boolean }) {
   return (
     <div
-      className={`rounded-xl border bg-white dark:bg-ink-950/40 p-4 transition-shadow ${
+      className={`rounded-xl border bg-white dark:bg-ink-950/40 p-3 transition-shadow ${
         approving
           ? 'border-green-400/70 shadow-[0_0_0_3px_rgba(52,199,89,0.12)]'
           : 'border-ink-200/60 dark:border-ink-800'
       }`}
     >
-      <div className="flex items-start gap-3">
-        <div className="h-8 w-8 rounded-lg bg-green-50 dark:bg-green-500/10 border border-green-200/60 dark:border-green-500/20 flex items-center justify-center flex-shrink-0">
-          <TrendingUp className="h-4 w-4 text-green-700 dark:text-green-300" />
+      <div className="flex items-start gap-2.5">
+        <div className="h-7 w-7 rounded-lg bg-green-50 dark:bg-green-500/10 border border-green-200/60 dark:border-green-500/20 flex items-center justify-center flex-shrink-0">
+          <TrendingUp className="h-3.5 w-3.5 text-green-700 dark:text-green-300" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1 text-[10px] uppercase tracking-wider">
+          <div className="flex items-center gap-1.5 mb-0.5 text-[10px] uppercase tracking-wider">
             <span className="text-ink-400">ad optimizer</span>
             <span className="text-ink-300">·</span>
-            <span className="text-ink-400">Tirana Roastery</span>
-            <span className="ml-auto font-mono text-ink-400">2h ago</span>
+            <span className="text-ink-400 truncate">Tirana Roastery</span>
+            <span className="ml-auto font-mono text-ink-400 flex-shrink-0">2h ago</span>
           </div>
-          <p className="text-sm text-ink-700 dark:text-ink-100 leading-snug">
+          <p className="text-xs text-ink-700 dark:text-ink-100 leading-snug">
             CTR on Meta image ad dropped 31% over 4 days. Refresh creative, not budget.
           </p>
-          <div className="mt-2 flex items-center gap-3">
-            <ConfidenceRing target={0.87} />
-            <dl className="flex flex-wrap gap-x-4 gap-y-0.5 text-[10px]">
-              <div>
-                <dt className="inline text-ink-400">Upside · </dt>
-                <dd className="inline text-ink-700 dark:text-ink-200 font-medium">+15% CTR</dd>
-              </div>
-              <div>
-                <dt className="inline text-ink-400">Cost · </dt>
-                <dd className="inline text-ink-700 dark:text-ink-200 font-medium">$0.30</dd>
-              </div>
-            </dl>
-          </div>
-          <div className="mt-3 flex items-center gap-2">
-            <AnimatePresence mode="wait">
+          <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+            <AnimatePresence mode="wait" initial={false}>
               {approving ? (
                 <m.span
                   key="approved"
@@ -348,8 +389,7 @@ function OptimizerCard({ approving }: { approving: boolean }) {
                 </m.span>
               )}
             </AnimatePresence>
-            <span className="text-ink-300">·</span>
-            <span className="text-[10px] text-ink-400">approval gate cleared</span>
+            <span className="text-[10px] text-ink-400">+15% CTR · $0.30 · 87% conf.</span>
           </div>
         </div>
       </div>
@@ -359,31 +399,28 @@ function OptimizerCard({ approving }: { approving: boolean }) {
 
 function RefusalCard() {
   return (
-    <div className="rounded-xl border border-red-200/60 dark:border-red-500/20 bg-red-50/30 dark:bg-red-500/5 p-4">
-      <div className="flex items-start gap-3">
-        <div className="h-8 w-8 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200/60 dark:border-red-500/20 flex items-center justify-center flex-shrink-0">
-          <ShieldCheck className="h-4 w-4 text-red-700 dark:text-red-300" />
+    <div className="rounded-xl border border-red-200/60 dark:border-red-500/20 bg-red-50/30 dark:bg-red-500/5 p-3">
+      <div className="flex items-start gap-2.5">
+        <div className="h-7 w-7 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200/60 dark:border-red-500/20 flex items-center justify-center flex-shrink-0">
+          <ShieldCheck className="h-3.5 w-3.5 text-red-700 dark:text-red-300" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1 text-[10px] uppercase tracking-wider">
+          <div className="flex items-center gap-1.5 mb-0.5 text-[10px] uppercase tracking-wider">
             <span className="text-ink-400">compliance gate</span>
             <span className="text-ink-300">·</span>
-            <span className="text-ink-400">Acme Supplements</span>
-            <span className="ml-auto inline-flex items-center gap-1" style={{ color: STATE_DOTS.red }}>
+            <span className="text-ink-400 truncate">Acme Supplements</span>
+            <span className="ml-auto inline-flex items-center gap-1 flex-shrink-0" style={{ color: STATE_DOTS.red }}>
               <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: STATE_DOTS.red }} />
               REFUSED
             </span>
           </div>
-          <p className="text-sm text-ink-700 dark:text-ink-100 leading-snug">
+          <p className="text-xs text-ink-700 dark:text-ink-100 leading-snug">
             Banned health claim &ldquo;<span className="line-through decoration-red-500/70 decoration-2">cures fatigue</span>&rdquo;.
             Auto-substituted compliant variant.
           </p>
-          <div className="mt-2 text-[11px] text-ink-500 dark:text-ink-300 italic leading-snug">
-            &ldquo;Sustained, plant-based energy without the crash.&rdquo;
-          </div>
-          <div className="mt-2.5 flex items-center gap-2 text-[10px] text-ink-400">
+          <div className="mt-1 flex items-center gap-1.5 text-[10px] text-ink-400">
             <Eye className="h-3 w-3" />
-            Reasoning trace logged · FDA §201(g)
+            Reasoning trace · FDA §201(g)
           </div>
         </div>
       </div>
@@ -393,23 +430,23 @@ function RefusalCard() {
 
 function CompetitorCard() {
   return (
-    <div className="rounded-xl border border-amber-200/60 dark:border-amber-500/20 bg-white dark:bg-ink-950/40 p-4">
-      <div className="flex items-start gap-3">
-        <div className="h-8 w-8 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200/60 dark:border-amber-500/20 flex items-center justify-center flex-shrink-0">
-          <AlertCircle className="h-4 w-4 text-amber-700 dark:text-amber-300" />
+    <div className="rounded-xl border border-amber-200/60 dark:border-amber-500/20 bg-white dark:bg-ink-950/40 p-3">
+      <div className="flex items-start gap-2.5">
+        <div className="h-7 w-7 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200/60 dark:border-amber-500/20 flex items-center justify-center flex-shrink-0">
+          <AlertCircle className="h-3.5 w-3.5 text-amber-700 dark:text-amber-300" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1 text-[10px] uppercase tracking-wider">
+          <div className="flex items-center gap-1.5 mb-0.5 text-[10px] uppercase tracking-wider">
             <span className="text-ink-400">competitor watch</span>
             <span className="text-ink-300">·</span>
-            <span className="text-ink-400">Tirana Roastery</span>
-            <span className="ml-auto font-mono text-ink-400">just now</span>
+            <span className="text-ink-400 truncate">Tirana Roastery</span>
+            <span className="ml-auto font-mono text-ink-400 flex-shrink-0">just now</span>
           </div>
-          <p className="text-sm text-ink-700 dark:text-ink-100 leading-snug">
+          <p className="text-xs text-ink-700 dark:text-ink-100 leading-snug">
             Brooklyn Roastery launched &ldquo;Happy Hour&rdquo; — 30% off espresso 3–5pm. Recommend test
             with weekday-evening segment.
           </p>
-          <div className="mt-2.5 flex items-center gap-2 text-[10px]">
+          <div className="mt-1.5 flex items-center gap-2 text-[10px] flex-wrap">
             <span className="px-1.5 py-0.5 rounded bg-ink-100 dark:bg-ink-800 text-ink-700 dark:text-ink-200 font-medium">
               A/B test ready
             </span>
@@ -422,30 +459,6 @@ function CompetitorCard() {
 }
 
 // Animated radial confidence ring — 0 → target over 600ms on mount.
-function ConfidenceRing({ target }: { target: number }) {
-  const pct = Math.round(target * 100);
-  const r = 11;
-  const c = 2 * Math.PI * r;
-  return (
-    <div className="relative h-8 w-8 flex items-center justify-center">
-      <svg width={28} height={28} viewBox="0 0 28 28" className="-rotate-90">
-        <circle cx={14} cy={14} r={r} stroke="currentColor" className="text-ink-200 dark:text-ink-800" strokeWidth={2} fill="none" />
-        <m.circle
-          cx={14} cy={14} r={r}
-          stroke={STATE_DOTS.green}
-          strokeWidth={2}
-          strokeLinecap="round"
-          fill="none"
-          initial={{ strokeDasharray: c, strokeDashoffset: c }}
-          animate={{ strokeDashoffset: c * (1 - target) }}
-          transition={{ duration: DURATION.cinematic / 1000, ease: EASING_BEZIER.snappy }}
-        />
-      </svg>
-      <span className="absolute text-[9px] font-semibold text-ink-700 dark:text-ink-100">{pct}</span>
-    </div>
-  );
-}
-
 // KPI cell with count-up on first mount.
 function KpiCell({
   label,
@@ -531,5 +544,57 @@ function ActivityFeed({ paused, reduced }: { paused: boolean; reduced: boolean }
         ))}
       </AnimatePresence>
     </ol>
+  );
+}
+
+// Top-right floating toast — "Maroa drafted 5 posts". Slides in 5s after
+// the hero becomes visible, dismisses after 4s. Reduced-motion: rendered
+// statically (no slide, no auto-dismiss).
+function FloatingToast({ active, reduced }: { active: boolean; reduced: boolean }) {
+  const [show, setShow] = useState(reduced);
+
+  useEffect(() => {
+    if (reduced) {
+      setShow(true);
+      return;
+    }
+    if (!active) return;
+    const showId = setTimeout(() => setShow(true), 5000);
+    const hideId = setTimeout(() => setShow(false), 5000 + 4000);
+    return () => {
+      clearTimeout(showId);
+      clearTimeout(hideId);
+    };
+  }, [active, reduced]);
+
+  return (
+    <AnimatePresence>
+      {show && (
+        <m.div
+          key="toast"
+          role="status"
+          initial={reduced ? { opacity: 1, y: 0 } : { opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={reduced ? { opacity: 1 } : { opacity: 0, y: -8 }}
+          transition={{ duration: DURATION.moderate / 1000, ease: EASING_BEZIER.snappy }}
+          className="absolute top-3 right-3 z-20 flex items-center gap-2 pr-3 pl-2.5 py-2 rounded-full bg-white/95 dark:bg-ink-900/95 border border-ink-200/60 dark:border-ink-700/60 shadow-card backdrop-blur-md"
+        >
+          <span className="relative flex h-2 w-2 flex-shrink-0">
+            <span
+              className="absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping"
+              style={{ backgroundColor: STATE_DOTS.green }}
+            />
+            <span
+              className="relative inline-flex h-2 w-2 rounded-full"
+              style={{ backgroundColor: STATE_DOTS.green }}
+            />
+          </span>
+          <span className="text-[11px] font-medium text-ink-700 dark:text-ink-100 leading-none">
+            Maroa drafted 5 posts
+          </span>
+          <span className="text-[10px] text-ink-400 font-mono leading-none">just now</span>
+        </m.div>
+      )}
+    </AnimatePresence>
   );
 }
