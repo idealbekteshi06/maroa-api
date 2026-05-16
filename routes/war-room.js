@@ -26,7 +26,18 @@
  * the same boundary at the database level — this is defense in depth.
  */
 
-function register({ app, warRoomFeed, workspaces, requireAnyUserId, sbGet, apiError, safePublicError, log }) {
+function register({
+  app,
+  warRoomFeed,
+  workspaces,
+  decisionLog,
+  requireAnyUserId,
+  sbGet,
+  apiError,
+  safePublicError,
+  log,
+  express,
+}) {
   if (!warRoomFeed || !workspaces) {
     // Migration 066 not applied or libs not constructed — skip route mounting.
     return;
@@ -39,6 +50,18 @@ function register({ app, warRoomFeed, workspaces, requireAnyUserId, sbGet, apiEr
     } catch {
       return null;
     }
+  }
+
+  // Confirm a decision belongs to a business that lives in this workspace.
+  // Defense in depth: even with membership, an operator cannot act on a
+  // decision from a business they don't actually own.
+  async function decisionBelongsToWorkspace(decisionId, workspaceId) {
+    if (!decisionId || !workspaceId || !decisionLog) return null;
+    const decision = await decisionLog.getById(decisionId);
+    if (!decision || !decision.business_id) return null;
+    const client = await workspaces.getClient(workspaceId, decision.business_id).catch(() => null);
+    if (!client) return null;
+    return decision;
   }
 
   app.get('/api/war-room/:workspaceId', requireAnyUserId, async (req, res) => {
@@ -83,6 +106,72 @@ function register({ app, warRoomFeed, workspaces, requireAnyUserId, sbGet, apiEr
       return apiError(res, 500, 'INTERNAL_ERROR', safePublicError(err));
     }
   });
+
+  // POST /api/war-room/:workspaceId/decisions/:decisionId/approve
+  // Body: ignored. Idempotent — already-approved decisions return 200 with the row.
+  app.post(
+    '/api/war-room/:workspaceId/decisions/:decisionId/approve',
+    requireAnyUserId,
+    async (req, res) => {
+      try {
+        const { workspaceId, decisionId } = req.params;
+        if (!decisionLog) return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'Decision log not available');
+
+        const m = await checkMembership(workspaceId, req.user.id);
+        if (!m) return apiError(res, 404, 'NOT_FOUND', 'Workspace not found or no access');
+
+        const decision = await decisionBelongsToWorkspace(decisionId, workspaceId);
+        if (!decision) return apiError(res, 404, 'NOT_FOUND', 'Decision not found in this workspace');
+        if (decision.refused) {
+          return apiError(res, 409, 'ALREADY_REJECTED', 'Decision was already rejected');
+        }
+        if (decision.approved_at) {
+          return res.json({ decision });
+        }
+
+        const updated = await decisionLog.approve(decisionId, req.user.id);
+        if (!updated) return apiError(res, 500, 'INTERNAL_ERROR', 'Failed to approve decision');
+        return res.json({ decision: updated });
+      } catch (err) {
+        log?.('/api/war-room/approve', null, 'approve error', { error: err.message });
+        return apiError(res, 500, 'INTERNAL_ERROR', safePublicError(err));
+      }
+    },
+  );
+
+  // POST /api/war-room/:workspaceId/decisions/:decisionId/reject
+  // Body: { reason?: string } — optional, capped at 500 chars by the lib.
+  app.post(
+    '/api/war-room/:workspaceId/decisions/:decisionId/reject',
+    requireAnyUserId,
+    express ? express.json({ limit: '4kb' }) : (req, _res, next) => next(),
+    async (req, res) => {
+      try {
+        const { workspaceId, decisionId } = req.params;
+        if (!decisionLog) return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'Decision log not available');
+
+        const m = await checkMembership(workspaceId, req.user.id);
+        if (!m) return apiError(res, 404, 'NOT_FOUND', 'Workspace not found or no access');
+
+        const decision = await decisionBelongsToWorkspace(decisionId, workspaceId);
+        if (!decision) return apiError(res, 404, 'NOT_FOUND', 'Decision not found in this workspace');
+        if (decision.approved_at) {
+          return apiError(res, 409, 'ALREADY_APPROVED', 'Decision was already approved');
+        }
+        if (decision.refused) {
+          return res.json({ decision });
+        }
+
+        const reason = typeof req.body?.reason === 'string' ? req.body.reason : '';
+        const updated = await decisionLog.reject(decisionId, req.user.id, reason);
+        if (!updated) return apiError(res, 500, 'INTERNAL_ERROR', 'Failed to reject decision');
+        return res.json({ decision: updated });
+      } catch (err) {
+        log?.('/api/war-room/reject', null, 'reject error', { error: err.message });
+        return apiError(res, 500, 'INTERNAL_ERROR', safePublicError(err));
+      }
+    },
+  );
 
   app.get('/api/war-room/:workspaceId/decisions', requireAnyUserId, async (req, res) => {
     try {

@@ -12182,11 +12182,13 @@ require('./routes/war-room').register({
   app,
   warRoomFeed: _warRoomFeed,
   workspaces: _workspaces,
+  decisionLog: _decisionLog,
   requireAnyUserId,
   sbGet,
   apiError,
   safePublicError,
   log,
+  express,
 });
 
 const _META_COMPLIANCE_CARVED = true;

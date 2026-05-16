@@ -255,6 +255,58 @@ test('approve: returns null without id or userId', async () => {
   assert.strictEqual(await log.approve('d', null), null);
 });
 
+// ─── reject ───────────────────────────────────────────────────────────────
+
+test('reject: sets refused=true with operator note + clears executed flag', async () => {
+  const sb = makeFakeSb();
+  const log = makeDecisionLogger(sb);
+  await log.reject('dec-2', 'user-uuid', 'off-brand');
+  const patch = sb.patches[0];
+  assert.strictEqual(patch.updates.refused, true);
+  assert.strictEqual(patch.updates.executed, false);
+  assert.match(patch.updates.refusal_reason, /user-uuid/);
+  assert.match(patch.updates.refusal_reason, /off-brand/);
+});
+
+test('reject: works without reason — still tracks actor', async () => {
+  const sb = makeFakeSb();
+  const log = makeDecisionLogger(sb);
+  await log.reject('dec-3', 'user-uuid');
+  assert.strictEqual(sb.patches[0].updates.refused, true);
+  assert.match(sb.patches[0].updates.refusal_reason, /user-uuid/);
+});
+
+test('reject: returns null without id or userId', async () => {
+  const log = makeDecisionLogger(makeFakeSb());
+  assert.strictEqual(await log.reject(null, 'u'), null);
+  assert.strictEqual(await log.reject('d', null), null);
+});
+
+test('reject: caps reason at 500 chars to prevent abuse', async () => {
+  const sb = makeFakeSb();
+  const log = makeDecisionLogger(sb);
+  await log.reject('dec-4', 'user-uuid', 'x'.repeat(2000));
+  // reason segment: everything after the actor note
+  const note = sb.patches[0].updates.refusal_reason;
+  const reasonSegment = note.split(': ').slice(1).join(': ');
+  assert.ok(reasonSegment.length <= 500, `expected ≤ 500 chars, got ${reasonSegment.length}`);
+});
+
+// ─── getById ──────────────────────────────────────────────────────────────
+
+test('getById: returns the row when found', async () => {
+  const sb = makeFakeSb();
+  sb.preload('decision_logs', [{ id: 'dec-5', business_id: 'b-cafe' }]);
+  const log = makeDecisionLogger(sb);
+  const row = await log.getById('dec-5');
+  assert.strictEqual(row.id, 'dec-5');
+});
+
+test('getById: returns null for missing id', async () => {
+  const log = makeDecisionLogger(makeFakeSb());
+  assert.strictEqual(await log.getById(null), null);
+});
+
 // ─── Fail-safe ────────────────────────────────────────────────────────────
 
 test('proposeDecision: sbPost throws → soft result, no exception', async () => {
