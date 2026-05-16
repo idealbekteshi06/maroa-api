@@ -267,4 +267,59 @@
   .agent-pulse {
     animation: none !important;
   }
+  .skeleton-shimmer {
+    animation: none !important;
+    background: theme('colors.ink.100') !important;
+  }
+  .dark .skeleton-shimmer {
+    background: theme('colors.ink.800') !important;
+  }
+}
+
+/* Sparkline hover affordance — point markers + last-point guideline
+   hidden by default, revealed on hover. Hover-capable pointers only,
+   so touch devices never get a sticky reveal. */
+.sparkline-svg .sparkline-hover {
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+}
+@media (hover: hover) {
+  .sparkline-svg:hover .sparkline-hover {
+    opacity: 1;
+  }
+}
+
+/* Loading skeleton — single keyframe gradient sweep across each block.
+   Light-mode + dark-mode have their own gradients so the highlight
+   reads regardless of background. */
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: theme('colors.ink.100');
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.6) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.2s linear infinite;
+}
+.dark .skeleton-shimmer {
+  background-color: theme('colors.ink.800');
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.06) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+@keyframes skeleton-sweep {
+  0% {
+    background-position: -100% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
 }

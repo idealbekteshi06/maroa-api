@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Inbox, Activity, Sparkles, AlertCircle } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
+import { ArrowRight, Activity, AlertCircle, Plus, FileBarChart } from 'lucide-react';
+import { useReducedMotion } from 'framer-motion';
 import { KpiStrip } from './kpi-strip';
 import { ClientCard } from './client-card';
 import { PriorityCard } from './priority-card';
@@ -11,24 +13,28 @@ import type { WorkspaceFeed } from '@/lib/types/war-room';
 import { StaggerList } from '@/components/motion/stagger-list';
 import { FadeIn } from '@/components/motion/fade-in';
 import { MotionProvider } from '@/components/motion/motion-provider';
+import { useDashboardBadgesSetter } from '@/components/dashboard/sidebar-badges-context';
+import { CommandPaletteHandle } from '@/components/dashboard/command-palette';
 
 /**
- * The interactive War Room. Receives `fallbackFeed` (the bundled mock) so
- * the first paint is immediate. On mount, attempts a real fetch against
- * /api/war-room/:workspaceId via the authenticated API client. Outcomes:
+ * The interactive War Room. Three explicit bands with different visual
+ * densities:
  *
- *   - Real data: swap fallback → real, hide the demo banner.
- *   - No session / no workspace / 5xx: keep fallback, show demo banner
- *     so the user always knows whether they're looking at illustrative
- *     numbers or their own.
+ *   Band A — "Needs you"   (highest density, white surface, tight rhythm)
+ *   Band B — "Working"     (medium density, KPIs + running operations ticker)
+ *   Band C — "Resting"     (lowest density, muted surface, generous spacing)
  *
- * Designed so a freelancer signing in for the first time sees something
- * meaningful before any data has been seeded.
+ * Demo-mode and empty-mode (?empty=1) both render through the same band
+ * scaffolding so visual rhythm is identical regardless of data state.
  */
 export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) {
   const [feed, setFeed] = useState<WorkspaceFeed>(fallbackFeed);
   const [isDemo, setIsDemo] = useState(true);
   const [loaded, setLoaded] = useState(false);
+  // ?empty=1 forces the three empty states without breaking the live data
+  // path — kept as a single query gate so QA + designers can preview easily.
+  const search = useSearchParams();
+  const emptyMode = search?.get('empty') === '1';
 
   useEffect(() => {
     let cancelled = false;
@@ -48,7 +54,24 @@ export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) 
     };
   }, []);
 
-  const allDecisions = feed.clients
+  const effectiveFeed: WorkspaceFeed = useMemo(() => {
+    if (!emptyMode) return feed;
+    return {
+      ...feed,
+      clients: [],
+      pending_approvals: [],
+      summary: {
+        ...feed.summary,
+        clients_total: 0,
+        creatives_total: 0,
+        decaying_or_dead: 0,
+        experiments_running: 0,
+        pending_approvals: 0,
+      },
+    };
+  }, [feed, emptyMode]);
+
+  const allDecisions = effectiveFeed.clients
     .flatMap((c) =>
       c.recent_decisions.map((d) => ({
         ...d,
@@ -62,24 +85,40 @@ export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) 
     .slice(0, 5);
 
   const recentActivity = allDecisions.filter((d) => d.executed && !d.refused).slice(0, 6);
+  const pendingApprovalCount = effectiveFeed.pending_approvals.length;
+  const needsYouCount = priorities.length + pendingApprovalCount;
+
+  // Publish sidebar badge counts so the chrome reflects the page's state.
+  const publishBadges = useDashboardBadgesSetter();
+  useEffect(() => {
+    publishBadges({
+      approvals: pendingApprovalCount,
+      // Mock client-invite count + sync-failure flag until those endpoints land.
+      clients: effectiveFeed.clients.length > 0 ? 1 : 0,
+      settings: '!',
+    });
+  }, [publishBadges, pendingApprovalCount, effectiveFeed.clients.length]);
 
   return (
     <MotionProvider>
-      <header className="mb-8">
-        <p className="text-sm text-ink-400">Workspace · {feed.workspace.name}</p>
-        <h1 className="text-3xl font-semibold text-ink-700 dark:text-ink-50 tracking-tight mt-1">
-          War Room
-        </h1>
-        <p className="mt-2 text-ink-400 max-w-2xl">
-          What Maroa noticed today, what it&apos;s recommending, what it already shipped, and what
-          it needs you for.
-        </p>
+      <header className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm text-ink-400">Workspace · {effectiveFeed.workspace.name}</p>
+          <h1 className="text-3xl font-semibold text-ink-700 dark:text-ink-50 tracking-tight mt-1">
+            War Room
+          </h1>
+          <p className="mt-2 text-ink-400 max-w-2xl">
+            What Maroa noticed today, what it&apos;s recommending, what it already shipped, and what
+            it needs you for.
+          </p>
+        </div>
+        <CommandPaletteHandle />
       </header>
 
-      {isDemo && loaded && (
+      {isDemo && loaded && !emptyMode && (
         <div
           role="status"
-          className="mb-8 flex items-start gap-3 rounded-xl border border-amber-200/60 dark:border-amber-500/20 bg-amber-50/60 dark:bg-amber-500/5 p-4"
+          className="mb-6 flex items-start gap-3 rounded-xl border border-amber-200/60 dark:border-amber-500/20 bg-amber-50/60 dark:bg-amber-500/5 p-4"
         >
           <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
           <div className="flex-1 min-w-0">
@@ -100,32 +139,28 @@ export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) 
         </div>
       )}
 
-      <section className="mb-10">
-        <KpiStrip feed={feed} />
-      </section>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-10">
-          <section>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold text-ink-700 dark:text-ink-100 flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-accent-500" />
-                Priorities
-                <span className="text-xs font-normal text-ink-400">— what to act on first</span>
-              </h2>
-              <Link
-                href="/dashboard/decisions"
-                className="text-xs font-medium text-accent-500 hover:text-accent-600 dark:text-accent-400 inline-flex items-center gap-1"
-              >
-                All decisions
-                <ArrowRight className="h-3 w-3" />
-              </Link>
-            </div>
-
+      {/* BAND A — Needs you ─────────────────────────────────────────────── */}
+      <section aria-labelledby="band-a-heading" className="mt-2">
+        <BandHeader
+          id="band-a-heading"
+          tone="urgent"
+          eyebrow="Needs you"
+          count={needsYouCount}
+          countLabel={needsYouCount === 1 ? 'pending' : 'pending'}
+          right={
+            <Link
+              href="/dashboard/approvals"
+              className="text-xs font-medium text-accent-500 hover:text-accent-600 dark:text-accent-400 inline-flex items-center gap-1"
+            >
+              All decisions
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          }
+        />
+        <div className="mt-4 grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4">
+          <div>
             {priorities.length === 0 ? (
-              <div className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-12 text-center">
-                <p className="text-ink-400">All clear. Nothing needs your attention right now.</p>
-              </div>
+              <EmptyPriorities />
             ) : (
               <StaggerList className="space-y-3" step={60}>
                 {priorities.map((d) => (
@@ -133,130 +168,286 @@ export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) 
                     key={d.id}
                     decision={d}
                     businessName={d._clientName}
-                    workspaceId={feed.workspace.id}
+                    workspaceId={effectiveFeed.workspace.id}
                   />
                 ))}
               </StaggerList>
             )}
-          </section>
-
-          <section>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold text-ink-700 dark:text-ink-100">
-                Clients
-                <span className="text-xs font-normal text-ink-400 ml-2">
-                  — {feed.clients.length} active
-                </span>
-              </h2>
-              <Link
-                href="/dashboard/clients"
-                className="text-xs font-medium text-accent-500 hover:text-accent-600 dark:text-accent-400 inline-flex items-center gap-1"
-              >
-                Manage clients
-                <ArrowRight className="h-3 w-3" />
-              </Link>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {feed.clients.map((c, i) => (
-                <FadeIn key={c.client.id} delay={i * 80}>
-                  <ClientCard client={c} />
-                </FadeIn>
-              ))}
-            </div>
-          </section>
+          </div>
+          <ApprovalInboxList
+            approvals={effectiveFeed.pending_approvals}
+            clients={effectiveFeed.clients}
+          />
         </div>
+      </section>
 
-        <aside className="space-y-8">
-          <section>
-            <h2 className="text-base font-semibold text-ink-700 dark:text-ink-100 flex items-center gap-2 mb-4">
-              <Inbox className="h-4 w-4 text-amber-500" />
-              Approval inbox
-              <span className="text-xs font-normal text-ink-400">
-                — {feed.pending_approvals.length}
-              </span>
-            </h2>
-            {feed.pending_approvals.length === 0 ? (
-              <div className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-6 text-center">
-                <p className="text-sm text-ink-400">Inbox zero.</p>
-              </div>
-            ) : (
-              <ul className="space-y-2">
-                {feed.pending_approvals.map((a) => {
-                  const business = feed.clients.find((c) => c.business_id === a.business_id);
-                  return (
-                    <li key={a.id}>
-                      <Link
-                        href={`/dashboard/approvals/${a.id}`}
-                        className="block rounded-xl bg-white dark:bg-ink-900 border border-amber-200/60 dark:border-amber-500/20 hover:border-amber-300 dark:hover:border-amber-500/40 p-3 transition-colors"
-                      >
-                        <p className="text-xs text-ink-400 mb-1">
-                          {business?.client.client_name || a.business_id}
-                        </p>
-                        <p className="text-sm text-ink-700 dark:text-ink-100 truncate">
-                          {a.client_email || 'Awaiting client review'}
-                        </p>
-                        <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
-                          Expires {new Date(a.expires_at).toLocaleDateString()}
-                        </p>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
+      {/* BAND B — Working ───────────────────────────────────────────────── */}
+      <section aria-labelledby="band-b-heading" className="mt-10">
+        <BandHeader
+          id="band-b-heading"
+          tone="working"
+          eyebrow="Working"
+          count={effectiveFeed.summary.experiments_running + effectiveFeed.summary.creatives_total}
+          countLabel="live operations"
+        />
+        <div className="mt-4 grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4">
+          <KpiStrip feed={effectiveFeed} emptyMode={emptyMode} />
+          <RunningNowTicker activity={recentActivity} />
+        </div>
+      </section>
 
-          <section>
-            <h2 className="text-base font-semibold text-ink-700 dark:text-ink-100 flex items-center gap-2 mb-4">
-              <Activity className="h-4 w-4 text-green-500" />
-              Recent activity
-            </h2>
-            {recentActivity.length === 0 ? (
-              <div className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-6 text-center">
-                <p className="text-sm text-ink-400">No auto-actions yet.</p>
-              </div>
-            ) : (
-              <ol className="relative border-l-2 border-ink-200 dark:border-ink-700 pl-5 space-y-4">
-                {recentActivity.map((d) => (
-                  <li key={d.id} className="relative">
-                    <span
-                      className="absolute -left-[27px] top-1.5 h-2 w-2 rounded-full bg-green-500 ring-4 ring-white dark:ring-ink-950"
-                      aria-hidden="true"
-                    />
-                    <p className="text-xs text-ink-400 mb-0.5">
-                      {d.agent_name.replace(/-/g, ' ')} · {d._clientName}
-                    </p>
-                    <p className="text-sm text-ink-700 dark:text-ink-100 leading-snug">
-                      {d.recommendation_text}
-                    </p>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </section>
-
-          <section className="rounded-xl bg-ink-700 dark:bg-ink-800 text-white p-6">
-            <p className="text-xs uppercase tracking-wider text-ink-100/70 mb-2">Plan</p>
-            <p className="text-lg font-semibold capitalize">{feed.workspace.plan_tier}</p>
-            <p className="text-sm text-ink-100/80 mt-1">
-              {feed.workspace.plan_tier === 'freelancer'
-                ? '20 client cap · $199/mo'
-                : feed.workspace.plan_tier === 'agency'
-                ? '50 client cap · $499/mo'
-                : feed.workspace.plan_tier === 'enterprise'
-                ? 'Custom'
-                : 'See /pricing'}
-            </p>
+      {/* BAND C — Resting ──────────────────────────────────────────────── */}
+      <section
+        aria-labelledby="band-c-heading"
+        className="mt-10 rounded-2xl bg-ink-50/40 dark:bg-ink-950/40 border border-ink-200/40 dark:border-ink-800/60 p-6"
+      >
+        <BandHeader
+          id="band-c-heading"
+          tone="resting"
+          eyebrow="Resting"
+          count={effectiveFeed.clients.length}
+          countLabel="active clients"
+          right={
             <Link
-              href="/settings"
-              className="mt-4 inline-flex items-center text-sm font-medium text-white hover:text-ink-100"
+              href="/dashboard/clients"
+              className="text-xs font-medium text-accent-500 hover:text-accent-600 dark:text-accent-400 inline-flex items-center gap-1"
             >
-              Manage plan
-              <ArrowRight className="h-3 w-3 ml-1" />
+              Manage
+              <ArrowRight className="h-3 w-3" />
             </Link>
-          </section>
-        </aside>
-      </div>
+          }
+        />
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+          {effectiveFeed.clients.length === 0 ? (
+            <EmptyClients />
+          ) : (
+            effectiveFeed.clients.map((c, i) => (
+              <FadeIn key={c.client.id} delay={i * 80}>
+                <ClientCard client={c} />
+              </FadeIn>
+            ))
+          )}
+        </div>
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-center">
+          <PlanCard plan={effectiveFeed.workspace.plan_tier} />
+          <Link
+            href="/dashboard/reports"
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 px-4 py-3 text-sm font-medium text-ink-700 dark:text-ink-100 hover:border-ink-300 dark:hover:border-ink-600 transition-colors"
+          >
+            <FileBarChart className="h-4 w-4 text-ink-400" />
+            View latest reports
+            <ArrowRight className="h-3 w-3 text-ink-400" />
+          </Link>
+        </div>
+      </section>
     </MotionProvider>
   );
 }
+
+// ─── Band-level helpers ────────────────────────────────────────────────────
+
+function BandHeader({
+  id,
+  tone,
+  eyebrow,
+  count,
+  countLabel,
+  right,
+}: {
+  id?: string;
+  tone: 'urgent' | 'working' | 'resting';
+  eyebrow: string;
+  count: number;
+  countLabel: string;
+  right?: React.ReactNode;
+}) {
+  const dotColor =
+    tone === 'urgent'
+      ? 'bg-amber-500'
+      : tone === 'working'
+      ? 'bg-accent-500'
+      : 'bg-ink-300 dark:bg-ink-700';
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <h2 id={id} className="flex items-center gap-2">
+        <span className="pill">
+          <span className={`pill-dot ${dotColor} ${tone === 'working' ? 'agent-pulse' : ''}`} aria-hidden="true" />
+          <span className="font-medium">{eyebrow}</span>
+          <span aria-hidden="true" className="text-ink-300 dark:text-ink-600">·</span>
+          <span className="tabular-nums">{count}</span>
+          <span className="text-ink-400 font-normal">{countLabel}</span>
+        </span>
+      </h2>
+      {right}
+    </div>
+  );
+}
+
+function ApprovalInboxList({
+  approvals,
+  clients,
+}: {
+  approvals: WorkspaceFeed['pending_approvals'];
+  clients: WorkspaceFeed['clients'];
+}) {
+  return (
+    <aside className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-4">
+      <p className="text-xs uppercase tracking-wider text-ink-400 font-medium mb-3">
+        Awaiting client review
+      </p>
+      {approvals.length === 0 ? (
+        <p className="text-sm text-ink-400">Inbox zero.</p>
+      ) : (
+        <ul className="space-y-2">
+          {approvals.map((a) => {
+            const business = clients.find((c) => c.business_id === a.business_id);
+            return (
+              <li key={a.id}>
+                <Link
+                  href={`/dashboard/approvals/${a.id}`}
+                  className="block rounded-lg border border-amber-200/60 dark:border-amber-500/20 hover:border-amber-300 dark:hover:border-amber-500/40 p-2.5 transition-colors"
+                >
+                  <p className="text-[10px] uppercase tracking-wider text-ink-400">
+                    {business?.client.client_name || a.business_id}
+                  </p>
+                  <p className="text-sm text-ink-700 dark:text-ink-100 truncate mt-0.5">
+                    {a.client_email || 'Awaiting client review'}
+                  </p>
+                  <p className="text-[10px] text-amber-700 dark:text-amber-400 mt-1">
+                    Expires {new Date(a.expires_at).toLocaleDateString()}
+                  </p>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </aside>
+  );
+}
+
+/**
+ * Right-rail "running now" ticker — 4 visible lines, rotating every 4s.
+ * Reuses the cadence pattern from the hero ActivityFeed but here the items
+ * are real recent executions.
+ */
+function RunningNowTicker({
+  activity,
+}: {
+  activity: Array<{ id: string; agent_name: string; recommendation_text: string; _clientName: string }>;
+}) {
+  const prefersReducedMotion = useReducedMotion();
+  const [head, setHead] = useState(0);
+  useEffect(() => {
+    if (prefersReducedMotion || activity.length < 5) return;
+    const id = setInterval(() => {
+      setHead((h) => (h + 1) % activity.length);
+    }, 4000);
+    return () => clearInterval(id);
+  }, [activity.length, prefersReducedMotion]);
+
+  const visible = activity.length === 0
+    ? []
+    : [0, 1, 2, 3].map((offset) => activity[(head + offset) % activity.length]).filter(Boolean) as typeof activity;
+
+  return (
+    <aside className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-4">
+      <p className="text-xs uppercase tracking-wider text-ink-400 font-medium mb-3 flex items-center gap-2">
+        <Activity className="h-3 w-3 text-green-500" />
+        Running now
+      </p>
+      {visible.length === 0 ? (
+        <p className="text-sm text-ink-400">No auto-actions yet.</p>
+      ) : (
+        <ol className="relative border-l-2 border-ink-200 dark:border-ink-700 pl-4 space-y-3">
+          {visible.map((d, i) => (
+            <li key={`${head}-${d.id}-${i}`} className="relative">
+              <span
+                className="absolute -left-[22px] top-1.5 h-1.5 w-1.5 rounded-full bg-green-500 ring-4 ring-white dark:ring-ink-900"
+                aria-hidden="true"
+              />
+              <p className="text-[10px] uppercase tracking-wider text-ink-400">
+                {d.agent_name.replace(/-/g, ' ')} · {d._clientName}
+              </p>
+              <p className="text-xs text-ink-700 dark:text-ink-100 leading-snug mt-0.5 line-clamp-2">
+                {d.recommendation_text}
+              </p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </aside>
+  );
+}
+
+function PlanCard({ plan }: { plan: string }) {
+  const blurb =
+    plan === 'freelancer'
+      ? '20 client cap · $199/mo'
+      : plan === 'agency'
+      ? '50 client cap · $499/mo'
+      : plan === 'enterprise'
+      ? 'Custom'
+      : 'See /pricing';
+  return (
+    <div className="rounded-xl bg-ink-700 dark:bg-ink-800 text-white p-4 flex items-center gap-4">
+      <div className="flex-1 min-w-0">
+        <p className="text-[10px] uppercase tracking-wider text-ink-100/70">Plan</p>
+        <p className="text-base font-semibold capitalize">{plan}</p>
+        <p className="text-xs text-ink-100/80">{blurb}</p>
+      </div>
+      <Link
+        href="/settings"
+        className="text-xs font-medium text-white hover:text-ink-100 inline-flex items-center gap-1 whitespace-nowrap"
+      >
+        Manage
+        <ArrowRight className="h-3 w-3" />
+      </Link>
+    </div>
+  );
+}
+
+// ─── Empty states ──────────────────────────────────────────────────────────
+
+function EmptyPriorities() {
+  return (
+    <div className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-10 text-center">
+      <div className="relative mx-auto h-14 w-14 mb-5" aria-hidden="true">
+        <span className="absolute inset-0 rounded-full border border-ink-200 dark:border-ink-700" />
+        <span className="absolute inset-1.5 rounded-full border border-ink-200 dark:border-ink-700" />
+        <span className="absolute top-1/2 left-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-green-500 agent-pulse" />
+      </div>
+      <p className="text-base font-semibold text-ink-700 dark:text-ink-100">All clear</p>
+      <p className="mt-1 text-sm text-ink-400 max-w-sm mx-auto">
+        No decisions need you right now. Maroa will surface anything that does.
+      </p>
+      <Link
+        href="/dashboard/reports"
+        className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-accent-500 hover:text-accent-600 dark:text-accent-400"
+      >
+        View 24h history
+        <ArrowRight className="h-3 w-3" />
+      </Link>
+    </div>
+  );
+}
+
+function EmptyClients() {
+  return (
+    <Link
+      href="/onboarding"
+      className="md:col-span-2 flex flex-col items-center justify-center text-center rounded-xl border-2 border-dashed border-ink-200 dark:border-ink-700 p-10 hover:border-accent-400 dark:hover:border-accent-500/40 hover:bg-accent-50/30 dark:hover:bg-accent-500/5 transition-colors"
+    >
+      <span className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full border border-ink-200 dark:border-ink-700">
+        <Plus className="h-4 w-4 text-ink-400" />
+      </span>
+      <span className="text-base font-semibold text-ink-700 dark:text-ink-100">
+        Add your first client
+      </span>
+      <span className="mt-1 text-sm text-ink-400">
+        Connect a business and Maroa will start surfacing decisions for it.
+      </span>
+    </Link>
+  );
+}
+

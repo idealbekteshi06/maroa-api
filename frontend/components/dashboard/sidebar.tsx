@@ -18,6 +18,7 @@ import { Logo } from '@/components/marketing/logo';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
 import { cn } from '@/lib/cn';
 import { logOut } from '@/lib/api/auth';
+import { useDashboardBadges } from '@/components/dashboard/sidebar-badges-context';
 
 // Grouped navigation — closer to the AI marketing-OS surface area the
 // product audit asked for. Each item routes to a real page (stubs land
@@ -52,6 +53,24 @@ const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: t
 
 export function Sidebar() {
   const pathname = usePathname();
+  const badges = useDashboardBadges();
+  // Map nav href → badge to render. `0` (or empty string) renders nothing.
+  const badgeFor: Record<string, { value: number | string; tone: 'amber' | 'accent' | 'red' } | undefined> = {
+    '/dashboard/approvals': badges.approvals
+      ? { value: badges.approvals, tone: 'amber' }
+      : undefined,
+    '/dashboard/clients': badges.clients
+      ? { value: badges.clients, tone: 'accent' }
+      : undefined,
+    '/settings': badges.settings
+      ? { value: badges.settings, tone: 'red' }
+      : undefined,
+  };
+  const toneClass: Record<'amber' | 'accent' | 'red', string> = {
+    amber: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+    accent: 'bg-accent-100 text-accent-700 dark:bg-accent-500/15 dark:text-accent-300',
+    red: 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300',
+  };
 
   return (
     <aside className="hidden lg:flex w-60 flex-col border-r border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-950">
@@ -84,7 +103,18 @@ export function Sidebar() {
                     aria-current={active ? 'page' : undefined}
                   >
                     <item.icon className="h-4 w-4" />
-                    {item.label}
+                    <span className="flex-1">{item.label}</span>
+                    {badgeFor[item.href] && (
+                      <span
+                        className={cn(
+                          'inline-flex items-center justify-center rounded-full h-4 min-w-[16px] px-1.5 text-[10px] font-semibold tabular-nums',
+                          toneClass[badgeFor[item.href]!.tone],
+                        )}
+                        aria-label={`${badgeFor[item.href]!.value} pending`}
+                      >
+                        {badgeFor[item.href]!.value}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
