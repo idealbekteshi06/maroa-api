@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { ThemeProvider } from '@/components/theme/theme-provider';
+import '@fontsource-variable/dm-sans';
 import '@fontsource-variable/inter';
 import './globals.css';
 

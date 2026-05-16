@@ -36,29 +36,32 @@ const config: Config = {
           800: '#161617',
           900: '#0a0a0b',
         },
-        // Maroa brand: deep indigo-violet. Replaces the generic Apple
-        // "Buy" blue with a distinctive hue every Maroa surface keys off.
-        // Picked between Tailwind indigo-500 (#6366F1, too pale) and
-        // indigo-700 (#4338CA, too dark) — #5145E5 reads as confident
-        // and intelligent without veering into purple novelty.
+        // Maroa brand cobalt — matches the live homepage. Brighter and
+        // more saturated than indigo, leans true-blue instead of purple.
+        // 500 is the conversion blue (CTAs, "Automated by AI" headline
+        // fill, primary buttons); 600 is the press/hover state.
         accent: {
-          50: '#EEF0FF',
-          100: '#DDE1FF',
-          200: '#BFC5FE',
-          300: '#9499F8',
-          400: '#6E73F0',
-          500: '#5145E5', // BRAND — every primary action, every link, every focus ring
-          600: '#4938CA',
-          700: '#3A2EA3',
-          800: '#2D2480',
-          900: '#1B1450',
+          50: '#EEF1FF',
+          100: '#DDE3FF',
+          200: '#BAC4FF',
+          300: '#8E9CFF',
+          400: '#6573F2',
+          500: '#3D4DE8', // BRAND — primary CTAs, link colour, focus ring
+          600: '#2F3FD1',
+          700: '#2632A8',
+          800: '#1E2782',
+          900: '#141B5C',
         },
       },
       fontFamily: {
-        // Inter Variable leads; system stack is the fallback while the
-        // variable file loads. -apple-system keeps SF on macOS/iOS users
-        // if the font request fails entirely.
+        // DM Sans Variable leads — matches the live maroa.ai homepage and
+        // carries Maroa's brand voice (rounded geometric, friendly bold
+        // weights for display sizes). Inter Variable kept as a fallback
+        // for dashboard surfaces that already key off it, then the system
+        // stack while the variable file loads.
         sans: [
+          'DM Sans Variable',
+          'DM Sans',
           'Inter Variable',
           'Inter',
           '-apple-system', 'BlinkMacSystemFont',

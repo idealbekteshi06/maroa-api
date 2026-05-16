@@ -103,7 +103,7 @@
     width: 55%;
     height: 55%;
     /* Maroa indigo-400 — warm halo top-left */
-    background: radial-gradient(circle, rgba(110,115,240,0.55), transparent 70%);
+    background: radial-gradient(circle, rgba(101,115,242,0.55), transparent 70%);
   }
   .hero-atmosphere::after {
     top: -10%;
@@ -111,14 +111,14 @@
     width: 60%;
     height: 60%;
     /* Maroa indigo-500 — deeper halo top-right */
-    background: radial-gradient(circle, rgba(81,69,229,0.45), transparent 70%);
+    background: radial-gradient(circle, rgba(61,77,232,0.45), transparent 70%);
   }
   .dark .hero-atmosphere::before {
-    background: radial-gradient(circle, rgba(110,115,240,0.30), transparent 70%);
+    background: radial-gradient(circle, rgba(101,115,242,0.30), transparent 70%);
     opacity: 0.75;
   }
   .dark .hero-atmosphere::after {
-    background: radial-gradient(circle, rgba(81,69,229,0.35), transparent 70%);
+    background: radial-gradient(circle, rgba(61,77,232,0.35), transparent 70%);
     opacity: 0.75;
   }
 
@@ -152,11 +152,11 @@
     transform: translateX(-50%);
     pointer-events: none;
     z-index: -1;
-    background: radial-gradient(ellipse at center, rgba(81,69,229,0.22), transparent 65%);
+    background: radial-gradient(ellipse at center, rgba(61,77,232,0.22), transparent 65%);
     filter: blur(40px);
   }
   .dark .preview-floor {
-    background: radial-gradient(ellipse at center, rgba(110,115,240,0.25), transparent 65%);
+    background: radial-gradient(ellipse at center, rgba(101,115,242,0.25), transparent 65%);
   }
 
   /* Status pill — sits above the headline. Backdrop blur on a translucent
@@ -198,7 +198,7 @@
       110deg,
       rgb(29,29,31) 0%,
       rgb(29,29,31) 30%,
-      rgb(81,69,229) 50%,
+      rgb(61,77,232) 50%,
       rgb(29,29,31) 70%,
       rgb(29,29,31) 100%
     );
@@ -213,7 +213,7 @@
       110deg,
       rgb(245,245,247) 0%,
       rgb(245,245,247) 30%,
-      rgb(148,153,248) 50%,
+      rgb(142,156,255) 50%,
       rgb(245,245,247) 70%,
       rgb(245,245,247) 100%
     );
