@@ -10,8 +10,9 @@
  */
 
 // ─── Easing curves ────────────────────────────────────────────────────────
-// Linear-flavored cubic beziers, expressed as CSS strings so they can be
-// dropped straight into framer-motion `ease` props or CSS `transition`.
+// Linear-flavored cubic beziers. Available as CSS strings (for inline
+// styles + Tailwind arbitrary values) and as 4-tuple arrays (for
+// framer-motion's `ease` prop, which doesn't parse CSS strings).
 export const EASING = {
   // ease-out-expo — most UI motion. Snappy in, gentle out.
   snappy: 'cubic-bezier(0.16, 1, 0.3, 1)',
@@ -19,6 +20,12 @@ export const EASING = {
   soft: 'cubic-bezier(0.4, 0, 0.2, 1)',
   // Overshoot — use sparingly. Reserved for success/confirmation moments.
   bounce: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+} as const;
+
+export const EASING_BEZIER = {
+  snappy: [0.16, 1, 0.3, 1],
+  soft: [0.4, 0, 0.2, 1],
+  bounce: [0.34, 1.56, 0.64, 1],
 } as const;
 
 // ─── Duration buckets ─────────────────────────────────────────────────────
