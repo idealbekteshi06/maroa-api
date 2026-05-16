@@ -1,6 +1,6 @@
 'use client';
 
-import { motion, useReducedMotion } from 'framer-motion';
+import { m, useReducedMotion } from 'framer-motion';
 import type { ReactNode } from 'react';
 import { DURATION, EASING_BEZIER } from '@/lib/design-tokens';
 
@@ -32,7 +32,7 @@ export function PageTransition({
   }
 
   return (
-    <motion.main
+    <m.main
       id={id}
       className={className}
       initial={{ opacity: 0 }}
@@ -43,6 +43,6 @@ export function PageTransition({
       }}
     >
       {children}
-    </motion.main>
+    </m.main>
   );
 }

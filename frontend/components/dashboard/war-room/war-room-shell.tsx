@@ -8,6 +8,9 @@ import { ClientCard } from './client-card';
 import { PriorityCard } from './priority-card';
 import { fetchActiveWorkspaceFeed } from '@/lib/api/war-room';
 import type { WorkspaceFeed } from '@/lib/types/war-room';
+import { StaggerList } from '@/components/motion/stagger-list';
+import { FadeIn } from '@/components/motion/fade-in';
+import { MotionProvider } from '@/components/motion/motion-provider';
 
 /**
  * The interactive War Room. Receives `fallbackFeed` (the bundled mock) so
@@ -61,7 +64,7 @@ export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) 
   const recentActivity = allDecisions.filter((d) => d.executed && !d.refused).slice(0, 6);
 
   return (
-    <>
+    <MotionProvider>
       <header className="mb-8">
         <p className="text-sm text-ink-400">Workspace · {feed.workspace.name}</p>
         <h1 className="text-3xl font-semibold text-ink-700 dark:text-ink-50 tracking-tight mt-1">
@@ -124,7 +127,7 @@ export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) 
                 <p className="text-ink-400">All clear. Nothing needs your attention right now.</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <StaggerList className="space-y-3" step={60}>
                 {priorities.map((d) => (
                   <PriorityCard
                     key={d.id}
@@ -133,7 +136,7 @@ export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) 
                     workspaceId={feed.workspace.id}
                   />
                 ))}
-              </div>
+              </StaggerList>
             )}
           </section>
 
@@ -154,8 +157,10 @@ export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) 
               </Link>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {feed.clients.map((c) => (
-                <ClientCard key={c.client.id} client={c} />
+              {feed.clients.map((c, i) => (
+                <FadeIn key={c.client.id} delay={i * 80}>
+                  <ClientCard client={c} />
+                </FadeIn>
               ))}
             </div>
           </section>
@@ -252,6 +257,6 @@ export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) 
           </section>
         </aside>
       </div>
-    </>
+    </MotionProvider>
   );
 }

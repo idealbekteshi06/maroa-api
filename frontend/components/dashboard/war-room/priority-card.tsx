@@ -1,8 +1,14 @@
-import { ArrowRight, AlertCircle, Sparkles, ShieldAlert, TrendingUp } from 'lucide-react';
+'use client';
+
+import { useState } from 'react';
 import Link from 'next/link';
+import { m, useReducedMotion } from 'framer-motion';
+import { ArrowRight, AlertCircle, Sparkles, ShieldAlert, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { DURATION, EASING_BEZIER, STATE_DOTS } from '@/lib/design-tokens';
 import type { DecisionLogRow } from '@/lib/types/war-room';
 import { DecisionActions } from './decision-actions';
+import { OptimisticCheck } from '@/components/motion/optimistic-check';
 
 const BAND_STYLES: Record<DecisionLogRow['auto_safe_band'], string> = {
   green: 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300 border-green-200/60 dark:border-green-500/20',
@@ -30,6 +36,8 @@ function timeAgo(iso: string): string {
   return `${d}d ago`;
 }
 
+type ActionState = 'idle' | 'approved' | 'rejected';
+
 export function PriorityCard({
   decision,
   businessName,
@@ -39,11 +47,31 @@ export function PriorityCard({
   businessName?: string;
   workspaceId: string;
 }) {
+  const prefersReducedMotion = useReducedMotion();
+  const [action, setAction] = useState<ActionState>('idle');
   const Icon = AGENT_ICONS[decision.agent_name] || Sparkles;
   const band = BAND_STYLES[decision.auto_safe_band];
 
+  // Border-left tint reacts to operator action. Pulse is one cycle; the
+  // tint stays so the row remains legible after.
+  const borderLeftColor =
+    action === 'approved' ? STATE_DOTS.green : action === 'rejected' ? STATE_DOTS.amber : 'transparent';
+
   return (
-    <article className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 hover:border-ink-300 dark:hover:border-ink-600 transition-colors p-5">
+    <m.article
+      animate={{
+        opacity: action === 'rejected' ? 0.4 : 1,
+        boxShadow:
+          action === 'approved' && !prefersReducedMotion
+            ? `0 0 0 3px rgba(52,199,89,0.18)`
+            : action === 'rejected' && !prefersReducedMotion
+            ? `0 0 0 3px rgba(255,149,0,0.18)`
+            : '0 0 0 0 rgba(0,0,0,0)',
+      }}
+      transition={{ duration: DURATION.cinematic / 1000, ease: EASING_BEZIER.snappy }}
+      className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 hover:border-ink-300 dark:hover:border-ink-600 transition-colors p-5 border-l-4"
+      style={{ borderLeftColor }}
+    >
       <div className="flex items-start gap-4">
         <div className={cn('h-10 w-10 rounded-xl flex items-center justify-center border', band)}>
           <Icon className="h-5 w-5" strokeWidth={1.8} />
@@ -59,6 +87,8 @@ export function PriorityCard({
                 <p className="text-xs text-ink-400 truncate">{businessName}</p>
               </>
             )}
+            {/* Visual confirmation next to the agent name when approved */}
+            <OptimisticCheck show={action === 'approved'} />
             <span className="ml-auto text-xs text-ink-400 font-mono">{timeAgo(decision.created_at)}</span>
           </div>
 
@@ -102,6 +132,7 @@ export function PriorityCard({
                 workspaceId={workspaceId}
                 decisionId={decision.id}
                 detailHref={`/dashboard/decisions/${decision.id}`}
+                onActionChange={setAction}
               />
             ) : decision.executed ? (
               <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700 dark:text-green-400">
@@ -120,6 +151,6 @@ export function PriorityCard({
           </div>
         </div>
       </div>
-    </article>
+    </m.article>
   );
 }

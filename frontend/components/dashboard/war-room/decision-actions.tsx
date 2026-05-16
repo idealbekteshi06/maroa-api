@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { ArrowRight, Check, X, ShieldAlert, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { OptimisticCheck } from '@/components/motion/optimistic-check';
 
 type LocalStatus = 'pending' | 'approving' | 'approved' | 'rejecting' | 'rejected' | 'error';
 
@@ -22,11 +23,13 @@ export function DecisionActions({
   decisionId,
   detailHref,
   initialStatus = 'pending',
+  onActionChange,
 }: {
   workspaceId: string;
   decisionId: string;
   detailHref: string;
   initialStatus?: LocalStatus;
+  onActionChange?: (status: 'approved' | 'rejected') => void;
 }) {
   const [status, setStatus] = useState<LocalStatus>(initialStatus);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +65,9 @@ export function DecisionActions({
         return;
       }
 
-      setStatus(action === 'approve' ? 'approved' : 'rejected');
+      const next = action === 'approve' ? 'approved' : 'rejected';
+      setStatus(next);
+      onActionChange?.(next);
       // Refresh server data in the background so other consumers
       // (sidebar inbox, KPI strip) reflect the change.
       startTransition(() => {
@@ -80,7 +85,7 @@ export function DecisionActions({
   if (status === 'approved') {
     return (
       <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300">
-        <Check className="h-3 w-3" />
+        <OptimisticCheck show={true} />
         Approved
       </span>
     );

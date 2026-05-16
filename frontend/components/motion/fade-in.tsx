@@ -1,6 +1,6 @@
 'use client';
 
-import { motion, useReducedMotion } from 'framer-motion';
+import { m, useReducedMotion } from 'framer-motion';
 import type { ReactNode } from 'react';
 import { DURATION, EASING_BEZIER, type DurationKey } from '@/lib/design-tokens';
 
@@ -27,7 +27,7 @@ export function FadeIn({
   const fromY = prefersReducedMotion ? 0 : 8;
 
   return (
-    <motion.div
+    <m.div
       className={className}
       initial={{ opacity: 0, y: fromY }}
       animate={{ opacity: 1, y: 0 }}
@@ -38,6 +38,6 @@ export function FadeIn({
       }}
     >
       {children}
-    </motion.div>
+    </m.div>
   );
 }

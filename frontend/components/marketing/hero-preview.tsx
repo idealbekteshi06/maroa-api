@@ -10,7 +10,7 @@ import {
   Eye,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { AnimatePresence, LazyMotion, domAnimation, m, useReducedMotion } from 'framer-motion';
 import { DURATION, EASING_BEZIER, STATE_DOTS } from '@/lib/design-tokens';
 
 /**
@@ -118,6 +118,7 @@ export function HeroPreview() {
   }, [prefersReducedMotion, isVisible, isPageVisible]);
 
   return (
+    <LazyMotion features={domAnimation} strict>
     <div
       ref={containerRef}
       className="mx-auto max-w-5xl rounded-xl shadow-lifted border border-ink-200/60 dark:border-ink-700/60 overflow-hidden bg-white dark:bg-ink-900"
@@ -250,6 +251,7 @@ export function HeroPreview() {
         </div>
       </div>
     </div>
+    </LazyMotion>
   );
 }
 
@@ -257,7 +259,7 @@ export function HeroPreview() {
 
 function CardShell({ children }: { children: React.ReactNode }) {
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
@@ -265,20 +267,20 @@ function CardShell({ children }: { children: React.ReactNode }) {
       className="absolute inset-0"
     >
       {children}
-    </motion.div>
+    </m.div>
   );
 }
 
 function ShimmerEmptyState({ visible }: { visible: boolean }) {
   return (
-    <motion.div
+    <m.div
       aria-hidden={!visible}
       animate={{ opacity: visible ? 1 : 0 }}
       transition={{ duration: 0.18 }}
       className="absolute inset-0 rounded-xl border border-dashed border-ink-200/60 dark:border-ink-800 bg-white/40 dark:bg-ink-950/20 overflow-hidden"
     >
       <div className="h-full w-full animate-pulse" />
-    </motion.div>
+    </m.div>
   );
 }
 
@@ -321,7 +323,7 @@ function OptimizerCard({ approving }: { approving: boolean }) {
           <div className="mt-3 flex items-center gap-2">
             <AnimatePresence mode="wait">
               {approving ? (
-                <motion.span
+                <m.span
                   key="approved"
                   initial={{ opacity: 0, scale: 0.6 }}
                   animate={{ opacity: 1, scale: 1 }}
@@ -331,9 +333,9 @@ function OptimizerCard({ approving }: { approving: boolean }) {
                 >
                   <Check className="h-3 w-3" strokeWidth={2.6} />
                   Approved
-                </motion.span>
+                </m.span>
               ) : (
-                <motion.span
+                <m.span
                   key="pending"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -343,7 +345,7 @@ function OptimizerCard({ approving }: { approving: boolean }) {
                 >
                   <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: STATE_DOTS.green }} />
                   Auto-executed
-                </motion.span>
+                </m.span>
               )}
             </AnimatePresence>
             <span className="text-ink-300">·</span>
@@ -428,7 +430,7 @@ function ConfidenceRing({ target }: { target: number }) {
     <div className="relative h-8 w-8 flex items-center justify-center">
       <svg width={28} height={28} viewBox="0 0 28 28" className="-rotate-90">
         <circle cx={14} cy={14} r={r} stroke="currentColor" className="text-ink-200 dark:text-ink-800" strokeWidth={2} fill="none" />
-        <motion.circle
+        <m.circle
           cx={14} cy={14} r={r}
           stroke={STATE_DOTS.green}
           strokeWidth={2}
@@ -515,7 +517,7 @@ function ActivityFeed({ paused, reduced }: { paused: boolean; reduced: boolean }
     <ol className="space-y-2.5 text-[10px] text-ink-700 dark:text-ink-200">
       <AnimatePresence initial={false} mode="popLayout">
         {visible.map((item, i) => (
-          <motion.li
+          <m.li
             key={`${head}-${i}-${item.agent}`}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
@@ -525,7 +527,7 @@ function ActivityFeed({ paused, reduced }: { paused: boolean; reduced: boolean }
           >
             <span className="text-ink-400">{item.agent} · </span>
             {item.text}
-          </motion.li>
+          </m.li>
         ))}
       </AnimatePresence>
     </ol>

@@ -1,6 +1,6 @@
 'use client';
 
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { AnimatePresence, m, useReducedMotion } from 'framer-motion';
 import { Check } from 'lucide-react';
 import { DURATION, EASING_BEZIER, STATE_DOTS } from '@/lib/design-tokens';
 
@@ -26,7 +26,7 @@ export function OptimisticCheck({
   return (
     <AnimatePresence initial={false}>
       {show && (
-        <motion.span
+        <m.span
           role="status"
           aria-label={label ?? 'Action confirmed'}
           className={
@@ -46,7 +46,7 @@ export function OptimisticCheck({
             strokeWidth={2.5}
           />
           {label ? <span>{label}</span> : null}
-        </motion.span>
+        </m.span>
       )}
     </AnimatePresence>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import { motion, useReducedMotion } from 'framer-motion';
+import { m, useReducedMotion } from 'framer-motion';
 import { Children, type ReactNode } from 'react';
 import { DURATION, EASING_BEZIER } from '@/lib/design-tokens';
 
@@ -33,7 +33,7 @@ export function StaggerList({
   return (
     <div className={className}>
       {items.map((child, i) => (
-        <motion.div
+        <m.div
           key={i}
           initial={{ opacity: 0, y: fromY }}
           animate={{ opacity: 1, y: 0 }}
@@ -44,7 +44,7 @@ export function StaggerList({
           }}
         >
           {child}
-        </motion.div>
+        </m.div>
       ))}
     </div>
   );
