@@ -253,7 +253,7 @@ export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) 
           <PlanCard plan={effectiveFeed.workspace.plan_tier} />
           <Link
             href="/dashboard/reports"
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 px-4 py-3 text-sm font-medium text-ink-700 dark:text-ink-100 hover:border-ink-300 dark:hover:border-ink-600 transition-colors"
+            className="brand-edge inline-flex items-center justify-center gap-2 rounded-xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 px-4 py-3 text-sm font-medium text-ink-700 dark:text-ink-100 hover:border-ink-300 dark:hover:border-ink-600 transition-colors"
           >
             <FileBarChart className="h-4 w-4 text-ink-400" />
             View latest reports
@@ -326,7 +326,7 @@ function ApprovalInboxList({
               <li key={a.id}>
                 <Link
                   href={`/dashboard/approvals/${a.id}`}
-                  className="block rounded-lg border border-amber-200/60 dark:border-amber-500/20 hover:border-amber-300 dark:hover:border-amber-500/40 p-2.5 transition-colors"
+                  className="brand-edge block rounded-lg border border-amber-200/60 dark:border-amber-500/20 hover:border-amber-300 dark:hover:border-amber-500/40 p-2.5 transition-colors"
                 >
                   <p className="text-[10px] uppercase tracking-wider text-ink-400">
                     {business?.client.client_name || a.business_id}

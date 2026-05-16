@@ -61,7 +61,7 @@ export const STATE_DOTS = {
   green: '#34C759',  // success / safe / approved
   amber: '#FF9500',  // warning / yellow band
   red: '#FF3B30',    // refusal / red band / rejected
-  blue: '#0071e3',   // info / running
+  blue: '#5145E5',   // info / running (Maroa brand indigo — matches accent-500)
   gray: '#86868b',   // muted / dead
 } as const;
 

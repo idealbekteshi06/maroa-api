@@ -36,17 +36,22 @@ const config: Config = {
           800: '#161617',
           900: '#0a0a0b',
         },
+        // Maroa brand: deep indigo-violet. Replaces the generic Apple
+        // "Buy" blue with a distinctive hue every Maroa surface keys off.
+        // Picked between Tailwind indigo-500 (#6366F1, too pale) and
+        // indigo-700 (#4338CA, too dark) — #5145E5 reads as confident
+        // and intelligent without veering into purple novelty.
         accent: {
-          50: '#eef6ff',
-          100: '#d9eaff',
-          200: '#b8d6ff',
-          300: '#8bb9ff',
-          400: '#5e95ff',
-          500: '#0071e3', // Apple "Buy" blue
-          600: '#0058b8',
-          700: '#004491',
-          800: '#003066',
-          900: '#001f47',
+          50: '#EEF0FF',
+          100: '#DDE1FF',
+          200: '#BFC5FE',
+          300: '#9499F8',
+          400: '#6E73F0',
+          500: '#5145E5', // BRAND — every primary action, every link, every focus ring
+          600: '#4938CA',
+          700: '#3A2EA3',
+          800: '#2D2480',
+          900: '#1B1450',
         },
       },
       fontFamily: {

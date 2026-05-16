@@ -26,23 +26,27 @@ import { DURATION, EASING_BEZIER, STATE_DOTS } from '@/lib/design-tokens';
  * cadence. The KPI strip counts up from 0 once on mount.
  */
 
-type CardId = 'optimizer' | 'refusal' | 'competitor';
+type CardId = 'optimizer' | 'wins' | 'refusal' | 'fix' | 'competitor';
 type FeedCard = { uid: string; type: CardId };
 
-// Feed schedule (ms from loop start). Each `show` pushes a card; the feed
-// caps at MAX_FEED. The first optimizer card gets an `approve` beat
-// (border pulse + approved pill) — subsequent optimizer cards just appear
-// and accumulate, communicating "the engine is busy".
+// Feed schedule (ms from loop start) — narrative arc, not just a rotation.
+// The 5 beats escalate:
+//   1. Small win    — ad-optimizer fires + auto-approves (system is on)
+//   2. Bigger win   — 24h wins summary (system is paying off)
+//   3. Friction     — compliance refusal (system catches problems)
+//   4. Resolution   — auto-substituted compliant copy (system fixes them)
+//   5. Strategic    — competitor watch flags a counter-move (system thinks)
+// Cards still cap at MAX_FEED — the oldest beat shifts out as new ones
+// land so the feed shows the most recent moments without losing density.
 const MAX_FEED = 3;
 const FEED_SCHEDULE: { at: number; do: 'show' | 'approve' | 'restart'; card?: CardId }[] = [
-  { at: 600,   do: 'show',    card: 'optimizer' },
-  { at: 2800,  do: 'approve' },
-  { at: 4500,  do: 'show',    card: 'refusal' },
-  { at: 7500,  do: 'show',    card: 'competitor' },
-  { at: 11000, do: 'show',    card: 'optimizer' },
-  { at: 14000, do: 'show',    card: 'refusal' },
-  { at: 17000, do: 'show',    card: 'competitor' },
-  { at: 20000, do: 'restart' },
+  { at: 600,   do: 'show',    card: 'optimizer' },   // Beat 1 — small win
+  { at: 2800,  do: 'approve' },                       //          auto-approves
+  { at: 4500,  do: 'show',    card: 'wins' },        // Beat 2 — bigger win
+  { at: 8000,  do: 'show',    card: 'refusal' },     // Beat 3 — friction
+  { at: 11500, do: 'show',    card: 'fix' },         // Beat 4 — resolution
+  { at: 15000, do: 'show',    card: 'competitor' },  // Beat 5 — strategic
+  { at: 19000, do: 'restart' },
 ];
 
 const ACTIVITY_ITEMS = [
@@ -91,14 +95,16 @@ export function HeroPreview() {
   // Loop scheduler ────────────────────────────────────────────────────────
   useEffect(() => {
     if (prefersReducedMotion) {
-      // Reduced-motion: render the feed statically, full house, no loop.
+      // Reduced-motion: render 3 representative beats from the narrative
+      // arc statically — same density, no loop. Picks the most distinct
+      // moments (wins summary, refusal-then-fix pairing).
       const staticUid = 'static';
       setCards([
-        { uid: `${staticUid}-opt`, type: 'optimizer' },
+        { uid: `${staticUid}-wins`, type: 'wins' },
         { uid: `${staticUid}-ref`, type: 'refusal' },
-        { uid: `${staticUid}-cmp`, type: 'competitor' },
+        { uid: `${staticUid}-fix`, type: 'fix' },
       ]);
-      setFirstApprovingUid(`${staticUid}-opt`);
+      setFirstApprovingUid(null);
       return;
     }
     if (!isVisible || !isPageVisible) return;
@@ -281,7 +287,9 @@ export function HeroPreview() {
                     {card.type === 'optimizer' && (
                       <OptimizerCard approving={card.uid === firstApprovingUid} />
                     )}
+                    {card.type === 'wins' && <WinsCard />}
                     {card.type === 'refusal' && <RefusalCard />}
+                    {card.type === 'fix' && <FixCard />}
                     {card.type === 'competitor' && <CompetitorCard />}
                   </m.div>
                 ))}
@@ -458,7 +466,75 @@ function CompetitorCard() {
   );
 }
 
-// Animated radial confidence ring — 0 → target over 600ms on mount.
+// Beat 2 — "bigger win" summary card. Three live agents shipping
+// quantified outcomes in the last 24h. Reads as "the system is paying off."
+function WinsCard() {
+  const lines = [
+    { agent: 'ad optimizer', delta: '+$2,140', text: 'Meta CTR refresh on 4 ads' },
+    { agent: 'cro',          delta: '+18%',    text: 'Landing-page hero rewrite shipped' },
+    { agent: 'content',      delta: '5 / 5',   text: 'IG captions approved + scheduled' },
+  ];
+  return (
+    <div className="rounded-xl border bg-white dark:bg-ink-950/40 p-3"
+         style={{ borderColor: 'rgba(81,69,229,0.30)' }}>
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider">
+          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: STATE_DOTS.blue }} />
+          <span className="text-ink-700 dark:text-ink-100 font-medium">Last 24h · 3 wins</span>
+        </div>
+        <span className="text-[10px] font-mono text-ink-400">attributable</span>
+      </div>
+      <ul className="space-y-1.5">
+        {lines.map((l) => (
+          <li key={l.agent} className="flex items-start gap-2.5 text-[11px] leading-snug">
+            <span
+              className="font-mono tabular-nums font-semibold flex-shrink-0 w-12"
+              style={{ color: STATE_DOTS.blue }}
+            >
+              {l.delta}
+            </span>
+            <span className="text-ink-700 dark:text-ink-100 flex-1 min-w-0">
+              <span className="text-ink-400">{l.agent} · </span>
+              {l.text}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// Beat 4 — "resolution" of the compliance refusal in Beat 3. Same agent,
+// same business, but now showing the auto-substituted compliant copy. Reads
+// as: refusals don't block the work, they reshape it.
+function FixCard() {
+  return (
+    <div className="rounded-xl border border-green-200/60 dark:border-green-500/20 bg-green-50/30 dark:bg-green-500/5 p-3">
+      <div className="flex items-start gap-2.5">
+        <div className="h-7 w-7 rounded-lg bg-green-50 dark:bg-green-500/10 border border-green-200/60 dark:border-green-500/20 flex items-center justify-center flex-shrink-0">
+          <Check className="h-3.5 w-3.5 text-green-700 dark:text-green-300" strokeWidth={2.6} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 mb-0.5 text-[10px] uppercase tracking-wider">
+            <span className="text-ink-400">compliance · auto-fix</span>
+            <span className="text-ink-300">·</span>
+            <span className="text-ink-400 truncate">Acme Supplements</span>
+            <span className="ml-auto inline-flex items-center gap-1 flex-shrink-0" style={{ color: STATE_DOTS.green }}>
+              shipped
+            </span>
+          </div>
+          <p className="text-xs text-ink-700 dark:text-ink-100 leading-snug italic">
+            &ldquo;Sustained, plant-based energy without the crash.&rdquo;
+          </p>
+          <div className="mt-1 flex items-center gap-1.5 text-[10px] text-ink-400">
+            FDA §201(g) clean · 3 gates passed · 0 ms delay vs original
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // KPI cell with count-up on first mount.
 function KpiCell({
   label,

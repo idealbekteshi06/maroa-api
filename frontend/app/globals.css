@@ -102,21 +102,23 @@
     left: -10%;
     width: 55%;
     height: 55%;
-    background: radial-gradient(circle, rgba(94,149,255,0.55), transparent 70%);
+    /* Maroa indigo-400 — warm halo top-left */
+    background: radial-gradient(circle, rgba(110,115,240,0.55), transparent 70%);
   }
   .hero-atmosphere::after {
     top: -10%;
     right: -15%;
     width: 60%;
     height: 60%;
-    background: radial-gradient(circle, rgba(0,113,227,0.45), transparent 70%);
+    /* Maroa indigo-500 — deeper halo top-right */
+    background: radial-gradient(circle, rgba(81,69,229,0.45), transparent 70%);
   }
   .dark .hero-atmosphere::before {
-    background: radial-gradient(circle, rgba(94,149,255,0.30), transparent 70%);
+    background: radial-gradient(circle, rgba(110,115,240,0.30), transparent 70%);
     opacity: 0.75;
   }
   .dark .hero-atmosphere::after {
-    background: radial-gradient(circle, rgba(0,113,227,0.35), transparent 70%);
+    background: radial-gradient(circle, rgba(81,69,229,0.35), transparent 70%);
     opacity: 0.75;
   }
 
@@ -150,11 +152,11 @@
     transform: translateX(-50%);
     pointer-events: none;
     z-index: -1;
-    background: radial-gradient(ellipse at center, rgba(0,113,227,0.18), transparent 65%);
+    background: radial-gradient(ellipse at center, rgba(81,69,229,0.22), transparent 65%);
     filter: blur(40px);
   }
   .dark .preview-floor {
-    background: radial-gradient(ellipse at center, rgba(94,149,255,0.22), transparent 65%);
+    background: radial-gradient(ellipse at center, rgba(110,115,240,0.25), transparent 65%);
   }
 
   /* Status pill — sits above the headline. Backdrop blur on a translucent
@@ -190,13 +192,13 @@
 
   /* Headline shimmer — slow 110deg gradient sweep across the text. The
      gradient stops are ink-700 → accent-500 → ink-700 so the highlight
-     reads as one moving spec of brightness, not a rainbow. */
+     reads as one moving speck of brightness, not a rainbow. */
   .headline-shimmer {
     background: linear-gradient(
       110deg,
       rgb(29,29,31) 0%,
       rgb(29,29,31) 30%,
-      rgb(0,113,227) 50%,
+      rgb(81,69,229) 50%,
       rgb(29,29,31) 70%,
       rgb(29,29,31) 100%
     );
@@ -211,7 +213,7 @@
       110deg,
       rgb(245,245,247) 0%,
       rgb(245,245,247) 30%,
-      rgb(139,185,255) 50%,
+      rgb(148,153,248) 50%,
       rgb(245,245,247) 70%,
       rgb(245,245,247) 100%
     );
@@ -273,6 +275,49 @@
   }
   .dark .skeleton-shimmer {
     background: theme('colors.ink.800') !important;
+  }
+}
+
+/* ───── Brand signature: hover-reveal left-edge accent bar ─────
+   The single recognisable Maroa surface element. Apply via `.brand-edge`
+   to any clickable card or row — a 2px bar slides in from the left on
+   hover, in the brand indigo. Cumulative across the app it teaches:
+   "things you can act on glow indigo on the edge".
+
+   Implementation: pseudo-element with a clipped scale-X transform so the
+   bar grows from top-left without affecting layout. Reduced-motion users
+   skip the transform and see the static bar. Touch devices (hover:none)
+   never trigger the hover state. */
+.brand-edge {
+  position: relative;
+}
+.brand-edge::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 1px;
+  background: #5145E5;
+  opacity: 0;
+  transform: scaleY(0.4);
+  transform-origin: top;
+  transition: opacity 220ms cubic-bezier(0.16, 1, 0.3, 1),
+              transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+@media (hover: hover) {
+  .brand-edge:hover::before,
+  .brand-edge:focus-visible::before {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-edge::before {
+    transition: opacity 80ms linear;
+    transform: scaleY(1);
   }
 }
 

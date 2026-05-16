@@ -26,7 +26,7 @@ export function ClientCard({ client }: { client: ClientFeed }) {
   return (
     <Link
       href={`/dashboard/client/${client.business_id}`}
-      className="block rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 hover:border-ink-300 dark:hover:border-ink-600 transition-colors p-5"
+      className="brand-edge block rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 hover:border-ink-300 dark:hover:border-ink-600 transition-colors p-5"
     >
       <div className="flex items-start justify-between mb-4">
         <div className="min-w-0 flex-1">

@@ -21,9 +21,9 @@ type Kpi = {
   key: KpiHistoryKey;
   label: string;
   value: number;
-  /** Sub-copy rendered under the delta pill — used to surface a secondary
-      metric (e.g. "30 need refresh · ↓ -12%" for Creatives Live). Only
-      set on cells where it carries real signal. */
+  /** Optional micro-context rendered as the only line below the sparkline.
+      Use sparingly — only when carrying real signal the number alone
+      can't tell. Example: decay backlog on Creatives Live. */
   subCopy?: string;
   icon: typeof Users2;
   tone?: 'default' | 'warn' | 'success';
@@ -40,19 +40,13 @@ function buildKpis(feed: WorkspaceFeed): Kpi[] {
           d.refused && new Date(d.created_at) > new Date(Date.now() - 7 * 86400000),
       ).length;
 
-  // Decaying-or-dead now has real history — fold the week-over-week delta
-  // into the Creatives Live trend copy so the operator sees whether the
-  // refresh backlog is growing or shrinking.
-  const decayDelta = feed.kpi_history?.delta_pct?.decaying_or_dead;
-  const decayCopy = (() => {
-    if (summary.decaying_or_dead === 0) return 'all healthy';
-    if (typeof decayDelta !== 'number' || decayDelta === 0) {
-      return `${summary.decaying_or_dead} need refresh`;
-    }
-    const arrow = decayDelta < 0 ? '↓' : '↑';
-    const sign = decayDelta > 0 ? '+' : '';
-    return `${summary.decaying_or_dead} need refresh · ${arrow} ${sign}${decayDelta}%`;
-  })();
+  // Decaying-or-dead surfaces only when actionable (>30% of total). Below
+  // that threshold the big number tells the story alone — designer rule:
+  // don't render information that isn't asking for a decision.
+  const decayActionable =
+    summary.creatives_total > 0 &&
+    summary.decaying_or_dead > summary.creatives_total * 0.3;
+  const decayCopy = decayActionable ? `${summary.decaying_or_dead} need refresh` : undefined;
 
   return [
     {
@@ -98,8 +92,6 @@ const TONE = {
   success: 'text-green-700 dark:text-green-400',
 };
 
-/** Pulls per-key series from the backend-provided history, falling back to
-    a flat array at the current value when history is missing for a key. */
 function seriesFor(history: KpiHistory | undefined, key: KpiHistoryKey, current: number): number[] {
   const real = history?.[key];
   if (Array.isArray(real) && real.length === 7) return real;
@@ -133,23 +125,34 @@ export function KpiStrip({
             key={kpi.label}
             className="rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-700/60 p-4"
           >
+            {/* Row 1 — label + icon */}
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs uppercase tracking-wider text-ink-400">{kpi.label}</p>
               <kpi.icon className="h-4 w-4 text-ink-400" />
             </div>
-            <p
-              className={`text-2xl font-semibold tracking-tight tabular-nums ${
-                emptyMode ? 'text-ink-400' : TONE[kpi.tone || 'default']
-              }`}
-            >
-              <CountUp target={kpi.value} delayMs={i * 80} emptyMode={emptyMode} />
-            </p>
+            {/* Row 2 — big number + inline delta. The delta sits on the
+                number's baseline so the cell reads as a single fact +
+                its direction, not two stacked metrics. */}
+            <div className="flex items-baseline gap-2">
+              <p
+                className={`text-2xl font-semibold tracking-tight tabular-nums ${
+                  emptyMode ? 'text-ink-400' : TONE[kpi.tone || 'default']
+                }`}
+              >
+                <CountUp target={kpi.value} delayMs={i * 80} emptyMode={emptyMode} />
+              </p>
+              <InlineDelta delta={delta} trend={trend} emptyMode={emptyMode} />
+            </div>
+            {/* Row 3 — sparkline */}
             <div className="mt-2">
               <Sparkline points={points} trend={trend} emptyMode={emptyMode} />
             </div>
-            <DeltaPill delta={delta} trend={trend} emptyMode={emptyMode} />
+            {/* Row 4 — only for cells where the sub-copy carries real
+                signal (currently just Creatives Live for the decay
+                backlog). Other cells stop at the sparkline — cleaner
+                visual rhythm across the strip. */}
             {kpi.subCopy && !emptyMode && (
-              <p className="mt-0.5 text-[10px] text-ink-400 leading-snug truncate">
+              <p className="mt-1 text-[10px] text-ink-400 leading-snug truncate">
                 {kpi.subCopy}
               </p>
             )}
@@ -161,11 +164,49 @@ export function KpiStrip({
 }
 
 /**
+ * Inline delta indicator — sits next to the big number on the same baseline.
+ * Replaces the bottom-row delta pill so the cell collapses from 4-5 rows
+ * down to 3 of meaningful content.
+ */
+function InlineDelta({
+  delta,
+  trend,
+  emptyMode,
+}: {
+  delta: number;
+  trend: Trend;
+  emptyMode: boolean;
+}) {
+  if (emptyMode) {
+    return (
+      <span className="text-[11px] text-ink-400 inline-flex items-center gap-0.5">
+        <Minus className="h-2.5 w-2.5" />
+      </span>
+    );
+  }
+  const Arrow = trend === 'up' ? ChevronUp : trend === 'down' ? ChevronDown : Minus;
+  const color =
+    trend === 'up'
+      ? 'text-green-700 dark:text-green-400'
+      : trend === 'down'
+      ? 'text-red-700 dark:text-red-400'
+      : 'text-ink-400';
+  const sign = delta > 0 ? '+' : '';
+  return (
+    <span className={`text-[11px] inline-flex items-baseline gap-0.5 ${color}`}>
+      <Arrow className="h-2.5 w-2.5 translate-y-px" strokeWidth={2.5} />
+      <span className="tabular-nums font-medium">
+        {sign}
+        {delta}%
+      </span>
+    </span>
+  );
+}
+
+/**
  * Inline SVG sparkline. Catmull-Rom smoothed into cubic Bezier so the line
  * reads as a curve, not a polyline. Hover (desktop only) reveals point
- * markers + a vertical guideline at the last point. No JS hover state.
- * Reduced-motion + emptyMode short-circuit any drawing animation; line is
- * rendered statically.
+ * markers + a vertical guideline at the last point.
  */
 function Sparkline({
   points,
@@ -255,43 +296,6 @@ function Sparkline({
         />
       </g>
     </svg>
-  );
-}
-
-function DeltaPill({
-  delta,
-  trend,
-  emptyMode,
-}: {
-  delta: number;
-  trend: Trend;
-  emptyMode: boolean;
-}) {
-  if (emptyMode) {
-    return (
-      <p className="mt-1 text-[10px] text-ink-400 inline-flex items-center gap-1">
-        <Minus className="h-2.5 w-2.5" />
-        — vs last week
-      </p>
-    );
-  }
-  const Arrow = trend === 'up' ? ChevronUp : trend === 'down' ? ChevronDown : Minus;
-  const color =
-    trend === 'up'
-      ? 'text-green-700 dark:text-green-400'
-      : trend === 'down'
-      ? 'text-red-700 dark:text-red-400'
-      : 'text-ink-400';
-  const sign = delta > 0 ? '+' : '';
-  return (
-    <p className={`mt-1 text-[10px] inline-flex items-center gap-1 ${color}`}>
-      <Arrow className="h-2.5 w-2.5" strokeWidth={2.5} />
-      <span className="tabular-nums font-medium">
-        {sign}
-        {delta}%
-      </span>
-      <span className="text-ink-400 font-normal">vs last week</span>
-    </p>
   );
 }
 
