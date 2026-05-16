@@ -28,32 +28,46 @@ export async function middleware(request: NextRequest) {
   // Construct the response we'll mutate cookies on.
   let response = NextResponse.next({ request });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
-          // Reset response so we can re-emit fresh cookies + headers
-          response = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set({
-              name,
-              value,
-              ...options,
-              sameSite: options?.sameSite ?? 'lax',
-              secure: options?.secure ?? process.env.NODE_ENV === 'production',
-              httpOnly: options?.httpOnly ?? true,
-              path: options?.path ?? '/',
-            });
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  // Graceful degrade: if Supabase env is missing (typical for a fresh
+  // local checkout before .env is filled in), don't throw — let the
+  // request through unauthenticated and let the page-level auth UI
+  // handle it. The previous behaviour was a 500 with a non-null assertion
+  // crash on first paint.
+  if (!supabaseUrl || !supabaseAnonKey) {
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[middleware] NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY missing — auth gate disabled.',
+      );
+    }
+    return response;
+  }
+
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
+        // Reset response so we can re-emit fresh cookies + headers
+        response = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) => {
+          response.cookies.set({
+            name,
+            value,
+            ...options,
+            sameSite: options?.sameSite ?? 'lax',
+            secure: options?.secure ?? process.env.NODE_ENV === 'production',
+            httpOnly: options?.httpOnly ?? true,
+            path: options?.path ?? '/',
           });
-        },
+        });
       },
     },
-  );
+  });
 
   // Refresh session (Supabase auto-rotates tokens nearing expiry).
   const {

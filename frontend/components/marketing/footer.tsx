@@ -29,7 +29,8 @@ export function Footer() {
           <div className="col-span-2 md:col-span-1">
             <Logo />
             <p className="mt-4 text-sm text-ink-400 max-w-xs leading-relaxed">
-              The marketing system for small businesses that knows your industry on day one.
+              The AI marketing operating system. For freelancers, agencies, and any business that
+              wants a marketing team without hiring one.
             </p>
           </div>
 
@@ -57,7 +58,7 @@ export function Footer() {
             © {new Date().getFullYear()} Maroa.ai. All rights reserved.
           </p>
           <p className="text-sm text-ink-400">
-            Made for small businesses that move fast.
+            Built for teams that move faster than the agencies they compete with.
           </p>
         </div>
       </div>

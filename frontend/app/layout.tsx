@@ -7,20 +7,29 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://maroa.ai';
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: 'Maroa — Marketing that knows your industry on day one',
+    default: 'Maroa — AI marketing OS for freelancers, agencies & SMBs',
     template: '%s · Maroa',
   },
   description:
-    'AI marketing for small businesses. Write, schedule, and run ads that match your industry from your very first post — no blank-page guesswork.',
+    'The AI marketing operating system. Maroa runs content, ads, CRO, SEO, and reporting across every client — for freelancers managing 5–20 clients, agencies running 50, or any business that needs a marketing team without hiring one.',
   applicationName: 'Maroa',
   keywords: [
-    'AI marketing',
-    'small business marketing',
-    'social media automation',
-    'ad copywriting',
-    'content scheduling',
-    'Meta ads',
-    'Google ads',
+    // Vertical buyer intent
+    'AI marketing software for agencies',
+    'AI marketing assistant for freelancers',
+    'AI marketing operating system',
+    'marketing automation for multi-client teams',
+    'white-label marketing dashboard',
+    // Capability intent
+    'AI ad creative automation',
+    'AI SEO and citation tracking',
+    'AI social media approval workflow',
+    'AI marketing reasoning trace',
+    'Higgsfield AI video marketing workflow',
+    // Long-tail buyer
+    'agency marketing tool with client approvals',
+    'small business marketing automation',
+    'compliance gates FDA FTC for marketing',
   ],
   authors: [{ name: 'Maroa' }],
   creator: 'Maroa',
@@ -33,18 +42,17 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     siteName: 'Maroa',
-    title: 'Maroa — Marketing that knows your industry on day one',
+    title: 'Maroa — AI marketing OS for freelancers, agencies & SMBs',
     description:
-      'AI marketing for small businesses. Write, schedule, and run ads that match your industry from your very first post.',
+      'Run content, ads, CRO, SEO, and reporting across every client. Daily decisions, full reasoning trace, compliance built in.',
     url: SITE_URL,
     locale: 'en_US',
-    // OG image generated dynamically by app/opengraph-image.tsx —
-    // Next auto-injects the og:image meta tags.
+    // OG image generated dynamically by app/opengraph-image.tsx.
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Maroa — Marketing that knows your industry on day one',
-    description: 'AI marketing for small businesses.',
+    title: 'Maroa — AI marketing OS for freelancers, agencies & SMBs',
+    description: 'The AI marketing operating system. Daily decisions, full reasoning trace.',
     // Twitter image also picked up from app/opengraph-image.tsx.
   },
   robots: {

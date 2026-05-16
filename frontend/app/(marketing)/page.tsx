@@ -191,7 +191,7 @@ export default function LandingPage() {
           <p className="text-eyebrow uppercase text-ink-400 mb-4">
             Everything a small business marketing team would do
           </p>
-          <h2 className="text-display-lg text-ink-700">
+          <h2 className="text-display-lg text-ink-700 dark:text-ink-50">
             More thorough than any single specialist.
             <br />
             <span className="text-ink-400">Every time.</span>
@@ -202,10 +202,12 @@ export default function LandingPage() {
           {FEATURES.map((feature) => (
             <Card key={feature.title} className="p-2">
               <CardContent>
-                <div className="h-12 w-12 rounded-2xl bg-ink-100 flex items-center justify-center mb-5">
-                  <feature.icon className="h-6 w-6 text-ink-700" aria-hidden="true" />
+                <div className="h-12 w-12 rounded-2xl bg-ink-100 dark:bg-ink-800 flex items-center justify-center mb-5">
+                  <feature.icon className="h-6 w-6 text-ink-700 dark:text-ink-100" aria-hidden="true" />
                 </div>
-                <h3 className="text-lg font-semibold text-ink-700 mb-2">{feature.title}</h3>
+                <h3 className="text-lg font-semibold text-ink-700 dark:text-ink-100 mb-2">
+                  {feature.title}
+                </h3>
                 <p className="text-ink-400 leading-relaxed">{feature.description}</p>
               </CardContent>
             </Card>
@@ -217,7 +219,9 @@ export default function LandingPage() {
       <section className="container mt-32">
         <div className="max-w-3xl mx-auto text-center mb-16">
           <p className="text-eyebrow uppercase text-ink-400 mb-4">How it works</p>
-          <h2 className="text-display-lg text-ink-700">Three minutes to set up.</h2>
+          <h2 className="text-display-lg text-ink-700 dark:text-ink-50">
+            Three minutes to set up.
+          </h2>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
@@ -240,7 +244,9 @@ export default function LandingPage() {
           ].map((s) => (
             <div key={s.step}>
               <p className="font-mono text-ink-400 text-sm tracking-wider">{s.step}</p>
-              <h3 className="mt-3 text-xl font-semibold text-ink-700">{s.title}</h3>
+              <h3 className="mt-3 text-xl font-semibold text-ink-700 dark:text-ink-100">
+                {s.title}
+              </h3>
               <p className="mt-3 text-ink-400 leading-relaxed">{s.body}</p>
             </div>
           ))}
@@ -251,9 +257,14 @@ export default function LandingPage() {
       <section className="container mt-32">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl mx-auto">
           {PROOF_QUOTES.map((q) => (
-            <Card key={q.author} className="bg-ink-50/40 border-ink-200/40">
+            <Card
+              key={q.author}
+              className="bg-ink-50/40 dark:bg-ink-900 border-ink-200/40 dark:border-ink-800"
+            >
               <CardContent>
-                <p className="text-ink-700 leading-relaxed">&ldquo;{q.quote}&rdquo;</p>
+                <p className="text-ink-700 dark:text-ink-100 leading-relaxed">
+                  &ldquo;{q.quote}&rdquo;
+                </p>
                 <p className="mt-6 text-sm text-ink-400">{q.author}</p>
               </CardContent>
             </Card>
@@ -266,7 +277,7 @@ export default function LandingPage() {
 
       {/* CTA BAND ─────────────────────────────────────────────────────────── */}
       <section className="container mt-32">
-        <div className="rounded-3xl bg-ink-700 text-white px-8 py-16 sm:px-16 sm:py-24 text-center">
+        <div className="rounded-3xl bg-ink-700 dark:bg-ink-800 text-white px-8 py-16 sm:px-16 sm:py-24 text-center">
           <h2 className="text-display-lg text-white">
             Stop dreading Monday morning.
           </h2>

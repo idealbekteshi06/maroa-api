@@ -63,9 +63,9 @@ const ENTRIES: Entry[] = [
 ];
 
 const TAG_STYLES: Record<Entry['tag'], string> = {
-  shipped: 'bg-green-100 text-green-700',
-  fixed: 'bg-amber-100 text-amber-700',
-  improved: 'bg-accent-50 text-accent-700',
+  shipped: 'bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-300',
+  fixed: 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300',
+  improved: 'bg-accent-50 text-accent-700 dark:bg-accent-500/10 dark:text-accent-300',
 };
 
 export default function ChangelogPage() {
@@ -73,20 +73,27 @@ export default function ChangelogPage() {
     <section className="container pt-20 sm:pt-28 pb-32">
       <div className="container-prose">
         <p className="text-eyebrow uppercase text-ink-400 mb-4">Changelog</p>
-        <h1 className="text-display-lg text-ink-700 mb-3">What&apos;s new</h1>
+        <h1 className="text-display-lg text-ink-700 dark:text-ink-50 mb-3">What&apos;s new</h1>
         <p className="text-ink-400 mb-16">Recent improvements to Maroa. Newest first.</p>
 
         <div className="space-y-16">
           {ENTRIES.map((e) => (
-            <article key={`${e.date}-${e.title}`} className="border-l-2 border-ink-200 pl-8">
+            <article
+              key={`${e.date}-${e.title}`}
+              className="border-l-2 border-ink-200 dark:border-ink-800 pl-8"
+            >
               <div className="flex items-center gap-3 mb-3">
                 <time className="text-sm font-mono text-ink-400">{e.date}</time>
-                <span className={`text-xs font-medium px-2.5 py-1 rounded-full uppercase tracking-wider ${TAG_STYLES[e.tag]}`}>
+                <span
+                  className={`text-xs font-medium px-2.5 py-1 rounded-full uppercase tracking-wider ${TAG_STYLES[e.tag]}`}
+                >
                   {e.tag}
                 </span>
               </div>
-              <h2 className="text-2xl font-semibold text-ink-700 mb-4">{e.title}</h2>
-              <ul className="space-y-2 text-ink-700">
+              <h2 className="text-2xl font-semibold text-ink-700 dark:text-ink-50 mb-4">
+                {e.title}
+              </h2>
+              <ul className="space-y-2 text-ink-700 dark:text-ink-200">
                 {e.body.map((line) => (
                   <li key={line} className="flex items-start gap-3 leading-relaxed">
                     <span className="mt-2.5 h-1 w-1 rounded-full bg-ink-400 flex-shrink-0" />

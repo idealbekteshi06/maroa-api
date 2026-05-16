@@ -79,7 +79,7 @@ export default function SubprocessorsPage() {
     <section className="container pt-20 sm:pt-28 pb-32">
       <div className="container-prose">
         <p className="text-eyebrow uppercase text-ink-400 mb-4">Legal</p>
-        <h1 className="text-display-lg text-ink-700 mb-3">Sub-processors</h1>
+        <h1 className="text-display-lg text-ink-700 dark:text-ink-50 mb-3">Sub-processors</h1>
         <p className="text-ink-400 mb-12">Last updated: {LAST_UPDATED}</p>
 
         <p className="text-xl text-ink-400 mb-12 leading-relaxed">
@@ -90,22 +90,35 @@ export default function SubprocessorsPage() {
         <div className="overflow-x-auto -mx-4 sm:mx-0">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-ink-200">
-                <th className="text-left font-semibold text-ink-700 py-4 pr-6">Vendor</th>
-                <th className="text-left font-semibold text-ink-700 py-4 pr-6">Purpose</th>
-                <th className="text-left font-semibold text-ink-700 py-4 pr-6">Location</th>
-                <th className="text-left font-semibold text-ink-700 py-4">Compliance</th>
+              <tr className="border-b border-ink-200 dark:border-ink-800">
+                <th className="text-left font-semibold text-ink-700 dark:text-ink-100 py-4 pr-6">
+                  Vendor
+                </th>
+                <th className="text-left font-semibold text-ink-700 dark:text-ink-100 py-4 pr-6">
+                  Purpose
+                </th>
+                <th className="text-left font-semibold text-ink-700 dark:text-ink-100 py-4 pr-6">
+                  Location
+                </th>
+                <th className="text-left font-semibold text-ink-700 dark:text-ink-100 py-4">
+                  Compliance
+                </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-ink-200/60">
+            <tbody className="divide-y divide-ink-200/60 dark:divide-ink-800">
               {SUBPROCESSORS.map((s) => (
                 <tr key={s.name}>
                   <td className="py-4 pr-6">
-                    <a href={s.url} target="_blank" rel="noopener noreferrer" className="font-medium text-ink-700 hover:text-accent-500">
+                    <a
+                      href={s.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-ink-700 dark:text-ink-100 hover:text-accent-500"
+                    >
                       {s.name}
                     </a>
                   </td>
-                  <td className="py-4 pr-6 text-ink-700">{s.purpose}</td>
+                  <td className="py-4 pr-6 text-ink-700 dark:text-ink-200">{s.purpose}</td>
                   <td className="py-4 pr-6 text-ink-400">{s.location}</td>
                   <td className="py-4 text-ink-400">{s.compliance}</td>
                 </tr>
@@ -114,8 +127,10 @@ export default function SubprocessorsPage() {
           </table>
         </div>
 
-        <div className="mt-16 prose prose-lg max-w-none text-ink-700 leading-relaxed">
-          <h2 className="text-2xl font-semibold text-ink-700 mt-12 mb-4">Notification of changes</h2>
+        <div className="mt-16 prose prose-lg dark:prose-invert max-w-none text-ink-700 dark:text-ink-200 leading-relaxed">
+          <h2 className="text-2xl font-semibold text-ink-700 dark:text-ink-50 mt-12 mb-4">
+            Notification of changes
+          </h2>
           <p>
             We notify customers via email 30 days before adding a new sub-processor or changing the
             location of data processing. You may object during that window; if we can&apos;t reasonably

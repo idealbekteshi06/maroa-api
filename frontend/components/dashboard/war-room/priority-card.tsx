@@ -2,6 +2,7 @@ import { ArrowRight, AlertCircle, Sparkles, ShieldAlert, TrendingUp } from 'luci
 import Link from 'next/link';
 import { cn } from '@/lib/cn';
 import type { DecisionLogRow } from '@/lib/types/war-room';
+import { DecisionActions } from './decision-actions';
 
 const BAND_STYLES: Record<DecisionLogRow['auto_safe_band'], string> = {
   green: 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300 border-green-200/60 dark:border-green-500/20',
@@ -29,7 +30,15 @@ function timeAgo(iso: string): string {
   return `${d}d ago`;
 }
 
-export function PriorityCard({ decision, businessName }: { decision: DecisionLogRow; businessName?: string }) {
+export function PriorityCard({
+  decision,
+  businessName,
+  workspaceId,
+}: {
+  decision: DecisionLogRow;
+  businessName?: string;
+  workspaceId: string;
+}) {
   const Icon = AGENT_ICONS[decision.agent_name] || Sparkles;
   const band = BAND_STYLES[decision.auto_safe_band];
 
@@ -82,34 +91,18 @@ export function PriorityCard({ decision, businessName }: { decision: DecisionLog
             </dl>
           )}
 
-          <div className="mt-4 flex items-center gap-2 flex-wrap">
+          <div className="mt-4">
             {decision.refused ? (
               <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300">
                 <ShieldAlert className="h-3 w-3" />
                 Refused — {decision.refusal_reason}
               </span>
             ) : decision.required_approval ? (
-              <>
-                <Link
-                  href={`/dashboard/decisions/${decision.id}`}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-ink-700 dark:bg-white text-white dark:text-ink-900 hover:bg-ink-900 dark:hover:bg-ink-100 transition-colors"
-                >
-                  Review
-                  <ArrowRight className="h-3 w-3" />
-                </Link>
-                <button
-                  type="button"
-                  className="inline-flex items-center text-xs font-medium px-3 py-1.5 rounded-full text-ink-700 dark:text-ink-100 hover:bg-ink-100 dark:hover:bg-ink-800 transition-colors"
-                >
-                  Approve
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex items-center text-xs font-medium px-3 py-1.5 rounded-full text-ink-400 hover:bg-ink-100 dark:hover:bg-ink-800 transition-colors"
-                >
-                  Reject
-                </button>
-              </>
+              <DecisionActions
+                workspaceId={workspaceId}
+                decisionId={decision.id}
+                detailHref={`/dashboard/decisions/${decision.id}`}
+              />
             ) : decision.executed ? (
               <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700 dark:text-green-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
