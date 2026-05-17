@@ -1,4 +1,11 @@
 'use strict';
+// TODO (post-merge, manual): update the Paddle product IDs in the Paddle
+// dashboard to match the May 2026 pricing reset:
+//   growth → $149/mo (monthly) + $1,250/yr (annual, 30% off)
+//   agency → $599/mo (monthly) + $5,030/yr (annual, 30% off)
+// Old SKUs (free / starter €19 / growth €39 / agency €69) should be
+// retired — kept active only long enough to grandfather legacy customers.
+// Keep the env-var product IDs in sync with the dashboard SKUs.
 const crypto = require('crypto');
 const https = require('https');
 
