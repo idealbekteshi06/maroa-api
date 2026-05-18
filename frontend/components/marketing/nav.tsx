@@ -64,7 +64,7 @@ export function Nav() {
             Log in
           </Button>
           <Button href="/signup" variant="primary" size="sm">
-            Start free
+            Get started
           </Button>
         </div>
 
@@ -103,7 +103,7 @@ export function Nav() {
                 Log in
               </Button>
               <Button href="/signup" variant="primary" size="lg" onClick={() => setMobileOpen(false)}>
-                Start free
+                Get started
               </Button>
             </div>
           </nav>

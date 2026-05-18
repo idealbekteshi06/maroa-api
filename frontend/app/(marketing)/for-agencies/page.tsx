@@ -76,7 +76,7 @@ export default function ForAgenciesPage() {
             </p>
             <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
               <Button href="/signup?plan=agency" variant="primary" size="xl">
-                Start free trial
+                Get started
                 <ArrowRight className="h-5 w-5" />
               </Button>
               <Button href="/contact" variant="ghost" size="xl">
@@ -84,7 +84,7 @@ export default function ForAgenciesPage() {
               </Button>
             </div>
             <p className="mt-6 text-sm text-ink-400">
-              7-day free trial · No credit card · Cancel anytime
+              Agency plan · $599/month · Monthly billing, USD · Cancel anytime
             </p>
           </div>
         </div>
@@ -160,7 +160,7 @@ export default function ForAgenciesPage() {
             See the difference between AI you babysit and a marketing OS that ships every day.
           </p>
           <Button href="/signup?plan=agency" variant="accent" size="xl" className="mt-10">
-            Start Agency trial
+            Start with Agency
             <ArrowRight className="h-5 w-5" />
           </Button>
         </div>

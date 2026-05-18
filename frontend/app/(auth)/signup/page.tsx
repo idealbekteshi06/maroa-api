@@ -19,7 +19,7 @@ export default function SignUpPage() {
 function SignUpInner() {
   const router = useRouter();
   const search = useSearchParams();
-  const plan = search.get('plan') || 'free';
+  const plan = search.get('plan') || 'growth';
 
   const [email, setEmail] = useState('');
   const [businessName, setBusinessName] = useState('');
@@ -73,14 +73,11 @@ function SignUpInner() {
 
   return (
     <div>
-      <h1 className="text-3xl font-semibold text-ink-700 tracking-tight mb-2">Start your free trial</h1>
+      <h1 className="text-3xl font-semibold text-ink-700 tracking-tight mb-2">Create your account</h1>
       <p className="text-ink-400 leading-relaxed mb-8">
-        Seven days, no credit card, cancel anytime.
-        {plan !== 'free' && (
-          <>
-            {' '}You selected the <strong className="text-ink-700 capitalize">{plan}</strong> plan.
-          </>
-        )}
+        Monthly billing in USD. Cancel anytime. You&apos;ll be on the{' '}
+        <strong className="text-ink-700 capitalize">{plan}</strong> plan
+        {plan === 'growth' ? ' ($149/month).' : plan === 'agency' ? ' ($599/month).' : '.'}
       </p>
 
       <form onSubmit={onSubmit} className="space-y-5">

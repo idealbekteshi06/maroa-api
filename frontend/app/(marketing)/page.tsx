@@ -129,7 +129,7 @@ export default function LandingPage() {
             </p>
             <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
               <Button href="/signup" variant="primary" size="xl">
-                Start free
+                Get started
                 <ArrowRight className="h-5 w-5" />
               </Button>
               <Button href="/features#demo" variant="ghost" size="xl">
@@ -140,9 +140,9 @@ export default function LandingPage() {
             {/* Trust strip — each token wrapped in a span so future tooltips
                 can hook in without breaking the layout. */}
             <p className="mt-6 text-sm text-ink-400 flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
-              <span>7-day free trial</span>
+              <span>From $149/mo</span>
               <span aria-hidden="true" className="text-ink-300 dark:text-ink-600">·</span>
-              <span>No credit card</span>
+              <span>Monthly billing, USD</span>
               <span aria-hidden="true" className="text-ink-300 dark:text-ink-600">·</span>
               <span>Cancel anytime</span>
             </p>
@@ -310,7 +310,7 @@ export default function LandingPage() {
           </p>
           <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
             <Button href="/signup" variant="accent" size="xl">
-              Start free
+              Get started
               <ArrowRight className="h-5 w-5" />
             </Button>
             <Link

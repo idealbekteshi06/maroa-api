@@ -4,110 +4,79 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/cn';
 
 export const metadata: Metadata = {
-  title: 'Pricing — simple, predictable, no surprises',
+  title: 'Pricing — Maroa',
   description:
-    'Free for 7 days, no credit card. Plans for solo SMBs, freelancers managing 20 clients, agencies managing 50+, and enterprise. Cancel anytime.',
+    'Two plans. Growth at $149/mo for solo SMBs and small teams. Agency at $599/mo for freelancers and agencies running up to 50 clients. Monthly billing in USD. Cancel anytime.',
   alternates: { canonical: '/pricing' },
 };
 
 const PLANS = [
   {
-    name: 'Free',
-    audience: 'Try it',
-    tagline: '7-day trial, no card.',
-    price: '$0',
-    cadence: '/ trial',
-    cta: { label: 'Start free', href: '/signup' },
-    highlight: false,
-    features: [
-      'Up to 5 posts / week',
-      '1 social account',
-      'Industry-aware drafts',
-      'Compliance gates (FDA / FTC)',
-      'Brand voice anchor',
-    ],
-  },
-  {
     name: 'Growth',
-    audience: 'Solo SMB',
-    tagline: 'One business, fully automated.',
-    price: '$49',
+    audience: 'Solo SMB · Freelancer with 1–5 clients',
+    tagline: 'One operating system for the marketing you keep meaning to do.',
+    price: '$149',
     cadence: '/ month',
-    cta: { label: 'Start free trial', href: '/signup?plan=growth' },
+    cta: { label: 'Get started', href: '/signup?plan=growth' },
     highlight: false,
     features: [
-      'Up to 30 posts / week',
-      'All social accounts',
-      'Meta + Google ad audits',
-      'Pacing alerts (every 4h)',
+      'Up to 5 businesses or clients',
+      'All channels — Meta, Google, TikTok, LinkedIn, Pinterest, YouTube, email',
+      'Daily ad audits + pacing alerts (every 4 hours)',
       'Weekly performance scorecard',
-      'Cold-start corpus grounding',
-      '2 expert examples per draft',
-    ],
-  },
-  {
-    name: 'Freelancer',
-    audience: '5–20 clients',
-    tagline: 'A marketing team for every client.',
-    price: '$199',
-    cadence: '/ month',
-    cta: { label: 'Start free trial', href: '/signup?plan=freelancer' },
-    highlight: true,
-    features: [
-      'Up to 20 clients',
-      'Workspace + War Room dashboard',
-      'Client approval magic-links',
-      'White-label PDF reports',
+      'Brand voice + visual DNA per client',
+      'Compliance gates for 20 regulated industries',
+      'Cold-start corpus grounding (2 examples per draft)',
       'Reasoning trace on every output',
-      'A/B testing on every campaign',
-      'Higgsfield image + video',
-      '5 expert examples per draft',
     ],
   },
   {
     name: 'Agency',
-    audience: '20–50 clients',
-    tagline: 'Multi-team, full white-label.',
-    price: '$499',
+    audience: 'Freelancer · Agency · 5–50 clients',
+    tagline: 'Scale without hiring. Every client gets a team of agents.',
+    price: '$599',
     cadence: '/ month',
-    cta: { label: 'Start free trial', href: '/signup?plan=agency' },
-    highlight: false,
+    cta: { label: 'Get started', href: '/signup?plan=agency' },
+    highlight: true,
     features: [
-      'Up to 50 clients',
+      'Up to 50 clients in one workspace',
       'Team roles (owner / strategist / designer / viewer)',
-      'Custom domain white-label',
-      'Brand voice training per client',
-      'Priority support',
-      'Audit log export',
-      'API access',
+      'White-label PDF + magic-link client reports',
+      'Custom domain — clients see your brand',
+      'Magic-link client approval inbox',
+      'Multi-client calendar + content pipeline',
+      'Higgsfield image + video on every draft',
+      'Cold-start corpus grounding (5 examples per draft)',
+      'A/B testing on every campaign',
+      'Audit log export · API access · Priority support',
     ],
   },
 ];
 
 const FAQ = [
   {
-    q: 'Do I need a credit card to start?',
-    a: 'No. The 7-day trial is free and requires no card. We ask for payment only when you decide to continue.',
+    q: 'Is there a free trial or money-back guarantee?',
+    a: 'No. We don\'t do trials or refunds — every account is monthly and you can cancel any time before your next renewal. Cancellation stops the next charge; access continues to the end of the current period. The /features page and the public dashboard demo show exactly what you\'re getting before you commit.',
   },
   {
-    q: 'What happens after the trial?',
-    a: 'Your account converts to Free (read-only on past content) unless you pick a paid plan. Your data stays. Nothing is published without your approval.',
+    q: 'How is "client" defined?',
+    a: 'One client = one business with its own brand voice, social accounts, ad accounts, and approval inbox. You can pause or off-board a client at any time to free the seat. There are no per-client overage fees inside your plan tier.',
   },
   {
-    q: 'Can I switch plans?',
-    a: 'Anytime, both directions. Up-grades pro-rate; down-grades take effect next billing cycle.',
-  },
-  {
-    q: 'How do client seats work on Freelancer + Agency?',
-    a: 'Each client is one seat. A seat includes their content, ads, reports, social accounts, and approvals — billed to your workspace, never the client. You can pause or offboard a client to free the seat.',
+    q: 'Can I switch between Growth and Agency?',
+    a: 'Yes, in either direction, any time. Up-grades pro-rate to the day. Down-grades take effect at the next billing cycle. Your data, content history, and brand voices are preserved across switches.',
   },
   {
     q: 'Do I keep the content if I cancel?',
-    a: 'Yes. Everything Maroa produces is yours. You can export at any time as a .zip.',
+    a: 'Yes. Everything Maroa produces is yours. You can export your full content library, audit log, and reasoning traces as a .zip from Settings → Data at any point — before or after cancellation.',
   },
   {
-    q: 'How do you handle my (and my clients\') data?',
-    a: 'We never sell or share. OAuth tokens are encrypted at rest (AES-256-GCM). All data is processed in the EU or US (your choice). See our DPA for details.',
+    q: 'What if I have more than 50 clients?',
+    a: 'Talk to us about Enterprise. Single-tenant deployment, custom data residency (EU / US / sovereign), SOC 2 audit support, dedicated CSM, custom integrations. Annual contracts.',
+  },
+  {
+    q: 'How do you handle data?',
+    a: 'We never sell or share. OAuth tokens are encrypted at rest (AES-256-GCM). All data is processed in the EU or US (your choice). See our DPA for the full controls list.',
   },
 ];
 
@@ -118,19 +87,19 @@ export default function PricingPage() {
         <div className="max-w-3xl mx-auto text-center">
           <p className="text-eyebrow uppercase text-ink-400 mb-4">Pricing</p>
           <h1 className="text-display-lg text-ink-700 dark:text-ink-50">
-            One operating system.
+            Two plans.
             <br />
-            <span className="text-ink-400">Priced to fit your stage.</span>
+            <span className="text-ink-400">Priced to replace a marketing hire.</span>
           </h1>
           <p className="mt-6 text-xl text-ink-400 max-w-xl mx-auto leading-relaxed">
-            From your first business to your fiftieth client. Cancel anytime. The first 7 days are
-            on us.
+            Monthly billing in USD. Cancel anytime from Settings → Billing — no negotiation,
+            no retention call.
           </p>
         </div>
       </section>
 
       <section className="container mt-20">
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
           {PLANS.map((plan) => (
             <div
               key={plan.name}
@@ -225,7 +194,7 @@ export default function PricingPage() {
           ))}
         </div>
 
-        <div className="mt-8 max-w-7xl mx-auto rounded-xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 p-8 flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-10">
+        <div className="mt-8 max-w-4xl mx-auto rounded-xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 p-8 flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-10">
           <div className="h-12 w-12 rounded-xl bg-ink-100 dark:bg-ink-800 flex items-center justify-center flex-shrink-0">
             <Users className="h-6 w-6 text-ink-700 dark:text-ink-100" aria-hidden="true" />
           </div>
@@ -248,7 +217,7 @@ export default function PricingPage() {
         </div>
 
         <p className="mt-10 text-center text-sm text-ink-400">
-          Prices in USD. Annual billing saves ~16%. Volume discounts above 50 clients.
+          Prices in USD. Monthly billing only. Cancel any time.
         </p>
       </section>
 

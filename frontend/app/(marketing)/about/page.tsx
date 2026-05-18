@@ -92,7 +92,7 @@ export default function AboutPage() {
 
         <div className="mt-16 pt-16 border-t border-ink-200 dark:border-ink-800">
           <Button href="/signup" variant="primary" size="lg">
-            Start free trial
+            Get started
             <ArrowRight className="h-4 w-4" />
           </Button>
         </div>

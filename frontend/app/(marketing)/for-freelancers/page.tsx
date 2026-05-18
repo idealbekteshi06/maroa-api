@@ -50,7 +50,7 @@ const REASONS = [
 
 const MATH = [
   { metric: 'Average freelancer revenue per client', value: '$800–1,500/mo', sub: '20 clients = $16k–30k MRR' },
-  { metric: 'Maroa cost', value: '$199/mo flat', sub: 'No per-client fees' },
+  { metric: 'Maroa Agency cost', value: '$599/mo flat', sub: 'No per-client fees, up to 50 clients' },
   { metric: 'Time saved per client per week', value: '4–6 hours', sub: 'Content + reporting + approvals' },
   { metric: 'Time saved across 20 clients', value: '80–120 hours/month', sub: 'A second full-time you' },
 ];
@@ -73,8 +73,8 @@ export default function ForFreelancersPage() {
               approvals to your clients. You keep the relationship, the strategy, and the margin.
             </p>
             <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Button href="/signup?plan=freelancer" variant="primary" size="xl">
-                Start free trial
+              <Button href="/signup?plan=agency" variant="primary" size="xl">
+                Get started
                 <ArrowRight className="h-5 w-5" />
               </Button>
               <Button href="/features" variant="ghost" size="xl">
@@ -82,7 +82,7 @@ export default function ForFreelancersPage() {
               </Button>
             </div>
             <p className="mt-6 text-sm text-ink-400">
-              $199/month · 7-day free trial · Cancel anytime
+              Agency plan · $599/month · Monthly billing, USD · Cancel anytime
             </p>
           </div>
         </div>
@@ -143,7 +143,7 @@ export default function ForFreelancersPage() {
       <section className="container mt-32">
         <div className="max-w-3xl mx-auto rounded-xl bg-white dark:bg-ink-900 border border-ink-200/60 dark:border-ink-800 p-8 sm:p-12">
           <h2 className="text-2xl font-semibold text-ink-700 dark:text-ink-100 tracking-tight">
-            What ships with the Freelancer plan
+            What ships with the Agency plan
           </h2>
           <ul className="mt-6 space-y-3">
             {[
@@ -167,12 +167,12 @@ export default function ForFreelancersPage() {
             ))}
           </ul>
           <div className="mt-10 flex flex-col sm:flex-row items-center gap-4">
-            <Button href="/signup?plan=freelancer" variant="primary" size="lg">
-              Start free trial
+            <Button href="/signup?plan=agency" variant="primary" size="lg">
+              Get started
               <ArrowRight className="h-4 w-4" />
             </Button>
             <span className="text-sm text-ink-400">
-              $199/month · 7-day free · Cancel anytime
+              $599/month · Monthly billing, USD · Cancel anytime
             </span>
           </div>
         </div>
@@ -183,11 +183,11 @@ export default function ForFreelancersPage() {
         <div className="rounded-xl bg-ink-700 dark:bg-ink-800 text-white px-8 py-16 sm:px-16 sm:py-24 text-center">
           <h2 className="text-display-md text-white">Add your first client in three minutes.</h2>
           <p className="mt-6 text-xl text-ink-100/80 max-w-2xl mx-auto leading-relaxed">
-            See your content queue, your ads dashboard, and your approval inbox come to life — for
-            free, for a week.
+            See your content queue, your ads dashboard, and your approval inbox come to life —
+            client #2 pays for the whole month.
           </p>
-          <Button href="/signup?plan=freelancer" variant="accent" size="xl" className="mt-10">
-            Start free trial
+          <Button href="/signup?plan=agency" variant="accent" size="xl" className="mt-10">
+            Get started
             <ArrowRight className="h-5 w-5" />
           </Button>
         </div>

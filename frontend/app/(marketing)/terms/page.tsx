@@ -61,9 +61,9 @@ export default function TermsPage() {
           <h2 className="text-2xl font-semibold text-ink-700 dark:text-ink-50 mt-12 mb-4">5. Pricing + billing</h2>
           <ul className="space-y-2 list-disc pl-6">
             <li>Pricing is on the <a href="/pricing" className="text-accent-500 hover:underline">/pricing</a> page. We may change prices with 30 days&apos; notice before your next renewal.</li>
-            <li>Free trial: 7 days, no credit card. Cancel anytime during trial with no charge.</li>
+            <li>No free trial. Subscriptions are paid monthly and begin the moment you sign up.</li>
             <li>Subscriptions auto-renew until you cancel. Cancel from Settings → Billing. Cancellation stops the next renewal; current period continues to end of cycle.</li>
-            <li>Refunds: pro-rata refund within 14 days of first paid charge if you&apos;re unhappy. After 14 days, no refunds on the current period, but you can downgrade or cancel.</li>
+            <li>No refunds. We don&apos;t offer money-back guarantees or pro-rata refunds. The /features page and dashboard demo are the trial — review them before you commit.</li>
             <li>Currency: USD. Payment processor: Paddle (handles tax + invoicing per your jurisdiction).</li>
           </ul>
 
