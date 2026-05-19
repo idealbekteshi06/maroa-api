@@ -7,6 +7,7 @@ import { Mail, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { signUp } from '@/lib/api/auth';
+import { errorMessage } from '@/lib/errors';
 
 export default function SignUpPage() {
   return (
@@ -40,8 +41,8 @@ function SignUpInner() {
     try {
       await signUp({ email, businessName, plan });
       setSent(true);
-    } catch (err: any) {
-      setError(err?.message || 'Sign-up failed. Try again.');
+    } catch (err: unknown) {
+      setError(errorMessage(err, 'Sign-up failed. Try again.'));
     } finally {
       setLoading(false);
     }

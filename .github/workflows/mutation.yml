@@ -53,7 +53,11 @@ jobs:
         run: npm ci
 
       # Stryker is installed on-demand to avoid bloating npm ci on every CI run.
-      - name: Run mutation tests
+      # Audit 2026-05-18 L8: previously this was advisory only. Now Stryker's
+      # break threshold (60% in stryker.conf.json) is enforced — exit non-zero
+      # if mutation score drops below 60%. The step name is referenced by the
+      # required-status-check setting in repo branch protection rules.
+      - name: Run mutation tests (REQUIRED — break=60%)
         run: npm run test:mutation
         env:
           NODE_ENV: test

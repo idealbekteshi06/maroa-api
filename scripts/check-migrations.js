@@ -77,12 +77,33 @@ function checkGapsAndDuplicates(parsed) {
       seen.set(p.number, p);
     }
   }
-  // Gap check
+  // Gap check. A gap with a sibling NNN_RESERVED.md (any case) is treated
+  // as documented and silently ignored — see migrations/063_RESERVED.md
+  // for the convention.
+  const reservedNumbers = (() => {
+    try {
+      return new Set(
+        fs
+          .readdirSync(MIGRATIONS_DIR)
+          .map((f) => /^(\d{3,4})_reserved\.md$/i.exec(f))
+          .filter(Boolean)
+          .map((m) => parseInt(m[1], 10))
+      );
+    } catch {
+      return new Set();
+    }
+  })();
   const sorted = [...seen.keys()].sort((a, b) => a - b);
   for (let i = 1; i < sorted.length; i += 1) {
-    if (sorted[i] - sorted[i - 1] > 1) {
-      // Only warn — we may have skipped numbers historically
-      console.log(yellow(`  warn: gap between ${sorted[i - 1]} and ${sorted[i]}`));
+    const lo = sorted[i - 1];
+    const hi = sorted[i];
+    if (hi - lo > 1) {
+      // Document each missing number; only warn for the ones NOT reserved.
+      for (let n = lo + 1; n < hi; n += 1) {
+        if (!reservedNumbers.has(n)) {
+          console.log(yellow(`  warn: gap at ${n} (between ${lo} and ${hi}) — no NNN_RESERVED.md`));
+        }
+      }
     }
   }
   return errors;

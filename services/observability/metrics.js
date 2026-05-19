@@ -29,6 +29,36 @@ const histograms = new Map(); // key → { count, sum, buckets:Map<number,number
 
 const DEFAULT_BUCKETS_MS = [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000];
 
+// Cardinality cap per registry. A bug where a request-ID or user-ID leaks
+// into labels can balloon the registry to millions of series → OOM. Cap at
+// 10k per registry; drop new labels with a once-per-minute warning so the
+// issue is visible without being noisy. Audit 2026-05-18 hardening.
+const MAX_CARDINALITY = Number(process.env.METRICS_MAX_CARDINALITY) || 10_000;
+let _lastCardinalityWarn = 0;
+function _cardinalityOk(registry, key) {
+  if (registry.has(key)) return true;
+  if (registry.size < MAX_CARDINALITY) return true;
+  const now = Date.now();
+  if (now - _lastCardinalityWarn > 60_000) {
+    _lastCardinalityWarn = now;
+    try {
+      // eslint-disable-next-line no-console -- metrics has no logger dep
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          msg: 'metrics_cardinality_capped',
+          registry_size: registry.size,
+          cap: MAX_CARDINALITY,
+          dropped_key: key.slice(0, 200),
+        })
+      );
+    } catch {
+      /* never block on logging */
+    }
+  }
+  return false;
+}
+
 function _key(name, labels = {}) {
   // Stable key: name{a="b",c="d"}
   const sortedLabels = Object.entries(labels)
@@ -41,11 +71,13 @@ function _key(name, labels = {}) {
 
 function increment(name, labels = {}, by = 1) {
   const k = _key(name, labels);
+  if (!_cardinalityOk(counters, k)) return;
   counters.set(k, (counters.get(k) || 0) + by);
 }
 
 function setGauge(name, value, labels = {}) {
   const k = _key(name, labels);
+  if (!_cardinalityOk(gauges, k)) return;
   gauges.set(k, Number(value) || 0);
 }
 
@@ -53,6 +85,7 @@ function observeHistogram(name, value, labels = {}) {
   const k = _key(name, labels);
   let h = histograms.get(k);
   if (!h) {
+    if (!_cardinalityOk(histograms, k)) return;
     h = { count: 0, sum: 0, buckets: new Map(DEFAULT_BUCKETS_MS.map((b) => [b, 0])) };
     histograms.set(k, h);
   }

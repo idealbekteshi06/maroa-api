@@ -292,19 +292,19 @@ test('e2e: webhook idempotency — first call inserts, second call detects dupli
 
 test('e2e: costGuard reads from llm_cost_logs and denies over cap', async () => {
   const db = createFakeSupabase();
-  db.seed('businesses', [{ id: BIZ_UUID, plan: 'free' }]);
+  db.seed('businesses', [{ id: BIZ_UUID, plan: 'growth' }]);
   db.seed('llm_cost_logs', [
-    { business_id: BIZ_UUID, cost_usd: 0.5, created_at: new Date().toISOString() },
-    { business_id: BIZ_UUID, cost_usd: 0.8, created_at: new Date().toISOString() },
-    // free plan cap = $1 → these two ($1.30 total) put it over
+    { business_id: BIZ_UUID, cost_usd: 50, created_at: new Date().toISOString() },
+    { business_id: BIZ_UUID, cost_usd: 40, created_at: new Date().toISOString() },
+    // growth plan cap = $80 → these two ($90 total) put it over
   ]);
 
   const cg = require('../lib/costGuard');
   const verdict = await cg.checkCostCap({ businessId: BIZ_UUID, sbGet: db.sbGet });
   assert.strictEqual(verdict.allowed, false);
   assert.strictEqual(verdict.reason, 'monthly_cap_reached');
-  assert.strictEqual(verdict.plan, 'free');
-  assert.ok(verdict.used_usd >= 1.3 - 0.001);
+  assert.strictEqual(verdict.plan, 'growth');
+  assert.ok(verdict.used_usd >= 90 - 0.001);
 });
 
 test('e2e: costGuard rejects malformed business_id (defense in depth)', async () => {

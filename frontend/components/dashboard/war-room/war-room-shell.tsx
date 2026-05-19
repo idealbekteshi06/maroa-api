@@ -30,16 +30,33 @@ import {
  * Demo-mode and empty-mode (?empty=1) both render through the same band
  * scaffolding so visual rhythm is identical regardless of data state.
  */
-export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) {
+// `initialIsDemo` lets the server component tell us whether the
+// fallbackFeed is real (SSR prefetched a feed) or mock (anonymous /
+// API unreachable). When real, we skip the client refresh on first
+// mount — saves a round-trip + the mock→real reflow.
+// Audit 2026-05-19 F12.
+export function WarRoomShell({
+  fallbackFeed,
+  initialIsDemo = true,
+}: {
+  fallbackFeed: WorkspaceFeed;
+  initialIsDemo?: boolean;
+}) {
   const [feed, setFeed] = useState<WorkspaceFeed>(fallbackFeed);
-  const [isDemo, setIsDemo] = useState(true);
-  const [loaded, setLoaded] = useState(false);
+  const [isDemo, setIsDemo] = useState(initialIsDemo);
+  const [loaded, setLoaded] = useState(!initialIsDemo);
   // ?empty=1 forces the three empty states without breaking the live data
   // path — kept as a single query gate so QA + designers can preview easily.
   const search = useSearchParams();
   const emptyMode = search?.get('empty') === '1';
 
   useEffect(() => {
+    // Server already prefetched a real feed → skip the round-trip. Refresh
+    // is opt-in via a manual reload or a future revalidate trigger.
+    if (!initialIsDemo) {
+      setLoaded(true);
+      return;
+    }
     let cancelled = false;
     fetchActiveWorkspaceFeed()
       .then((real) => {
@@ -55,7 +72,7 @@ export function WarRoomShell({ fallbackFeed }: { fallbackFeed: WorkspaceFeed }) 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialIsDemo]);
 
   const effectiveFeed: WorkspaceFeed = useMemo(() => {
     if (!emptyMode) return feed;

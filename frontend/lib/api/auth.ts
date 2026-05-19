@@ -7,7 +7,7 @@
  */
 
 import { createBrowserClient } from '@supabase/ssr';
-import type { Session } from '@supabase/supabase-js';
+import type { Session, SupabaseClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -16,13 +16,21 @@ const SITE_URL =
     ? window.location.origin
     : process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
 
-function client() {
+// Audit 2026-05-19 F11: memoize the browser client. Previously every
+// signUp/logIn/getSession allocated a new client + reopened the realtime
+// channel + reread the auth cookie. Singleton-per-process is correct and
+// avoids a 50 KB churn cost on each auth call.
+let _cachedClient: SupabaseClient | null = null;
+
+function client(): SupabaseClient {
+  if (_cachedClient) return _cachedClient;
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     throw new Error(
       'Supabase env vars missing. Set NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_ANON_KEY.',
     );
   }
-  return createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  _cachedClient = createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  return _cachedClient;
 }
 
 export async function signUp({

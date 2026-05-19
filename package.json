@@ -25,10 +25,15 @@
     "encrypt-oauth-tokens": "node scripts/encrypt-oauth-tokens.js",
     "ops:audit": "npm run check-migrations && npm run lint && npm test && npm audit --audit-level=high && npm run eval-prompts",
     "test:mutation": "npx --yes -p @stryker-mutator/core@8 stryker run",
-    "test:mutation:quick": "npx --yes -p @stryker-mutator/core@8 stryker run --mutate 'lib/oauthCrypto.js,lib/budgetCounter.js'"
+    "test:mutation:quick": "npx --yes -p @stryker-mutator/core@8 stryker run --mutate 'lib/oauthCrypto.js,lib/budgetCounter.js'",
+    "prepare": "test -d .git && (test -f .husky/pre-commit || node scripts/install-husky.js) || true"
+  },
+  "lint-staged": {
+    "*.{js,jsx}": ["eslint --fix"],
+    "*.{js,jsx,json,md,yml,yaml}": ["prettier --write"]
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "dependencies": {
     "@sentry/node": "^10.49.0",
@@ -43,6 +48,7 @@
   },
   "devDependencies": {
     "eslint": "^8.57.0",
+    "lint-staged": "^16.2.6",
     "prettier": "^3.2.5"
   },
   "overrides": {

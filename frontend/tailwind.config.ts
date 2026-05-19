@@ -55,11 +55,11 @@ const config: Config = {
         },
       },
       fontFamily: {
-        // Inter Variable leads; system stack is the fallback while the
-        // variable file loads. -apple-system keeps SF on macOS/iOS users
-        // if the font request fails entirely.
+        // Audit 2026-05-19 F9: Inter is now loaded via next/font/google in
+        // app/layout.tsx which injects a CSS variable + matched fallback
+        // metrics. The fallback chain still runs if the font fails entirely.
         sans: [
-          'Inter Variable',
+          'var(--font-sans)',
           'Inter',
           '-apple-system', 'BlinkMacSystemFont',
           'SF Pro Display', 'SF Pro Text',

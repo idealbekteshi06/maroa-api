@@ -1,14 +1,14 @@
 /**
  * Motion primitive tests — reduced-motion fallback contracts.
  *
- * NOT YET RUNNABLE: this repo doesn't have vitest wired into
- * package.json yet. To run these, add to frontend/package.json scripts:
+ * Runnable as of audit 2026-05-19 F7 — vitest + jsdom + @testing-library/
+ * jest-dom + @vitejs/plugin-react are wired. See vitest.config.ts and
+ * tests/setup.ts. Run with `npm test` or `npm run test:watch`.
  *
- *   "test": "vitest run"
- *
- * …and install vitest + jsdom as devDependencies. Until then this file
- * serves as living documentation of what each primitive must guarantee
- * when a user has prefers-reduced-motion: reduce set.
+ * These specs verify every motion primitive in components/motion/ still
+ * renders its children when the user has `prefers-reduced-motion: reduce`.
+ * The mock below forces that state so we don't depend on the test
+ * runner's matchMedia behavior.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';

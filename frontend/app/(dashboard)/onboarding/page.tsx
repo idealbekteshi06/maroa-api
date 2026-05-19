@@ -5,8 +5,10 @@ import { useRouter } from 'next/navigation';
 import { Check, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { onboarding } from '@/lib/api';
 import { cn } from '@/lib/cn';
+import { errorMessage } from '@/lib/errors';
 
 type StepId = 'business' | 'audience' | 'connect' | 'voice' | 'confirm';
 
@@ -61,8 +63,8 @@ export default function OnboardingPage() {
         goal: data.goal || undefined,
       });
       router.push('/dashboard');
-    } catch (e: any) {
-      setError(e?.message || 'Onboarding failed. Try again.');
+    } catch (e: unknown) {
+      setError(errorMessage(e, 'Onboarding failed. Try again.'));
       setSubmitting(false);
     }
   };
@@ -113,19 +115,20 @@ export default function OnboardingPage() {
               onChange={(e) => setData({ ...data, businessName: e.target.value })}
               required
             />
-            <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">Industry</label>
-              <select
-                value={data.industry}
-                onChange={(e) => setData({ ...data, industry: e.target.value })}
-                className="block w-full rounded-xl border border-ink-300 bg-white px-4 py-3 text-base text-ink-700 focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/20"
-              >
-                <option value="">Choose an industry…</option>
-                {INDUSTRIES.map((i) => (
-                  <option key={i} value={i}>{i}</option>
-                ))}
-              </select>
-            </div>
+            {/* Audit 2026-05-19 F25: now uses the shared Select component
+                so label/error/hint behavior matches every other form field. */}
+            <Select
+              label="Industry"
+              value={data.industry}
+              onChange={(e) => setData({ ...data, industry: e.target.value })}
+            >
+              <option value="">Choose an industry…</option>
+              {INDUSTRIES.map((i) => (
+                <option key={i} value={i}>
+                  {i}
+                </option>
+              ))}
+            </Select>
             <Input
               label="City / region"
               placeholder="Boston, MA"
@@ -215,7 +218,19 @@ export default function OnboardingPage() {
               <Row label="Audience" value={data.audience || '—'} />
               <Row label="Goal" value={data.goal || '—'} />
             </dl>
-            {error && <p className="text-sm text-red-600 mt-4">{error}</p>}
+            {error && (
+              // Audit 2026-05-19 F24: form-level error banner. role="alert"
+              // forces the screen reader to announce immediately so the
+              // submit-failure isn't invisible.
+              <div
+                role="alert"
+                aria-live="assertive"
+                className="mt-6 rounded-xl border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-300"
+              >
+                <p className="font-medium">Couldn&apos;t launch Maroa.</p>
+                <p className="mt-1">{error}</p>
+              </div>
+            )}
           </Step>
         )}
 
@@ -254,8 +269,12 @@ function Step({ title, subtitle, children }: { title: string; subtitle: string; 
   return (
     <div className="space-y-5">
       <div className="mb-6">
-        <h2 className="text-2xl font-semibold text-ink-700 tracking-tight">{title}</h2>
-        <p className="mt-2 text-ink-400">{subtitle}</p>
+        {/* Audit 2026-05-19 F32: explicit display-md size + tightened tracking. */}
+        <h2 className="text-2xl sm:text-display-md font-semibold text-ink-700 dark:text-ink-50 tracking-tight">
+          {title}
+        </h2>
+        {/* F8 contrast fix on subtitle. */}
+        <p className="mt-2 text-ink-500 dark:text-ink-300">{subtitle}</p>
       </div>
       {children}
     </div>

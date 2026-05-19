@@ -22,7 +22,17 @@
 const adOptimizer = require('../prompts/ad-optimizer');
 
 function createEngine(deps) {
-  const { sbGet, sbPost, sbPatch, callClaude, extractJSON, logger, Sentry, decisionLog } = deps;
+  const {
+    sbGet,
+    sbPost,
+    sbPatch,
+    sbRpc, // optional — migration-071 atomic ad_optimizer_decision; legacy fallback handled inline
+    callClaude,
+    extractJSON,
+    logger,
+    Sentry,
+    decisionLog,
+  } = deps;
 
   if (!sbGet || !sbPost || !sbPatch) throw new Error('WF2 engine: sbGet/sbPost/sbPatch required');
   if (!callClaude || !extractJSON) throw new Error('WF2 engine: callClaude + extractJSON required');
@@ -170,25 +180,24 @@ function createEngine(deps) {
 
       let action_taken = 'noop';
       if (!dryRun) {
-        await sbPost('ad_audit_results', auditRow).catch((e) => {
-          logger?.warn?.('wf2.engine', businessId, 'audit_results insert failed', e);
-        });
-
-        // ─── Apply decision (gentle — don't break customer campaigns) ───
+        // Compute the campaign patch first so we can hand it to the
+        // atomic RPC (or fall back to the two-call legacy path).
         const patch = {
           last_decision: audit.decision,
           last_decision_reason: audit.decision_reason,
           last_optimized_at: new Date().toISOString(),
         };
+        let patchStatus = null;
+        let patchBudget = null;
 
         if (audit.decision === 'scale' && audit.new_daily_budget != null) {
-          patch.daily_budget = audit.new_daily_budget;
+          patchBudget = audit.new_daily_budget;
           action_taken = 'budget_increased';
         } else if (audit.decision === 'optimize' && audit.new_daily_budget != null) {
-          patch.daily_budget = audit.new_daily_budget;
+          patchBudget = audit.new_daily_budget;
           action_taken = 'budget_adjusted';
         } else if (audit.decision === 'pause') {
-          patch.status = 'PAUSED';
+          patchStatus = 'PAUSED';
           action_taken = 'paused';
         } else if (audit.decision === 'refresh_creative') {
           action_taken = 'refresh_creative_event';
@@ -202,10 +211,39 @@ function createEngine(deps) {
         } else {
           action_taken = 'kept';
         }
+        if (patchBudget != null) patch.daily_budget = patchBudget;
+        if (patchStatus != null) patch.status = patchStatus;
 
-        await sbPatch('ad_campaigns', `id=eq.${campaignId}`, patch).catch((e) => {
-          logger?.warn?.('wf2.engine', businessId, 'campaign patch failed', e);
-        });
+        // Atomic write via migration-071 RPC if available — avoids leaving
+        // an audit row with no matching campaign patch (or vice versa) on
+        // partial failure. Falls back to the legacy two-call path on
+        // RPC_NOT_FOUND or any RPC failure. Audit 2026-05-18 H4.
+        let usedRpc = false;
+        if (typeof sbRpc === 'function') {
+          try {
+            await sbRpc('ad_optimizer_decision', {
+              p_business_id: businessId,
+              p_campaign_id: String(campaign?.meta_campaign_id || campaignId),
+              p_decision: audit.decision,
+              p_reason: audit.decision_reason || null,
+              p_score: typeof audit.score === 'number' ? audit.score : 0,
+              p_score_breakdown: audit.score_breakdown || {},
+              p_patch_status: patchStatus,
+              p_patch_budget: patchBudget,
+            });
+            usedRpc = true;
+          } catch (e) {
+            logger?.warn?.('wf2.engine', businessId, 'rpc fallback', { error: e.message });
+          }
+        }
+        if (!usedRpc) {
+          await sbPost('ad_audit_results', auditRow).catch((e) => {
+            logger?.warn?.('wf2.engine', businessId, 'audit_results insert failed', e);
+          });
+          await sbPatch('ad_campaigns', `id=eq.${campaignId}`, patch).catch((e) => {
+            logger?.warn?.('wf2.engine', businessId, 'campaign patch failed', e);
+          });
+        }
       }
 
       // Mirror to universal decision_logs (fail-safe; never throws)

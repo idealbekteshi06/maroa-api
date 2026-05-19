@@ -6,6 +6,7 @@ import { Mail, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { logIn } from '@/lib/api/auth';
+import { errorMessage } from '@/lib/errors';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -24,8 +25,8 @@ export default function LoginPage() {
     try {
       await logIn({ email });
       setSent(true);
-    } catch (err: any) {
-      setError(err?.message || 'Log-in failed. Try again.');
+    } catch (err: unknown) {
+      setError(errorMessage(err, 'Log-in failed. Try again.'));
     } finally {
       setLoading(false);
     }

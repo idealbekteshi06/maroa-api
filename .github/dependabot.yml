@@ -1,36 +1,15 @@
-# Auto-PR for dependency updates. Keeps libraries patched.
-# Reviews + merges manually.
+# Dependabot scope: GitHub Actions only.
+#
+# npm dependencies are handled by Renovate (renovate.json) which is more
+# capable: vulnerability alerts, grouped PRs, lockfile maintenance,
+# critical-path package gating, weekly schedule.
+#
+# Audit 2026-05-18 M9 hardening: previously BOTH bots opened PRs for npm,
+# causing duplicate work and merge conflicts on the lockfile. Dependabot
+# is now scoped to github-actions only — Renovate doesn't track those well.
 
 version: 2
 updates:
-  # NPM packages
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "06:00"
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "automated"
-    commit-message:
-      prefix: "chore"
-      include: "scope"
-    # Group minor + patch updates into single PR per ecosystem
-    groups:
-      production-dependencies:
-        dependency-type: "production"
-        update-types:
-          - "minor"
-          - "patch"
-      dev-dependencies:
-        dependency-type: "development"
-        update-types:
-          - "minor"
-          - "patch"
-
-  # GitHub Actions (workflow file deps)
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -38,3 +17,6 @@ updates:
     labels:
       - "dependencies"
       - "automated"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(ci)"

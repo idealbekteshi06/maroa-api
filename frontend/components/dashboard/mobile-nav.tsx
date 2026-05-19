@@ -21,6 +21,7 @@ import { Logo } from '@/components/marketing/logo';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
 import { cn } from '@/lib/cn';
 import { logOut } from '@/lib/api/auth';
+import { useFocusTrap } from '@/lib/use-focus-trap';
 
 /**
  * Mobile navigation — bottom bar with 4 primary destinations + a "More"
@@ -30,7 +31,7 @@ import { logOut } from '@/lib/api/auth';
  */
 
 const PRIMARY = [
-  { href: '/dashboard', label: 'War Room', icon: LayoutDashboard },
+  { href: '/dashboard', label: 'Home', icon: LayoutDashboard },
   { href: '/dashboard/approvals', label: 'Approvals', icon: Inbox },
   { href: '/dashboard/clients', label: 'Clients', icon: Users },
 ];
@@ -39,7 +40,7 @@ const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: t
   {
     label: 'Command',
     items: [
-      { href: '/dashboard', label: 'War Room', icon: LayoutDashboard },
+      { href: '/dashboard', label: 'Home', icon: LayoutDashboard },
       { href: '/dashboard/approvals', label: 'Approvals', icon: Inbox },
       { href: '/dashboard/clients', label: 'Clients', icon: Users },
     ],
@@ -65,6 +66,8 @@ const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: t
 export function MobileNav() {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Audit 2026-05-19 F14: trap Tab/Shift+Tab inside the dialog while open.
+  const drawerRef = useFocusTrap<HTMLDivElement>(drawerOpen);
 
   // Auto-close on route change.
   useEffect(() => {
@@ -146,6 +149,7 @@ export function MobileNav() {
 
       {/* Drawer — full menu mirror of desktop sidebar */}
       <div
+        ref={drawerRef}
         id="mobile-nav-drawer"
         role="dialog"
         aria-modal="true"

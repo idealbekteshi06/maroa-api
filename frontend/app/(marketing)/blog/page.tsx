@@ -9,16 +9,11 @@ export const metadata: Metadata = {
   alternates: { canonical: '/blog' },
 };
 
-// When the blog goes live we'll source these from MDX in /content/blog or
-// a CMS. For now it's a static stub so the footer link doesn't 404 and so
-// the design lands before content fills in.
-const POSTS: Array<{
-  slug: string;
-  title: string;
-  excerpt: string;
-  date: string;
-  readingTime: string;
-}> = [];
+// Audit 2026-05-19 F4: posts are now sourced from a single typed list so
+// the sitemap can discover them automatically. Add new posts in
+// app/(marketing)/blog/posts.ts.
+import { getBlogPosts, type BlogPost } from './posts';
+const POSTS: BlogPost[] = getBlogPosts();
 
 export default function BlogPage() {
   return (

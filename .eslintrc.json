@@ -51,7 +51,40 @@
     {
       "files": ["tests/**/*.js"],
       "rules": {
-        "no-unused-vars": "off"
+        "no-unused-vars": "off",
+        "no-restricted-syntax": "off"
+      }
+    },
+    {
+      "files": ["scripts/**/*.js", "scripts/**/*.mjs", "lib/env.js"],
+      "rules": {
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "CallExpression[callee.property.name='use'][arguments.0.type='Literal'][arguments.0.value=/\\s/]",
+            "message": "Route path contains whitespace — typo."
+          }
+        ]
+      }
+    },
+    {
+      "files": ["server.js", "lib/**/*.js", "middleware/**/*.js", "services/**/*.js", "routes/**/*.js"],
+      "rules": {
+        "no-restricted-syntax": [
+          "warn",
+          {
+            "selector": "CallExpression[callee.property.name='use'][arguments.0.type='Literal'][arguments.0.value=/\\s/]",
+            "message": "Route path contains whitespace — typo. Use kebab-case like /api/launch-prompts."
+          },
+          {
+            "selector": "CallExpression[callee.name='apiRequest'][arguments.1.type='Literal'][arguments.1.value=/api\\.anthropic\\.com/]",
+            "message": "Don't call api.anthropic.com directly — route through callClaude() so cost tracking, retries, prompt caching, and budget enforcement all apply. See docs/adr/0003-cost-discipline-via-callclaude-facade.md"
+          },
+          {
+            "selector": "MemberExpression[object.object.name='process'][object.property.name='env']",
+            "message": "Audit 2026-05-18 H6: read env vars from the validated `env` object (lib/env.js), not process.env. If the var isn't yet on the schema, add it there first — Rule 1 in CLAUDE.md. Existing process.env reads are being migrated; new ones should not be added."
+          }
+        ]
       }
     }
   ]

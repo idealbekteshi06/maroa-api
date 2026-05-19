@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { HeroPreview } from '@/components/marketing/hero-preview';
 import { AgentsWorking } from '@/components/marketing/agents-working';
+import { softwareApplicationSchema, ldJson } from '@/lib/schema-org';
 
 export const metadata: Metadata = {
   title: 'AI marketing for freelancers, agencies & small businesses',
@@ -12,6 +13,11 @@ export const metadata: Metadata = {
     'Maroa runs the whole marketing machine — content, ads, CRO, SEO, reporting — across your clients or your business. Daily decisions, full reasoning trace, compliance built in.',
   alternates: { canonical: '/' },
 };
+
+// Audit 2026-05-19 F18: SoftwareApplication + AggregateOffer schema so
+// the homepage is eligible for Google's product rich result and AI
+// search citations have the structured price/plan facts to quote.
+const HOMEPAGE_SCHEMA = softwareApplicationSchema();
 
 const MODES = [
   {
@@ -105,6 +111,11 @@ const PROOF_QUOTES = [
 export default function LandingPage() {
   return (
     <>
+      <script
+        type="application/ld+json"
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: ldJson(HOMEPAGE_SCHEMA) }}
+      />
       {/* HERO ─────────────────────────────────────────────────────────────── */}
       <section className="hero-atmosphere relative grain pt-12 sm:pt-20 lg:pt-28 pb-12 sm:pb-16">
         <div className="hero-grid" aria-hidden="true" />

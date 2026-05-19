@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { safeRedirectPath } from '@/lib/safe-redirect';
 
 /**
  * middleware.ts — auth gate + session refresh.
@@ -78,7 +79,13 @@ export async function middleware(request: NextRequest) {
   const isProtected = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
   if (isProtected && !user) {
     const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('next', pathname + (search || ''));
+    // Pass `next` only if it's in the safelist — defeats any chained
+    // open-redirect (audit 2026-05-19 F2). The callback route will
+    // re-validate anyway, but defense in depth.
+    const safeNext = safeRedirectPath(pathname + (search || ''));
+    if (safeNext !== '/dashboard' || pathname.startsWith('/dashboard')) {
+      loginUrl.searchParams.set('next', safeNext);
+    }
     return NextResponse.redirect(loginUrl);
   }
 

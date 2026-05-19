@@ -39,10 +39,25 @@ function register({
   safePublicError,
   log,
   express,
+  businessMemory, // optional — lib/businessMemory.makeBusinessMemory(...)
 }) {
   if (!warRoomFeed || !workspaces) {
     // Migration 066 not applied or libs not constructed — skip route mounting.
     return;
+  }
+
+  // Memory tool (Anthropic Managed Agents Memory) — fire-and-forget on
+  // approve/reject so the per-business session accumulates a high-signal
+  // history of "user said yes/no to this kind of recommendation, here's
+  // why." Module is null when ANTHROPIC_MEMORY_ENABLED isn't set, in
+  // which case these calls become no-ops.
+  function _rememberApproval(businessId, decision) {
+    if (!businessMemory || !businessMemory.rememberApproval) return;
+    Promise.resolve(businessMemory.rememberApproval(businessId, decision)).catch(() => {});
+  }
+  function _rememberRejection(businessId, decision, reason) {
+    if (!businessMemory || !businessMemory.rememberRejection) return;
+    Promise.resolve(businessMemory.rememberRejection(businessId, decision, reason)).catch(() => {});
   }
 
   // Membership gate — used by every route. Returns membership or null.
@@ -147,6 +162,8 @@ function register({
 
         const updated = await decisionLog.approve(decisionId, req.user.id);
         if (!updated) return apiError(res, 500, 'INTERNAL_ERROR', 'Failed to approve decision');
+        // Fire-and-forget memory write — never block the response on it.
+        _rememberApproval(updated.business_id || decision.business_id, updated);
         return res.json({ decision: updated });
       } catch (err) {
         log?.('/api/war-room/approve', null, 'approve error', { error: err.message });
@@ -181,6 +198,9 @@ function register({
         const reason = typeof req.body?.reason === 'string' ? req.body.reason : '';
         const updated = await decisionLog.reject(decisionId, req.user.id, reason);
         if (!updated) return apiError(res, 500, 'INTERNAL_ERROR', 'Failed to reject decision');
+        // Rejections carry the highest training signal — capture them
+        // into per-business memory so future drafts avoid the same shape.
+        _rememberRejection(updated.business_id || decision.business_id, updated, reason);
         return res.json({ decision: updated });
       } catch (err) {
         log?.('/api/war-room/reject', null, 'reject error', { error: err.message });

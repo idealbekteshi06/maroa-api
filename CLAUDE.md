@@ -1,6 +1,6 @@
 # Maroa.ai — Project Knowledge Base
 
-> **Last updated:** 2026-05-11. If this is more than a quarter old, treat
+> **Last updated:** 2026-05-19. If this is more than a quarter old, treat
 > it as suspect and verify against `git log` + the live code.
 
 This file is the canonical architectural map. Read it before making any
@@ -276,11 +276,61 @@ against it without explicit approval — it's a real account.
 ## 9. What's next (active backlog)
 
 - Carve `server.js` into `routes/*.js` per domain. Target: server.js
-  under 4,000 lines.
-- Migration 060 — drop plaintext OAuth columns after backfill verified.
+  under 4,000 lines (currently ~12,600).
+- Write the OAuth plaintext drop migration after the backfill is verified
+  in production. Migration 060 was repurposed for subscriptions_rls — the
+  drop migration was never written. See `scripts/encrypt-oauth-tokens.js`
+  for the backfill procedure.
 - Real test harnesses for fake-Anthropic / fake-Inngest / fake-Supabase.
 - Mutation testing on the prompt-module scoring code.
 - Status page + on-call rota.
 
 See [LEARNINGS.md](./LEARNINGS.md) for the full decision rationale on
 the items above.
+
+---
+
+## 10. Audit hardening (2026-05-18 → 2026-05-19)
+
+A full backend audit ran on 2026-05-18; the fixes landed across the
+following turn. Highlights — read the linked code if extending these
+patterns:
+
+- **Circuit breakers wired** — `lib/breakers.js` is now actually called.
+  callClaude, FB/IG publish, Replicate, DALL-E, SerpAPI, and the OpenAI
+  embedding helper all route through `lib/externalHttp.js` (breaker +
+  retry + per-service timeout). New external HTTP code SHOULD use it.
+- **Retry-with-jitter** — `lib/retryWithJitter.js`. Composes with the
+  breaker; honors `Retry-After`; respects `AbortSignal`. Tests under
+  `tests/retry-with-jitter.test.js` cover the matrix.
+- **Per-service timeouts** — `lib/serviceTimeouts.js`. Higgsfield gets
+  90s (image gen is slow), Paddle gets 10s (fail-fast on payment), Anthropic
+  25s, etc. Default is 15s.
+- **Idempotency-Key middleware** — `middleware/idempotency.js` + migration
+  069. Mounted as `optional` on `/api/content/*`, `/api/social/*`,
+  `/api/ad-campaigns/*`, `/api/email-lifecycle/*`, `/api/launch`. Flip
+  to `required` after frontend rollout. Browser retries no longer
+  double-fire mutations.
+- **Atomic multi-table writes** — migration 071 + `sbRpc()` helper. Use
+  `cold_start_initialize` and `ad_optimizer_decision` instead of two
+  separate `sbPost`/`sbPatch` calls when the rows are tied.
+- **JSONB validation** — `lib/eventSchemas.js` + migration 070. CHECK
+  constraints enforce `payload->>'kind'` on `events`, basic shape on
+  `approvals` and `decision_logs`. App-side Zod validators in
+  `validateEventPayload` etc. Use them on every insert.
+- **Two-phase webhook dedup** — `lib/webhookEvents.js` now marks rows
+  as `received` → side-effect → `processed`/`failed`. Failed events are
+  re-runnable on retry; previously they were silently swallowed by the
+  PK constraint.
+- **Real readiness probes** — `/readyz` actually pings Anthropic
+  (`/v1/models`), Higgsfield (`/v1/models`), and reports DLQ accumulation
+  + open breaker snapshot. 10s cache so a flood of probes doesn't DDoS.
+- **DLQ auto-alerts** — Inngest terminal failures now ping Slack
+  (`SLACK_ALERT_WEBHOOK_URL`) and Sentry. Same-function rate-limit 5 min.
+- **Bounded in-process caches** — `lib/groundingContext.js` caps at 5k
+  entries. Metrics registry caps at 10k label combinations. abuseDetector
+  consistent 10k cap.
+- **Sentry release tag** — auto-resolves to `RELEASE` env → Railway commit
+  SHA → `git describe`. Source maps now match the running version.
+
+See `LEARNINGS.md` for the audit decision rationale.

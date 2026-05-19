@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Logo } from '@/components/marketing/logo';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
+import { ViewModeToggle } from '@/components/dashboard/view-mode-toggle';
 import { cn } from '@/lib/cn';
 import { logOut } from '@/lib/api/auth';
 import { useDashboardBadges } from '@/components/dashboard/sidebar-badges-context';
@@ -28,7 +29,7 @@ const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: t
   {
     label: 'Command',
     items: [
-      { href: '/dashboard', label: 'War Room', icon: LayoutDashboard },
+      { href: '/dashboard', label: 'Home', icon: LayoutDashboard },
       { href: '/dashboard/approvals', label: 'Approvals', icon: Inbox },
       { href: '/dashboard/clients', label: 'Clients', icon: Users },
     ],
@@ -123,8 +124,14 @@ export function Sidebar() {
         ))}
       </nav>
       <div className="p-3 border-t border-ink-200/60 dark:border-ink-800 space-y-2">
+        {/* View-mode toggle — Calm vs Pro dashboard. Writes the maroa.view
+            cookie so the SSR route picks the right shell on next nav. */}
         <div className="flex items-center justify-between px-3">
-          <span className="text-xs text-ink-400">Theme</span>
+          <span className="text-xs text-ink-500 dark:text-ink-300">View</span>
+          <ViewModeToggle />
+        </div>
+        <div className="flex items-center justify-between px-3">
+          <span className="text-xs text-ink-500 dark:text-ink-300">Theme</span>
           <ThemeToggle />
         </div>
         <button

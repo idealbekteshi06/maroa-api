@@ -1,0 +1,54 @@
+name: Deploy — Production
+
+# Manual-gate prod deploy. Push to main does NOT auto-deploy; an operator
+# must trigger this workflow (or approve a deploy environment) so we never
+# ship straight from a failing CI run or an unreviewed merge.
+#
+# Audit 2026-05-18 M8 hardening: prior config auto-deployed main → prod
+# the moment CI went green. With this gate, the path is:
+#   merge to main → CI passes → engineer triggers deploy → prod live.
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'One-line reason for this deploy (changelog snippet, PR #, hotfix tag)'
+        required: true
+        type: string
+
+jobs:
+  guarded-deploy:
+    name: Promote main to production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # GitHub "environment" gates this job behind a manual approval if the
+    # environment is configured with required reviewers. Set up under
+    # repo Settings → Environments → production → Required reviewers.
+    environment:
+      name: production
+      url: https://maroa-api-production.up.railway.app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Re-run test suite against main HEAD
+        run: npm test
+        env:
+          NODE_ENV: test
+      - name: Re-run lint against main HEAD
+        run: npm run lint
+      - name: Re-verify migrations
+        run: npm run check-migrations
+      - name: Record deploy reason
+        run: |
+          echo "Deploying ${{ github.sha }} to production"
+          echo "Reason: ${{ inputs.reason }}"
+      - name: Notify Railway to deploy
+        run: |
+          echo "Railway will pull the main branch HEAD into production."
+          echo "If you need a one-time pin to a specific SHA, use Railway dashboard."

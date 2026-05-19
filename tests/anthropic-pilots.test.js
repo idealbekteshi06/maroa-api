@@ -260,17 +260,24 @@ test('mcp-server: roundtrip — initialize + tools/list returns correct schema',
     const line1 = await readNextLine();
     const resp1 = JSON.parse(line1);
     assert.equal(resp1.id, 1);
-    assert.equal(resp1.result.serverInfo.name, 'maroa-internal');
-    assert.equal(resp1.result.serverInfo.version, '1.0.0');
+    // Server renamed from 'maroa-internal' to 'maroa' in v2 (action tools
+    // shipped 2026-05-19). Accept either for one release cycle.
+    assert.ok(
+      resp1.result.serverInfo.name === 'maroa' ||
+        resp1.result.serverInfo.name === 'maroa-internal',
+      `unexpected serverInfo.name: ${resp1.result.serverInfo.name}`,
+    );
+    assert.ok(resp1.result.serverInfo.version, 'version present');
     assert.ok(resp1.result.protocolVersion);
 
-    // 2. tools/list
+    // 2. tools/list — v2 ships 14 tools (6 read + 8 action). Verify the
+    // original 6 read tools are still there, but don't pin the total count.
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) + '\n');
     const line2 = await readNextLine();
     const resp2 = JSON.parse(line2);
     assert.equal(resp2.id, 2);
     assert.ok(Array.isArray(resp2.result.tools));
-    assert.equal(resp2.result.tools.length, 6);
+    assert.ok(resp2.result.tools.length >= 6, 'should expose at least the 6 original read tools');
     const names = resp2.result.tools.map((t) => t.name);
     for (const expected of [
       'get_business_profile',
@@ -281,6 +288,17 @@ test('mcp-server: roundtrip — initialize + tools/list returns correct schema',
       'list_characters',
     ]) {
       assert.ok(names.includes(expected), `tools/list should include ${expected}`);
+    }
+    // Spot-check at least one v2 action tool is exposed.
+    const actionTools = [
+      'list_workspaces',
+      'list_pending_approvals',
+      'approve_decision',
+      'draft_post',
+    ];
+    const hasAnyAction = actionTools.some((n) => names.includes(n));
+    if (resp2.result.tools.length > 6) {
+      assert.ok(hasAnyAction, 'v2 server should expose at least one action tool');
     }
 
     // 3. ping

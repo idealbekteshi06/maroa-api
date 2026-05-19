@@ -38,6 +38,7 @@ function registerColdStartRoutes(deps) {
     sbGet,
     sbPost,
     sbPatch,
+    sbRpc, // optional — enables atomic cold-start concept seeding via migration 071
     callClaude,
     brandVoice,
     creativeDirector,
@@ -63,6 +64,7 @@ function registerColdStartRoutes(deps) {
       sbGet,
       sbPost,
       sbPatch,
+      sbRpc, // forwarded to phases.js so generate_concepts can use the atomic RPC
       callClaude,
       brandVoice,
       creativeDirector,

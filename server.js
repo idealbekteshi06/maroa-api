@@ -37,10 +37,44 @@ if (env.SENTRY_DSN) {
     }
     return obj;
   };
+  // Resolve a release tag for source-map matching + cross-deploy
+  // error attribution. Preference order:
+  //   1. env.RELEASE (explicit, set in Railway env)
+  //   2. RAILWAY_GIT_COMMIT_SHA (auto-set by Railway on every deploy)
+  //   3. `git describe --tags` (local dev / manual deploys)
+  // Falling through all three leaves release=undefined which is fine for
+  // local but warned-on in prod by lib/startupSelfTest.
+  const _resolvedRelease = (() => {
+    if (env.RELEASE) return env.RELEASE;
+    if (process.env.RAILWAY_GIT_COMMIT_SHA) {
+      return `maroa-api@${String(process.env.RAILWAY_GIT_COMMIT_SHA).slice(0, 12)}`;
+    }
+    try {
+      // eslint-disable-next-line global-require
+      const { execSync } = require('child_process');
+      const sha = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+        .toString()
+        .trim();
+      if (sha) return `maroa-api@${sha}`;
+    } catch {
+      /* git not available — release stays undefined */
+    }
+    return undefined;
+  })();
+  if (env.NODE_ENV === 'production' && !_resolvedRelease) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        msg: 'sentry_release_not_set_in_prod',
+        hint: 'Set RELEASE env or RAILWAY_GIT_COMMIT_SHA so Sentry can match source maps.',
+      })
+    );
+  }
   Sentry.init({
     dsn: env.SENTRY_DSN,
     environment: env.NODE_ENV,
-    release: env.RELEASE || undefined,
+    release: _resolvedRelease,
     tracesSampleRate: env.SENTRY_TRACES_SAMPLE_RATE,
     beforeSend(event) {
       try {
@@ -68,6 +102,10 @@ const { randomUUID: uuidv4 } = require('crypto');
 const { validate } = require('./lib/validators');
 const { checkRateLimit } = require('./lib/rateLimit');
 const { zodValidate, businessIdBody } = require('./lib/schemas');
+const { fire: fireBreaker, CircuitOpenError } = require('./lib/breakers');
+const { retryWithJitter } = require('./lib/retryWithJitter');
+const SERVICE_TIMEOUTS_MS = require('./lib/serviceTimeouts');
+const externalHttp = require('./lib/externalHttp');
 const planGate = require('./middleware/planGate');
 const { checkPlanLimit } = require('./middleware/planLimits');
 const paddle = require('./services/paddle');
@@ -517,6 +555,27 @@ app.use('/api/schema', requireAnyUserId);           // /api/schema/:userId (READ
 app.use('/api/pricing', requireAnyUserId);          // /api/pricing/:userId (READ side of pricing)
 app.use('/api/sales', requireAnyUserId);            // /api/sales/objection-handler + future siblings
 
+// ─── Idempotency-Key middleware on mutating customer-facing routes ────────
+// Browser retries on a transient blip can double-fire mutations: content
+// posts twice, ad spend doubles, email enrolments duplicate. Idempotency-Key
+// header (Stripe/GitHub convention) caches the response by (route,userId,key)
+// for 24h. webhook routes have their own (provider,event_id) dedup —
+// exempt. middleware/idempotency.js + migration 069.
+//
+// Currently `optional` so existing clients without the header continue
+// working. Promote to `required` after CLAUDE.md change announcement and
+// frontend rollout. Track adoption via the idempotency_key_required_total
+// metric.
+const { makeIdempotency } = require('./middleware/idempotency');
+const _idempotency = makeIdempotency({ sbGet, sbPost, sbPatch, logger });
+app.use('/api/content/publish', _idempotency.optional);
+app.use('/api/content/generate', _idempotency.optional);
+app.use('/api/social', _idempotency.optional);
+app.use('/api/ad-campaigns', _idempotency.optional);
+app.use('/api/email-lifecycle', _idempotency.optional);
+app.use('/api/launch', _idempotency.optional);
+app.use('/api/generate', _idempotency.optional);
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 // All values come from the validated `env` object (see lib/env.js). No prod-URL
 // defaults — boot fails in lib/env.js if a required var is missing.
@@ -646,6 +705,29 @@ async function sbDelete(table, filter) {
   return true;
 }
 
+// ─── sbRpc — call plpgsql RPC functions (migration 071 + future) ──────────
+// PostgREST exposes every function under /rest/v1/rpc/<name>. RPC bodies
+// are keyword args matching the function's parameter names. Use this for
+// atomic multi-table writes — see migrations/071_atomic_rpcs.sql.
+async function sbRpc(fnName, args = {}) {
+  const r = await apiRequest(
+    'POST',
+    `${SUPABASE_URL}/rest/v1/rpc/${encodeURIComponent(fnName)}`,
+    { ...sbH(), 'Content-Type': 'application/json' },
+    args || {}
+  );
+  if (r.status === 200 || r.status === 204) return r.body;
+  if (r.status === 404) {
+    // RPC doesn't exist — likely the migration that defines it hasn't been
+    // applied yet. Surface a clear error so callers can fall back.
+    const err = new Error(`sbRpc ${fnName}: 404 (function not found — run migrations?)`);
+    err.code = 'RPC_NOT_FOUND';
+    err.status = 404;
+    throw err;
+  }
+  throw new Error(`sbRpc ${fnName}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+}
+
 // ─── Universal decision logger (lib/decisionLog) ────────────────────────
 // Constructed here (above all agent factories) so every service that
 // wants to mirror into decision_logs can take a single shared instance.
@@ -701,9 +783,13 @@ async function sbCountExact(table, queryWithoutSelect) {
 
 async function checkTokenBudgetForBusiness(businessId) {
   if (!businessId || !SUPABASE_KEY) return { allowed: true, maxTokensPerCall: 4000 };
+  // Rule 4 (CLAUDE.md): encode PostgREST filter inputs. businessId here is
+  // server-internal — pulled from a JWT-validated request — but encoding is
+  // cheap insurance against future callers who skip validation.
+  const safeBiz = encodeURIComponent(String(businessId));
   try {
-    let rows = await sbGet('businesses', `id=eq.${businessId}&select=plan,user_id`).catch(() => []);
-    if (!rows.length) rows = await sbGet('businesses', `user_id=eq.${businessId}&select=plan,user_id`).catch(() => []);
+    let rows = await sbGet('businesses', `id=eq.${safeBiz}&select=plan,user_id`).catch(() => []);
+    if (!rows.length) rows = await sbGet('businesses', `user_id=eq.${safeBiz}&select=plan,user_id`).catch(() => []);
     if (!rows.length) return { allowed: true, maxTokensPerCall: 2000 };
     const tier = normalizePlanTier(rows[0]?.plan);
     const budget = PLAN_TOKEN_BUDGETS[tier] || PLAN_TOKEN_BUDGETS.starter;
@@ -990,97 +1076,128 @@ async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOver
   if (extra.extraBetas) betas.push(...(Array.isArray(extra.extraBetas) ? extra.extraBetas : [extra.extraBetas]));
   if (betas.length) headers['anthropic-beta'] = [...new Set(betas)].join(',');
 
-  const retries = extra.retries !== undefined ? extra.retries : 3;
-  let attempt = 0;
-  let lastErr;
+  // Retry policy: `extra.retries` is total attempts (default 3). retryWithJitter
+  // takes "additional retries after first try", so we pass retries-1. Each attempt
+  // goes through the anthropic circuit breaker so persistent degradation trips
+  // it and fast-fails the next callers instead of stacking 45s waits.
+  const totalAttempts = extra.retries !== undefined ? extra.retries : 3;
+  const ANTHROPIC_TIMEOUT_MS = SERVICE_TIMEOUTS_MS.timeoutForHost('api.anthropic.com');
 
-  while (attempt < retries) {
-    attempt++;
-    try {
-      // eslint-disable-next-line no-restricted-syntax -- this IS callClaude's implementation
-      const r = await apiRequest('POST', 'https://api.anthropic.com/v1/messages', headers, body);
-
-      if (r.status === 200) {
-        if (extra.businessId && !extra.skipUsageLog) {
-          setImmediate(() => {
-            sbGet('businesses', `id=eq.${encodeURIComponent(extra.businessId)}&select=user_id`)
-              .then((rows) => {
-                const uid = rows[0]?.user_id || extra.businessId;
-                return recordOrchestrationTaskRun(uid, 'ai_call');
-              })
-              .catch(() => {});
-          });
-        }
-        // Real cost tracking — wire into observability.costTracker.track().
-        // Without this, llm_cost_logs stays empty and lib/costGuard is
-        // decorative (always reports $0 used). Now every successful call
-        // writes a row with skill + model + tokens + cost.
-        if (r.body?.usage) {
-          setImmediate(() => {
-            observability.costTracker
-              .track({
-                businessId: extra.businessId || null,
-                skill: extra.skill || (typeof taskTypeOrModel === 'string' ? taskTypeOrModel : 'unknown'),
-                model,
-                usage: r.body.usage,
-                sbPost,
-                logger,
-              })
-              .catch(() => {});
-          });
-        }
-        // Surface cache hit/miss for observability
-        if (extra.cacheSystem && r.body?.usage) {
-          const u = r.body.usage;
-          if (u.cache_read_input_tokens || u.cache_creation_input_tokens) {
-            logger.info('/claude', extra.businessId || null, 'cache stats', {
-              read: u.cache_read_input_tokens || 0,
-              created: u.cache_creation_input_tokens || 0,
-              uncached: u.input_tokens || 0,
-            });
+  let r;
+  try {
+    r = await retryWithJitter(
+      () =>
+        fireBreaker('anthropic', async () => {
+          // eslint-disable-next-line no-restricted-syntax -- this IS callClaude's implementation
+          const resp = await apiRequest(
+            'POST',
+            'https://api.anthropic.com/v1/messages',
+            headers,
+            body,
+            ANTHROPIC_TIMEOUT_MS
+          );
+          // The breaker should only "see" failures that indicate provider
+          // degradation (429, 5xx, network). Caller-side errors (401, 403,
+          // 404, 400) must NOT trip it — they're the caller's bug. Return
+          // those as a "success" from the breaker's POV; we throw outside.
+          if (resp.status >= 200 && resp.status < 400) return resp;
+          if (resp.status === 408 || resp.status === 425 || resp.status === 429 || resp.status >= 500) {
+            const err = new Error(
+              `Claude ${model}: ${resp.status} ${JSON.stringify(resp.body).slice(0, 200)}`
+            );
+            err.status = resp.status;
+            err._response = resp;
+            throw err;
           }
-        }
-        // Caller may need the full response body (for citations parsing,
-        // tool_use blocks, structured outputs, etc) — not just the first
-        // text block. Set extra.returnFullResponse:true to get it.
-        if (extra.returnFullResponse) return r.body;
-        const raw = r.body?.content?.[0]?.text || '';
-        if (extra.returnRaw) return raw;
-        return extractJSON(raw) || { _raw: raw };
+          // 4xx caller errors — return so breaker stays clean; throw below.
+          return resp;
+        }),
+      {
+        retries: Math.max(0, totalAttempts - 1),
+        baseDelayMs: 1_000,
+        maxDelayMs: 20_000,
+        onRetry: ({ attempt, delayMs, err }) => {
+          logger.warn(
+            '/claude',
+            extra.businessId || null,
+            `Claude retry ${attempt}/${totalAttempts - 1}`,
+            { status: err?.status || null, error: err?.message?.slice(0, 200), delay_ms: delayMs }
+          );
+        },
       }
+    );
+  } catch (e) {
+    if (e && e.isCircuitOpen) {
+      // Anthropic breaker is open — surface as 503 to caller, don't burn budget.
+      const wrapped = new Error('anthropic_circuit_open');
+      wrapped.status = 503;
+      wrapped.code = 'ANTHROPIC_CIRCUIT_OPEN';
+      wrapped.cooldownMs = e.cooldownMs;
+      throw wrapped;
+    }
+    throw e;
+  }
 
-      const retryable = r.status === 429 || r.status >= 500;
-      if (retryable && attempt < retries) {
-        const delay = Math.pow(2, attempt) * 1000;
-        logger.warn('/claude', extra.businessId || null, `Claude retry ${attempt}/${retries}`, {
-          status: r.status,
-          delay_ms: delay,
-        });
-        await new Promise((res) => setTimeout(res, delay));
-        continue;
-      }
+  // Non-2xx caller-side errors: throw here so the breaker stayed clean.
+  if (r.status < 200 || r.status >= 300) {
+    const err = new Error(
+      `Claude ${model}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`
+    );
+    err.status = r.status;
+    throw err;
+  }
 
-      const err = new Error(`Claude ${model}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
-      err.status = r.status;
-      throw err;
-    } catch (e) {
-      lastErr = e;
-      const msg = e?.message || '';
-      const netRetry =
-        attempt < retries && (msg.includes('timeout') || msg.includes('ECONNRESET') || msg.includes('socket'));
-      if (netRetry) {
-        const delay = Math.pow(2, attempt) * 1000;
-        logger.warn('/claude', extra.businessId || null, `Claude network retry ${attempt}/${retries}`, {
-          error: msg,
-          delay_ms: delay,
-        });
-        await new Promise((res) => setTimeout(res, delay));
-        continue;
-      }
-      throw e;
+  if (extra.businessId && !extra.skipUsageLog) {
+    setImmediate(() => {
+      sbGet('businesses', `id=eq.${encodeURIComponent(extra.businessId)}&select=user_id`)
+        .then((rows) => {
+          const uid = rows[0]?.user_id || extra.businessId;
+          return recordOrchestrationTaskRun(uid, 'ai_call');
+        })
+        .catch(() => {});
+    });
+  }
+  if (r.body?.usage) {
+    setImmediate(() => {
+      observability.costTracker
+        .track({
+          businessId: extra.businessId || null,
+          skill: extra.skill || (typeof taskTypeOrModel === 'string' ? taskTypeOrModel : 'unknown'),
+          model,
+          usage: r.body.usage,
+          sbPost,
+          logger,
+        })
+        .catch(() => {});
+    });
+  }
+  if (extra.cacheSystem && r.body?.usage) {
+    const u = r.body.usage;
+    if (u.cache_read_input_tokens || u.cache_creation_input_tokens) {
+      logger.info('/claude', extra.businessId || null, 'cache stats', {
+        read: u.cache_read_input_tokens || 0,
+        created: u.cache_creation_input_tokens || 0,
+        uncached: u.input_tokens || 0,
+      });
     }
   }
-  throw lastErr || new Error('Claude request failed');
+  if (extra.returnFullResponse) return r.body;
+  // Citations support — when the caller passed citation-eligible document
+  // blocks (extra.documentBlocks with citations:enabled or extra.fileIds
+  // + extra.citations:true), they can opt into the parsed citation form:
+  //   { renderedText: 'Text with inline [1] markers', citations: [...] }
+  // so the dashboard's "Why this?" panel can show source quotes.
+  if (extra.returnCitations) {
+    try {
+      const { parseCitedResponse } = require('./services/anthropic-citations');
+      return parseCitedResponse(r.body);
+    } catch {
+      // Fall through to default text return — Citations module unavailable.
+    }
+  }
+  const raw = r.body?.content?.[0]?.text || '';
+  if (extra.returnRaw) return raw;
+  return extractJSON(raw) || { _raw: raw };
 }
 
 /**
@@ -1328,7 +1445,9 @@ function extractJSON(text) {
 // ─── OpenAI embedding helper ─────────────────────────────────────────────────
 async function getEmbedding(text) {
   if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not set');
-  const r = await apiRequest(
+  // Wrapped: retry+jitter on 429/5xx via externalHttp (L10 hardening).
+  const r = await externalHttp(
+    apiRequest,
     'POST',
     'https://api.openai.com/v1/embeddings',
     { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
@@ -1387,7 +1506,9 @@ async function getBrandExamples(business_id, content_type, topic) {
 // ─── SerpAPI helper ───────────────────────────────────────────────────────────
 async function serpSearch(query, num = 5) {
   try {
-    const r = await apiRequest(
+    // Wrapped: retry+jitter + serpapi breaker (L10 hardening).
+    const r = await externalHttp(
+      apiRequest,
       'GET',
       `https://serpapi.com/search.json?q=${encodeURIComponent(query)}&api_key=${SERPAPI_KEY}&engine=google&num=${num}`,
       {}
@@ -1508,6 +1629,10 @@ const adOptimizer = createAdOptimizer({
   sbGet,
   sbPost,
   sbPatch,
+  // sbRpc enables the atomic migration-071 ad_optimizer_decision write
+  // (insert audit row + patch campaign in one transaction). Falls back
+  // to legacy two-call inside the engine on RPC_NOT_FOUND.
+  sbRpc,
   callClaude,
   extractJSON,
   logger,
@@ -1735,7 +1860,9 @@ async function generateWithIdeogram(prompt, aspectRatio = '1:1') {
 // ── Model: Flux 1.1 Pro via Replicate ────────────────────────────────────────
 async function generateWithFlux(prompt) {
   if (!REPLICATE_API_KEY) throw new Error('REPLICATE_API_KEY not set');
-  const pred = await apiRequest(
+  // Wrapped: replicate breaker + retry+jitter (image gen is flaky, 30-60s normal).
+  const pred = await externalHttp(
+    apiRequest,
     'POST',
     'https://api.replicate.com/v1/models/black-forest-labs/flux-1.1-pro/predictions',
     { Authorization: `Bearer ${REPLICATE_API_KEY}`, 'Content-Type': 'application/json', Prefer: 'wait' },
@@ -1755,9 +1882,12 @@ async function generateWithFlux(prompt) {
       const predId = pred.body.id;
       for (let i = 0; i < 15; i++) {
         await new Promise((r) => setTimeout(r, 3000));
-        const poll = await apiRequest('GET', `https://api.replicate.com/v1/predictions/${predId}`, {
-          Authorization: `Bearer ${REPLICATE_API_KEY}`,
-        });
+        const poll = await externalHttp(
+          apiRequest,
+          'GET',
+          `https://api.replicate.com/v1/predictions/${predId}`,
+          { Authorization: `Bearer ${REPLICATE_API_KEY}` }
+        );
         if (poll.body?.status === 'succeeded') {
           output = poll.body.output;
           break;
@@ -1776,7 +1906,9 @@ async function generateWithFlux(prompt) {
 // ── Model: DALL-E 3 via OpenAI ───────────────────────────────────────────────
 async function generateWithDalle3(prompt) {
   if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not set');
-  const r = await apiRequest(
+  // Wrapped: retry+jitter on 429/5xx.
+  const r = await externalHttp(
+    apiRequest,
     'POST',
     'https://api.openai.com/v1/images/generations',
     { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
@@ -3562,7 +3694,8 @@ app.post('/webhook/create-campaigns', async (req, res) => {
       // Create on Meta Marketing API if token available
       if (biz.meta_access_token && biz.ad_account_id) {
         try {
-          const metaResp = await apiRequest(
+          const metaResp = await externalHttp(
+            apiRequest,
             'POST',
             `https://graph.facebook.com/v19.0/act_${biz.ad_account_id}/campaigns`,
             { 'Content-Type': 'application/json' },
@@ -3658,7 +3791,8 @@ app.post('/webhook/content-approved', async (req, res) => {
         (platforms.includes('facebook') || platforms.length === 0)
       ) {
         try {
-          const fbResp = await apiRequest(
+          const fbResp = await externalHttp(
+            apiRequest,
             'POST',
             `https://graph.facebook.com/v19.0/${biz.facebook_page_id}/feed`,
             { 'Content-Type': 'application/json' },
@@ -3686,7 +3820,8 @@ app.post('/webhook/content-approved', async (req, res) => {
       ) {
         try {
           if (cont.image_url) {
-            const step1 = await apiRequest(
+            const step1 = await externalHttp(
+              apiRequest,
               'POST',
               `https://graph.facebook.com/v19.0/${biz.instagram_account_id}/media`,
               { 'Content-Type': 'application/json' },
@@ -3694,7 +3829,8 @@ app.post('/webhook/content-approved', async (req, res) => {
             );
 
             if (step1.body?.id) {
-              const step2 = await apiRequest(
+              const step2 = await externalHttp(
+                apiRequest,
                 'POST',
                 `https://graph.facebook.com/v19.0/${biz.instagram_account_id}/media_publish`,
                 { 'Content-Type': 'application/json' },
@@ -3769,7 +3905,8 @@ app.post('/webhook/budget-updated', async (req, res) => {
 
       if (biz?.meta_access_token && camp.meta_campaign_id) {
         try {
-          await apiRequest(
+          await externalHttp(
+            apiRequest,
             'POST',
             `https://graph.facebook.com/v19.0/${camp.meta_campaign_id}`,
             { 'Content-Type': 'application/json' },
@@ -4381,6 +4518,8 @@ app.post('/api/content/generate', async (req, res) => {
 app.get('/api/cron-health/:businessId', async (req, res) => {
   const businessId = String(req.params.businessId || '').trim();
   if (!businessId) return apiError(res, 400, 'VALIDATION_ERROR', 'businessId required');
+  // Rule 4: encode all PostgREST filter inputs (M1 hardening).
+  const safeBiz = encodeURIComponent(businessId);
 
   const HOUR = 3_600_000;
   const DAY = 86_400_000;
@@ -4401,24 +4540,24 @@ app.get('/api/cron-health/:businessId', async (req, res) => {
 
   try {
     const [contentRows, compRows, snapRows, learnRows, retentionRows, winRows] = await Promise.all([
-      sbGet('generated_content', `business_id=eq.${businessId}&select=created_at&order=created_at.desc&limit=1`).catch(
+      sbGet('generated_content', `business_id=eq.${safeBiz}&select=created_at&order=created_at.desc&limit=1`).catch(
         () => []
       ),
       sbGet(
         'competitor_insights',
-        `business_id=eq.${businessId}&select=recorded_at&order=recorded_at.desc&limit=1`
+        `business_id=eq.${safeBiz}&select=recorded_at&order=recorded_at.desc&limit=1`
       ).catch(() => []),
       sbGet(
         'analytics_snapshots',
-        `business_id=eq.${businessId}&select=snapshot_date&order=snapshot_date.desc&limit=1`
+        `business_id=eq.${safeBiz}&select=snapshot_date&order=snapshot_date.desc&limit=1`
       ).catch(() => []),
-      sbGet('learning_logs', `business_id=eq.${businessId}&select=created_at&order=created_at.desc&limit=1`).catch(
+      sbGet('learning_logs', `business_id=eq.${safeBiz}&select=created_at&order=created_at.desc&limit=1`).catch(
         () => []
       ),
-      sbGet('retention_logs', `business_id=eq.${businessId}&select=sent_at&order=sent_at.desc&limit=1`).catch(() => []),
+      sbGet('retention_logs', `business_id=eq.${safeBiz}&select=sent_at&order=sent_at.desc&limit=1`).catch(() => []),
       sbGet(
         'win_notifications',
-        `business_id=eq.${businessId}&select=notified_at&order=notified_at.desc&limit=1`
+        `business_id=eq.${safeBiz}&select=notified_at&order=notified_at.desc&limit=1`
       ).catch(() => []),
     ]);
 
@@ -7816,7 +7955,8 @@ app.post('/webhook/publish-approved-content', async (req, res) => {
         // Facebook
         if (biz.meta_access_token && biz.facebook_page_id) {
           try {
-            const fbResp = await apiRequest(
+            const fbResp = await externalHttp(
+              apiRequest,
               'POST',
               `https://graph.facebook.com/v19.0/${biz.facebook_page_id}/feed`,
               { 'Content-Type': 'application/json' },
@@ -7835,14 +7975,16 @@ app.post('/webhook/publish-approved-content', async (req, res) => {
         // Instagram
         if (biz.meta_access_token && biz.instagram_account_id && piece.image_url) {
           try {
-            const step1 = await apiRequest(
+            const step1 = await externalHttp(
+              apiRequest,
               'POST',
               `https://graph.facebook.com/v19.0/${biz.instagram_account_id}/media`,
               { 'Content-Type': 'application/json' },
               { image_url: piece.image_url, caption: piece.instagram_caption, access_token: biz.meta_access_token }
             );
             if (step1.body?.id) {
-              const step2 = await apiRequest(
+              const step2 = await externalHttp(
+                apiRequest,
                 'POST',
                 `https://graph.facebook.com/v19.0/${biz.instagram_account_id}/media_publish`,
                 { 'Content-Type': 'application/json' },
@@ -11449,6 +11591,10 @@ registerColdStartRoutes({
   sbGet,
   sbPost,
   sbPatch,
+  // sbRpc enables atomic cold-start concept seeding via the migration-071
+  // RPC (cold_start_initialize). Falls back to the legacy two-call path
+  // in services/cold-start/phases.js on RPC_NOT_FOUND.
+  sbRpc,
   callClaude,
   brandVoice: brandVoiceService,
   creativeDirector: creativeDirectorPrompts,
@@ -12178,6 +12324,20 @@ require('./routes/workspaces').register({
   log,
 });
 
+// Anthropic Memory tool — fire-and-forget per-business memory writes on
+// approve/reject. Module is null when ANTHROPIC_MEMORY_ENABLED isn't set.
+const _businessMemory = (() => {
+  try {
+    return require('./lib/businessMemory').makeBusinessMemory({
+      apiKey: ANTHROPIC_KEY,
+      logger,
+    });
+  } catch (e) {
+    logger?.warn?.('business-memory', null, 'init failed', { error: e.message });
+    return null;
+  }
+})();
+
 require('./routes/war-room').register({
   app,
   warRoomFeed: _warRoomFeed,
@@ -12189,6 +12349,75 @@ require('./routes/war-room').register({
   safePublicError,
   log,
   express,
+  businessMemory: _businessMemory,
+});
+
+// Claude Computer Use — drives Meta Ads UI for API gaps. Dry-run by
+// default; live runs require COMPUTER_USE_ENABLED=1 AND the runner-worker
+// Docker image deployed (see services/computer-use/README.md).
+const _computerUse = (() => {
+  try {
+    return require('./services/computer-use').createComputerUseService({
+      apiKey: ANTHROPIC_KEY,
+      logger,
+      sbPost,
+      sbPatch,
+    });
+  } catch (e) {
+    logger?.warn?.('computer-use', null, 'init failed', { error: e.message });
+    return null;
+  }
+})();
+try {
+  require('./routes/computer-use').register({
+    app,
+    computerUse: _computerUse,
+    workspaces: _workspaces,
+    requireAnyUserId,
+    sbGet,
+    apiError,
+    safePublicError,
+    log,
+    express,
+  });
+} catch (e) {
+  logger?.warn?.('computer-use', null, 'route register failed', { error: e.message });
+}
+
+// Internal webhook to trigger the weekly-scorecard batch orchestrator
+// (Anthropic Batches API → 50% list price). Webhook-secret gated so only
+// Inngest's cron (or an operator with the secret) can invoke it.
+app.post('/webhook/weekly-scorecard-batch', requireAuthOrWebhookSecret, async (req, res) => {
+  try {
+    if (!ANTHROPIC_KEY) {
+      return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'Anthropic key not configured');
+    }
+    const businessIds = Array.isArray(req.body?.businessIds) ? req.body.businessIds : null;
+    if (!businessIds || businessIds.length === 0) {
+      return apiError(res, 400, 'VALIDATION_ERROR', 'businessIds[] required');
+    }
+    const orchestrator = require('./services/weekly-scorecard/batchOrchestrator')
+      .createBatchOrchestrator({
+        sbGet,
+        sbPost,
+        sbPatch,
+        sendEmail,
+        extractJSON,
+        apiKey: ANTHROPIC_KEY,
+        logger,
+        Sentry,
+      });
+    res.json({ received: true, count: businessIds.length });
+    orchestrator
+      .runWeeklyBatch({ businessIds })
+      .then((r) => logger.info('/webhook/weekly-scorecard-batch', null, 'batch finished', r))
+      .catch((e) =>
+        logger.error('/webhook/weekly-scorecard-batch', null, 'batch failed', { error: e.message }),
+      );
+  } catch (err) {
+    logger.error('/webhook/weekly-scorecard-batch', null, 'init failed', { error: err.message });
+    return apiError(res, 500, 'INTERNAL_ERROR', safePublicError(err));
+  }
 });
 
 const _META_COMPLIANCE_CARVED = true;

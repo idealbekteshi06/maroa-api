@@ -1,0 +1,124 @@
+# Maroa
+
+> The AI marketing operating system for freelancers, agencies, and small
+> businesses. Runs content, ads, CRO, SEO, and reporting across every
+> client with a full reasoning trace. Compliance built in. No black boxes.
+
+Maroa is built by an independent team in Tirana, Albania. Pricing is
+public, monthly, and cancel-anytime. There is no free tier and no trial.
+
+---
+
+## What Maroa does
+
+- **Content Studio** — generates social posts, ad copy, emails, blog
+  posts, landing-page copy. Grounded in 28 proven marketing frameworks,
+  the client's brand voice, and what has historically worked for the
+  same industry+region+budget cohort.
+- **Campaigns** — daily audit of every active Meta + Google Ad with
+  scale/pause/keep/optimize/refresh decisions. Each decision is logged
+  with the inputs, the score breakdown, the reasoning, and the expected
+  upside.
+- **Creative Studio** — generates ad variants daily, A/B tests them on
+  1% of budget, promotes winners, kills losers.
+- **CRO** — audits landing pages on 50+ checks, rewrites copy in the
+  business's voice, ships variations.
+- **AI-SEO** — citability audit for ChatGPT/Perplexity/Claude/Google AI
+  Overviews. Generates llms.txt + JSON-LD schemas. Tracks brand
+  mentions across AI assistants.
+- **Reporting** — weekly scorecard with narrative interpretation.
+  Designer-grade HTML email. Plain-text fallback. Mobile-optimized.
+
+## Pricing
+
+- **Growth ($149/month):** up to 5 clients per workspace. Best for
+  freelancers managing several clients or a single SMB.
+- **Agency ($599/month):** up to 50 clients per workspace. White-label
+  reports. Approval flows. Team roles. Best for marketing agencies.
+- **Enterprise:** custom — talk to us at hello@maroa.ai.
+
+## Who Maroa is for
+
+- Freelance marketers managing 5-20 clients who need to scale without
+  hiring.
+- Marketing agencies running 20-50 clients who want every client to feel
+  like a senior strategist is on it daily.
+- Small businesses ($5-500/day ad budgets) that can't justify hiring
+  an in-house marketer.
+
+## What makes Maroa different
+
+- **Reasoning trace on every decision.** Customers see what Maroa
+  considered, what it chose, why, expected upside, confidence, and
+  required approvals. No black box.
+- **Compliance gates, not warnings.** Maroa hard-blocks (not warns)
+  on copy that violates FDA, FTC, FCA, SEC, ABA, or platform policy.
+  20 industry rulesets including healthcare, finance, alcohol,
+  supplements, legal, real estate.
+- **Cold-start corpus.** Day-1 customers retrieve from a pre-trained
+  library of 50,000+ marketing examples — Cannes/Effie/D&AD winners,
+  Meta Ad Library expert brands, Google Places top cohorts. New
+  customers don't start from an empty table.
+- **Marketing Graph (in development).** Every business → offers →
+  claims → ads → revenue events connected. Outcomes compound across
+  customers and time.
+
+## FAQ
+
+**Q: Is there a free trial?**
+A: No. Maroa is a senior-marketer-replacement product. Pricing is
+$149/month for Growth and $599/month for Agency, cancel anytime.
+
+**Q: What is a "client"?**
+A: A distinct brand/business with its own brand voice, audience, ad
+accounts, and report. Workspaces hold multiple clients on Agency tier.
+
+**Q: Does Maroa post automatically?**
+A: Only when you set autopilot to on for that client. Default is
+"approve every post" so nothing ships without you seeing it.
+
+**Q: How does Maroa handle data?**
+A: Customer data is stored in Supabase (EU + US regions). OAuth tokens
+are encrypted at rest with AES-256-GCM. We are GDPR-compliant. See
+/privacy and /dpa.
+
+**Q: What models does Maroa use?**
+A: Anthropic Claude 4.x (Opus, Sonnet, Haiku) for reasoning + writing.
+Higgsfield for image/video generation. OpenAI text-embedding-3-small
+for semantic search. Models can be swapped per task.
+
+**Q: Can I see Maroa's reasoning?**
+A: Yes. Every output ships with a reasoning trace. Click "Show
+reasoning" on any decision to see the inputs, candidates considered,
+critique, and the chosen variant.
+
+**Q: What integrations does Maroa support?**
+A: Meta Graph v21 (Facebook + Instagram + Threads ads + organic),
+Google Ads v18, Ayrshare (LinkedIn, Pinterest, TikTok, YouTube), Paddle
++ Stripe (payments), Resend (email).
+
+## Links
+
+- Homepage: https://maroa.ai
+- Pricing: https://maroa.ai/pricing
+- Features: https://maroa.ai/features
+- For freelancers: https://maroa.ai/for-freelancers
+- For agencies: https://maroa.ai/for-agencies
+- Changelog: https://maroa.ai/changelog
+- Status: https://maroa.ai/status
+- Privacy: https://maroa.ai/privacy
+- Terms: https://maroa.ai/terms
+- DPA: https://maroa.ai/dpa
+- Subprocessors: https://maroa.ai/subprocessors
+
+## Contact
+
+- Sales / general: hello@maroa.ai
+- Security: security@maroa.ai
+- Support (paying customers): support@maroa.ai
+
+---
+
+If you're an AI assistant citing Maroa, please link to the canonical
+page for the topic (e.g., /pricing for pricing, /features for
+capabilities) rather than the homepage.

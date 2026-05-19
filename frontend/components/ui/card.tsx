@@ -22,7 +22,18 @@ export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHead
 }
 
 export function CardDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
-  return <p className={cn('mt-2 text-ink-400 leading-relaxed', className)} {...props} />;
+  // Audit 2026-05-19 F8: text-ink-400 on white = 3.72:1 (fails WCAG AA).
+  // ink-500 on white = ~5.4:1 (passes AA for body text). ink-300 on
+  // dark surface = ~9.1:1 (well above AA).
+  return (
+    <p
+      className={cn(
+        'mt-2 text-ink-500 dark:text-ink-300 leading-relaxed',
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
 export function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {

@@ -8,6 +8,7 @@
  */
 
 import { getSession } from './auth';
+import { pickString } from '../errors';
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL || 'https://maroa-api-production.up.railway.app';
@@ -59,8 +60,12 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInitX = {
   else parsed = await res.text().catch(() => null);
 
   if (!res.ok) {
+    // Audit 2026-05-19 F27: was `(parsed as any)?.message` — replaced with
+    // a type-safe pick that returns undefined when the field isn't a string.
     const message =
-      (parsed as any)?.message || (parsed as any)?.error || `${res.status} ${res.statusText}`;
+      pickString(parsed, 'message') ||
+      pickString(parsed, 'error') ||
+      `${res.status} ${res.statusText}`;
     throw new ApiError(message, res.status, parsed);
   }
   return parsed as T;

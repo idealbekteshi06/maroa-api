@@ -417,15 +417,49 @@ async function generateConcepts({ businessId, run, deps }) {
     return { ok: false, reason: 'no concepts generated' };
   }
 
-  // Persist
-  for (const c of concepts) {
-    await sbPost?.('cold_start_concepts', {
-      run_id: run.id,
-      business_id: businessId,
-      variant_index: c.variant,
-      concept: c.concept,
-      status: 'proposed',
-    }).catch((e) => logger?.warn?.('cold-start.generate_concepts', businessId, 'persist failed', { error: e.message }));
+  // Persist atomically when the migration-071 RPC is available; otherwise
+  // fall back to the legacy two-call loop. The RPC wraps the runs upsert
+  // and every concept insert in a single transaction so a partial failure
+  // can't leave orphan rows — audit 2026-05-18 H4.
+  const sbRpc = deps.sbRpc;
+  const conceptsJson = concepts.map((c) => ({
+    run_id: run.id,
+    business_id: businessId,
+    variant_index: c.variant,
+    concept: c.concept,
+    status: 'proposed',
+  }));
+  let used = 'rpc';
+  if (typeof sbRpc === 'function') {
+    try {
+      await sbRpc('cold_start_initialize', {
+        p_business_id: businessId,
+        p_phase: 'generate_concepts',
+        p_concepts: conceptsJson,
+      });
+    } catch (e) {
+      // RPC_NOT_FOUND (404) → fall back. Anything else → log and fall back
+      // too; the legacy path still works.
+      used = 'legacy';
+      logger?.warn?.('cold-start.generate_concepts', businessId, 'rpc fallback', {
+        error: e.message,
+      });
+    }
+  } else {
+    used = 'legacy';
+  }
+  if (used === 'legacy') {
+    for (const c of concepts) {
+      await sbPost?.('cold_start_concepts', {
+        run_id: run.id,
+        business_id: businessId,
+        variant_index: c.variant,
+        concept: c.concept,
+        status: 'proposed',
+      }).catch((e) =>
+        logger?.warn?.('cold-start.generate_concepts', businessId, 'persist failed', { error: e.message }),
+      );
+    }
   }
 
   return {

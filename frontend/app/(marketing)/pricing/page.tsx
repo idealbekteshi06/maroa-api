@@ -2,9 +2,18 @@ import type { Metadata } from 'next';
 import { Check, ArrowRight, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/cn';
+import {
+  softwareApplicationSchema,
+  faqPageSchema,
+  breadcrumbSchema,
+  ldJson,
+  SITE_URL,
+} from '@/lib/schema-org';
 
+// Audit 2026-05-19 F20: title was "Pricing — Maroa" (14 chars). Now sized
+// for SERP intent — 56 chars including the $ figures.
 export const metadata: Metadata = {
-  title: 'Pricing — Maroa',
+  title: 'Pricing — $149/mo Growth · $599/mo Agency · cancel anytime',
   description:
     'Two plans. Growth at $149/mo for solo SMBs and small teams. Agency at $599/mo for freelancers and agencies running up to 50 clients. Monthly billing in USD. Cancel anytime.',
   alternates: { canonical: '/pricing' },
@@ -80,9 +89,28 @@ const FAQ = [
   },
 ];
 
+// Audit 2026-05-19 F18 + F19: ship structured data so Google can render
+// the price rich snippet and AI search can extract individual FAQ Q&As.
+const PRICING_SCHEMAS = [
+  softwareApplicationSchema({ url: `${SITE_URL}/pricing` }),
+  faqPageSchema(FAQ.map((f) => ({ question: f.q, answer: f.a }))),
+  breadcrumbSchema([
+    { name: 'Home', url: SITE_URL },
+    { name: 'Pricing', url: `${SITE_URL}/pricing` },
+  ]),
+];
+
 export default function PricingPage() {
   return (
     <>
+      {PRICING_SCHEMAS.map((schema, i) => (
+        <script
+          key={i}
+          type="application/ld+json"
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: ldJson(schema) }}
+        />
+      ))}
       <section className="container pt-20 sm:pt-28">
         <div className="max-w-3xl mx-auto text-center">
           <p className="text-eyebrow uppercase text-ink-400 mb-4">Pricing</p>

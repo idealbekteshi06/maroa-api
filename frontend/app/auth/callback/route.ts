@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { safeRedirectPath } from '@/lib/safe-redirect';
 
 /**
  * /auth/callback — Magic-link landing route.
@@ -15,11 +16,16 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
  *
  *   Correct pattern: construct the NextResponse first, hand Supabase a
  *   `setAll` that writes to `response.cookies`, then return that response.
+ *
+ * OPEN-REDIRECT FIX (audit 2026-05-19 F1):
+ *   The `next` param is allowlisted via lib/safe-redirect — anything not
+ *   matching /(dashboard|content|ads|settings|onboarding) is dropped to
+ *   /dashboard so we can't be used as a phishing redirector.
  */
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
-  const next = searchParams.get('next') || '/dashboard';
+  const next = safeRedirectPath(searchParams.get('next'));
 
   if (!code) {
     return NextResponse.redirect(`${origin}/login?error=missing_code`);

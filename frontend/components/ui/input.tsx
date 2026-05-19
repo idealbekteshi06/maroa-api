@@ -37,7 +37,16 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         {(hint || error) && (
           <p
             id={`${inputId}-desc`}
-            className={cn('text-sm', error ? 'text-red-600' : 'text-ink-400')}
+            // Audit 2026-05-19 F13: errors must be announced by screen
+            // readers. role="alert" + aria-live="assertive" do that without
+            // depending on the parent setting focus.
+            role={error ? 'alert' : undefined}
+            aria-live={error ? 'assertive' : undefined}
+            className={cn(
+              'text-sm',
+              // F8 contrast fix: ink-500 on light, ink-300 on dark.
+              error ? 'text-red-600 dark:text-red-400' : 'text-ink-500 dark:text-ink-300',
+            )}
           >
             {error || hint}
           </p>

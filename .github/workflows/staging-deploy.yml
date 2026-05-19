@@ -1,0 +1,47 @@
+name: Deploy — Staging
+
+# Auto-deploys the `staging` branch to the Railway staging environment.
+# `main` → production is gated by a manual approval (deploy-prod.yml).
+#
+# Audit 2026-05-18 M8 hardening: previously there was no staging env;
+# load tests hit prod with dryRun:true. Now we have a pre-prod surface to
+# soak changes before manual promotion.
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch: {}
+
+jobs:
+  smoke-test:
+    name: Smoke test on staging branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Test suite
+        run: npm test
+        env:
+          NODE_ENV: test
+      - name: Lint
+        run: npm run lint
+
+  deploy-staging:
+    name: Trigger Railway staging deploy
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Notify Railway to deploy
+        # Railway auto-deploys on push to the connected branch. This step
+        # is a no-op for the deploy itself; it just records a deployment
+        # event in GitHub so we can see which commit went live + when.
+        run: |
+          echo "Railway will auto-deploy commit ${{ github.sha }} to staging."
+          echo "If Railway is not connected, set up the maroa-api-staging service first."

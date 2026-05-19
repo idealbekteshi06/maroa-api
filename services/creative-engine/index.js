@@ -270,7 +270,17 @@ async function generateOneVariantCandidate({ business, brandDNA, grounding, seed
     variant_index: variantIndex,
   });
 
+  // Citations support — pass wins+losses+corpus as citation-eligible
+  // document blocks. The response carries citation metadata on each text
+  // block (Anthropic Citations API) so the dashboard's "Why this?" panel
+  // can show source quotes per generated variant. Audit 2026-05-18 G2.
+  const citationDocs =
+    typeof grounding?.toCitationDocuments === 'function'
+      ? grounding.toCitationDocuments({ maxWins: 2, maxLosses: 1, maxCorpus: 2 })
+      : [];
+
   let copyVariant;
+  let copyCitations = [];
   try {
     const r = await callClaude({
       model: 'sonnet',
@@ -278,10 +288,26 @@ async function generateOneVariantCandidate({ business, brandDNA, grounding, seed
       messages: [{ role: 'user', content: userTask }],
       maxTokens: 600,
       cacheSystem: true,
+      extra: {
+        documentBlocks: citationDocs,
+        // Don't change the return shape — keep returning the full response
+        // body so the existing text parser keeps working. We pull citations
+        // out separately below.
+        returnFullResponse: true,
+      },
     });
     const text = r?.content?.[0]?.text || '';
     const match = text.match(/\{[\s\S]*\}/);
     copyVariant = match ? JSON.parse(match[0]) : null;
+    // Extract citations (if any) from the response content blocks. No-op
+    // if the model didn't cite anything — degrades cleanly.
+    try {
+      const { parseCitedResponse } = require('../anthropic-citations');
+      const parsed = parseCitedResponse(r);
+      copyCitations = parsed?.citations || [];
+    } catch {
+      copyCitations = [];
+    }
   } catch (e) {
     return null;
   }
@@ -310,6 +336,10 @@ async function generateOneVariantCandidate({ business, brandDNA, grounding, seed
     asset_url: assetUrl,
     higgsfield_model: modelUsed,
     higgsfield_request_id: requestId,
+    // Citations from the grounding documents the model considered.
+    // Persist alongside the variant so the dashboard's reasoning trace
+    // can render "This headline mirrors X" with a real source link.
+    citations: copyCitations,
     decision_reason: seedPattern
       ? `Seeded from cohort pattern "${seedPattern.pattern_signature}" (lift ${seedPattern.median_roas_lift ?? '?'})`
       : `Variant ${variantIndex + 1} — grounded + brand voice + industry baseline`,
@@ -482,7 +512,40 @@ async function evaluateTestingVariants({ businessId, deps }) {
   };
 }
 
+/**
+ * Factory for the creative-engine surface. Audit 2026-05-18 L2: previously
+ * the module exposed bare functions that pulled deps via inline `require`
+ * inside the function body — hard to mock without monkeypatching the
+ * module loader. The factory accepts deps once, returns the same public
+ * functions, and is now the canonical entry point.
+ *
+ * Legacy exports below remain so existing callers keep working during
+ * rollout. Migrate call sites to:
+ *
+ *   const engine = require('./services/creative-engine').create({
+ *     sbGet, sbPost, callClaude, higgsfield, brandVoice, logger, metrics,
+ *     groundingContext, nBestReranker, adversarialCritic,
+ *   });
+ *   await engine.generateDailyVariants({ businessId });
+ */
+function createCreativeEngine(deps = {}) {
+  const baseDeps = {
+    groundingContext: deps.groundingContext || require('../../lib/groundingContext'),
+    nBestReranker: deps.nBestReranker || require('../../lib/nBestReranker'),
+    adversarialCritic: deps.adversarialCritic || require('../../lib/adversarialCritic'),
+    ...deps,
+  };
+  return {
+    generateDailyVariants: (args = {}) =>
+      generateDailyVariants({ ...args, deps: { ...baseDeps, ...(args.deps || {}) } }),
+    evaluateTestingVariants: (args = {}) =>
+      evaluateTestingVariants({ ...args, deps: { ...baseDeps, ...(args.deps || {}) } }),
+  };
+}
+
 module.exports = {
+  create: createCreativeEngine,
+  createCreativeEngine,
   generateDailyVariants,
   evaluateTestingVariants,
   meanStd,

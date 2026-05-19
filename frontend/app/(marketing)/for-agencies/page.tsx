@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { ArrowRight, Check, Users, Calendar, FileBarChart, ShieldCheck, Briefcase, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { HeroPreview } from '@/components/marketing/hero-preview';
