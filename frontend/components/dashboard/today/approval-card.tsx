@@ -2,11 +2,12 @@
 
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
-import { ChevronDown, Check, X, Sparkles } from 'lucide-react';
+import { Check, X, Sparkles, BookOpen } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { approveDecision, rejectDecision } from '@/lib/api/war-room';
-import { approvalAsk, whyExplanation, decisionCategory } from '@/lib/translate';
+import { approvalAsk, decisionCategory } from '@/lib/translate';
 import { errorMessage } from '@/lib/errors';
+import { ReasoningTrace } from './reasoning-trace';
 import type { DecisionLogRow } from '@/lib/types/war-room';
 
 /**
@@ -59,12 +60,14 @@ const CATEGORY_LABEL: Record<string, string> = {
 };
 
 export function ApprovalCard({ workspaceId, decision, onResolved, preview }: ApprovalCardProps) {
-  const [explained, setExplained] = useState(false);
+  // Wave 1 W1-2: "Why this?" used to be a 1-paragraph disclosure. It's now
+  // the signature reasoning-trace side panel (a slide-in dialog with the
+  // full chain — trigger → data → candidates → critic → chosen).
+  const [traceOpen, setTraceOpen] = useState(false);
   const [resolving, startTransition] = useTransition();
   const [resolved, setResolved] = useState<'approved' | 'rejected' | null>(null);
 
   const question = approvalAsk(decision);
-  const explanation = whyExplanation(decision);
   const category = CATEGORY_LABEL[decisionCategory(decision)] || 'Update';
   const idempotencyKey = `approve-${decision.id}-${Date.now()}`;
 
@@ -173,25 +176,27 @@ export function ApprovalCard({ workspaceId, decision, onResolved, preview }: App
 
         <button
           type="button"
-          aria-expanded={explained}
-          onClick={() => setExplained((v) => !v)}
+          aria-haspopup="dialog"
+          aria-expanded={traceOpen}
+          onClick={() => setTraceOpen(true)}
           className={cn(
-            'mt-5 inline-flex items-center gap-1 text-xs text-ink-500 dark:text-ink-300 hover:text-ink-700 dark:hover:text-ink-100 transition-colors',
+            'mt-5 inline-flex items-center gap-1.5 text-xs text-accent-500 dark:text-accent-300 hover:text-accent-600 dark:hover:text-accent-200 font-medium transition-colors',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-2 rounded',
           )}
         >
-          <ChevronDown
-            className={cn('h-3 w-3 transition-transform', explained && 'rotate-180')}
-            aria-hidden="true"
-          />
-          {explained ? 'Hide reasoning' : 'Why this?'}
+          <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+          Why this? See the reasoning →
         </button>
-        {explained && (
-          <p className="mt-3 text-sm text-ink-500 dark:text-ink-300 leading-relaxed border-l-2 border-accent-200 dark:border-accent-800 pl-3">
-            {explanation}
-          </p>
-        )}
       </div>
+
+      {/* Reasoning trace side-panel — the signature "Maroa shows its work"
+          moment. Rendered as a portal-style dialog; Esc closes, focus
+          trapped inside, restores focus to the trigger on close. */}
+      <ReasoningTrace
+        open={traceOpen}
+        decision={decision}
+        onClose={() => setTraceOpen(false)}
+      />
     </article>
   );
 }

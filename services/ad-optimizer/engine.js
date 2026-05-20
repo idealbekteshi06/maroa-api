@@ -32,6 +32,10 @@ function createEngine(deps) {
     logger,
     Sentry,
     decisionLog,
+    // Marketing Graph (migration 065) — every executed audit decision is
+    // mirrored as a typed entity + edge so the moat compounds. Optional;
+    // soft-fails when the lib isn't wired or the migration isn't applied.
+    marketingGraph,
   } = deps;
 
   if (!sbGet || !sbPost || !sbPatch) throw new Error('WF2 engine: sbGet/sbPost/sbPatch required');
@@ -81,6 +85,68 @@ function createEngine(deps) {
     } catch (e) {
       // Mirror failure must NEVER interrupt the audit pipeline.
       logger?.warn?.('wf2.engine', businessId, 'decisionLog mirror failed', { error: e.message });
+    }
+  }
+
+  // ── Mirror every executed audit decision into the Marketing Graph ──────
+  // Migration 065 / ADR-0010. Two writes per decision:
+  //   1. Upsert the campaign as a `campaign` entity (idempotent via externalId)
+  //   2. Upsert the decision as a `decision` entity + edge to the campaign
+  // Reads later use these to drive grounding ("we paused 3 ads with this
+  // angle for cafés in this region — try a different angle instead").
+  //
+  // Soft-fail by design — failed graph writes never block the audit.
+  async function _mirrorToMarketingGraph({ businessId, campaign, audit, action_taken }) {
+    if (!marketingGraph || typeof marketingGraph.upsertEntity !== 'function') return;
+    try {
+      const campaignEntity = await marketingGraph.upsertEntity({
+        businessId,
+        type: 'campaign',
+        subtype: campaign?.network || campaign?.platform || 'meta',
+        title: campaign?.name || `Campaign ${campaign?.id}`,
+        externalId: campaign?.id ? `campaign:${campaign.id}` : null,
+        source: 'agent:ad-optimizer',
+        attrs: {
+          status: campaign?.status,
+          daily_budget: campaign?.daily_budget,
+          last_decision: audit.decision,
+        },
+      });
+      const decisionEntity = await marketingGraph.upsertEntity({
+        businessId,
+        type: 'decision',
+        subtype: 'ad_audit',
+        title:
+          (audit.decision_reason || `Ad optimizer: ${audit.decision}`).slice(0, 200),
+        source: 'agent:ad-optimizer',
+        attrs: {
+          decision: audit.decision,
+          action_taken,
+          score: audit.audit_score,
+          market_tier: audit.market_tier,
+          budget_tier: audit.budget_tier,
+        },
+      });
+      if (campaignEntity?.id && decisionEntity?.id) {
+        await marketingGraph.linkEntities({
+          businessId,
+          sourceId: decisionEntity.id,
+          targetId: campaignEntity.id,
+          type: 'acted_on',
+          weight:
+            audit.decision === 'pause'
+              ? -1.0
+              : audit.decision === 'scale'
+                ? 1.0
+                : 0.5,
+          attrs: { audited_at: new Date().toISOString() },
+        });
+      }
+    } catch (e) {
+      // marketingGraph already logs internally; never throw to caller.
+      logger?.warn?.('wf2.engine', businessId, 'marketingGraph mirror failed', {
+        error: e.message,
+      });
     }
   }
 

@@ -219,6 +219,43 @@ async function generateDailyVariants({ businessId, deps }) {
     }).catch((e) => logger?.warn?.('creative-engine.generate', businessId, 'persist failed', { error: e.message }));
   }
 
+  // ── Mirror to the Marketing Graph (migration 065 / ADR-0010) ──
+  // Every generated variant becomes a typed `creative` entity carrying
+  // its genome (hook, angle, channel, performance hook). Optional
+  // edges to grounding sources (citations) so we can answer "which
+  // wins did this variant come from?" later in the dashboard.
+  const marketingGraph = deps.marketingGraph;
+  if (marketingGraph && typeof marketingGraph.upsertEntity === 'function') {
+    for (const v of variants) {
+      try {
+        await marketingGraph.upsertEntity({
+          businessId,
+          type: 'creative',
+          subtype: v.format || 'image',
+          title: (v.headline || v.body || 'creative').slice(0, 200),
+          source: 'agent:creative-engine',
+          attrs: {
+            format: v.format,
+            body: v.body,
+            cta: v.cta,
+            asset_url: v.asset_url,
+            higgsfield_model: v.higgsfield_model,
+            decision_reason: v.decision_reason,
+            citations_count: Array.isArray(v.citations) ? v.citations.length : 0,
+            judge_score: v._judge_score || null,
+          },
+        });
+      } catch (e) {
+        logger?.warn?.(
+          'creative-engine.generate',
+          businessId,
+          'graph upsert failed',
+          { error: e.message },
+        );
+      }
+    }
+  }
+
   return { ok: true, generated: variants.length, plan_tier: plan };
 }
 

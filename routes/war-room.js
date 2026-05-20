@@ -40,6 +40,7 @@ function register({
   log,
   express,
   businessMemory, // optional — lib/businessMemory.makeBusinessMemory(...)
+  marketingGraph, // optional — lib/marketingGraph.makeMarketingGraph(...)
 }) {
   if (!warRoomFeed || !workspaces) {
     // Migration 066 not applied or libs not constructed — skip route mounting.
@@ -58,6 +59,56 @@ function register({
   function _rememberRejection(businessId, decision, reason) {
     if (!businessMemory || !businessMemory.rememberRejection) return;
     Promise.resolve(businessMemory.rememberRejection(businessId, decision, reason)).catch(() => {});
+  }
+
+  // Marketing Graph mirror — every approval becomes a typed entity (the
+  // decision) + edge to whatever business artifact it acted on. Reads
+  // accumulate the customer's "what works" signal over time, which the
+  // grounding library + N-best reranker use to bias future generations.
+  // No-op when migration 065 isn't applied (isHealthy() returns false).
+  async function _mirrorApprovalToGraph(decision, action) {
+    if (!marketingGraph || !marketingGraph.upsertEntity) return;
+    try {
+      const businessId = decision?.business_id;
+      if (!businessId) return;
+      // Write the decision as a graph entity so it's queryable as part
+      // of "everything Maroa did for this business" without joining
+      // decision_logs ad-hoc every time.
+      const entity = await marketingGraph.upsertEntity({
+        businessId,
+        type: 'decision',
+        subtype: decision.agent_name || null,
+        title:
+          decision.recommendation_text?.slice(0, 200) ||
+          `${action} ${decision.agent_name || 'decision'}`,
+        externalId: `decision:${decision.id}`,
+        source: `route:war-room.${action}`,
+        attrs: {
+          decision_id: decision.id,
+          agent: decision.agent_name,
+          decision_type: decision.decision_type,
+          confidence: decision.confidence,
+          action,
+          executed: !!decision.executed,
+        },
+      });
+      // Link to an inferred outcome entity ("approved" decisions get an
+      // edge to a placeholder revenue_event we resolve later when real
+      // performance data arrives — the graph stays consistent even
+      // before payments/clicks are attributed).
+      if (entity?.id) {
+        await marketingGraph.linkEntities({
+          businessId,
+          sourceId: entity.id,
+          targetId: entity.id, // self-edge to seed; real targets land on attribution
+          type: action === 'approved' ? 'expected_outcome' : 'refused_outcome',
+          weight: action === 'approved' ? 1.0 : -0.5,
+          attrs: { recorded_at: new Date().toISOString() },
+        });
+      }
+    } catch (e) {
+      // marketingGraph already logs internally; never block the response.
+    }
   }
 
   // Membership gate — used by every route. Returns membership or null.
@@ -162,8 +213,9 @@ function register({
 
         const updated = await decisionLog.approve(decisionId, req.user.id);
         if (!updated) return apiError(res, 500, 'INTERNAL_ERROR', 'Failed to approve decision');
-        // Fire-and-forget memory write — never block the response on it.
+        // Fire-and-forget memory + graph writes — never block the response.
         _rememberApproval(updated.business_id || decision.business_id, updated);
+        _mirrorApprovalToGraph(updated, 'approved').catch(() => {});
         return res.json({ decision: updated });
       } catch (err) {
         log?.('/api/war-room/approve', null, 'approve error', { error: err.message });
@@ -199,8 +251,10 @@ function register({
         const updated = await decisionLog.reject(decisionId, req.user.id, reason);
         if (!updated) return apiError(res, 500, 'INTERNAL_ERROR', 'Failed to reject decision');
         // Rejections carry the highest training signal — capture them
-        // into per-business memory so future drafts avoid the same shape.
+        // into per-business memory + the graph so future drafts avoid
+        // the same shape.
         _rememberRejection(updated.business_id || decision.business_id, updated, reason);
+        _mirrorApprovalToGraph(updated, 'rejected').catch(() => {});
         return res.json({ decision: updated });
       } catch (err) {
         log?.('/api/war-room/reject', null, 'reject error', { error: err.message });

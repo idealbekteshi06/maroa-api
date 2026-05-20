@@ -37,10 +37,20 @@ function registerCreativeEngineRoutes(deps) {
     competitorWatch,
     metaAdLibraryApi,
     citationTracker,
+    marketingGraph, // optional — lib/marketingGraph. Receives each generated variant as a `creative` entity.
   } = deps;
 
   function buildEngineDeps() {
-    return { sbGet, sbPost, sbPatch, callClaude, brandVoice, higgsfield, logger };
+    return {
+      sbGet,
+      sbPost,
+      sbPatch,
+      callClaude,
+      brandVoice,
+      higgsfield,
+      logger,
+      marketingGraph,
+    };
   }
   function buildHealthDeps() {
     return { sbGet, sbPost, sbPatch, metaInsights, googleAdsDiag, tiktokDiag, logger };
