@@ -1,0 +1,45 @@
+---
+title: "Rate limits"
+description: "What gets capped, and what happens when you hit a cap."
+---
+
+## HTTP rate limits
+
+| Limit | Default | Header on response |
+|---|---|---|
+| Per-token, all endpoints | 100 req/min | `X-RateLimit-Remaining`, `X-RateLimit-Reset` |
+| Anonymous (`/api/billing/plans`, `/api/waitlist/*`) | 20 req/min per IP | same |
+| Webhook endpoints (`/webhook/*`) | none (auth'd via shared secret) | — |
+
+Burst limit is 2× the per-minute rate over any 10-second window. Above
+that you get `429 Too Many Requests` with a `Retry-After` header in
+seconds. Wait that long, then retry.
+
+## LLM budget limits
+
+Maroa charges Anthropic for every Claude call. Plan tiers come with a
+monthly budget. When a workspace hits its cap, mutating endpoints that
+require LLM work return `402 Payment Required` with code `COST_CAP_REACHED`.
+
+| Tier | Monthly LLM budget | What happens at cap |
+|---|---|---|
+| Growth ($149/mo) | $80 | New drafts pause until next month or plan upgrade |
+| Agency ($599/mo) | $250 | Same, then plan upgrade |
+| Enterprise | Custom | Negotiated |
+
+Read endpoints (`GET /api/war-room`, list / get) keep working at cap.
+
+Override the cap via `COST_CAP_<TIER>_USD` env vars (operator only — not
+exposed to customers).
+
+## How to be a good citizen
+
+- Use `Idempotency-Key` on every mutation. Retries don't count against
+  rate limits if they're idempotent reissues.
+- Cache `GET /api/workspaces` for at least 60 seconds — it doesn't
+  change often.
+- Cache `GET /api/war-room/:id` for 30 seconds for "is anything
+  pending" polling. For real-time updates, use Supabase Realtime on the
+  `decision_logs` table.
+- Don't poll faster than once every 5 seconds per workspace. That's
+  what realtime is for.

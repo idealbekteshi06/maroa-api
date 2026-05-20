@@ -1,0 +1,67 @@
+---
+title: "CLI"
+description: "Maroa from your terminal. `npx maroa setup` to start."
+---
+
+```bash
+npx maroa setup
+```
+
+That's the entire install. The CLI is a single Node binary, no deps.
+
+## Commands
+
+```text
+maroa setup                    interactive setup
+maroa status                   one-line summary
+maroa pending                  list things waiting on approval
+maroa approve <decision-id>    approve a decision
+maroa reject <id> [reason]     reject a decision
+maroa draft "theme"            ask Maroa to draft new content
+maroa whoami                   show configured account
+maroa logout                   clear credentials
+```
+
+## Config location
+
+`~/.maroa/config.json` — `chmod 600` automatically.
+
+## Example session
+
+```bash
+$ maroa pending
+3 pending
+
+d-abc123  [Tirana Roastery · creative-engine]
+  Approve this Instagram post for Friday: "Friday lunch special..."  (92% sure)
+
+d-def456  [Tirana Roastery · ad-optimizer]
+  Pause an ad that isn't getting clicks (71% sure)
+
+d-ghi789  [Tirana Roastery · creative-engine]
+  Draft a Mother's Day email (88% sure)
+
+→ Approve with `maroa approve <id>` or reject with `maroa reject <id> <reason>`
+
+$ maroa approve d-abc123
+✓ Approved. Maroa is shipping it now.
+
+$ maroa reject d-def456 still in learning phase
+✗ Rejected.
+```
+
+## Why a CLI?
+
+Two reasons:
+
+1. **Freelancers live in the terminal.** A power-user marketer with 12
+   café clients can run `maroa status` in their tmux while finishing
+   another task. Faster than opening the browser.
+2. **Scriptable.** `maroa pending --json` (coming soon) plugs into shell
+   scripts. Approve everything from a specific agent, batch-process
+   weekly review, etc.
+
+## Auth
+
+Same Bearer JWT as the rest of the API. `maroa setup` walks you through
+pasting it. Re-run when the token expires (~1h default).

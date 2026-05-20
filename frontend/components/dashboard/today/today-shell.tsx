@@ -1,11 +1,13 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { Greeting } from './greeting';
 import { HeadlineStatus } from './headline-status';
 import { ApprovalCard } from './approval-card';
 import { ActivityFeed } from './activity-feed';
 import { CalmState } from './calm-state';
+import { useRealtimeApprovals } from '@/lib/use-realtime-approvals';
 import type { WorkspaceFeed, DecisionLogRow } from '@/lib/types/war-room';
 
 /**
@@ -120,6 +122,32 @@ export function TodayShell({ feed, firstName, initialIsDemo = false }: TodayShel
 
   const visiblePending = initialPending.filter((d) => !resolvedIds.has(d.id));
   const workspaceId = feed.workspace.id;
+
+  // Multiplayer dashboard — Supabase Realtime stream of decision_logs.
+  // When a teammate resolves a card in their tab, we see it here and the
+  // card fades out instantly. Same dropping behaviour as the local
+  // approve flow, plus a small toast so you know a teammate acted.
+  const handleTeammateAction = useCallback(
+    ({ decisionId, action }: { decisionId: string; action: 'approved' | 'rejected' }) => {
+      const initialIds = new Set(initialPending.map((d) => d.id));
+      if (!initialIds.has(decisionId)) return; // not from our visible set
+      setResolvedIds((prev) => {
+        if (prev.has(decisionId)) return prev;
+        const next = new Set(prev);
+        next.add(decisionId);
+        return next;
+      });
+      toast(action === 'approved' ? 'Approved by a teammate' : 'Skipped by a teammate', {
+        description:
+          action === 'approved'
+            ? 'Maroa is shipping it now.'
+            : "One of your teammates marked this skipped.",
+        duration: 3500,
+      });
+    },
+    [initialPending],
+  );
+  useRealtimeApprovals(workspaceId, handleTeammateAction);
 
   return (
     <div className="max-w-2xl mx-auto px-5 sm:px-0 py-8 sm:py-12 space-y-10">

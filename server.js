@@ -10067,6 +10067,27 @@ try {
   logger?.warn?.('computer-use', null, 'route register failed', { error: e.message });
 }
 
+// Slack /maroa integration — slash commands + Block Kit button callbacks.
+// Verifies every request via HMAC-SHA256 against SLACK_SIGNING_SECRET with
+// a 5-minute replay window. No-op when SLACK_SIGNING_SECRET isn't set —
+// the routes still mount, but every request gets a 401 from the verifier.
+try {
+  require('./routes/slack').register({
+    app,
+    warRoomFeed: _warRoomFeed,
+    workspaces: _workspaces,
+    decisionLog: _decisionLog,
+    sbGet,
+    sbPost,
+    apiError,
+    log,
+    express,
+    marketingGraph: _marketingGraph,
+  });
+} catch (e) {
+  logger?.warn?.('slack', null, 'route register failed', { error: e.message });
+}
+
 // Internal webhook to trigger the weekly-scorecard batch orchestrator
 // (Anthropic Batches API → 50% list price). Webhook-secret gated so only
 // Inngest's cron (or an operator with the secret) can invoke it.

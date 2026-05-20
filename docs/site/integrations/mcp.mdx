@@ -1,0 +1,76 @@
+---
+title: "MCP server"
+description: "Run Maroa from inside Claude Desktop, Claude Code, Cursor, or any MCP-compatible host."
+---
+
+The Maroa MCP server exposes 14 tools (6 read + 8 action) to any
+[Model Context Protocol](https://modelcontextprotocol.io) client.
+
+## What it gives you
+
+Inside Claude Desktop you can say:
+
+> "Maroa, what's waiting for my approval?"
+
+Claude calls `list_pending_approvals`, returns the list, and you can
+follow up with *"approve all of them"* or *"approve the Instagram one and
+reject the Meta ad — wrong tone"*.
+
+## Tools
+
+| Tool | What it does |
+|---|---|
+| `get_business_profile` | Full business + profile row |
+| `get_content_history` | Recent concepts + assets |
+| `get_performance_metrics` | Last N days of daily_stats + content_performance |
+| `list_creative_concepts` | Creative-director concepts with scoring |
+| `list_recent_events` | Unified events table |
+| `list_characters` | Soul ID characters |
+| `list_workspaces` | Workspaces this user belongs to |
+| `get_war_room` | Full feed: clients, decisions, KPIs |
+| `list_pending_approvals` | Just the things waiting on a human |
+| `approve_decision` | Approve a pending decision (idempotent) |
+| `reject_decision` | Reject with an optional reason |
+| `get_brand_voice` | Current brand-voice anchor |
+| `draft_post` | Ask Maroa to draft a new piece |
+| `cron_health` | When each background job last ran |
+
+## Setup
+
+Add to `~/.claude/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "maroa": {
+      "command": "node",
+      "args": ["/absolute/path/to/Maroa.ai/mcp-server/server.js"],
+      "env": {
+        "SUPABASE_URL": "https://<project>.supabase.co",
+        "SUPABASE_KEY": "<service-role-key>",
+        "MAROA_API_URL": "https://maroa-api-production.up.railway.app",
+        "MAROA_API_TOKEN": "<your-bearer-jwt>"
+      }
+    }
+  }
+}
+```
+
+Restart your MCP host.
+
+## Security
+
+- Read tools use the Supabase service-role key (you scope which business
+  IDs you query).
+- Action tools use a Bearer JWT — same as the API. The `requireAnyUserId`
+  middleware on the backend enforces ownership.
+- Every action tool sets an `Idempotency-Key` header automatically.
+- A leaked JWT lets the holder act as you on your workspaces until the
+  token expires (~1h default).
+
+## Claude Code skill
+
+We also ship a `/maroa` skill for Claude Code. Drop the SKILL.md from
+the `.claude/skills/maroa/` folder into your `~/.claude/skills/maroa/`
+and invoke with `/maroa` in any conversation. The skill calls into the
+MCP server tools above.

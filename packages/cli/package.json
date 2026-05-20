@@ -1,0 +1,31 @@
+{
+  "name": "@maroa/cli",
+  "version": "0.1.0",
+  "description": "Maroa.ai CLI — manage your marketing from the terminal. Status, approvals, drafts, all keyboard-driven.",
+  "bin": {
+    "maroa": "bin/maroa.js"
+  },
+  "main": "bin/maroa.js",
+  "files": [
+    "bin/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "maroa",
+    "marketing",
+    "ai",
+    "cli",
+    "approvals",
+    "smb"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/idealbekteshi06/maroa-api.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://maroa.ai"
+}

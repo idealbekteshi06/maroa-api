@@ -1,0 +1,38 @@
+name: Publish API docs
+
+# Rebuilds docs.maroa.ai whenever docs/site/ or docs/openapi.yml changes
+# on main. Uses Mintlify's deploy action (no build step on our side — they
+# render the MDX server-side).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/site/**'
+      - 'docs/openapi.yml'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch: {}
+
+jobs:
+  deploy-docs:
+    name: Mintlify deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync OpenAPI into docs/
+        run: |
+          if [ -f docs/openapi.yml ]; then
+            cp docs/openapi.yml docs/site/openapi.yml
+          fi
+
+      - name: Notify Mintlify (webhook deploy)
+        env:
+          MINTLIFY_DEPLOY_HOOK: ${{ secrets.MINTLIFY_DEPLOY_HOOK }}
+        run: |
+          if [ -n "$MINTLIFY_DEPLOY_HOOK" ]; then
+            curl -X POST "$MINTLIFY_DEPLOY_HOOK" || true
+          else
+            echo "MINTLIFY_DEPLOY_HOOK secret not set — skipping live publish"
+          fi

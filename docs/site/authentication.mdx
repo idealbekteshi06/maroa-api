@@ -1,0 +1,59 @@
+---
+title: "Authentication"
+description: "How Maroa identifies the caller and enforces ownership."
+---
+
+## Bearer JWT
+
+Every request to `/api/*` must include:
+
+```
+Authorization: Bearer <supabase-jwt>
+```
+
+The JWT is the same token your dashboard browser session uses. Three
+ways to get one:
+
+| Source | How |
+|---|---|
+| Dashboard | Settings → API tokens → Create |
+| Browser cookies | DevTools → Application → Cookies on `maroa.ai` → `sb-access-token` |
+| CLI | `npx maroa setup` walks you through it |
+
+Tokens expire (default ~1h). Refresh by re-logging into the dashboard.
+Long-lived tokens for CI/integrations: roadmap (Q3 2026).
+
+## What the token represents
+
+The token identifies a Maroa **user**, not a workspace. Authorization is
+then resolved per-request:
+
+- Read endpoints (`GET /api/workspaces`, `GET /api/war-room/:id`) require
+  workspace membership.
+- Mutating endpoints (`POST /approve`, `POST /reject`) additionally check
+  the membership role. Owners + strategists can mutate; designers +
+  viewers cannot.
+
+If you call an endpoint without the right access, you get a `404 NOT_FOUND`
+— intentional. Not `403`. We don't leak whether a workspace ID exists at all.
+
+## Webhook auth
+
+Webhook endpoints (`/webhook/*`) use a shared secret (`X-Webhook-Secret`
+header) instead of JWT. Those endpoints are for service-to-service
+integrations (Paddle, Stripe, Inngest cron) — not customer-facing.
+
+## Idempotency
+
+All mutating requests honor an optional `Idempotency-Key` header. Use it
+on every POST/PUT/PATCH from your integration so a network retry doesn't
+double-fire the action.
+
+```bash
+curl -X POST "$MAROA_API/api/war-room/$WS/decisions/$ID/approve" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Idempotency-Key: $(uuidgen)"
+```
+
+24h cache. The second call with the same key returns the same response
+as the first.

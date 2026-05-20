@@ -1,0 +1,61 @@
+---
+title: "Introduction"
+description: "The Maroa API is how you read + write everything Maroa does for your business. Same surface the dashboard uses."
+---
+
+Maroa is the AI marketing operating system for small businesses. The API
+exposes everything the dashboard does — workspaces, clients, content,
+approvals, brand voice, billing — so you can build on top, automate
+around, or integrate into whatever tool your team lives in (Slack, the
+terminal, a custom internal portal).
+
+## The 30-second mental model
+
+Three nouns:
+
+- **Workspace** — your business (or your agency's roof, with many clients
+  inside). One owner, optional team members.
+- **Decision** — anything Maroa is recommending: a post to ship, an ad
+  to pause, a creative variant to test. Each decision can be approved,
+  rejected, or auto-applied based on its safety band.
+- **Creative** — the actual artefact (post, ad, email) that gets shipped
+  once a decision is approved.
+
+The whole API revolves around fetching decisions and resolving them.
+
+## How auth works
+
+Every request needs `Authorization: Bearer <jwt>` — the same Supabase JWT
+your dashboard session uses.
+
+```bash
+curl https://maroa-api-production.up.railway.app/api/workspaces \
+  -H "Authorization: Bearer $MAROA_TOKEN"
+```
+
+## Where to start
+
+- **Just want to look around?** Run [`npx maroa setup`](/integrations/cli)
+  — the CLI gives you a no-code tour of every endpoint.
+- **Wiring an integration?** Start with [`/api/workspaces`](/api/workspaces) → pick a workspace → [`/api/war-room/:id`](/api/war-room) gives you the full state machine.
+- **Operating from inside Claude Desktop?** Install the [Maroa MCP server](/integrations/mcp) and call tools by name.
+
+## Stability
+
+The API is versioned by URL path. The `/api/*` routes are stable; we
+guarantee no breaking changes within a major version. Anything
+documented under `/api/v2/*` (when it exists) is the future-stable
+surface. `/webhook/*` routes are internal infrastructure and may change
+without notice — don't depend on them.
+
+Every mutating call accepts an `Idempotency-Key` header. Use it. Retries
+won't double-fire actions.
+
+## Rate limits
+
+Default: 100 requests/minute per token. Per-route limits live on each
+endpoint's reference page. Plan-tier caps (Growth $80/mo Claude budget,
+Agency $250/mo) are enforced at the LLM layer, not the HTTP layer.
+
+Hit a limit and you'll see `429 Too Many Requests` with a `Retry-After`
+header. Honor it.

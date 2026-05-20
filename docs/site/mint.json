@@ -1,0 +1,65 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Maroa API",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg",
+    "href": "https://maroa.ai"
+  },
+  "favicon": "/favicon.png",
+  "colors": {
+    "primary": "#5145E5",
+    "light": "#9499F8",
+    "dark": "#3A2EA3",
+    "anchors": { "from": "#5145E5", "to": "#9499F8" }
+  },
+  "topbarLinks": [
+    { "name": "Dashboard", "url": "https://maroa.ai/dashboard" },
+    { "name": "Status", "url": "https://maroa.ai/status" }
+  ],
+  "topbarCtaButton": {
+    "name": "Get started",
+    "url": "https://maroa.ai/signup"
+  },
+  "navigation": [
+    {
+      "group": "Get started",
+      "pages": ["introduction", "quickstart", "authentication"]
+    },
+    {
+      "group": "Core API",
+      "pages": [
+        "api/workspaces",
+        "api/war-room",
+        "api/approvals",
+        "api/content",
+        "api/business",
+        "api/billing"
+      ]
+    },
+    {
+      "group": "Integrations",
+      "pages": [
+        "integrations/mcp",
+        "integrations/cli",
+        "integrations/slack",
+        "integrations/browser-extension"
+      ]
+    },
+    {
+      "group": "Reference",
+      "pages": ["reference/errors", "reference/idempotency", "reference/rate-limits", "reference/changelog"]
+    }
+  ],
+  "openapi": ["/openapi.yml"],
+  "footerSocials": {
+    "twitter": "https://twitter.com/maroa",
+    "linkedin": "https://www.linkedin.com/company/maroa",
+    "github": "https://github.com/idealbekteshi06/maroa-api"
+  },
+  "search": { "prompt": "Search the Maroa docs" },
+  "feedback": {
+    "thumbsRating": true,
+    "suggestEdit": true
+  }
+}

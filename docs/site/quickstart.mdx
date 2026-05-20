@@ -1,0 +1,83 @@
+---
+title: "Quickstart"
+description: "Approve your first pending decision via API in under 5 minutes."
+---
+
+## 1. Get your token
+
+Open <a href="https://maroa.ai/settings/api" target="_blank">Settings → API tokens</a>
+in the dashboard and create one. Treat it like a password — it grants
+the same access you have.
+
+## 2. Save it as an env var
+
+```bash
+export MAROA_TOKEN="sb-eyJ..."
+export MAROA_API="https://maroa-api-production.up.railway.app"
+```
+
+## 3. List your workspaces
+
+```bash
+curl -s "$MAROA_API/api/workspaces" \
+  -H "Authorization: Bearer $MAROA_TOKEN" | jq
+```
+
+You'll see something like:
+
+```json
+{
+  "workspaces": [
+    {
+      "id": "ws_abc123",
+      "name": "Tirana Roastery",
+      "plan_tier": "growth",
+      "role": "owner",
+      "created_at": "2026-02-14T10:31:00Z"
+    }
+  ]
+}
+```
+
+## 4. Pull the workspace feed
+
+```bash
+WS_ID=ws_abc123
+curl -s "$MAROA_API/api/war-room/$WS_ID" \
+  -H "Authorization: Bearer $MAROA_TOKEN" | jq '.clients[0].recent_decisions[0]'
+```
+
+This is the full state of the workspace — clients, decisions, creatives,
+KPIs, pending approvals. Most integrations only need this one endpoint.
+
+## 5. Approve a decision
+
+```bash
+DECISION_ID=d-abc123
+curl -X POST "$MAROA_API/api/war-room/$WS_ID/decisions/$DECISION_ID/approve" \
+  -H "Authorization: Bearer $MAROA_TOKEN" \
+  -H "Idempotency-Key: my-first-approve-$(date +%s)"
+```
+
+You'll get the updated decision back. Maroa starts the side-effect
+(publishing the post, scaling the ad, etc.) immediately.
+
+## 6. Reject one with a reason
+
+```bash
+curl -X POST "$MAROA_API/api/war-room/$WS_ID/decisions/$DECISION_ID/reject" \
+  -H "Authorization: Bearer $MAROA_TOKEN" \
+  -H "Idempotency-Key: my-first-reject-$(date +%s)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "wrong tone for our brand"}'
+```
+
+The rejection reason is the highest-signal training input Maroa receives.
+Be specific.
+
+## What next
+
+- [MCP server](/integrations/mcp) — talk to Maroa from Claude Desktop
+- [CLI](/integrations/cli) — `maroa pending`, `maroa approve <id>`
+- [Slack](/integrations/slack) — `/maroa approvals` from your team channel
+- [Browser extension](/integrations/browser-extension) — right-click any post → "Save to Maroa"

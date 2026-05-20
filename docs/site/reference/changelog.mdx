@@ -1,0 +1,63 @@
+---
+title: "Changelog"
+description: "Every API change, dated."
+---
+
+## 2026-05-20
+
+- **Reasoning trace v2.** `POST /api/war-room/:ws/decisions/:id/approve|reject`
+  now also writes to `marketing_graph_entities` when migration 065 is
+  applied. New side panel UI in the dashboard surfaces the full reasoning
+  chain (trigger → data → candidates → critic → chosen) on click.
+- **Slack integration live.** New `POST /webhook/slack/command` +
+  `POST /webhook/slack/interactivity` routes. Slash commands: `/maroa
+  status`, `/maroa approvals`, `/maroa approve <id>`, `/maroa reject <id>
+  <reason>`, `/maroa draft "theme"`, `/maroa link`.
+- **Public CLI shipped.** `npx maroa` — install-free terminal access.
+  All read + write operations available.
+- **Browser extension preview.** Chrome MV3 extension. Right-click any
+  Instagram / Facebook / TikTok post → "Save to Maroa as inspiration" →
+  lands as a `marketing_graph_entities` row of type `inspiration`.
+- **Compliance v2.** Hard-block + auto-rewrite + appeal. Industry-specific
+  rulesets (`generic` + `cafe` ship today). New table `compliance_appeals`
+  (migration 074). Appeals reviewable within 24h SLA.
+- **Real-time approvals.** Frontend subscribes to Supabase Realtime on
+  `decision_logs`. Teammate approvals cause cards to fade out on your
+  screen instantly.
+
+## 2026-05-19
+
+- **Anthropic integrations.** MCP server, Memory tool, Citations,
+  Batches API (50% list price on weekly scorecards), Computer Use
+  scaffold. New Computer Use endpoint at `POST /api/computer-use/run`
+  (dry-run by default; live runs gated on `COMPUTER_USE_ENABLED=1`).
+- **Marketing Graph wired.** Migration 065's tables finally receive
+  writes from ad-optimizer, creative-engine, and war-room approvals.
+- **OAuth plaintext drop migration.** Migration 073 — refuses to apply
+  unless every business has its encrypted counterpart in `*_enc` columns.
+
+## 2026-05-18
+
+- **Backend hardening audit.** Circuit breakers wired into callClaude +
+  Meta/Google/Higgsfield publish paths. Per-host timeout map. Retry-with-
+  jitter helper. Idempotency-Key middleware (migration 069) on mutating
+  routes. Two-phase webhook commit. Atomic multi-table writes via plpgsql
+  RPCs (migration 071). JSONB CHECK constraints (migration 070).
+- **Frontend rebuild.** Calm Today dashboard. View-mode cookie (Calm /
+  Pro). Approvals inbox. Content Studio. Campaigns. Settings hub +
+  Profile / Connections / Brand Voice / Plan detail pages. Reports.
+  Clients drill-in.
+- **Security.** Open-redirect fix in `/auth/callback`. CSP header. WCAG
+  AA contrast + focus trap. CI now gates frontend (typecheck + lint +
+  test + build).
+
+## Migration / breaking changes
+
+- 2026-05-19: `POST /api/war-room/:ws/decisions/:id/approve` now returns
+  the full decision object (was `{ok: true}` previously). Old `ok` field
+  is preserved as a safe shim — both shapes work for one release cycle.
+- 2026-05-18: Webhook events now have `status` column. Existing rows
+  default to `received`. No caller change needed.
+
+Subscribe to changelog updates: <a href="mailto:hello@maroa.ai?subject=API%20changelog%20subscribe">email
+hello@maroa.ai</a> with subject "API changelog subscribe".

@@ -1,0 +1,54 @@
+---
+title: "Slack"
+description: "Run Maroa from your team's #marketing channel."
+---
+
+The Slack integration lets your team approve/reject decisions, check
+status, and request drafts without ever leaving Slack.
+
+## Install (operator)
+
+1. Create a Slack app at <a href="https://api.slack.com/apps">api.slack.com/apps</a>
+2. Add the `commands` and `chat:write` OAuth scopes
+3. Create a slash command `/maroa` pointing at
+   `https://maroa-api-production.up.railway.app/webhook/slack/command`
+4. Enable interactivity, point at
+   `https://maroa-api-production.up.railway.app/webhook/slack/interactivity`
+5. Set `SLACK_SIGNING_SECRET` in your Maroa backend env
+6. Install the app to your Slack workspace
+
+## Setup (each user)
+
+```
+/maroa link
+```
+
+Click the magic-link Maroa sends in DMs to bind your Slack ID to your
+Maroa user. Done once per Slack account.
+
+## Commands
+
+```
+/maroa status                       one-line summary
+/maroa approvals                    list pending with approve/reject buttons
+/maroa approve <decision-id>        approve
+/maroa reject <decision-id> reason  reject with optional reason
+/maroa link                         link your Slack to Maroa (one-time)
+/maroa help
+```
+
+## Daily digest
+
+A 9 AM channel message every weekday: "Maroa is running 14 ads, drafted
+3 posts overnight, and needs your eyes on 2 things." Configure the
+channel via `MAROA_SLACK_DIGEST_CHANNEL` in your backend env.
+
+## Security
+
+Every request from Slack is verified via HMAC-SHA256 against
+`SLACK_SIGNING_SECRET` with a 5-minute replay window. Unverified requests
+get 401. The `slack_identities` table (migration 075) holds the Slack ↔
+Maroa user mapping — no Slack user can act on a Maroa account they
+haven't linked.
+
+All ephemeral replies — only the user running the command sees them.

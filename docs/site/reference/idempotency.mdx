@@ -1,0 +1,57 @@
+---
+title: "Idempotency"
+description: "How to make every mutation safe to retry."
+---
+
+Every mutating endpoint (`POST`, `PUT`, `PATCH`) accepts an optional
+`Idempotency-Key` HTTP header. Set it on every retryable call. We hash
+the request body so a retry with the same key + same body returns the
+same response without re-doing the side-effect.
+
+## What you pass
+
+A unique-per-request string ≤200 chars, in the `[A-Za-z0-9_-.:]` alphabet:
+
+```
+Idempotency-Key: ws-abc-approve-d-xyz-1716203400
+```
+
+UUIDs work great. So does any deterministic hash of `(workspace, decision, action, attempt)`.
+
+## What we promise
+
+| Scenario | Response |
+|---|---|
+| First call | Action runs. Response cached for 24h. |
+| Second call, same key + same body | Same response as first call. Side-effect doesn't fire again. |
+| Second call, same key + **different** body | `409 IDEMPOTENCY_KEY_CONFLICT` — caller bug, fix the key. |
+| Second call while first is still in-flight | `409 IDEMPOTENCY_KEY_IN_FLIGHT` — retry in a moment. |
+| TTL elapsed (24h) | Key is forgotten. Same key now treated as new. |
+
+## Why it matters
+
+A flaky network is the default. Your laptop loses wifi mid-tap, your
+mobile-data-only café customer's connection drops, your CI runner's
+DNS hiccups. Without idempotency keys, "publish this post" gets fired
+twice and the post lands twice on Instagram. That's the bug we built
+this middleware to eliminate.
+
+## How we store it
+
+Server-side: a `idempotency_keys` table (migration 069) keyed by
+`(key, route, user_id)`. Body hash is `sha256(canonical-JSON of body)`.
+TTL is 24h. Rows older than 24h are pruned by a daily cleanup job.
+
+## Honesty about what's NOT idempotent
+
+A few flows are intentionally not idempotent because the resource is
+inherently uniqueness-bound:
+
+- **`POST /api/checkout`** — every call creates a Paddle checkout session.
+  Paddle handles dedup on its side.
+- **`POST /api/webhooks/*`** — webhooks have their own
+  `(provider, event_id)` dedup. Idempotency-Key is ignored.
+
+Everything else respects the header. If you find a mutation that
+doesn't, that's a bug — file it via
+<a href="https://github.com/idealbekteshi06/maroa-api/issues">GitHub Issues</a>.

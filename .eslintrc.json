@@ -44,6 +44,9 @@
     "maroa-ai-marketing-automator/",
     "mcp-server/",
     "frontend/",
+    "browser-extension/",
+    "packages/cli/",
+    "docs/site/",
     "scripts/sync_foundation.mjs",
     "*.min.js"
   ],
