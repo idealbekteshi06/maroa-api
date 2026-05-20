@@ -6,6 +6,7 @@ import {
   CreditCard,
   Users,
   Sparkles,
+  Key,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { BrandVoice } from '@/lib/api/business';
@@ -119,6 +120,13 @@ export function SettingsShell({
       title: 'AI preferences',
       description: 'Autopilot on/off, preferred posting times, content channels.',
       status: statusPill('Default', 'muted'),
+    },
+    {
+      href: '/settings/api',
+      icon: Key,
+      title: 'API tokens',
+      description: 'For the CLI, browser extension, or your own scripts. Mint, list, and revoke.',
+      status: statusPill('Developer', 'muted'),
     },
   ];
 

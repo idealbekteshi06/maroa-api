@@ -7,6 +7,7 @@ import { HeadlineStatus } from './headline-status';
 import { ApprovalCard } from './approval-card';
 import { ActivityFeed } from './activity-feed';
 import { CalmState } from './calm-state';
+import { FirstDraftBanner } from './first-draft-banner';
 import { useRealtimeApprovals } from '@/lib/use-realtime-approvals';
 import type { WorkspaceFeed, DecisionLogRow } from '@/lib/types/war-room';
 
@@ -151,6 +152,8 @@ export function TodayShell({ feed, firstName, initialIsDemo = false }: TodayShel
 
   return (
     <div className="max-w-2xl mx-auto px-5 sm:px-0 py-8 sm:py-12 space-y-10">
+      <FirstDraftBanner />
+
       <header className="space-y-2">
         <Greeting firstName={firstName} />
         <p className="text-lg text-ink-500 dark:text-ink-300 leading-relaxed">

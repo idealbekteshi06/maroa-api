@@ -56,13 +56,23 @@ export default function OnboardingPage() {
     setSubmitting(true);
     setError(null);
     try {
+      // Step 1 — save the profile. Fast (single upsert).
       await onboarding.start({
         businessName: data.businessName,
         industry: data.industry,
         region: data.region,
         goal: data.goal || undefined,
+        audience: data.audience || undefined,
+        voiceSeed: data.voiceSeed || undefined,
       });
-      router.push('/dashboard');
+      // Step 2 — fire the magic moment in the background. We don't await
+      // because we want the dashboard to render immediately; the spark
+      // endpoint will populate generated_content within ~30s and the
+      // dashboard's existing realtime channel picks it up.
+      void onboarding.spark().catch(() => {
+        // Swallow — the dashboard's polling path is the fallback.
+      });
+      router.push('/dashboard?first_draft=loading');
     } catch (e: unknown) {
       setError(errorMessage(e, 'Onboarding failed. Try again.'));
       setSubmitting(false);

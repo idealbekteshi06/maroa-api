@@ -78,6 +78,40 @@ export default function AboutPage() {
             We owe you that transparency.
           </p>
 
+          <h2 className="text-display-md text-ink-700 dark:text-ink-50 mt-16 mb-6">Why I built this</h2>
+
+          <div className="not-prose grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-6 sm:gap-8 items-start mt-6 mb-10">
+            {/* Photo placeholder — swap in /public/founder.jpg when ready. */}
+            <div className="aspect-square w-full max-w-[180px] rounded-2xl bg-gradient-to-br from-ink-100 to-ink-200 dark:from-ink-800 dark:to-ink-900 border border-ink-200/60 dark:border-ink-700/60 flex items-center justify-center overflow-hidden">
+              <span className="text-3xl font-semibold text-ink-400 dark:text-ink-500" aria-hidden="true">
+                IB
+              </span>
+            </div>
+            <div className="space-y-3 text-ink-700 dark:text-ink-100 leading-relaxed">
+              <p>
+                I&apos;m Ideal Bekteshi. I&apos;ve spent the last decade watching small businesses pay agencies
+                $3,000 a month for what amounts to a content calendar and a few boosted posts — work
+                that gets quietly delegated to a junior coordinator with a Canva login. The owners
+                couldn&apos;t tell whether it was working, and most of the time, it wasn&apos;t.
+              </p>
+              <p>
+                Maroa is what I wish those owners had: a marketing team that explains itself, costs a
+                rounding error of an agency retainer, refuses to push compliance-risky claims, and gets
+                better the more it learns about your specific business. No dashboards full of vanity
+                metrics. No 40-slide quarterly reviews. Just decisions, shipped, with reasoning you can
+                read.
+              </p>
+              <p>
+                If you&apos;re running a café in Tirana, a dental clinic in Boston, or a 30-client agency
+                in Manila — I&apos;d love to hear from you. I read every email at{' '}
+                <a href="mailto:ideal@maroa.ai" className="text-accent-500 hover:underline">
+                  ideal@maroa.ai
+                </a>
+                .
+              </p>
+            </div>
+          </div>
+
           <h2 className="text-display-md text-ink-700 dark:text-ink-50 mt-16 mb-6">Where we are</h2>
           <p>
             Maroa is built by a small, focused team in Tirana, learning fast from early customers across

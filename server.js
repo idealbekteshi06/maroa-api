@@ -10079,13 +10079,104 @@ try {
     decisionLog: _decisionLog,
     sbGet,
     sbPost,
+    sbPatch,
     apiError,
+    safePublicError,
     log,
     express,
     marketingGraph: _marketingGraph,
+    requireAnyUserId,
   });
 } catch (e) {
   logger?.warn?.('slack', null, 'route register failed', { error: e.message });
+}
+
+// /api/inspiration/save + /api/inspiration/list — captures saves from the
+// browser extension (and any future "save this post" surface) into the
+// Marketing Graph as typed entities.
+try {
+  require('./routes/inspiration').register({
+    app,
+    marketingGraph: _marketingGraph,
+    workspaces: _workspaces,
+    requireAnyUserId,
+    sbGet,
+    apiError,
+    safePublicError,
+    log,
+    express,
+  });
+} catch (e) {
+  logger?.warn?.('inspiration', null, 'route register failed', { error: e.message });
+}
+
+// /api/tokens — user-issued API tokens (CLI, browser extension, MCP, custom
+// integrations). Secrets stored hashed (PBKDF2-sha512, 100k iterations);
+// full token returned ONCE at creation. Migration 076.
+try {
+  require('./routes/api-tokens').register({
+    app,
+    requireAnyUserId,
+    sbGet,
+    sbPost,
+    sbPatch,
+    apiError,
+    safePublicError,
+    log,
+    express,
+  });
+} catch (e) {
+  logger?.warn?.('api-tokens', null, 'route register failed', { error: e.message });
+}
+
+// /api/onboarding/* — closes the gap where the dashboard onboarding flow
+// referenced /api/onboarding/save + /api/onboarding/profile/:userId but the
+// handlers were never built. Also exposes /api/onboarding/spark which is
+// the synchronous first-draft endpoint that powers the 60-second magic
+// moment (W4-4).
+try {
+  require('./routes/onboarding').register({
+    app,
+    requireAnyUserId,
+    sbGet,
+    sbPost,
+    sbPatch,
+    apiError,
+    safePublicError,
+    log,
+    express,
+    // callContentGenerate is plumbed via a loopback HTTP call to
+    // /api/content/generate so the route reuses the existing creative
+    // pipeline (grounding + critic + cost tracking). 30s budget — past
+    // that, the response degrades gracefully to "draft on its way".
+    callContentGenerate: async ({ business, theme, industry, tone }) => {
+      try {
+        const PORT = process.env.PORT || 3000;
+        const ctl = new AbortController();
+        const to = setTimeout(() => ctl.abort(), 30_000);
+        const r = await fetch(`http://127.0.0.1:${PORT}/api/content/generate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Internal-Secret': process.env.N8N_WEBHOOK_SECRET || '',
+          },
+          body: JSON.stringify({
+            business_id: business.id,
+            content_theme: theme,
+            industry,
+            brand_tone: tone,
+          }),
+          signal: ctl.signal,
+        }).finally(() => clearTimeout(to));
+        if (!r.ok) return null;
+        return await r.json();
+      } catch {
+        return null;
+      }
+    },
+  });
+} catch (e) {
+  logger?.warn?.('onboarding', null, 'route register failed', { error: e.message });
 }
 
 // Internal webhook to trigger the weekly-scorecard batch orchestrator

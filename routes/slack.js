@@ -43,10 +43,13 @@ function register({
   decisionLog,
   sbGet,
   sbPost,
+  sbPatch,
   apiError,
+  safePublicError,
   log,
   express,
   marketingGraph,
+  requireAnyUserId,
 }) {
   const SLACK_SIGNING_SECRET = (process.env.SLACK_SIGNING_SECRET || '').trim();
   const SLACK_REPLAY_WINDOW_S = 5 * 60;
@@ -357,6 +360,89 @@ function register({
       return res.status(500).json(ephemeral('Error processing action.'));
     }
   });
+
+  // ── Link-complete endpoint (signed-in dashboard side) ─────────────────
+  // Called by /settings/slack-link in the frontend when a user clicks the
+  // magic URL DM'd by /maroa link. Expects body { slack_user_id, slack_team_id? }
+  // along with the user's Supabase JWT (requireAnyUserId resolves req.user.id).
+  //
+  // Upserts slack_identities so the next /maroa command from that Slack user
+  // routes to the right Maroa user. If a different Maroa user previously
+  // claimed the same slack_user_id, revoke the old row first so there's
+  // exactly one active mapping per Slack user.
+  if (requireAnyUserId && sbPost && sbPatch) {
+    app.post(
+      '/api/slack/link-complete',
+      requireAnyUserId,
+      express ? express.json({ limit: '2kb' }) : (req, _res, next) => next(),
+      async (req, res) => {
+        try {
+          const userId = req.user?.id;
+          if (!userId) return apiError(res, 401, 'UNAUTHORIZED', 'Sign in first');
+          const slackUserId = String(req.body?.slack_user_id || '').trim();
+          const slackTeamId = String(req.body?.slack_team_id || '').trim() || null;
+          if (!slackUserId || !/^[A-Z0-9]{6,30}$/.test(slackUserId)) {
+            return apiError(res, 400, 'VALIDATION_ERROR', 'slack_user_id is required');
+          }
+
+          // Revoke any existing active mapping for this Slack user that
+          // doesn't belong to the current Maroa user. (User self-relinking
+          // — same maroa_user_id — is a no-op upsert.)
+          try {
+            await sbPatch(
+              'slack_identities',
+              `slack_user_id=eq.${encodeURIComponent(slackUserId)}&revoked_at=is.null&maroa_user_id=neq.${encodeURIComponent(userId)}`,
+              { revoked_at: new Date().toISOString() },
+            );
+          } catch {
+            // If there's no row to revoke, PostgREST 404s — ignore.
+          }
+
+          // Check if this exact (slack_user_id, maroa_user_id) already exists.
+          const existing = await sbGet(
+            'slack_identities',
+            `slack_user_id=eq.${encodeURIComponent(slackUserId)}&maroa_user_id=eq.${encodeURIComponent(userId)}&select=id&limit=1`,
+          );
+          if (existing && existing[0]?.id) {
+            // Re-activate if it was revoked, otherwise no-op.
+            await sbPatch(
+              'slack_identities',
+              `id=eq.${existing[0].id}`,
+              { revoked_at: null, linked_at: new Date().toISOString(), slack_team_id: slackTeamId },
+            );
+            return res.json({ ok: true, linked: true, reactivated: true });
+          }
+
+          await sbPost('slack_identities', {
+            slack_user_id: slackUserId,
+            slack_team_id: slackTeamId,
+            maroa_user_id: userId,
+          });
+          return res.json({ ok: true, linked: true });
+        } catch (err) {
+          log?.('/api/slack/link-complete', null, 'failed', { error: err.message });
+          return apiError(res, 500, 'INTERNAL_ERROR', safePublicError ? safePublicError(err) : 'link failed');
+        }
+      },
+    );
+
+    // Reverse — unlink from settings UI. User can disconnect Slack any time.
+    app.delete('/api/slack/link', requireAnyUserId, async (req, res) => {
+      try {
+        const userId = req.user?.id;
+        if (!userId) return apiError(res, 401, 'UNAUTHORIZED', 'Sign in first');
+        await sbPatch(
+          'slack_identities',
+          `maroa_user_id=eq.${encodeURIComponent(userId)}&revoked_at=is.null`,
+          { revoked_at: new Date().toISOString() },
+        );
+        return res.json({ ok: true });
+      } catch (err) {
+        log?.('/api/slack/link', null, 'unlink failed', { error: err.message });
+        return apiError(res, 500, 'INTERNAL_ERROR', safePublicError ? safePublicError(err) : 'unlink failed');
+      }
+    });
+  }
 
   log?.('/webhook/slack', null, `Slack routes registered (signing_secret ${SLACK_SIGNING_SECRET ? 'set' : 'MISSING'})`);
 }

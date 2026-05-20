@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import { Analytics } from '@vercel/analytics/react';
 import { Toaster } from 'sonner';
 import { ThemeProvider } from '@/components/theme/theme-provider';
+import { softwareApplicationSchema, ldJson } from '@/lib/schema-org';
 import './globals.css';
 
 // Audit 2026-05-19 F9: load Inter via next/font so it's self-hosted, parallel-
@@ -111,6 +112,25 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         {/* Theme bootstrap — runs synchronously before any render. */}
         <script dangerouslySetInnerHTML={{ __html: NO_FLASH_THEME_SCRIPT }} />
+        {/* W4-6 perf: preconnect to the API + Supabase + Vercel analytics
+            origins so the TLS handshake overlaps with HTML parsing. Saves
+            ~80-200ms on first dashboard load depending on the network. */}
+        {process.env.NEXT_PUBLIC_API_URL ? (
+          <link
+            rel="preconnect"
+            href={process.env.NEXT_PUBLIC_API_URL}
+            crossOrigin="anonymous"
+          />
+        ) : null}
+        {process.env.NEXT_PUBLIC_SUPABASE_URL ? (
+          <link
+            rel="preconnect"
+            href={process.env.NEXT_PUBLIC_SUPABASE_URL}
+            crossOrigin="anonymous"
+          />
+        ) : null}
+        <link rel="preconnect" href="https://va.vercel-scripts.com" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
         {/* JSON-LD Organization schema — SEO */}
         <script
           type="application/ld+json"
@@ -129,6 +149,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               ],
             }),
           }}
+        />
+        {/* SoftwareApplication schema — surfaces Maroa in Google's product
+            knowledge panels and AI-search overviews (the same target audience
+            as our AI-SEO + citation-tracker stack). Pulled from the shared
+            schema-org module so /pricing + root stay in sync. */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: ldJson(softwareApplicationSchema()) }}
         />
       </head>
       <body className="min-h-screen antialiased bg-white dark:bg-ink-950 text-ink-700 dark:text-ink-100 transition-colors">

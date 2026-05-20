@@ -77,9 +77,36 @@ export const ads = {
 };
 
 export const onboarding = {
-  start: (input: { businessName: string; industry: string; region: string; goal?: string }) =>
-    api.post<{ runId: string }>('/webhook/cold-start-trigger', input),
-  status: (runId: string) => api.get<{ status: string; phase: string; progress: number }>(`/api/onboarding/${runId}`),
+  // POST /api/onboarding/save — fast, idempotent upsert of the business
+  // profile. Returns immediately so the dashboard can show its loading
+  // animation while spark runs.
+  start: (input: {
+    businessName: string;
+    industry: string;
+    region: string;
+    goal?: string;
+    audience?: string;
+    voiceSeed?: string;
+  }) =>
+    api.post<{
+      ok: boolean;
+      businessId: string;
+      profile: { id: string; business_name: string; industry: string; location: string };
+      nextStep: 'spark';
+    }>('/api/onboarding/save', input),
+  // POST /api/onboarding/spark — synchronously kicks off the first content
+  // draft via /api/content/generate. Returns the draft inline if it
+  // completes in <30s; otherwise the dashboard polls for it.
+  spark: () =>
+    api.post<{
+      ok: boolean;
+      businessId: string;
+      draftReady: boolean;
+      draft?: unknown;
+      message?: string;
+    }>('/api/onboarding/spark', {}),
+  status: (runId: string) =>
+    api.get<{ status: string; phase: string; progress: number }>(`/api/onboarding/${runId}`),
 };
 
 export const oauth = {
