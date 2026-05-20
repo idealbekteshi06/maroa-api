@@ -115,7 +115,7 @@ test('routes/launch: GET returns 500 on db error', async () => {
   });
   const handler = app._routes['GET /api/launch/:userId'];
   const res = makeRes();
-  await handler({ params: { userId: 'u1' } }, res);
+  await handler({ params: { userId: 'u1' }, user: { id: 'u1' } }, res);
   assert.strictEqual(res._calls.status, 500);
 });
 

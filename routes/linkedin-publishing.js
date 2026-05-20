@@ -11,11 +11,18 @@
  * Follows the routes/observability.js pattern: a single register({app, ...deps})
  * function with no closure-reach into server.js.
  *
- * NOTE: Token persistence still writes to the legacy plaintext columns
- * (linkedin_access_token, linkedin_refresh_token). When migration 056 is
- * extended to cover LinkedIn columns, switch these to oauthCrypto.encryptIfEnabled
- * the same way services/oauth/{meta,google}.js do.
+ * 2026-05-20: Token persistence switched to lib/oauthCrypto (writes the
+ * encrypted *_enc column; reads decrypt at the boundary). Migration 073
+ * dropped the plaintext linkedin_access_token + linkedin_refresh_token
+ * columns from production, so any code path that still references them
+ * would 500 silently — fixed in this file.
+ *
+ * 2026-05-20 (P0-3): publish path now goes through lib/complianceGate so
+ * hard-violation posts (income guarantees, medical claims, etc.) never
+ * reach LinkedIn.
  */
+const oauthCrypto = require('../lib/oauthCrypto');
+const { ensureCompliant, ComplianceBlocked } = require('../lib/complianceGate');
 
 function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getBrandExamples, env }) {
   const LINKEDIN_CLIENT_ID = (env?.LINKEDIN_CLIENT_ID || process.env.LINKEDIN_CLIENT_ID || '')
@@ -106,10 +113,10 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getB
         log?.('/webhook/linkedin-oauth-exchange', `org lookup failed (non-fatal): ${e?.message}`);
       }
 
-      // 4. Save to Supabase
+      // 4. Save to Supabase — encrypted columns only.
       const updates = {
-        linkedin_access_token: accessToken,
-        linkedin_refresh_token: refreshToken,
+        ...oauthCrypto.encryptIfEnabled('linkedin_access_token', accessToken),
+        ...oauthCrypto.encryptIfEnabled('linkedin_refresh_token', refreshToken),
         linkedin_person_id: personId,
         linkedin_organization_id: orgId,
         linkedin_connected: true,
@@ -143,10 +150,11 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getB
       const biz = (
         await sbGet(
           'businesses',
-          `id=eq.${encodeURIComponent(business_id)}&select=business_name,industry,brand_tone,target_audience,dream_customer,unique_differentiator,best_performing_themes,linkedin_access_token,linkedin_person_id,linkedin_organization_id`
+          `id=eq.${encodeURIComponent(business_id)}&select=business_name,industry,brand_tone,target_audience,dream_customer,unique_differentiator,best_performing_themes,linkedin_access_token,linkedin_access_token_enc,linkedin_person_id,linkedin_organization_id`
         )
       )[0];
-      if (!biz?.linkedin_access_token) {
+      const linkedinToken = biz ? oauthCrypto.readToken(biz, 'linkedin_access_token') : null;
+      if (!linkedinToken) {
         return log?.('/webhook/linkedin-publish', `LinkedIn not connected for ${business_id}`);
       }
 
@@ -186,6 +194,26 @@ Return only valid JSON: {"post_text":"...","content_theme":"..."}`;
         });
       }
 
+      // Compliance gate — block hard violations before LinkedIn sees the post.
+      try {
+        await ensureCompliant({
+          content: postText,
+          industry: biz.industry,
+          businessId: business_id,
+          plan: biz.plan,
+          surface: 'social_post',
+          deps: { callClaude, sbPost, logger: { warn: log } },
+        });
+      } catch (cgErr) {
+        if (cgErr instanceof ComplianceBlocked) {
+          return log?.(
+            '/webhook/linkedin-publish',
+            `Compliance hard-block: ${cgErr.violations.map((v) => v.rule_id).join(',')}`,
+          );
+        }
+        throw cgErr;
+      }
+
       // 2. Determine author URN
       const authorUrn = biz.linkedin_organization_id
         ? `urn:li:organization:${biz.linkedin_organization_id}`
@@ -207,7 +235,7 @@ Return only valid JSON: {"post_text":"...","content_theme":"..."}`;
       const publishResp = await fetch('https://api.linkedin.com/v2/ugcPosts', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${biz.linkedin_access_token}`,
+          Authorization: `Bearer ${linkedinToken}`,
           'Content-Type': 'application/json',
           'X-Restli-Protocol-Version': '2.0.0',
         },

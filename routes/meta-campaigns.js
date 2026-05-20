@@ -12,8 +12,21 @@
  *   POST /webhook/meta-campaign-optimize   — pause underperformers, scale winners
  *   GET  /webhook/meta-campaigns-get       — campaign + creative + summary read
  *
- * Behavior unchanged. Dep injection makes the module testable.
+ * 2026-05-20: OAuth token plaintext columns were dropped by migration 073.
+ * All reads go through oauthCrypto.readToken(business, 'meta_access_token')
+ * which prefers the *_enc column and decrypts at the boundary. Tokens are
+ * NEVER stored on ad_campaigns rows — they belong to businesses.
  */
+const oauthCrypto = require('../lib/oauthCrypto');
+const { validateMonthlyBudget } = require('../lib/adBudgetGuard');
+
+// Selector for businesses rows used by Meta routes. Reads encrypted column;
+// keep the plaintext column name in the list too in case a row predates
+// the encryption backfill (oauthCrypto.readToken falls back gracefully).
+const META_BIZ_SELECT =
+  'business_name,email,first_name,industry,target_audience,location,brand_tone,marketing_goal,' +
+  'competitors,meta_access_token,meta_access_token_enc,ad_account_id,facebook_page_id,' +
+  'target_cpc,avg_order_value';
 
 function register({
   app,
@@ -37,15 +50,17 @@ function register({
   
     try {
       const biz = (
-        await sbGet(
-          'businesses',
-          `id=eq.${business_id}&select=business_name,email,first_name,industry,target_audience,` +
-            `location,brand_tone,marketing_goal,competitors,meta_access_token,ad_account_id,` +
-            `facebook_page_id,target_cpc,avg_order_value`
-        )
+        await sbGet('businesses', `id=eq.${encodeURIComponent(business_id)}&select=${META_BIZ_SELECT},plan`)
       )[0];
       if (!biz) return res.status(404).json({ error: 'business not found' });
-      const draftMode = !biz.meta_access_token || !biz.ad_account_id;
+      // Plan-aware hard ceiling. Refuse early before we burn Claude budget
+      // strategizing a campaign the customer can't actually run.
+      const budgetCheck = validateMonthlyBudget({ plan: biz.plan, monthlyBudget: monthly_budget });
+      if (!budgetCheck.ok) {
+        return res.status(400).json({ error: budgetCheck.code, detail: budgetCheck.detail });
+      }
+      const metaToken = oauthCrypto.readToken(biz, 'meta_access_token');
+      const draftMode = !metaToken || !biz.ad_account_id;
       if (draftMode) {
         // DRAFT MODE — build strategy + creatives without Meta API
         res.json({
@@ -114,16 +129,14 @@ function register({
   
     try {
       const biz = (
-        await sbGet(
-          'businesses',
-          `id=eq.${business_id}&select=business_name,email,first_name,industry,target_audience,` +
-            `location,brand_tone,marketing_goal,competitors,meta_access_token,ad_account_id,` +
-            `facebook_page_id,target_cpc,avg_order_value`
-        )
+        await sbGet('businesses', `id=eq.${business_id}&select=${META_BIZ_SELECT}`)
       )[0];
       const dailyBudget = Math.max(1, Math.round(monthly_budget / 30));
       const accountId = actId(biz.ad_account_id);
-      const token = biz.meta_access_token;
+      const token = oauthCrypto.readToken(biz, 'meta_access_token');
+      if (!token) {
+        return res.status(400).json({ error: 'meta_not_connected', detail: 'Connect Meta in Settings → Connections.' });
+      }
   
       // 1. Claude Opus — full campaign strategy + 3 creative variations
       const strategyPrompt = `You are a Meta Ads expert. Return ONLY valid JSON, no markdown, no explanation.
@@ -229,13 +242,15 @@ function register({
       if (!adSetResp.body?.id) throw new Error(`Ad set create failed: ${JSON.stringify(adSetResp.body).slice(0, 300)}`);
       const metaAdSetId = adSetResp.body.id;
   
-      // 5. Save DB record early (so creatives can reference campaign_id)
+      // 5. Save DB record early (so creatives can reference campaign_id).
+      // Note: meta_access_token deliberately NOT stored here — tokens live
+      // on the businesses row (encrypted) and are looked up at activate /
+      // optimize time. Avoids duplicate storage + a per-campaign decrypt path.
       const campaignRow = await sbPost('ad_campaigns', {
         business_id,
         platform: 'meta',
         meta_campaign_id: metaCampaignId,
         meta_ad_set_id: metaAdSetId,
-        meta_access_token: token,
         facebook_page_id: biz.facebook_page_id,
         status: 'paused',
         daily_budget: campBudget,
@@ -377,12 +392,19 @@ function register({
     const { business_id, campaign_id } = req.body;
     if (!business_id || !campaign_id) return res.status(400).json({ error: 'business_id and campaign_id required' });
     try {
-      const campaign = (await sbGet('ad_campaigns', `id=eq.${campaign_id}&business_id=eq.${business_id}`))[0];
+      const campaign = (await sbGet('ad_campaigns', `id=eq.${encodeURIComponent(campaign_id)}&business_id=eq.${encodeURIComponent(business_id)}`))[0];
       if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
       if (campaign.platform !== 'meta')
         return res.status(400).json({ error: 'Not a Meta campaign — use /webhook/google-campaign-activate' });
-  
-      const token = campaign.meta_access_token;
+
+      // Token lives on the business, not the campaign (post-migration 073).
+      const biz = (
+        await sbGet('businesses', `id=eq.${encodeURIComponent(business_id)}&select=meta_access_token,meta_access_token_enc`)
+      )[0];
+      const token = oauthCrypto.readToken(biz, 'meta_access_token');
+      if (!token) {
+        return res.status(400).json({ error: 'meta_not_connected', detail: 'Reconnect Meta to activate this campaign.' });
+      }
   
       // Activate campaign + ad set via Meta API
       await apiRequest(
@@ -445,14 +467,21 @@ function register({
   
     try {
       const biz = (
-        await sbGet('businesses', `id=eq.${business_id}&select=business_name,marketing_goal,target_cpc,avg_order_value`)
+        await sbGet(
+          'businesses',
+          `id=eq.${encodeURIComponent(business_id)}&select=business_name,marketing_goal,target_cpc,avg_order_value,meta_access_token,meta_access_token_enc`,
+        )
       )[0];
       if (!biz) return;
-  
-      const campaigns = await sbGet('ad_campaigns', `business_id=eq.${business_id}&platform=eq.meta&status=eq.active`);
-  
+      const metaToken = oauthCrypto.readToken(biz, 'meta_access_token');
+      if (!metaToken) {
+        return log('/webhook/meta-campaign-optimize', 'No meta_access_token — skipping');
+      }
+
+      const campaigns = await sbGet('ad_campaigns', `business_id=eq.${encodeURIComponent(business_id)}&platform=eq.meta&status=eq.active`);
+
       if (!campaigns.length) return log('/webhook/meta-campaign-optimize', 'No active campaigns');
-  
+
       // Pull 7-day insights for ALL campaigns
       const campData = [];
       for (const camp of campaigns) {
@@ -461,7 +490,7 @@ function register({
             'GET',
             `https://graph.facebook.com/v19.0/${camp.meta_campaign_id}/insights` +
               `?fields=impressions,clicks,spend,actions,cpc,ctr,frequency` +
-              `&date_preset=last_7d&access_token=${camp.meta_access_token}`,
+              `&date_preset=last_7d&access_token=${encodeURIComponent(metaToken)}`,
             {}
           );
           const d = insR.status === 200 ? insR.body?.data?.[0] || {} : {};
@@ -479,7 +508,6 @@ function register({
             id: camp.id,
             meta_id: camp.meta_campaign_id,
             meta_ad_set_id: camp.meta_ad_set_id,
-            token: camp.meta_access_token,
             name: camp.last_decision_reason || camp.campaign_type || 'campaign',
             daily_budget: camp.daily_budget || 10,
             impressions,
@@ -540,7 +568,7 @@ function register({
               'POST',
               `https://graph.facebook.com/v19.0/${camp.meta_ad_set_id}`,
               { 'Content-Type': 'application/json' },
-              { daily_budget: Math.round(r.new_budget * 100), access_token: camp.token }
+              { daily_budget: Math.round(r.new_budget * 100), access_token: metaToken }
             );
             await sbPatch('ad_campaigns', `id=eq.${camp.id}`, {
               daily_budget: r.new_budget,
@@ -553,7 +581,7 @@ function register({
               'POST',
               `https://graph.facebook.com/v19.0/${camp.meta_id}`,
               { 'Content-Type': 'application/json' },
-              { status: 'PAUSED', access_token: camp.token }
+              { status: 'PAUSED', access_token: metaToken }
             );
             await sbPatch('ad_campaigns', `id=eq.${camp.id}`, {
               status: 'paused',

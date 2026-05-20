@@ -45,8 +45,28 @@ function register({
           return;
         }
         log('/api/ideas/generate', `Profile found: ${p.business_name} (${p.business_type})`);
+
+        // P1-8 (audit 2026-05-20): Past-ideas grounding — the AI gets smarter
+        // every run by seeing what we already suggested. Stops it from
+        // pitching the same "host an event!" idea every Monday.
+        let pastIdeasBlock = '';
+        try {
+          const recent = await sbGet(
+            'marketing_ideas',
+            `user_id=eq.${encodeURIComponent(userId)}&order=created_at.desc&limit=15&select=idea,status`,
+          );
+          if (Array.isArray(recent) && recent.length) {
+            const titles = recent
+              .map((r, i) => `${i + 1}. ${(r.idea || '').slice(0, 140)}${r.status ? ` (${r.status})` : ''}`)
+              .join('\n');
+            pastIdeasBlock = `\nIDEAS WE ALREADY SUGGESTED (do not repeat — generate fresh angles):\n${titles}\n\n`;
+          }
+        } catch {
+          /* soft-fail */
+        }
+
         let result = await callClaude(
-          `You are a marketing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nBudget: ${p.monthly_budget}\nGoal: ${p.primary_goal}\nLanguage: ${p.primary_language}\n\nGenerate 5 SPECIFIC marketing ideas ranked by impact. Keep each idea brief (1-2 sentences each).\n\nReturn ONLY valid JSON array (no markdown, no code fences):\n[{"idea":"string","category":"string","priority":"high|medium|low","estimated_impact":"string","how_to_execute":"3 brief steps","budget_required":"string","time_to_results":"string"}]`,
+          `${pastIdeasBlock}You are a marketing strategist for ${p.business_name}, a ${p.business_type} in ${pCity(p)}.\nBudget: ${p.monthly_budget}\nGoal: ${p.primary_goal}\nLanguage: ${p.primary_language}\n\nGenerate 5 SPECIFIC marketing ideas ranked by impact. Keep each idea brief (1-2 sentences each). Do NOT duplicate anything in the "already suggested" list above; reach for unexplored angles.\n\nReturn ONLY valid JSON array (no markdown, no code fences):\n[{"idea":"string","category":"string","priority":"high|medium|low","estimated_impact":"string","how_to_execute":"3 brief steps","budget_required":"string","time_to_results":"string"}]`,
           'idea',
           4000,
           claudeBiz(userId)
@@ -117,7 +137,13 @@ function register({
 
   app.get('/api/ideas/:userId', async (req, res) => {
     try {
-      const r = await sbGet('marketing_ideas', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=20`);
+      if (req.params.userId !== req.user?.id) {
+        return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Cannot read another user' } });
+      }
+      const r = await sbGet(
+        'marketing_ideas',
+        `user_id=eq.${encodeURIComponent(req.params.userId)}&order=created_at.desc&limit=20`,
+      );
       res.json({ ideas: r });
     } catch (err) {
       res.status(500).json({ error: safePublicError(err) });
@@ -126,7 +152,16 @@ function register({
 
   app.patch('/api/ideas/:ideaId', async (req, res) => {
     try {
-      await sbPatch('marketing_ideas', `id=eq.${req.params.ideaId}`, req.body);
+      // Ownership: only patch ideas this user owns. Filter by id AND user_id
+      // so PostgREST returns nothing for cross-user attempts.
+      if (!req.user?.id) {
+        return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Sign in first' } });
+      }
+      await sbPatch(
+        'marketing_ideas',
+        `id=eq.${encodeURIComponent(req.params.ideaId)}&user_id=eq.${encodeURIComponent(req.user.id)}`,
+        req.body,
+      );
       res.json({ updated: true });
     } catch (err) {
       res.status(500).json({ error: safePublicError(err) });

@@ -40,6 +40,7 @@ export default function OnboardingPage() {
     businessName: '',
     industry: '',
     region: '',
+    websiteUrl: '',
     audience: '',
     goal: '',
     voiceSeed: '',
@@ -61,6 +62,7 @@ export default function OnboardingPage() {
         businessName: data.businessName,
         industry: data.industry,
         region: data.region,
+        websiteUrl: data.websiteUrl || undefined,
         goal: data.goal || undefined,
         audience: data.audience || undefined,
         voiceSeed: data.voiceSeed || undefined,
@@ -146,6 +148,13 @@ export default function OnboardingPage() {
               onChange={(e) => setData({ ...data, region: e.target.value })}
               required
             />
+            <Input
+              label="Website URL"
+              placeholder="https://acmedental.com"
+              value={data.websiteUrl}
+              onChange={(e) => setData({ ...data, websiteUrl: e.target.value })}
+              hint="Where Google Ads clicks should land. We'll never run ads without one."
+            />
           </Step>
         )}
 
@@ -181,13 +190,19 @@ export default function OnboardingPage() {
           >
             <ConnectButton
               label="Connect Meta (Instagram + Facebook)"
-              description="Required to post to Instagram or run Meta ads."
-              onClick={() => (window.location.href = '/api/oauth/meta/start')}
+              description="Required to post to Instagram or run Meta ads. We'll come back here once we finish setup."
+              onClick={() => {
+                // OAuth needs a businessId. If onboarding hasn't saved yet,
+                // we ask the user to finish the form first.
+                alert('Finish the launch step first — Meta connect happens from Settings → Connections.');
+              }}
             />
             <ConnectButton
               label="Connect Google Ads"
-              description="Required to audit and optimize Google ad campaigns."
-              onClick={() => (window.location.href = '/api/oauth/google/start')}
+              description="Required to audit and optimize Google ad campaigns. We'll come back here once we finish setup."
+              onClick={() => {
+                alert('Finish the launch step first — Google connect happens from Settings → Connections.');
+              }}
             />
             <p className="text-sm text-ink-400 mt-4">
               You can connect these later from Settings. Move on when you&apos;re ready.

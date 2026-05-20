@@ -188,7 +188,7 @@ test('routes/ideas: GET returns recent ideas', async () => {
   ideas.register({ app, ...baseDeps({ sbGet: db.sbGet }) });
   const handler = app._routes['GET /api/ideas/:userId'];
   const res = makeRes();
-  await handler({ params: { userId: 'u1' } }, res);
+  await handler({ params: { userId: 'u1' }, user: { id: 'u1' } }, res);
   assert.strictEqual(res._calls.json.ideas.length, 2);
 });
 
@@ -199,7 +199,7 @@ test('routes/ideas: PATCH updates idea row', async () => {
   ideas.register({ app, ...baseDeps({ sbPatch: db.sbPatch }) });
   const handler = app._routes['PATCH /api/ideas/:ideaId'];
   const res = makeRes();
-  await handler({ params: { ideaId: 'i1' }, body: { status: 'done' } }, res);
+  await handler({ params: { ideaId: 'i1' }, body: { status: 'done' }, user: { id: 'u1' } }, res);
   assert.strictEqual(res._calls.json.updated, true);
   const updated = db.all('marketing_ideas').find((r) => r.id === 'i1');
   assert.strictEqual(updated.status, 'done');

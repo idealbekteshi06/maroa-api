@@ -1,6 +1,7 @@
 'use strict';
 
 const { buildKpiHistory } = require('../lib/warRoomKpiHistory');
+const decisionExecutor = require('../lib/decisionExecutor');
 
 /**
  * routes/war-room.js — HTTP surface for the War Room Feed lib.
@@ -35,9 +36,11 @@ function register({
   decisionLog,
   requireAnyUserId,
   sbGet,
+  sbPatch,
   apiError,
   safePublicError,
   log,
+  logger,
   express,
   businessMemory, // optional — lib/businessMemory.makeBusinessMemory(...)
   marketingGraph, // optional — lib/marketingGraph.makeMarketingGraph(...)
@@ -216,6 +219,21 @@ function register({
         // Fire-and-forget memory + graph writes — never block the response.
         _rememberApproval(updated.business_id || decision.business_id, updated);
         _mirrorApprovalToGraph(updated, 'approved').catch(() => {});
+
+        // P0-7 (audit 2026-05-20): approval now triggers an executor so
+        // the decision actually happens. Fire-and-forget — the customer
+        // gets an instant "approved" response while the executor runs
+        // async, then writes back execution_details on the decision row.
+        Promise.resolve()
+          .then(() =>
+            decisionExecutor.execute(updated, {
+              sbPatch,
+              logger,
+              internalSecret: process.env.N8N_WEBHOOK_SECRET || '',
+            }),
+          )
+          .catch((e) => log?.('/api/war-room/approve', null, 'executor crashed', { error: e.message }));
+
         return res.json({ decision: updated });
       } catch (err) {
         log?.('/api/war-room/approve', null, 'approve error', { error: err.message });

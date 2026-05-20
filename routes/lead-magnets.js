@@ -61,7 +61,13 @@ function register({
 
   app.get('/api/lead-magnets/:userId', async (req, res) => {
     try {
-      const r = await sbGet('lead_magnets', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=10`);
+      if (req.params.userId !== req.user?.id) {
+        return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Cannot read another user' } });
+      }
+      const r = await sbGet(
+        'lead_magnets',
+        `user_id=eq.${encodeURIComponent(req.params.userId)}&order=created_at.desc&limit=10`,
+      );
       res.json({ magnets: r });
     } catch (err) {
       res.status(500).json({ error: safePublicError(err) });

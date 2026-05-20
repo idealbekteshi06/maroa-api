@@ -348,6 +348,35 @@ async function runDaily({ businessId, deps }) {
     completed_at: new Date().toISOString(),
   }).catch((e) => logger?.warn?.('autopilot-brain.runDaily', businessId, 'persist failed', { error: e.message }));
 
+  // P1-7 (audit 2026-05-20): mirror each composed decision into
+  // decision_logs so the War Room UI surfaces them as pending approvals.
+  // Pre-2026-05-20 the autopilot ran daily, emailed the brief, but never
+  // populated the human-in-the-loop queue.
+  for (const d of decisions) {
+    if (!d || !d.action) continue;
+    try {
+      await sbPost('decision_logs', {
+        business_id: businessId,
+        agent_name: 'autopilot-brain',
+        decision_type: d.action,
+        decision_subtype: d.kind || d.subtype || null,
+        inputs: d.inputs || d.signals || {},
+        trigger: 'cron',
+        recommendation_text: d.recommendation || d.summary || d.action || 'autopilot proposal',
+        confidence: typeof d.confidence === 'number' ? d.confidence : 0.6,
+        expected_upside_text: d.expected_upside || null,
+        cost_usd: typeof d.cost_usd === 'number' ? d.cost_usd : 0,
+        auto_safe_band: d.band || 'yellow',
+        required_approval: d.required_approval !== false, // default: needs human eyes
+      });
+    } catch (e) {
+      logger?.warn?.('autopilot-brain.runDaily', businessId, 'decision_log write failed', {
+        error: e.message,
+        action: d.action,
+      });
+    }
+  }
+
   // Send the brief
   if (sendEmail && snapshot.business.email) {
     await sendEmail({

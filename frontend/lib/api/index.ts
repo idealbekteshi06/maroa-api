@@ -3,11 +3,14 @@
  *
  * Wraps the most-used backend endpoints. Each function uses `apiFetch`
  * under the hood so it automatically gets the user's Supabase JWT.
+ *
+ * Audit 2026-05-20: prior versions exported `businesses`, `content`, `ads`
+ * namespaces wrapping endpoints that don't exist on the backend. Frontend
+ * components were silently importing 404-traps. Trimmed to only the
+ * endpoints that have verified backend handlers.
  */
 
 import { api } from './client';
-
-// ── Types matching the backend's response shapes ──────────────────────
 
 export type Business = {
   id: string;
@@ -36,46 +39,6 @@ export type GeneratedContent = {
   reasoning_trace?: unknown;
 };
 
-export type Campaign = {
-  id: string;
-  business_id: string;
-  platform: 'meta' | 'google' | 'tiktok';
-  status: 'active' | 'paused' | 'review';
-  daily_budget_usd: number;
-  spend_today: number;
-  roas_7d?: number;
-  audit_verdict?: 'scale' | 'maintain' | 'pause' | 'rework';
-  audit_reason?: string;
-};
-
-// ── API ───────────────────────────────────────────────────────────────
-
-export const businesses = {
-  me: () => api.get<Business>('/api/businesses/me'),
-  update: (patch: Partial<Business>) => api.patch<Business>('/api/businesses/me', patch),
-};
-
-export const content = {
-  list: (params?: { status?: string; limit?: number }) => {
-    const qs = new URLSearchParams();
-    if (params?.status) qs.set('status', params.status);
-    if (params?.limit) qs.set('limit', String(params.limit));
-    return api.get<GeneratedContent[]>(`/api/content${qs.toString() ? `?${qs}` : ''}`);
-  },
-  get: (id: string) => api.get<GeneratedContent>(`/api/content/${id}`),
-  approve: (id: string) => api.post<GeneratedContent>(`/api/content/${id}/approve`),
-  reject: (id: string, reason?: string) =>
-    api.post<GeneratedContent>(`/api/content/${id}/reject`, { reason }),
-  regenerate: (id: string) => api.post<GeneratedContent>(`/api/content/${id}/regenerate`),
-  schedule: (id: string, at: string) => api.post<GeneratedContent>(`/api/content/${id}/schedule`, { at }),
-};
-
-export const ads = {
-  campaigns: () => api.get<Campaign[]>('/api/ads/campaigns'),
-  audit: (id: string) => api.get<Campaign>(`/api/ads/campaigns/${id}/audit`),
-  applyRecommendation: (id: string) => api.post<Campaign>(`/api/ads/campaigns/${id}/apply`),
-};
-
 export const onboarding = {
   // POST /api/onboarding/save — fast, idempotent upsert of the business
   // profile. Returns immediately so the dashboard can show its loading
@@ -87,6 +50,7 @@ export const onboarding = {
     goal?: string;
     audience?: string;
     voiceSeed?: string;
+    websiteUrl?: string;
   }) =>
     api.post<{
       ok: boolean;
@@ -95,8 +59,8 @@ export const onboarding = {
       nextStep: 'spark';
     }>('/api/onboarding/save', input),
   // POST /api/onboarding/spark — synchronously kicks off the first content
-  // draft via /api/content/generate. Returns the draft inline if it
-  // completes in <30s; otherwise the dashboard polls for it.
+  // draft via the closed-loop creative engine. Returns the draft inline if
+  // it completes in <30s; otherwise the dashboard polls for it.
   spark: () =>
     api.post<{
       ok: boolean;
@@ -105,16 +69,16 @@ export const onboarding = {
       draft?: unknown;
       message?: string;
     }>('/api/onboarding/spark', {}),
-  status: (runId: string) =>
-    api.get<{ status: string; phase: string; progress: number }>(`/api/onboarding/${runId}`),
 };
 
 export const oauth = {
-  connectMeta: () => {
-    window.location.href = '/api/oauth/meta/start';
+  // Production endpoints are /webhook/oauth/{meta,google}/start?businessId=...
+  // — the JWT-protected handlers live in services/oauth/{meta,google}.js.
+  connectMeta: (businessId: string) => {
+    window.location.href = `/webhook/oauth/meta/start?businessId=${encodeURIComponent(businessId)}`;
   },
-  connectGoogle: () => {
-    window.location.href = '/api/oauth/google/start';
+  connectGoogle: (businessId: string) => {
+    window.location.href = `/webhook/oauth/google/start?businessId=${encodeURIComponent(businessId)}`;
   },
 };
 

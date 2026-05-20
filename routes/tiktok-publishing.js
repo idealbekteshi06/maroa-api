@@ -13,6 +13,8 @@
  */
 
 const crypto = require('crypto');
+const oauthCrypto = require('../lib/oauthCrypto');
+const { ensureCompliant, ComplianceBlocked } = require('../lib/complianceGate');
 
 function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getBrandExamples, env }) {
   const TIKTOK_CLIENT_KEY = (env?.TIKTOK_CLIENT_KEY || process.env.TIKTOK_CLIENT_KEY || '')
@@ -98,9 +100,10 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getB
         log?.('/webhook/tiktok-oauth-exchange', `user info lookup failed (non-fatal): ${e?.message}`);
       }
 
+      // Plaintext columns dropped by migration 073. Store only _enc form.
       await sbPatch('businesses', `id=eq.${encodeURIComponent(business_id)}`, {
-        tiktok_access_token: access_token,
-        tiktok_refresh_token: refresh_token,
+        ...oauthCrypto.encryptIfEnabled('tiktok_access_token', access_token),
+        ...oauthCrypto.encryptIfEnabled('tiktok_refresh_token', refresh_token),
         tiktok_user_id: userId,
         tiktok_connected: true,
       });
@@ -122,10 +125,11 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getB
       const biz = (
         await sbGet(
           'businesses',
-          `id=eq.${encodeURIComponent(business_id)}&select=business_name,industry,brand_tone,target_audience,dream_customer,unique_differentiator,best_performing_themes,tiktok_access_token,tiktok_user_id`
+          `id=eq.${encodeURIComponent(business_id)}&select=business_name,industry,brand_tone,target_audience,dream_customer,unique_differentiator,best_performing_themes,tiktok_access_token,tiktok_access_token_enc,tiktok_user_id`
         )
       )[0];
-      if (!biz?.tiktok_access_token) {
+      const tiktokToken = biz ? oauthCrypto.readToken(biz, 'tiktok_access_token') : null;
+      if (!tiktokToken) {
         return log?.('/webhook/tiktok-publish', `TikTok not connected for ${business_id}`);
       }
 
@@ -160,6 +164,27 @@ Return only valid JSON: {"hook":"...","script":"...","caption":"...","hashtags":
 
       const fullCaption = `${parsed.caption || ''} ${(parsed.hashtags || []).join(' ')}`.trim();
 
+      // Compliance gate — check the script + caption before any side-effect.
+      try {
+        const blob = `${parsed.hook || ''}\n${parsed.script || ''}\n${fullCaption}`;
+        await ensureCompliant({
+          content: blob,
+          industry: biz.industry,
+          businessId: business_id,
+          plan: biz.plan,
+          surface: 'social_post',
+          deps: { callClaude, sbPost, logger: { warn: log } },
+        });
+      } catch (cgErr) {
+        if (cgErr instanceof ComplianceBlocked) {
+          return log?.(
+            '/webhook/tiktok-publish',
+            `Compliance hard-block: ${cgErr.violations.map((v) => v.rule_id).join(',')}`,
+          );
+        }
+        throw cgErr;
+      }
+
       await sbPost('generated_content', {
         business_id,
         tiktok_script: `HOOK: ${parsed.hook || ''}\n\n${parsed.script || ''}`,
@@ -172,7 +197,7 @@ Return only valid JSON: {"hook":"...","script":"...","caption":"...","hashtags":
       if (video_url) {
         const initResp = await fetch('https://open.tiktokapis.com/v2/post/publish/video/init/', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${biz.tiktok_access_token}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Bearer ${tiktokToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             post_info: {
               title: fullCaption.slice(0, 150),

@@ -12,6 +12,8 @@
  */
 
 const crypto = require('crypto');
+const oauthCrypto = require('../lib/oauthCrypto');
+const { ensureCompliant, ComplianceBlocked } = require('../lib/complianceGate');
 
 function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getBrandExamples, env }) {
   const TWITTER_CLIENT_ID = (env?.TWITTER_CLIENT_ID || process.env.TWITTER_CLIENT_ID || '')
@@ -91,9 +93,11 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getB
       const userData = await userResp.json();
       const twitterUser = userData.data || {};
 
+      // Token plaintext columns were dropped by migration 073. Persist
+      // ONLY the encrypted form. lib/oauthCrypto.readToken decrypts on read.
       await sbPatch('businesses', `id=eq.${encodeURIComponent(business_id)}`, {
-        twitter_access_token: tokenData.access_token,
-        twitter_refresh_token: tokenData.refresh_token || null,
+        ...oauthCrypto.encryptIfEnabled('twitter_access_token', tokenData.access_token),
+        ...oauthCrypto.encryptIfEnabled('twitter_refresh_token', tokenData.refresh_token || null),
         twitter_user_id: twitterUser.id || null,
         twitter_connected: true,
       });
@@ -121,10 +125,11 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getB
       const biz = (
         await sbGet(
           'businesses',
-          `id=eq.${encodeURIComponent(business_id)}&select=business_name,industry,brand_tone,target_audience,dream_customer,unique_differentiator,best_performing_themes,twitter_access_token,twitter_user_id`
+          `id=eq.${encodeURIComponent(business_id)}&select=business_name,industry,brand_tone,target_audience,dream_customer,unique_differentiator,best_performing_themes,twitter_access_token,twitter_access_token_enc,twitter_user_id`
         )
       )[0];
-      if (!biz?.twitter_access_token) {
+      const twitterToken = biz ? oauthCrypto.readToken(biz, 'twitter_access_token') : null;
+      if (!twitterToken) {
         return log?.('/webhook/twitter-publish', `Twitter not connected for ${business_id}`);
       }
 
@@ -168,6 +173,30 @@ Return only valid JSON: {"tweet":"...","content_theme":"..."}`;
       if (!tweets.length) tweets = [tweetText];
       const isThread = tweets.length > 1;
 
+      // Compliance gate — every tweet body checked against the industry
+      // ruleset before it leaves the server. Hard violations abort the
+      // whole publish (we won't ship some tweets and not others).
+      try {
+        for (const t of tweets) {
+          await ensureCompliant({
+            content: t,
+            industry: biz.industry,
+            businessId: business_id,
+            plan: biz.plan,
+            surface: 'social_post',
+            deps: { callClaude, sbPost, logger: { warn: log } },
+          });
+        }
+      } catch (cgErr) {
+        if (cgErr instanceof ComplianceBlocked) {
+          return log?.(
+            '/webhook/twitter-publish',
+            `Compliance hard-block: ${cgErr.violations.map((v) => v.rule_id).join(',')}`,
+          );
+        }
+        throw cgErr;
+      }
+
       let previousId = null;
       const postedIds = [];
       for (const t of tweets) {
@@ -176,7 +205,7 @@ Return only valid JSON: {"tweet":"...","content_theme":"..."}`;
 
         const tweetResp = await fetch('https://api.twitter.com/2/tweets', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${biz.twitter_access_token}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Bearer ${twitterToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
         const tweetData = await tweetResp.json();

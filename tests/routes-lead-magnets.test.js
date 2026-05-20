@@ -136,7 +136,7 @@ test('routes/lead-magnets: GET returns recent magnets', async () => {
   leadMagnets.register({ app, ...baseDeps({ sbGet: db.sbGet }) });
   const handler = app._routes['GET /api/lead-magnets/:userId'];
   const res = makeRes();
-  await handler({ params: { userId: 'u1' } }, res);
+  await handler({ params: { userId: 'u1' }, user: { id: 'u1' } }, res);
   assert.strictEqual(res._calls.json.magnets.length, 2);
 });
 
@@ -152,6 +152,6 @@ test('routes/lead-magnets: GET returns 500 on DB error', async () => {
   });
   const handler = app._routes['GET /api/lead-magnets/:userId'];
   const res = makeRes();
-  await handler({ params: { userId: 'u1' } }, res);
+  await handler({ params: { userId: 'u1' }, user: { id: 'u1' } }, res);
   assert.strictEqual(res._calls.status, 500);
 });

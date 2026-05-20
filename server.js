@@ -18,7 +18,7 @@ if (env.SENTRY_DSN) {
   // every event before it leaves the process. Saves us from leaking customer
   // data into Sentry when an error path serializes a full request object.
   const PII_KEY_PATTERN =
-    /(authorization|auth_token|api_key|apikey|secret|token|password|email|access_token|refresh_token)/i;
+    /(authorization|auth_token|api_key|apikey|secret|token|password|email|access_token|refresh_token|jwt|bearer)/i;
   const scrub = (obj, depth = 0) => {
     if (!obj || depth > 6) return obj;
     if (Array.isArray(obj)) return obj.map((v) => scrub(v, depth + 1));
@@ -455,6 +455,12 @@ const { costGuardMiddleware } = require('./lib/costGuard');
 const costGuard = costGuardMiddleware({ sbGet });
 app.use('/api/ideas', costGuard);
 app.use('/api/lead-magnets', costGuard);
+// Audit 2026-05-20 P1-1: /api/content/generate (the magic-moment + Generate
+// Now path) is the most expensive route per call — full grounding + variants
+// + critic. Add costGuard so a misconfigured customer can't blow past their
+// plan cap. aiRateLimit too — same 60s window as the other AI routes.
+app.use('/api/content/generate', aiRateLimit);
+app.use('/api/content/generate', costGuard);
 app.use('/api/research', costGuard);
 app.use('/api/sales', costGuard);
 app.use('/api/community', costGuard);
@@ -525,6 +531,11 @@ app.use('/api/opportunities', requireAnyUserId);
 app.use('/api/metrics', requireAnyUserId);
 app.use('/api/performance', requireAnyUserId);
 app.use('/api/health', requireAnyUserId);
+// Audit 2026-05-20 P0-6: list endpoints (/api/ideas/:userId,
+// /api/lead-magnets/:userId) need auth too — not just /generate.
+// Must be after requireAnyUserId declaration above.
+app.use('/api/ideas', requireAnyUserId);
+app.use('/api/lead-magnets', requireAnyUserId);
 app.use('/api/strategy', requireAnyUserId);
 app.use('/api/context', requireAnyUserId);
 app.use('/api/orchestrator', requireAnyUserId);
@@ -568,6 +579,13 @@ app.use('/api/sales', requireAnyUserId);            // /api/sales/objection-hand
 // metric.
 const { makeIdempotency } = require('./middleware/idempotency');
 const _idempotency = makeIdempotency({ sbGet, sbPost, sbPatch, logger });
+
+// Compliance gate — wraps lib/complianceEngine in a single ensureCompliant()
+// that throws ComplianceBlocked on hard violations. Wired into publish routes
+// + /api/content/generate so disallowed claims (FTC income guarantees, FDA
+// medical claims, etc.) never reach the platform or the customer's draft.
+const { ensureCompliant: _ensureCompliant, ComplianceBlocked: _ComplianceBlocked } =
+  require('./lib/complianceGate');
 app.use('/api/content/publish', _idempotency.optional);
 app.use('/api/content/generate', _idempotency.optional);
 app.use('/api/social', _idempotency.optional);
@@ -2274,6 +2292,25 @@ async function generateSmartImage(businessId, prompt, contentType = 'social_post
       continue;
     }
   }
+  // P1-3 (audit 2026-05-20): full fallback chain exhausted. Log loudly so
+  // observability can alert on rising "image_source=none" rates. Pre-fix
+  // this returned silently and the dashboard showed an empty image with
+  // no breadcrumb for ops.
+  log(
+    'generateSmartImage',
+    `ALL MODELS EXHAUSTED for businessId=${businessId} contentType=${contentType} plan=${plan} prompt=${String(prompt).slice(0, 60)}`,
+  );
+  try {
+    if (typeof Sentry?.captureMessage === 'function') {
+      Sentry.captureMessage('image-gen all models exhausted', {
+        level: 'warning',
+        tags: { route: 'generateSmartImage', business_id: businessId, plan, content_type: contentType },
+        extra: { prompt: String(prompt).slice(0, 200) },
+      });
+    }
+  } catch {
+    /* soft-fail */
+  }
   return { url: null, source: 'none', model_used: 'none', generation_time_ms: Date.now() - startTime };
 }
 
@@ -3250,7 +3287,35 @@ async function generateInstantContent(bizId, emailOverride) {
     /* soft-fail */
   }
 
+  // P0-1 (audit 2026-05-20): Plug the closed-loop creative system into
+  // instant generation. Grounding context injects wins/losses/VoC/cohort/
+  // brand voice + voice_seed (P0-2) so day-1 drafts are anchored in real
+  // signal, not generic placeholders. Falls back gracefully on any error
+  // — the rest of the prompt construction still runs.
+  let groundingBlock = '';
+  try {
+    const groundingLib = require('./lib/groundingContext');
+    const groundingCtx = await groundingLib.buildGroundingContext({
+      sbGet,
+      businessId: bizId,
+      surface: 'social_post',
+      intent: 'conversion',
+      limit: 3,
+      plan: biz.plan,
+      // Use the business name + industry as the semantic anchor when
+      // performanceMemory is configured; falls back to recency-based wins
+      // when not. Either way we get something better than no grounding.
+      semanticQuery: `${biz.business_name || ''} ${biz.industry || ''} ${biz.marketing_goal || ''}`.trim(),
+    });
+    if (!groundingCtx.isEmpty()) {
+      groundingBlock = `${groundingCtx.toPromptBlock()}\n\n`;
+    }
+  } catch (gcErr) {
+    log('generateContent', `grounding context failed (non-fatal): ${gcErr.message}`);
+  }
+
   const prompt =
+    groundingBlock +
     `${masterSystemPrompt}${brandContext}${competitorReport}You are the AI marketing brain for ${biz.business_name}. Here is everything you know:\n\n` +
     `BRAND VOICE (LOCKED — use this exact voice in EVERY piece): ${brandVoice}\n` +
     `DREAM CUSTOMER: ${biz.dream_customer || biz.target_audience || 'General audience'}\n` +
@@ -3405,6 +3470,25 @@ async function generateInstantContent(bizId, emailOverride) {
     }
   }
 
+  // P1-4 (audit 2026-05-20): Structured reasoning trace. Powers the
+  // dashboard's "why?" panel + ops dashboards. Migration 078 added the
+  // column. We capture everything the model was anchored on at gen time
+  // so future questions like "why did this draft win?" have an answer.
+  const reasoningTrace = {
+    generated_at: new Date().toISOString(),
+    grounding_used: !!groundingBlock,
+    grounding_chars: groundingBlock.length,
+    variation_count: variations.length,
+    variation_scores: variations.map((v) => v.score),
+    winning_score: score,
+    quality_gate: gateStatus || null,
+    image_source: imgResult.source || null,
+    image_model: imgResult.model || null,
+    voice_seed_used: !!(biz.voice_seed && biz.voice_seed.trim()),
+    industry: biz.industry || null,
+    plan: biz.plan || null,
+  };
+
   // Save to generated_content (Variant A — winner)
   const saved = await sbPost('generated_content', {
     business_id: bizId,
@@ -3422,6 +3506,7 @@ async function generateInstantContent(bizId, emailOverride) {
     image_source: imgResult.source || '',
     image_credit: imgResult.credit || '',
     strategy_reason: strategy_reason || null,
+    reasoning_trace: reasoningTrace,
     status: gateStatus === 'needs_review' ? 'needs_review' : 'approved',
     variant: 'A',
     ab_test_id: abTestId,
@@ -4526,7 +4611,10 @@ app.post('/api/content/generate', async (req, res) => {
   }
 
   try {
-    const bizRows = await sbGet('businesses', `id=eq.${businessId}&select=id,business_name,industry,brand_tone`);
+    const bizRows = await sbGet(
+      'businesses',
+      `id=eq.${encodeURIComponent(businessId)}&select=id,business_name,industry,brand_tone,plan`,
+    );
     if (!bizRows[0]) {
       return apiError(
         res,
@@ -4535,7 +4623,47 @@ app.post('/api/content/generate', async (req, res) => {
         `No business profile found for id ${businessId}. Finish onboarding first.`
       );
     }
+    const biz = bizRows[0];
     const result = await generateInstantContent(businessId, email || undefined);
+
+    // P0-3 compliance gate — screen the generated copy before we hand it
+    // back to the customer. Hard violations return 422 with the verdict;
+    // the dashboard can offer the rewrite (verdict.rewrite) or an appeal.
+    try {
+      const draftBlob = [
+        result.instagram_caption,
+        result.facebook_post,
+        result.linkedin_post,
+        result.email_subject,
+        result.email_body,
+        result.blog_title,
+      ]
+        .filter(Boolean)
+        .join('\n---\n');
+      if (draftBlob) {
+        const verdict = await _ensureCompliant({
+          content: draftBlob,
+          industry: biz.industry,
+          businessId,
+          plan: biz.plan,
+          surface: 'social_post',
+          deps: { callClaude, sbPost, logger },
+        });
+        if (verdict.severity === 'soft' && verdict.violations.length) {
+          result.compliance_warnings = verdict.violations;
+        }
+      }
+    } catch (cgErr) {
+      if (cgErr instanceof _ComplianceBlocked) {
+        return apiError(res, 422, 'COMPLIANCE_HARD_BLOCK', 'Draft contains disallowed claims', {
+          violations: cgErr.violations,
+          rewrite: cgErr.rewrite,
+          appealable: cgErr.appealable,
+        });
+      }
+      throw cgErr;
+    }
+
     res.json({ ok: true, content: result });
     if (email) {
       try {
@@ -8458,6 +8586,10 @@ async function buildIntelligenceContext(userId) {
 // GET /api/intelligence/:userId — view all shared intelligence
 app.get('/api/intelligence/:userId', async (req, res) => {
   try {
+    // IDOR guard — userId in path must equal the authenticated user.
+    if (req.params.userId !== req.user?.id) {
+      return apiError(res, 403, 'FORBIDDEN', 'Cannot read another user');
+    }
     const rows = await getAllIntelligence(req.params.userId);
     const grouped = {};
     for (const r of rows) {
@@ -8562,6 +8694,9 @@ app.get('/api/debug/profile/:userId', requireAdminSecret, async (req, res) => {
 // ── T2.2: GET /api/opportunities/:userId — Proactive opportunity detection ──
 app.get('/api/opportunities/:userId', async (req, res) => {
   try {
+    if (req.params.userId !== req.user?.id) {
+      return apiError(res, 403, 'FORBIDDEN', 'Cannot read another user');
+    }
     const p = await getProfile(req.params.userId);
     const ops = await detectOpportunities(req.params.userId, p);
     res.json({ opportunities: ops, count: ops.length });
@@ -8574,6 +8709,9 @@ app.get('/api/opportunities/:userId', async (req, res) => {
 app.get('/api/metrics/:userId', async (req, res) => {
   try {
     const uid = req.params.userId;
+    if (uid !== req.user?.id) {
+      return apiError(res, 403, 'FORBIDDEN', 'Cannot read another user');
+    }
     const weekMs = 7 * 86400000;
     const [content, ideas, intel, memory] = await Promise.all([
       sbGet(
@@ -8762,6 +8900,9 @@ app.get('/api/performance/summary/:userId', async (req, res) => {
 app.get('/api/health/:userId', async (req, res) => {
   try {
     const uid = req.params.userId;
+    if (uid !== req.user?.id) {
+      return apiError(res, 403, 'FORBIDDEN', 'Cannot read another user');
+    }
     const [p, content, intel, memory] = await Promise.all([
       getProfile(uid),
       sbGet(
@@ -10027,9 +10168,11 @@ require('./routes/war-room').register({
   decisionLog: _decisionLog,
   requireAnyUserId,
   sbGet,
+  sbPatch,
   apiError,
   safePublicError,
   log,
+  logger,
   express,
   businessMemory: _businessMemory,
   marketingGraph: _marketingGraph,

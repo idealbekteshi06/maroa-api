@@ -53,7 +53,13 @@ function register({
 
   app.get('/api/launch/:userId', async (req, res) => {
     try {
-      const r = await sbGet('launch_campaigns', `user_id=eq.${req.params.userId}&order=created_at.desc&limit=5`);
+      if (req.params.userId !== req.user?.id) {
+        return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Cannot read another user' } });
+      }
+      const r = await sbGet(
+        'launch_campaigns',
+        `user_id=eq.${encodeURIComponent(req.params.userId)}&order=created_at.desc&limit=5`,
+      );
       res.json({ campaigns: r });
     } catch (err) {
       res.status(500).json({ error: safePublicError(err) });

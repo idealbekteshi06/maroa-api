@@ -113,6 +113,12 @@ function register({
           target_audience: clean(body.audience || body.target_audience, 500),
           marketing_goal: clean(body.goal || body.marketing_goal, 300),
           brand_tone: clean(body.brandTone || body.brand_tone, 200),
+          // voice_seed: customer-pasted brand voice samples ("Paste 1–3
+          // existing posts or copy you love"). Persisted in migration 077
+          // so the grounding context can anchor day-1 generation before
+          // any published-content history accumulates. Cap at 4kB.
+          voice_seed: clean(body.voiceSeed || body.voice_seed, 4000),
+          website_url: clean(body.websiteUrl || body.website_url, 300),
           email: req.user?.email || null,
           user_id: userId,
           updated_at: new Date().toISOString(),
