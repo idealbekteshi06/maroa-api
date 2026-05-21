@@ -480,6 +480,88 @@ const measurementHealthProbe = inngest.createFunction(
   }
 );
 
+// ─── Ops maintenance — curated legacy n8n replacements ───────────────────
+// Daily crisis sweep (all paid), snapshots (growth+), weekly strategy bundle,
+// Monday growth lever, monthly report. See docs/INNGEST_ORCHESTRATION.md.
+const opsAnalyticsSnapshotsDaily = inngest.createFunction(
+  withDLQ({
+    id: 'ops-analytics-snapshots-daily',
+    name: 'Ops · daily analytics snapshots (growth+)',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 6 * * *' }],
+  }),
+  async ({ step }) => {
+    const result = await step.run('snapshots-all', async () =>
+      callInternal('/webhook/ops-analytics-snapshots-all', {})
+    );
+    return { ok: true, businesses: result?.businesses ?? 0, succeeded: result?.succeeded ?? 0 };
+  }
+);
+
+const opsDailyHealthBundle = inngest.createFunction(
+  withDLQ({
+    id: 'ops-daily-health-bundle',
+    name: 'Ops · daily crisis health sweep (paid)',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 30 7 * * *' }],
+  }),
+  async ({ step }) => {
+    const result = await step.run('crisis-check-all', async () => callInternal('/webhook/ops-daily-health-all', {}));
+    return {
+      ok: true,
+      businesses: result?.businesses ?? 0,
+      crises: result?.crises ?? 0,
+      succeeded: result?.succeeded ?? 0,
+    };
+  }
+);
+
+const opsWeeklyMaintenance = inngest.createFunction(
+  withDLQ({
+    id: 'ops-weekly-maintenance',
+    name: 'Ops · weekly brand memory + strategy (growth+)',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 30 5 * * 0' }],
+  }),
+  async ({ step }) => {
+    const result = await step.run('weekly-bundle', async () =>
+      callInternal('/webhook/ops-weekly-maintenance-all', {})
+    );
+    return { ok: true, businesses: result?.businesses ?? 0, succeeded: result?.succeeded ?? 0 };
+  }
+);
+
+const opsGrowthEngineMonday = inngest.createFunction(
+  withDLQ({
+    id: 'ops-growth-engine-monday',
+    name: 'Ops · Monday growth lever (growth+)',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 9 * * 1' }],
+  }),
+  async ({ step }) => {
+    const result = await step.run('growth-all', async () => callInternal('/webhook/ops-growth-engine-all', {}));
+    return { ok: true, businesses: result?.businesses ?? 0, succeeded: result?.succeeded ?? 0 };
+  }
+);
+
+const opsMonthlyReports = inngest.createFunction(
+  withDLQ({
+    id: 'ops-monthly-reports',
+    name: 'Ops · monthly analytics report email (growth+)',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 8 1 * *' }],
+  }),
+  async ({ step }) => {
+    const result = await step.run('reports-all', async () => callInternal('/webhook/ops-monthly-reports-all', {}));
+    return { ok: true, businesses: result?.businesses ?? 0, succeeded: result?.succeeded ?? 0 };
+  }
+);
+
 // ─── Autopilot Brain (daily at 08:00 UTC, after measurement-health probe) ─
 // Top-level orchestrator. Pulls signals from all 11 capability pillars,
 // resolves cross-domain conflicts, narrates the daily brief, sends the
@@ -761,6 +843,13 @@ const functions = [
 
   // Autopilot Brain (Week 12 — top-level orchestrator)
   autopilotBrainDaily,
+
+  // Ops maintenance (curated n8n legacy replacement)
+  opsAnalyticsSnapshotsDaily,
+  opsDailyHealthBundle,
+  opsWeeklyMaintenance,
+  opsGrowthEngineMonday,
+  opsMonthlyReports,
 
   // Durable replacement for setTimeout(24h) in publish path
   contentPublishFeedback24h,

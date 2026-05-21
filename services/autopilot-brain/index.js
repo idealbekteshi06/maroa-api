@@ -52,7 +52,10 @@ async function collectSignals({ businessId, deps }) {
     coldStartRun,
     autopilotYesterday,
   ] = await Promise.all([
-    sbGet('businesses', `id=eq.${businessId}&select=*`).catch(() => []),
+    sbGet(
+      'businesses',
+      `id=eq.${businessId}&select=id,business_name,email,plan,crisis_status,growth_engine_recommendation,marketing_strategy`
+    ).catch(() => []),
     sbGet(
       'measurement_health',
       `business_id=eq.${businessId}&recorded_at=gte.${yesterdayISO}&order=recorded_at.desc&select=platform,health_verdict,trust_for_scaling,reasons&limit=10`
@@ -173,6 +176,16 @@ function resolveConflicts({ snapshot, proposed }) {
 function composeProposedDecisions({ snapshot }) {
   const out = [];
 
+  const crisis = snapshot?.business?.crisis_status;
+  if (crisis && crisis !== 'healthy') {
+    out.push({
+      domain: 'ops-maintenance',
+      action: 'address_crisis',
+      crisis_level: crisis,
+      priority: 'highest',
+    });
+  }
+
   // Cold-start status takes priority — if onboarding is mid-flight, the
   // brain narrates the next step and yields to the cold-start orchestrator.
   if (snapshot.cold_start && snapshot.cold_start.status !== 'completed') {
@@ -239,6 +252,24 @@ function composeBrief({ snapshot, decisions, conflicts, brandVoice }) {
     );
   } else {
     lines.push(`Here's what we did for ${businessName} yesterday and what we're doing today.`);
+  }
+
+  const crisis = snapshot?.business?.crisis_status;
+  if (crisis && crisis !== 'healthy') {
+    lines.push(
+      `We're actively managing a ${crisis} marketing alert — check your dashboard for the recovery plan we sent overnight.`
+    );
+  }
+
+  const growthRec = snapshot?.business?.growth_engine_recommendation;
+  if (growthRec) {
+    try {
+      const parsed = typeof growthRec === 'string' ? JSON.parse(growthRec) : growthRec;
+      const lever = parsed?.recommended_action?.lever;
+      if (lever) lines.push(`This week's growth focus: ${lever}.`);
+    } catch {
+      /* soft-fail */
+    }
   }
 
   // Pacing/competitor highlights

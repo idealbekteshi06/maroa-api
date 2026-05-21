@@ -5003,7 +5003,8 @@ async function sendEmailWithTags(to, subject, html, tags = []) {
 // 3 endpoints — analytics-snapshot, analytics-report, analytics-get.
 // Behavior unchanged.
 // ═════════════════════════════════════════════════════════════════════════════
-require('./routes/analytics').register({
+const analyticsRoutes = require('./routes/analytics');
+analyticsRoutes.register({
   app,
   sbGet,
   sbPost,
@@ -9616,6 +9617,92 @@ app.post('/webhook/autopilot-brain-run', async (req, res) => {
     res.json(r);
   } catch (e) {
     apiError(res, 500, 'AUTOPILOT_BRAIN_RUN_FAILED', e.message);
+  }
+});
+
+// ─── Ops maintenance — curated Inngest fan-outs (replaces n8n legacy crons) ─
+const opsMaintenance = require('./services/ops-maintenance');
+const SELF_API_BASE =
+  process.env.MAROA_API_INTERNAL_URL ||
+  process.env.INTERNAL_API_BASE ||
+  `http://127.0.0.1:${process.env.PORT || 3000}`;
+
+const opsDeps = () => ({
+  sbGet,
+  sbPost,
+  sbPatch,
+  sbUpsert,
+  callClaude,
+  sendEmail,
+  apiRequest,
+  log,
+  logError,
+  logger,
+  storeInsight,
+  getEmbedding,
+  pineconeUpsert,
+  openaiConfigured: !!(clean(process.env.OPENAI_API_KEY) || ''),
+  pineconeConfigured: !!(clean(process.env.PINECONE_API_KEY) && clean(process.env.PINECONE_HOST)),
+  selfBaseUrl: SELF_API_BASE,
+  runSnapshotForBusiness: analyticsRoutes.runSnapshotForBusiness,
+  runReportForBusiness: analyticsRoutes.runReportForBusiness,
+});
+
+async function runOpsDailyHealthAll() {
+  return opsMaintenance.runDailyHealthAll(opsDeps());
+}
+async function runOpsWeeklyMaintenanceAll() {
+  return opsMaintenance.runWeeklyMaintenanceAll(opsDeps());
+}
+async function runOpsGrowthEngineAll() {
+  return opsMaintenance.runGrowthEngineAll(opsDeps());
+}
+async function runOpsAnalyticsSnapshotsAll() {
+  return opsMaintenance.runAnalyticsSnapshotsAll(opsDeps());
+}
+async function runOpsMonthlyReportsAll() {
+  return opsMaintenance.runMonthlyReportsAll(opsDeps());
+}
+
+internalDispatcher.register('/webhook/ops-daily-health-all', () => runOpsDailyHealthAll());
+internalDispatcher.register('/webhook/ops-weekly-maintenance-all', () => runOpsWeeklyMaintenanceAll());
+internalDispatcher.register('/webhook/ops-growth-engine-all', () => runOpsGrowthEngineAll());
+internalDispatcher.register('/webhook/ops-analytics-snapshots-all', () => runOpsAnalyticsSnapshotsAll());
+internalDispatcher.register('/webhook/ops-monthly-reports-all', () => runOpsMonthlyReportsAll());
+
+app.post('/webhook/ops-daily-health-all', async (req, res) => {
+  try {
+    res.json(await runOpsDailyHealthAll());
+  } catch (e) {
+    apiError(res, 500, 'OPS_DAILY_HEALTH_FAILED', e.message);
+  }
+});
+app.post('/webhook/ops-weekly-maintenance-all', async (req, res) => {
+  try {
+    res.json(await runOpsWeeklyMaintenanceAll());
+  } catch (e) {
+    apiError(res, 500, 'OPS_WEEKLY_MAINTENANCE_FAILED', e.message);
+  }
+});
+app.post('/webhook/ops-growth-engine-all', async (req, res) => {
+  try {
+    res.json(await runOpsGrowthEngineAll());
+  } catch (e) {
+    apiError(res, 500, 'OPS_GROWTH_ENGINE_FAILED', e.message);
+  }
+});
+app.post('/webhook/ops-analytics-snapshots-all', async (req, res) => {
+  try {
+    res.json(await runOpsAnalyticsSnapshotsAll());
+  } catch (e) {
+    apiError(res, 500, 'OPS_ANALYTICS_SNAPSHOTS_FAILED', e.message);
+  }
+});
+app.post('/webhook/ops-monthly-reports-all', async (req, res) => {
+  try {
+    res.json(await runOpsMonthlyReportsAll());
+  } catch (e) {
+    apiError(res, 500, 'OPS_MONTHLY_REPORTS_FAILED', e.message);
   }
 });
 

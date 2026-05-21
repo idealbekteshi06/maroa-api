@@ -9,7 +9,7 @@ const { functions } = require('../services/inngest/functions');
 
 test('inngest: exports an array of functions', () => {
   assert.ok(Array.isArray(functions));
-  assert.ok(functions.length >= 12, `expected at least 12 functions, got ${functions.length}`);
+  assert.ok(functions.length >= 17, `expected at least 17 functions, got ${functions.length}`);
 });
 
 test('inngest: every function has an id and a handler', () => {
@@ -47,6 +47,11 @@ const REQUIRED_FUNCTION_IDS = [
   'wf1-overnight-batch-apply-poll',
   'anthropic-batch-reconcile-poll',
   'wf13-weekly-synthesis',
+  'ops-analytics-snapshots-daily',
+  'ops-daily-health-bundle',
+  'ops-weekly-maintenance',
+  'ops-growth-engine-monday',
+  'ops-monthly-reports',
 ];
 
 test('inngest: all required function ids are registered', () => {
@@ -68,6 +73,11 @@ const EXPECTED_CRONS = {
   'wf1-overnight-batch-apply-poll': 'TZ=UTC */10 * * * *',
   'anthropic-batch-reconcile-poll': 'TZ=UTC */5 * * * *',
   'wf13-weekly-synthesis': 'TZ=UTC 0 7 * * 0',
+  'ops-analytics-snapshots-daily': 'TZ=UTC 0 6 * * *',
+  'ops-daily-health-bundle': 'TZ=UTC 30 7 * * *',
+  'ops-weekly-maintenance': 'TZ=UTC 30 5 * * 0',
+  'ops-growth-engine-monday': 'TZ=UTC 0 9 * * 1',
+  'ops-monthly-reports': 'TZ=UTC 0 8 1 * *',
 };
 
 test('inngest: cron expressions match expected schedules', () => {
