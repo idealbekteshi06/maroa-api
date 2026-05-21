@@ -10,7 +10,7 @@
 
 'use strict';
 
-function registerBatchRoutes({ app, wf5, wf6, wf7, wf8, wf9, wf10, wf12, wf14, apiError, logger }) {
+function registerBatchRoutes({ app, wf5, wf6, wf7, wf8, wf9, wf10, wf12, wf14, wf11, apiError, logger }) {
   // ─── WF5 — Competitor Intelligence ────────────────────────────────
   app.post('/webhook/wf5-run-analysis', async (req, res) => {
     const { businessId, force } = req.body || {};
@@ -129,7 +129,16 @@ function registerBatchRoutes({ app, wf5, wf6, wf7, wf8, wf9, wf10, wf12, wf14, a
     const body = req.body || {};
     if (!body.businessId || !body.channel || !body.body) return apiError(res, 400, 'INVALID_REQUEST', 'required');
     try {
-      res.json(await wf9.intakeThread(body));
+      const result = await wf9.intakeThread(body);
+      if (wf11 && result?.threadId) {
+        const routing = await wf11.applyRouting({
+          businessId: body.businessId,
+          threadId: result.threadId,
+          triage: result,
+        }).catch(() => null);
+        if (routing) result.routing = routing;
+      }
+      res.json(result);
     } catch (e) {
       apiError(res, 500, 'WF9_INTAKE_FAILED', e.message);
     }
@@ -138,7 +147,12 @@ function registerBatchRoutes({ app, wf5, wf6, wf7, wf8, wf9, wf10, wf12, wf14, a
     const { businessId, threadId } = req.body || {};
     if (!businessId || !threadId) return apiError(res, 400, 'INVALID_REQUEST', 'required');
     try {
-      res.json(await wf9.triageThread({ businessId, threadId }));
+      const triage = await wf9.triageThread({ businessId, threadId });
+      if (wf11) {
+        const routing = await wf11.applyRouting({ businessId, threadId, triage }).catch(() => null);
+        if (routing) triage.routing = routing;
+      }
+      res.json(triage);
     } catch (e) {
       apiError(res, 500, 'WF9_TRIAGE_FAILED', e.message);
     }

@@ -1805,6 +1805,7 @@ const createWf6 = require('./services/wf6');
 const createWf7 = require('./services/wf7');
 const createWf8 = require('./services/wf8');
 const createWf9 = require('./services/wf9');
+const createWf11 = require('./services/wf11');
 const createWf10 = require('./services/wf10');
 const createWf12 = require('./services/wf12');
 const createWf14 = require('./services/wf14');
@@ -1814,11 +1815,13 @@ const wf6 = createWf6({ sbGet, sbPost, sbPatch, callClaude, extractJSON, logger 
 const wf7 = createWf7({ sbGet, sbPost, sbPatch, callClaude, extractJSON, sendEmail, logger });
 const wf8 = createWf8({ sbGet, sbPost, callClaude, extractJSON, logger });
 const wf9 = createWf9({ sbGet, sbPost, sbPatch, callClaude, extractJSON, logger });
+const wf11 = createWf11({ sbGet, sbPost, sbPatch, logger, sendEmail });
 const wf10 = createWf10({ sbGet, sbPost, sbPatch, callClaude, extractJSON, higgsfieldAI, logger });
 const wf12 = createWf12({ sbGet, sbPost, sbPatch, callClaude, extractJSON, logger });
 const wf14 = createWf14({ sbGet, sbPost, sbPatch, callClaude, extractJSON, logger });
 
 const { registerBatchRoutes } = require('./services/wf_batch_routes');
+const { registerWf11Routes } = require('./services/wf11/registerRoutes');
 
 // ─── Save image to Supabase Storage (permanent URL) ──────────────────────────
 async function saveImageToSupabase(imageUrl, businessId) {
@@ -2940,7 +2943,7 @@ app.get('/', (req, res) =>
   res.json({
     status: 'ok',
     service: 'maroa-api',
-    version: '2.2.0',
+    version: '2.3.0',
     env: {
       SUPABASE_KEY: SUPABASE_KEY ? 'SET' : 'MISSING',
       ANTHROPIC_KEY: ANTHROPIC_KEY ? 'SET' : 'MISSING',
@@ -2948,7 +2951,10 @@ app.get('/', (req, res) =>
       REPLICATE: REPLICATE_API_KEY ? 'set' : 'MISSING',
       RESEND: clean(process.env.RESEND_API_KEY) || RESEND_API_KEY ? 'set' : 'MISSING — emails queued',
     },
-    routes: [
+    docs: 'Full surface: docs/openapi.yml · health: /readyz · Inngest crons in services/inngest/functions.js',
+    workflows: ['wf1-content', 'wf2-leads', 'wf3-ads', 'wf4-reviews', 'wf5-competitors', 'wf6-presence', 'wf7-email', 'wf8-insights', 'wf9-inbox', 'wf10-studio', 'wf11-routing', 'wf12-launch', 'wf13-brief', 'wf14-budget', 'wf15-brain'],
+    skills: 19,
+    sample_routes: [
       // ── Core webhooks ──────────────────────────────────────────────────
       'POST /webhook/new-user-signup',
       'POST /webhook/instant-content',
@@ -9292,7 +9298,8 @@ registerWf4Routes({ app, wf4, apiError, logger });
 registerWf3Routes({ app, wf3, apiError, logger });
 
 // ─── Workflows #5, #6, #7, #8, #9/11, #10, #12, #14 — batch routes ─────────
-registerBatchRoutes({ app, wf5, wf6, wf7, wf8, wf9, wf10, wf12, wf14, apiError, logger });
+registerBatchRoutes({ app, wf5, wf6, wf7, wf8, wf9, wf10, wf12, wf14, wf11, apiError, logger });
+registerWf11Routes({ app, wf11, apiError, logger });
 
 // ─── Creative Director (Cannes-grade strategy) + Soul ID character routes ──
 const { registerCreativeRoutes } = require('./services/creative/registerRoutes');

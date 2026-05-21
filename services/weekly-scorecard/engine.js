@@ -83,6 +83,8 @@ function createEngine(deps) {
                 callClaude,
                 extractJSON,
                 logger,
+                sbPost,
+                skillTag: 'weekly-scorecard',
               });
               if (gr.decision !== 'reject' && gr.final_text && gr.final_text !== narrativeText) {
                 // Polish landed — keep the structured fields but rewrite the

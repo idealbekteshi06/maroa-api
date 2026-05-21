@@ -419,6 +419,23 @@ function createWf2(deps) {
     };
   }
 
+  async function runWeeklyCalibrationAll() {
+    const businesses = await sbGet('businesses', 'onboarding_complete=eq.true&select=id&limit=500').catch(() => []);
+    const results = [];
+    for (const b of businesses) {
+      const calibration = await getCalibration(b.id);
+      results.push({ businessId: b.id, ...calibration });
+      await sbPost('events', {
+        business_id: b.id,
+        kind: 'wf2.calibration.weekly',
+        workflow: '2_lead_scoring',
+        payload: calibration,
+        severity: 'info',
+      }).catch(() => {});
+    }
+    return { processed: results.length, results };
+  }
+
   return {
     rescoreLead,
     generateResponse,
@@ -431,6 +448,7 @@ function createWf2(deps) {
     getIcp,
     saveIcp,
     getCalibration,
+    runWeeklyCalibrationAll,
     buildEnrichmentPayload,
   };
 }

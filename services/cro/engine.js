@@ -102,6 +102,8 @@ function createEngine(deps) {
           callClaude,
           extractJSON,
           logger,
+          sbPost,
+          skillTag: 'cro',
         });
         gateResults.push({ original: text, ...gr });
         // Patch the variant in-place if voice-polish improved it

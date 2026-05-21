@@ -528,6 +528,36 @@ const emailLifecycleProcess = inngest.createFunction(
   }
 );
 
+// ─── WF11 — SLA breach sweep ───────────────────────────────────────────────
+const wf11SlaCheckEvery15m = inngest.createFunction(
+  withDLQ({
+    id: 'wf11-sla-check-15m',
+    name: 'WF11 Smart Routing · SLA breach check',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC */15 * * * *' }],
+  }),
+  async ({ step }) => {
+    const result = await step.run('sla-check-all', async () => callInternal('/webhook/wf11-sla-check-all', {}));
+    return { ok: true, breached: result?.breached ?? 0 };
+  }
+);
+
+// ─── WF2 — weekly calibration rollup ─────────────────────────────────────────
+const wf2WeeklyCalibration = inngest.createFunction(
+  withDLQ({
+    id: 'wf2-weekly-calibration',
+    name: 'WF2 Lead Scoring · weekly calibration',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 3 * * 0' }],
+  }),
+  async ({ step }) => {
+    const result = await step.run('calibration-all', async () => callInternal('/webhook/wf2-calibration-run-all', {}));
+    return { ok: true, processed: result?.processed ?? 0 };
+  }
+);
+
 // ─── AI Search Citation Tracker (daily at 06:00 UTC) ────────────────────
 // Runs the prompt seed library against ChatGPT / Perplexity / Google AI
 // Overviews / Claude for every Growth+ business. Cost: ~$3-5/business/mo.
@@ -722,6 +752,12 @@ const functions = [
 
   // Email Lifecycle (Week 10)
   emailLifecycleProcess,
+
+  // WF11 — inbox SLA breach sweep (every 15 min)
+  wf11SlaCheckEvery15m,
+
+  // WF2 — weekly calibration snapshot (Sunday 03:00 UTC)
+  wf2WeeklyCalibration,
 
   // Autopilot Brain (Week 12 — top-level orchestrator)
   autopilotBrainDaily,

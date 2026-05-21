@@ -317,6 +317,33 @@ async function checkAdvisor({ text, business, contentType, brandVoiceAnchor, cal
   }
 }
 
+// ─── Persist run (optional — requires sbPost from caller) ─────────────────
+
+async function persistGateRun(sbPost, business, contentType, text, out, skillTag) {
+  if (!sbPost || !out?.decision) return;
+  try {
+    await sbPost('quality_gate_runs', {
+      business_id: business?.id || business?.business_id || null,
+      content_type: contentType,
+      decision: out.decision,
+      ship_safe: !!out.ship_safe,
+      retries: out.retries ?? 0,
+      blocking_issues: out.blocking_issues || [],
+      checks_summary: {
+        slop_score: out.checks?.slop?.score,
+        specificity_score: out.checks?.specificity?.score,
+        psychology_passed: out.checks?.psychology?.passed,
+        advisor_decision: out.checks?.advisor?.decision,
+      },
+      input_chars: text?.length || 0,
+      output_chars: out.final_text?.length || 0,
+      skill_tag: skillTag || contentType,
+    });
+  } catch {
+    /* analytics best-effort */
+  }
+}
+
 // ─── Public gate ──────────────────────────────────────────────────────────
 
 /**
@@ -333,6 +360,8 @@ async function checkAdvisor({ text, business, contentType, brandVoiceAnchor, cal
  *   callClaude?: function,
  *   extractJSON?: function,
  *   logger?: object,
+ *   sbPost?: function,
+ *   skillTag?: string,
  * }} opts
  * @returns {Promise<object>}
  */
@@ -348,28 +377,35 @@ async function gate(opts) {
     callClaude,
     extractJSON,
     logger,
+    sbPost,
+    skillTag,
   } = opts || {};
 
+  async function finish(out) {
+    await persistGateRun(sbPost, business, contentType, text, out, skillTag);
+    return out;
+  }
+
   if (bypass) {
-    return {
+    return finish({
       decision: 'ship',
       ship_safe: true,
       checks: { bypassed: true },
       retries: 0,
       final_text: text,
       blocking_issues: [],
-    };
+    });
   }
 
   if (!text || typeof text !== 'string' || text.trim().length === 0) {
-    return {
+    return finish({
       decision: 'reject',
       ship_safe: false,
       checks: {},
       retries: 0,
       final_text: text || '',
       blocking_issues: ['empty_text'],
-    };
+    });
   }
 
   const planTier = String(plan || 'free').toLowerCase();
@@ -414,14 +450,14 @@ async function gate(opts) {
   // Reject path — hard fails only at this stage
   if (hardBlockingIssues.length) {
     if (logger?.info) logger.info('quality-gate', null, 'hard-reject', { hardBlockingIssues, contentType });
-    return {
+    return finish({
       decision: 'reject',
       ship_safe: false,
       checks,
       retries: 0,
       final_text: text,
       blocking_issues: hardBlockingIssues,
-    };
+    });
   }
 
   // ─── Optional advisor review ──
@@ -437,14 +473,14 @@ async function gate(opts) {
       planTier,
     });
     if (checks.advisor && checks.advisor.decision === 'reject') {
-      return {
+      return finish({
         decision: 'reject',
         ship_safe: false,
         checks,
         retries: 0,
         final_text: text,
         blocking_issues: ['advisor_reject'],
-      };
+      });
     }
   }
 
@@ -482,24 +518,24 @@ async function gate(opts) {
         stillBlocked.push('brand_voice_violation');
 
       if (stillBlocked.length === 0 && recheck.slop.passed) {
-        return {
+        return finish({
           decision: 'ship',
           ship_safe: true,
           checks: recheck,
           retries: 1,
           final_text: polishedText,
           blocking_issues: [],
-        };
+        });
       }
 
-      return {
+      return finish({
         decision: 'reject',
         ship_safe: false,
         checks: recheck,
         retries: 1,
         final_text: polishedText,
         blocking_issues: stillBlocked.length ? stillBlocked : ['retry_failed_to_pass_slop'],
-      };
+      });
     } catch (e) {
       logger?.warn?.('quality-gate', null, 'retry polish failed', e?.message);
     }
@@ -507,17 +543,17 @@ async function gate(opts) {
 
   // ─── No retry path available — soft blockers become hard ──
   if (hasSoftBlocker) {
-    return {
+    return finish({
       decision: 'reject',
       ship_safe: false,
       checks,
       retries: 0,
       final_text: text,
       blocking_issues: softBlockingIssues,
-    };
+    });
   }
   if (!slopPassed) {
-    return {
+    return finish({
       decision: 'ship',
       ship_safe: true,
       checks,
@@ -525,18 +561,18 @@ async function gate(opts) {
       final_text: text,
       blocking_issues: [],
       ship_warning: 'slop_score_above_threshold_but_no_retry_path',
-    };
+    });
   }
 
   // ─── Clean ship ──
-  return {
+  return finish({
     decision: 'ship',
     ship_safe: true,
     checks,
     retries: 0,
     final_text: text,
     blocking_issues: [],
-  };
+  });
 }
 
 module.exports = {

@@ -6,6 +6,7 @@
 
 const { buildPresenceAuditPrompt, buildSchemaGenerationPrompt } = require('../prompts/workflow_6_presence.js');
 const { buildBrandContext } = require('../wf1/brandContext.js');
+const { fetchGbpSnapshot } = require('./gbpSnapshot.js');
 
 function createWf6(deps) {
   const { sbGet, sbPost, sbPatch, callClaude, extractJSON, logger } = deps;
@@ -21,8 +22,16 @@ function createWf6(deps) {
 
   async function runAudit({ businessId, auditInput = {} }) {
     const brandContext = await resolveBrandContext(businessId);
+    const biz = brandContext.business || {};
+    const gbpLive = await fetchGbpSnapshot({
+      placeId: auditInput.placeId || biz.google_place_id,
+      businessName: biz.business_name,
+      city: biz.city || biz.location,
+    }).catch(() => null);
+
     const audit = {
-      gbpFields: auditInput.gbpFields || [],
+      gbpLive,
+      gbpFields: auditInput.gbpFields || (gbpLive ? ['name', 'rating', 'website', 'address'] : []),
       gbpCategories: auditInput.gbpCategories || 'unknown',
       gbpPosts: auditInput.gbpPosts || 0,
       schemaDetected: auditInput.schemaDetected || [],

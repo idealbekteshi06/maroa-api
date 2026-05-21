@@ -5,7 +5,10 @@
 
 'use strict';
 
+const internalDispatcher = require('../../lib/internalDispatcher');
+
 function registerWf2Routes({ app, wf2, apiError, logger }) {
+  internalDispatcher.register('/webhook/wf2-calibration-run-all', () => wf2.runWeeklyCalibrationAll());
   async function listHandler(req, res) {
     const businessId = req.body?.business_id || req.query?.business_id;
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'business_id required');
@@ -118,6 +121,14 @@ function registerWf2Routes({ app, wf2, apiError, logger }) {
   }
   app.get('/webhook/wf2-calibration', calibrationHandler);
   app.post('/webhook/wf2-calibration', calibrationHandler);
+
+  app.post('/webhook/wf2-calibration-run-all', async (req, res) => {
+    try {
+      res.json(await wf2.runWeeklyCalibrationAll());
+    } catch (e) {
+      apiError(res, 500, 'WF2_CALIB_RUN_ALL_FAILED', e.message);
+    }
+  });
 
   async function icpGetHandler(req, res) {
     const businessId = req.body?.business_id || req.query?.business_id;

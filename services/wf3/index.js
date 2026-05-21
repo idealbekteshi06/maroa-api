@@ -235,13 +235,40 @@ function createWf3(deps) {
     const a = rows[0];
     if (!a) throw new Error('Action not found');
 
-    // Dispatch based on action_kind — this is a thin placeholder that records
-    // the intent. Real platform API calls are triggered via the existing
-    // /webhook/meta-campaign-optimize / google-campaign-optimize routes.
+    const platform = String(a.entity_platform || 'meta').toLowerCase();
+    const internalBase =
+      process.env.INTERNAL_API_BASE ||
+      process.env.MAROA_API_INTERNAL_URL ||
+      `http://127.0.0.1:${process.env.PORT || 3000}`;
+    const optimizePath =
+      platform === 'google' || platform === 'google_ads'
+        ? '/webhook/google-campaign-optimize'
+        : '/webhook/meta-campaign-optimize';
+
+    let dispatch = { queued: true, path: optimizePath };
+    if (apiRequest) {
+      try {
+        const resp = await apiRequest(
+          'POST',
+          `${internalBase}${optimizePath}`,
+          {},
+          { business_id: businessId, wf3_action_id: actionId, campaign_id: a.entity_id || null }
+        );
+        dispatch = {
+          path: optimizePath,
+          httpStatus: resp.status,
+          body: resp.body,
+        };
+      } catch (e) {
+        dispatch = { path: optimizePath, error: e.message };
+        logger?.warn?.('wf3.applyAction', businessId, 'platform dispatch failed', e.message);
+      }
+    }
+
     await sbPatch('ad_optimization_actions', `id=eq.${actionId}`, {
       status: 'applied',
       applied_at: new Date().toISOString(),
-      result: { note: 'queued for platform dispatch' },
+      result: dispatch,
     });
     await sbPost('events', {
       business_id: businessId,
