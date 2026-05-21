@@ -1,21 +1,15 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter } from 'next/font/google';
 import { Analytics } from '@vercel/analytics/react';
 import { Toaster } from 'sonner';
 import { ThemeProvider } from '@/components/theme/theme-provider';
 import { softwareApplicationSchema, ldJson } from '@/lib/schema-org';
+// Brand fonts. CSS-imported so they load alongside the HTML without a JS
+// runtime dependency. The Tailwind font stack (frontend/tailwind.config.ts)
+// keys off "DM Sans Variable" and falls back to "Inter Variable" so dashboard
+// surfaces that predate the homepage redesign stay legible during the swap.
+import '@fontsource-variable/dm-sans';
+import '@fontsource-variable/inter';
 import './globals.css';
-
-// Audit 2026-05-19 F9: load Inter via next/font so it's self-hosted, parallel-
-// preloaded with the HTML, and the fallback metrics are auto-matched (kills
-// the layout shift on font swap). The CSS variable is then consumed by
-// Tailwind's `font-sans` stack via the className applied to <html>.
-const inter = Inter({
-  variable: '--font-sans',
-  subsets: ['latin'],
-  display: 'swap',
-  preload: true,
-});
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://maroa.ai';
 
@@ -104,11 +98,7 @@ const NO_FLASH_THEME_SCRIPT = `(function(){try{var s=localStorage.getItem('maroa
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html
-      lang="en"
-      className={`${inter.variable} bg-white dark:bg-ink-950`}
-      suppressHydrationWarning
-    >
+    <html lang="en" className="bg-white dark:bg-ink-950" suppressHydrationWarning>
       <head>
         {/* Theme bootstrap — runs synchronously before any render. */}
         <script dangerouslySetInnerHTML={{ __html: NO_FLASH_THEME_SCRIPT }} />
@@ -130,7 +120,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           />
         ) : null}
         <link rel="preconnect" href="https://va.vercel-scripts.com" crossOrigin="anonymous" />
-        <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
         {/* JSON-LD Organization schema — SEO */}
         <script
           type="application/ld+json"
