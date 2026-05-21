@@ -141,20 +141,27 @@ function registerColdStartRoutes(deps) {
     }
   });
 
+  const internalDispatcher = require('../../lib/internalDispatcher');
+
+  async function runColdStartResume(body = {}) {
+    const businessId = body.businessId || body.business_id;
+    if (!businessId) throw new Error('businessId required');
+    const result = await coldStart.resume({ businessId, deps: buildPhaseDeps() });
+    return {
+      ok: !!result?.run && result.run.status !== 'failed',
+      status: result?.run?.status,
+      current_phase: result?.run?.current_phase,
+      last_error: result?.run?.last_error || null,
+    };
+  }
+  internalDispatcher.register('/webhook/cold-start-resume', (body) => runColdStartResume(body || {}));
+
   // ─── POST /webhook/cold-start-resume ─────────────────────────────────────
-  // Manual resume — used by the photo-upload-complete trigger and by the
-  // approve endpoint. Also called from the Inngest function after waiting.
   app.post('/webhook/cold-start-resume', limit.resume, async (req, res) => {
     const businessId = req.body?.businessId || req.body?.business_id;
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
     try {
-      const result = await coldStart.resume({ businessId, deps: buildPhaseDeps() });
-      res.json({
-        ok: !!result?.run && result.run.status !== 'failed',
-        status: result?.run?.status,
-        current_phase: result?.run?.current_phase,
-        last_error: result?.run?.last_error || null,
-      });
+      res.json(await runColdStartResume(req.body || {}));
     } catch (e) {
       logger?.error?.('/webhook/cold-start-resume', businessId, 'failed', e);
       apiError(res, 500, 'COLD_START_RESUME_FAILED', e.message);

@@ -11,11 +11,16 @@
  */
 
 function registerScorecardRoutes({ app, apiError, engine, logger }) {
+  const internalDispatcher = require('../../lib/internalDispatcher');
+
+  async function runWeeklyScorecardAll(body = {}) {
+    return engine.generateForAll({ dryRun: !!body.dryRun });
+  }
+  internalDispatcher.register('/webhook/weekly-scorecard-all', (body) => runWeeklyScorecardAll(body || {}));
+
   app.post('/webhook/weekly-scorecard-all', async (req, res) => {
-    const { dryRun } = req.body || {};
     try {
-      const result = await engine.generateForAll({ dryRun: !!dryRun });
-      res.json(result);
+      res.json(await runWeeklyScorecardAll(req.body || {}));
     } catch (e) {
       logger?.error?.('/webhook/weekly-scorecard-all', null, 'cron failed', e);
       apiError(res, 500, 'WEEKLY_SCORECARD_CRON_FAILED', e.message);

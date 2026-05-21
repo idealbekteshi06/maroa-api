@@ -164,11 +164,12 @@ test('health: probeSupabase returns not-ok on hung query', async () => {
 // Unknown plans fall back to growth's cap (lib/costGuard.js:51-55) so legacy
 // rows with stale plan values don't crash callClaude.
 test('costGuard: effectiveCapForPlan honors plan tiers', () => {
+  assert.strictEqual(costGuard.effectiveCapForPlan('starter'), 35);
   assert.strictEqual(costGuard.effectiveCapForPlan('growth'), 80);
   assert.strictEqual(costGuard.effectiveCapForPlan('agency'), 250);
   // Unknown / legacy plans → growth fallback
   assert.strictEqual(costGuard.effectiveCapForPlan('unknown'), 80);
-  assert.strictEqual(costGuard.effectiveCapForPlan('free'), 80);
+  assert.strictEqual(costGuard.effectiveCapForPlan('free'), 35);
 });
 
 test('costGuard: env override hatch wins', () => {

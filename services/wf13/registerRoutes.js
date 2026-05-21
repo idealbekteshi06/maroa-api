@@ -212,26 +212,31 @@ function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logge
     }
   });
 
+  const internalDispatcher = require('../../lib/internalDispatcher');
+
+  async function runWf13Weekly(body = {}) {
+    const { businessId, force } = body;
+    if (businessId) {
+      return wf13.engine.runSynthesis({ businessId, force: !!force });
+    }
+    const bizList = await sbGet('businesses', 'is_active=eq.true&select=id&limit=500').catch(() => []);
+    const results = [];
+    for (const b of bizList) {
+      try {
+        const r = await wf13.engine.runSynthesis({ businessId: b.id, force: !!force });
+        results.push({ businessId: b.id, ...r });
+      } catch (e) {
+        results.push({ businessId: b.id, ok: false, error: e.message });
+      }
+    }
+    return { processed: results.length, results };
+  }
+  internalDispatcher.register('/webhook/wf13-run-weekly', (body) => runWf13Weekly(body || {}));
+
   // ─── POST /webhook/wf13-run-weekly (Sunday cron target) ───
   app.post('/webhook/wf13-run-weekly', limits.crontarget, async (req, res) => {
-    const { businessId, force } = req.body || {};
     try {
-      if (businessId) {
-        const r = await wf13.engine.runSynthesis({ businessId, force: !!force });
-        res.json(r);
-      } else {
-        const bizList = await sbGet('businesses', 'is_active=eq.true&select=id&limit=500').catch(() => []);
-        const results = [];
-        for (const b of bizList) {
-          try {
-            const r = await wf13.engine.runSynthesis({ businessId: b.id, force: !!force });
-            results.push({ businessId: b.id, ...r });
-          } catch (e) {
-            results.push({ businessId: b.id, ok: false, error: e.message });
-          }
-        }
-        res.json({ processed: results.length, results });
-      }
+      res.json(await runWf13Weekly(req.body || {}));
     } catch (e) {
       apiError(res, 500, 'WF13_CRON_FAILED', e.message);
     }

@@ -45,6 +45,7 @@ const PUBLIC_ROUTES = new Set([
   '/readyz',
   '/health',
   '/metrics',
+  '/docs/openapi.yml',
   '/debug',
   '/test-email',
   '/meta-oauth-exchange',

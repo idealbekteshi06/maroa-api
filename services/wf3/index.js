@@ -245,24 +245,35 @@ function createWf3(deps) {
         ? '/webhook/google-campaign-optimize'
         : '/webhook/meta-campaign-optimize';
 
+    const payload = {
+      business_id: businessId,
+      wf3_action_id: actionId,
+      campaign_id: a.entity_id || null,
+      action_kind: a.action_kind || null,
+    };
     let dispatch = { queued: true, path: optimizePath };
-    if (apiRequest) {
-      try {
+    const internalDispatcher = require('../../lib/internalDispatcher');
+    try {
+      const inProcess = await internalDispatcher.dispatch(optimizePath, payload);
+      if (!inProcess?._notRegistered) {
+        dispatch = { path: optimizePath, in_process: true, body: inProcess };
+      } else if (apiRequest) {
+        const secret = (process.env.N8N_WEBHOOK_SECRET || '').trim();
         const resp = await apiRequest(
           'POST',
           `${internalBase}${optimizePath}`,
-          {},
-          { business_id: businessId, wf3_action_id: actionId, campaign_id: a.entity_id || null }
+          secret ? { 'x-webhook-secret': secret } : {},
+          payload
         );
         dispatch = {
           path: optimizePath,
           httpStatus: resp.status,
           body: resp.body,
         };
-      } catch (e) {
-        dispatch = { path: optimizePath, error: e.message };
-        logger?.warn?.('wf3.applyAction', businessId, 'platform dispatch failed', e.message);
       }
+    } catch (e) {
+      dispatch = { path: optimizePath, error: e.message };
+      logger?.warn?.('wf3.applyAction', businessId, 'platform dispatch failed', e.message);
     }
 
     await sbPatch('ad_optimization_actions', `id=eq.${actionId}`, {

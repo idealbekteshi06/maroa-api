@@ -324,6 +324,7 @@ app.use(observability.metricsMiddleware());
 // and route violations to Sentry + Slack + Email + PagerDuty (per severity)
 // via the alert router. No-op in tests (NODE_ENV=test).
 // See services/observability/slos.js + lib/alertRouter.js.
+const internalDispatcher = require('./lib/internalDispatcher');
 {
   const { createAlertRouter } = require('./lib/alertRouter');
   // sendEmail is the existing utility loaded earlier in this file (search
@@ -342,7 +343,6 @@ app.use(observability.metricsMiddleware());
   // Wave 59 S5: quarterly taxonomy refresh — registered with the internal
   // dispatcher so the Inngest cron can invoke it without an HTTP round-trip.
   // No public HTTP route — this is internal-only.
-  const internalDispatcher = require('./lib/internalDispatcher');
   const taxonomyRefresh = require('./services/taxonomy-refresh');
   internalDispatcher.register('/webhook/taxonomy-refresh-run', async () =>
     taxonomyRefresh.refreshTaxonomy({
@@ -351,9 +351,15 @@ app.use(observability.metricsMiddleware());
   );
 }
 
-// ─── Liveness + readiness probes (load balancers + Inngest hit these) ──────
+// ─── Liveness + readiness probes (registered after Inngest mount — see boot) ─
 const { registerHealthRoutes } = require('./lib/healthCheck');
-registerHealthRoutes({ app, sbGet, logger });
+const path = require('path');
+const fs = require('fs');
+app.get('/docs/openapi.yml', (req, res) => {
+  const specPath = path.join(__dirname, 'docs', 'openapi.yml');
+  if (!fs.existsSync(specPath)) return res.status(404).type('text/plain').send('openapi spec not found');
+  res.type('application/yaml').send(fs.readFileSync(specPath, 'utf8'));
+});
 
 // ─── /metrics + /webhook/cost-report (carved into routes/observability.js) ─
 // First carve-out from server.js. See routes/observability.js for the
@@ -4562,8 +4568,10 @@ try {
     })
   );
   console.log(`[inngest] mounted ${inngestFunctions.length} functions at /api/inngest`);
+  registerHealthRoutes({ app, sbGet, logger, inngestClient: inngest });
 } catch (e) {
   console.error('[inngest] failed to mount:', e.message);
+  registerHealthRoutes({ app, sbGet, logger });
 }
 
 // ─── Brand Voice (read + rebuild) ─────────────────────────────────────────
@@ -9519,11 +9527,15 @@ async function sendEmailViaResend(args) {
   }
 }
 
+async function runEmailLifecycleProcessDue() {
+  return emailLifecycleService.processDueRuns({
+    deps: { sbGet, sbPatch, sendEmail: sendEmailViaResend, logger },
+  });
+}
+internalDispatcher.register('/webhook/email-lifecycle-process-due', () => runEmailLifecycleProcessDue());
 app.post('/webhook/email-lifecycle-process-due', async (req, res) => {
   try {
-    const r = await emailLifecycleService.processDueRuns({
-      deps: { sbGet, sbPatch, sendEmail: sendEmailViaResend, logger },
-    });
+    const r = await runEmailLifecycleProcessDue();
     res.json(r);
   } catch (e) {
     apiError(res, 500, 'EMAIL_LIFECYCLE_PROCESS_FAILED', e.message);
@@ -9566,24 +9578,28 @@ app.post('/webhook/email-lifecycle-bootstrap', async (req, res) => {
 // ─── Autopilot Brain (Week 12) — daily orchestrator + customer brief ─────
 const autopilotBrainService = require('./services/autopilot-brain');
 
+async function runAutopilotBrainAll() {
+  const businesses = await sbGet('businesses', 'is_active=eq.true&select=id&limit=1000').catch(() => []);
+  let ran = 0,
+    conflicts = 0;
+  const brainDeps = { sbGet, sbPost, logger, sentry: Sentry };
+  for (const b of businesses) {
+    try {
+      const r = await autopilotBrainService.runDaily({ businessId: b.id, deps: brainDeps });
+      if (r?.ok) {
+        ran += 1;
+        conflicts += r.conflicts_resolved || 0;
+      }
+    } catch (e) {
+      logger?.warn?.('/webhook/autopilot-brain-run-all', b.id, 'run failed', { error: e.message });
+    }
+  }
+  return { ok: true, businesses: businesses.length, ran, conflicts_resolved: conflicts };
+}
+internalDispatcher.register('/webhook/autopilot-brain-run-all', () => runAutopilotBrainAll());
 app.post('/webhook/autopilot-brain-run-all', async (req, res) => {
   try {
-    const businesses = await sbGet('businesses', 'is_active=eq.true&select=id&limit=1000').catch(() => []);
-    let ran = 0,
-      conflicts = 0;
-    const brainDeps = { sbGet, sbPost, logger, sentry: Sentry };
-    for (const b of businesses) {
-      try {
-        const r = await autopilotBrainService.runDaily({ businessId: b.id, deps: brainDeps });
-        if (r?.ok) {
-          ran += 1;
-          conflicts += r.conflicts_resolved || 0;
-        }
-      } catch (e) {
-        logger?.warn?.('/webhook/autopilot-brain-run-all', b.id, 'run failed', { error: e.message });
-      }
-    }
-    res.json({ ok: true, businesses: businesses.length, ran, conflicts_resolved: conflicts });
+    res.json(await runAutopilotBrainAll());
   } catch (e) {
     apiError(res, 500, 'AUTOPILOT_BRAIN_RUN_ALL_FAILED', e.message);
   }
