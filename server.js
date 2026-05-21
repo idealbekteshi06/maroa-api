@@ -4763,6 +4763,56 @@ app.get('/api/cron-health/:businessId', async (req, res) => {
   }
 });
 
+// GET /api/business/:businessId/integrations — connection status for dashboard
+app.get('/api/business/:businessId/integrations', async (req, res) => {
+  const businessId = String(req.params.businessId || '').trim();
+  if (!businessId) return apiError(res, 400, 'VALIDATION_ERROR', 'businessId required');
+  const safeBiz = encodeURIComponent(businessId);
+  try {
+    const rows = await sbGet(
+      'businesses',
+      `id=eq.${safeBiz}&select=business_name,meta_access_token,facebook_page_id,instagram_account_id,` +
+        `google_access_token,google_ads_customer_id,linkedin_connected,linkedin_access_token,` +
+        `twitter_connected,twitter_access_token,tiktok_connected,tiktok_access_token,` +
+        `resend_from_email,plan`
+    ).catch(() => []);
+    const biz = rows[0];
+    if (!biz) return apiError(res, 404, 'NOT_FOUND', 'Business not found');
+
+    const item = (connected, label, detail) => ({
+      connected: !!connected,
+      label,
+      detail: detail || (connected ? 'Connected' : 'Not connected'),
+    });
+
+    return res.json({
+      business_id: businessId,
+      business_name: biz.business_name,
+      plan: biz.plan || 'starter',
+      generated_at: new Date().toISOString(),
+      integrations: [
+        item(biz.meta_access_token && biz.facebook_page_id, 'Meta (Facebook & Instagram)', 'Ads + page insights'),
+        item(biz.google_access_token || biz.google_ads_customer_id, 'Google Ads', 'Search & display campaigns'),
+        item(biz.linkedin_connected && biz.linkedin_access_token, 'LinkedIn', 'Company page analytics'),
+        item(biz.twitter_connected && biz.twitter_access_token, 'X / Twitter', 'Post metrics'),
+        item(biz.tiktok_connected && biz.tiktok_access_token, 'TikTok', 'Business profile'),
+        item(!!process.env.RESEND_API_KEY, 'Email (Resend)', biz.resend_from_email ? `From ${biz.resend_from_email}` : 'Transactional email'),
+        item(!!(process.env.HIGGSFIELD_API_KEY_ID && process.env.HIGGSFIELD_API_KEY_SECRET), 'Higgsfield Studio', 'AI image & video generation'),
+        item(!!(process.env.OPENAI_API_KEY && process.env.PINECONE_API_KEY && process.env.PINECONE_HOST), 'Brand memory', 'Pinecone vector store'),
+      ],
+      connected_count: [
+        biz.meta_access_token && biz.facebook_page_id,
+        biz.google_access_token || biz.google_ads_customer_id,
+        biz.linkedin_connected && biz.linkedin_access_token,
+        biz.twitter_connected && biz.twitter_access_token,
+        biz.tiktok_connected && biz.tiktok_access_token,
+      ].filter(Boolean).length,
+    });
+  } catch (err) {
+    return apiError(res, 500, 'INTEGRATIONS_FAILED', err.message);
+  }
+});
+
 app.get('/api/business/:businessId/brand-voice', async (req, res) => {
   const businessId = String(req.params.businessId || '').trim();
   if (!businessId) return res.status(400).json({ error: 'businessId required' });
@@ -9573,6 +9623,121 @@ app.post('/webhook/email-lifecycle-bootstrap', async (req, res) => {
     res.json(r);
   } catch (e) {
     apiError(res, 500, 'EMAIL_LIFECYCLE_BOOTSTRAP_FAILED', e.message);
+  }
+});
+
+const EMAIL_STAGE_LABELS = {
+  welcome: 'Welcome Series',
+  nurture: 'Nurture',
+  abandoned_cart: 'Cart Recovery',
+  post_purchase: 'Post-purchase',
+  re_engagement: 'Re-engagement',
+  win_back: 'Win-back',
+};
+
+app.get('/api/business/:businessId/email-lifecycle', async (req, res) => {
+  const businessId = String(req.params.businessId || '').trim();
+  if (!businessId) return apiError(res, 400, 'VALIDATION_ERROR', 'businessId required');
+  const safeBiz = encodeURIComponent(businessId);
+  try {
+    await emailLifecycleService.ensureSequencesForBusiness({
+      businessId,
+      deps: { sbGet, sbPost, logger },
+    });
+
+    const [sequences, runs, retention] = await Promise.all([
+      sbGet(
+        'email_sequences',
+        `business_id=eq.${safeBiz}&select=id,stage,is_active,trigger_event,step_count,cadence_days,created_at&order=stage.asc`
+      ).catch(() => []),
+      sbGet(
+        'email_sequence_runs',
+        `business_id=eq.${safeBiz}&select=id,sequence_id,status,send_log,created_at&limit=500`
+      ).catch(() => []),
+      sbGet(
+        'retention_logs',
+        `business_id=eq.${safeBiz}&select=sent_at,opened,clicked&order=sent_at.desc&limit=200`
+      ).catch(() => []),
+    ]);
+
+    const activeRuns = (runs || []).filter((r) => r.status === 'active' || r.status === 'running');
+    const sentLogs = (retention || []).length;
+    const opens = (retention || []).filter((r) => r.opened).length;
+    const clicks = (retention || []).filter((r) => r.clicked).length;
+
+    const mappedSequences = (sequences || []).map((seq) => {
+      let cadence = seq.cadence_days;
+      if (typeof cadence === 'string') {
+        try {
+          cadence = JSON.parse(cadence);
+        } catch {
+          cadence = [];
+        }
+      }
+      if (!Array.isArray(cadence)) cadence = [];
+      const steps = cadence.map((day, idx) => ({
+        subject: `${EMAIL_STAGE_LABELS[seq.stage] || seq.stage} — step ${idx + 1}`,
+        delay: day === 0 ? 'Immediate' : `Day ${day}`,
+      }));
+      const seqRuns = (runs || []).filter((r) => r.sequence_id === seq.id);
+      return {
+        id: seq.id,
+        stage: seq.stage,
+        name: EMAIL_STAGE_LABELS[seq.stage] || seq.stage,
+        emails: seq.step_count || steps.length,
+        openRate: 0,
+        active: seq.is_active !== false,
+        status: seq.is_active === false ? 'paused' : 'live',
+        steps,
+        enrolled: seqRuns.length,
+      };
+    });
+
+    const chartByDay = {};
+    for (const row of retention || []) {
+      const day = String(row.sent_at || '').slice(0, 10);
+      if (!day) continue;
+      if (!chartByDay[day]) chartByDay[day] = { day, opens: 0, clicks: 0 };
+      chartByDay[day].opens += row.opened ? 1 : 0;
+      chartByDay[day].clicks += row.clicked ? 1 : 0;
+    }
+    const chart = Object.values(chartByDay)
+      .sort((a, b) => a.day.localeCompare(b.day))
+      .slice(-30);
+
+    return res.json({
+      sequences: mappedSequences,
+      metrics: {
+        active_sequences: mappedSequences.filter((s) => s.active).length,
+        subscribers: activeRuns.length,
+        open_rate_pct: sentLogs ? Math.round((opens / sentLogs) * 1000) / 10 : null,
+        click_rate_pct: sentLogs ? Math.round((clicks / sentLogs) * 1000) / 10 : null,
+        emails_sent_30d: sentLogs,
+      },
+      chart,
+      has_data: mappedSequences.length > 0,
+    });
+  } catch (err) {
+    return apiError(res, 500, 'EMAIL_LIFECYCLE_DASHBOARD_FAILED', err.message);
+  }
+});
+
+app.patch('/api/business/:businessId/email-lifecycle/:sequenceId', async (req, res) => {
+  const businessId = String(req.params.businessId || '').trim();
+  const sequenceId = String(req.params.sequenceId || '').trim();
+  const { is_active } = req.body || {};
+  if (!businessId || !sequenceId) return apiError(res, 400, 'VALIDATION_ERROR', 'businessId and sequenceId required');
+  if (typeof is_active !== 'boolean') return apiError(res, 400, 'VALIDATION_ERROR', 'is_active boolean required');
+  try {
+    const rows = await sbGet(
+      'email_sequences',
+      `id=eq.${encodeURIComponent(sequenceId)}&business_id=eq.${encodeURIComponent(businessId)}&select=id&limit=1`
+    );
+    if (!rows[0]) return apiError(res, 404, 'NOT_FOUND', 'Sequence not found');
+    await sbPatch('email_sequences', `id=eq.${sequenceId}`, { is_active });
+    return res.json({ ok: true, id: sequenceId, is_active });
+  } catch (err) {
+    return apiError(res, 500, 'EMAIL_SEQUENCE_PATCH_FAILED', err.message);
   }
 });
 

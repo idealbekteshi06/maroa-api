@@ -119,7 +119,105 @@ function createWf5(deps) {
     return rows[0] || null;
   }
 
-  return { runAnalysis, getLatest, gatherBundle, resolveBrandContext };
+  function parseJsonField(val) {
+    if (Array.isArray(val)) return val;
+    if (val && typeof val === 'object') return val;
+    if (typeof val === 'string') {
+      try {
+        return JSON.parse(val);
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  const AVATAR_COLORS = [
+    'bg-primary text-primary-foreground',
+    'bg-blue-500 text-white',
+    'bg-emerald-500 text-white',
+    'bg-violet-500 text-white',
+    'bg-amber-500 text-white',
+    'bg-rose-500 text-white',
+  ];
+
+  function initialsFor(name) {
+    const parts = String(name || '?')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (!parts.length) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+
+  function threatToEngagement(level) {
+    const map = { low: 2.5, medium: 4.2, high: 5.8, critical: 7.5 };
+    return map[String(level || 'medium').toLowerCase()] ?? 4;
+  }
+
+  /** UI payload for Competitor Intelligence page — no demo rows. */
+  async function getDashboard(businessId) {
+    const [briefRow, bizRows, insights] = await Promise.all([
+      getLatest(businessId),
+      sbGet('businesses', `id=eq.${businessId}&select=business_name`).catch(() => []),
+      sbGet(
+        'competitor_insights',
+        `business_id=eq.${businessId}&order=recorded_at.desc&limit=50&select=competitor_name,competitor_doing_well,recorded_at`
+      ).catch(() => []),
+    ]);
+    const businessName = bizRows?.[0]?.business_name || 'Your brand';
+
+    const briefCompetitors = briefRow ? parseJsonField(briefRow.competitors) : [];
+    const whiteSpace = briefRow ? parseJsonField(briefRow.white_space) : [];
+
+    const competitors = briefCompetitors.map((c, i) => {
+      const name = c.name || `Competitor ${i + 1}`;
+      const related = (insights || []).filter((r) => (r.competitor_name || '').toLowerCase() === name.toLowerCase());
+      const trendUp = ['scaling', 'pivoting'].includes(String(c.posture_change || '').toLowerCase());
+      const eng = threatToEngagement(c.threat_level);
+      const sparkline = Array.from({ length: 12 }, (_, j) =>
+        Math.max(1, eng + (trendUp ? j * 0.05 : -j * 0.03) + (i * 0.1))
+      );
+      return {
+        name,
+        initials: initialsFor(name),
+        color: AVATAR_COLORS[i % AVATAR_COLORS.length],
+        platforms: ['website'],
+        followers: '—',
+        engagement: Number(eng.toFixed(1)),
+        engagementTrend: trendUp ? 'up' : 'down',
+        weeklyPosts: related.length || 0,
+        topContent: c.key_move_this_week || c.posture_change || 'Tracked',
+        sparkline,
+        threat_level: c.threat_level || 'medium',
+        is_you: false,
+      };
+    });
+
+    const contentGaps = whiteSpace.map((w) => ({
+      topic: w.opportunity || w.topic || 'Opportunity',
+      description: w.why_now || w.description || '',
+      competitors: briefCompetitors
+        .filter((c) => c.threat_level === 'high' || c.threat_level === 'critical')
+        .map((c) => c.name)
+        .filter(Boolean)
+        .slice(0, 3),
+      opportunity: w.difficulty === 'easy' ? 'High' : w.difficulty === 'hard' ? 'Low' : 'Medium',
+    }));
+
+    return {
+      has_data: competitors.length > 0,
+      business_name: businessName,
+      week_start: briefRow?.week_start || null,
+      summary: briefRow?.summary || null,
+      competitors,
+      content_gaps: contentGaps,
+      recommended_actions: briefRow ? parseJsonField(briefRow.actions) : [],
+    };
+  }
+
+  return { runAnalysis, getLatest, getDashboard, gatherBundle, resolveBrandContext };
 }
 
 module.exports = createWf5;

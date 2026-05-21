@@ -33,6 +33,18 @@ function registerBatchRoutes({ app, wf5, wf6, wf7, wf8, wf9, wf10, wf12, wf14, w
   app.get('/webhook/wf5-latest', wf5latest);
   app.post('/webhook/wf5-latest', wf5latest);
 
+  async function wf5dashboard(req, res) {
+    const businessId = req.body?.business_id || req.query?.business_id;
+    if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'business_id required');
+    try {
+      res.json(await wf5.getDashboard(businessId));
+    } catch (e) {
+      apiError(res, 500, 'WF5_DASHBOARD_FAILED', e.message);
+    }
+  }
+  app.get('/webhook/wf5-dashboard', wf5dashboard);
+  app.post('/webhook/wf5-dashboard', wf5dashboard);
+
   // ─── WF6 — Local + Digital Presence ───────────────────────────────
   app.post('/webhook/wf6-run-audit', async (req, res) => {
     const { businessId, auditInput } = req.body || {};
