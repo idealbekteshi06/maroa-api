@@ -13,6 +13,13 @@ Run `npm run check-migrations:applied` locally against prod credentials in CI or
 
 Confirm Paddle dashboard SKUs match live prices: **Starter $29**, **Growth $59**, **Agency $99**.
 
+## Railway healthcheck
+
+1. Service **Root Directory** = repo root; config file `railway.toml` or `railway.json` at root.
+2. Variable **`RAILWAY_HEALTHCHECK_TIMEOUT_SEC=600`** (required if deploys still fail at ~5m).
+3. Deploy details show healthcheck from config file (file icon on `/healthz`).
+4. See [RAILWAY_DEPLOY.md](./RAILWAY_DEPLOY.md).
+
 ## After deploy
 
 1. `npm run check-migrations:applied` — ledger shows 079 + 080 applied.
