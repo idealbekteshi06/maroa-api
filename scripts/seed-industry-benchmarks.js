@@ -106,13 +106,49 @@ const BENCHMARKS = [
   },
 ];
 
+function buildGlobalBenchmark(benchmarks) {
+  const n = benchmarks.length;
+  const mean = (pick) => benchmarks.reduce((sum, b) => sum + pick(b), 0) / n;
+  const dayCounts = new Map();
+  const timeCounts = new Map();
+  const contentTypes = new Set();
+
+  for (const b of benchmarks) {
+    for (const d of b.best_days_post || []) dayCounts.set(d, (dayCounts.get(d) || 0) + 1);
+    for (const t of b.best_times_post || []) timeCounts.set(t, (timeCounts.get(t) || 0) + 1);
+    for (const c of b.top_content_types || []) contentTypes.add(c);
+  }
+
+  const topDays = [...dayCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([d]) => d);
+  const topTimes = [...timeCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([t]) => t);
+
+  return {
+    industry: 'global',
+    meta_avg_ctr: mean((b) => b.meta_avg_ctr),
+    google_avg_cpc_usd: mean((b) => b.google_avg_cpc_usd),
+    email_open_rate: mean((b) => b.email_open_rate),
+    best_days_post: topDays.length ? topDays : ['Tuesday', 'Wednesday', 'Thursday'],
+    best_times_post: topTimes.length ? topTimes : ['09:00', '12:00', '17:00'],
+    instagram_engagement_rate: mean((b) => b.instagram_engagement_rate),
+    top_content_types: [...contentTypes].slice(0, 6),
+  };
+}
+
+const GLOBAL_BENCHMARK = buildGlobalBenchmark(BENCHMARKS);
+
 async function main() {
   if (!getSeedConfig().ok && !DRY_RUN) {
     console.error('[seed-benchmarks] Need SUPABASE_URL + SUPABASE_KEY');
     process.exit(1);
   }
 
-  const rows = BENCHMARKS.map((b) => ({
+  const rows = [...BENCHMARKS, GLOBAL_BENCHMARK].map((b) => ({
     industry: b.industry,
     region: 'GLOBAL',
     meta_avg_ctr: b.meta_avg_ctr,
@@ -123,7 +159,7 @@ async function main() {
     instagram_engagement_rate: b.instagram_engagement_rate,
     top_content_types: b.top_content_types,
     benchmarks: b,
-    source: 'public_benchmarks_2026',
+    source: b.industry === 'global' ? 'cross_industry_average_2026' : 'public_benchmarks_2026',
     updated_at: new Date().toISOString(),
   }));
 

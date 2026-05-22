@@ -82,3 +82,28 @@ test('normalizeIndustrySlug maps gym to fitness', () => {
   assert.strictEqual(gc.normalizeIndustrySlug('Gym'), 'fitness');
   assert.strictEqual(gc.normalizeIndustrySlug('law firm'), 'legal');
 });
+
+test('resolveBenchmarkIndustry maps vertical synonyms', () => {
+  assert.strictEqual(gc.resolveBenchmarkIndustry('Orthodontist'), 'dental');
+  assert.strictEqual(gc.resolveBenchmarkIndustry('Hair Salon'), 'beauty');
+  assert.strictEqual(gc.resolveBenchmarkIndustry('Yoga Studio'), 'fitness');
+  assert.strictEqual(gc.resolveBenchmarkIndustry('Pub & Bistro'), 'restaurant');
+  assert.strictEqual(gc.resolveBenchmarkIndustry('Bakery'), 'cafe');
+  assert.strictEqual(gc.resolveBenchmarkIndustry('Online Store'), 'ecommerce');
+  assert.strictEqual(gc.resolveBenchmarkIndustry('Plumbing Services'), 'global');
+});
+
+test('fetchIndustryBenchmarks falls back to GLOBAL row when resolved slug missing', async () => {
+  const GLOBAL_ROW = { ...BENCHMARK_ROW, industry: 'global', meta_avg_ctr: 0.011 };
+  const sbGet = async (table, query = '') => {
+    if (table !== 'industry_benchmarks') return [];
+    if (query.includes('industry=eq.dental')) return [];
+    if (query.includes('industry=eq.global')) return [GLOBAL_ROW];
+    return [];
+  };
+
+  const row = await gc.fetchIndustryBenchmarks({ sbGet, industry: 'dentist' });
+  assert.strictEqual(row.industry, 'global');
+  assert.strictEqual(row._benchmark_resolved_industry, 'dental');
+  assert.strictEqual(row._benchmark_used_global_fallback, true);
+});
