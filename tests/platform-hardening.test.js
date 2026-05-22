@@ -58,8 +58,15 @@ test('platformOps: critical migrations list includes 079 and 080', () => {
 });
 
 test('platformOps: probeCriticalMigrations uses table existence not ledger', async () => {
-  const sbGet = async (table) => {
-    if (table === 'inbox_routing_settings' || table === 'quality_gate_runs') return [];
+  const sbGet = async (table, query) => {
+    if (table === 'inbox_routing_settings') {
+      assert.match(query, /select=business_id/);
+      return [];
+    }
+    if (table === 'quality_gate_runs') {
+      assert.match(query, /select=id/);
+      return [];
+    }
     throw new Error(`relation "public.${table}" does not exist`);
   };
   const r = await probeCriticalMigrations(sbGet);
