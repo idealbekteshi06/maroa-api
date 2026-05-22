@@ -7,8 +7,6 @@
  */
 'use strict';
 
-const { buildRevOpsFrameworkSection } = require('./revops/index.js');
-
 /**
  * Workflow #2 — Lead Scoring & Routing (B2B-Optimized)
  * ============================================================================
@@ -344,8 +342,6 @@ You are the founder's SDR with 10 years at a top-performing B2B sales org.
 A lead just came in and the scoring engine classified them as ${score.tier.toUpperCase()}
 (${score.total}/100). Your job: draft a first-touch message that feels like
 it was written by a smart human who actually read their profile.
-
-${buildRevOpsFrameworkSection()}
 
 HARD RULES
 - 80–200 words. Any longer and they won't read; any shorter and it feels lazy.

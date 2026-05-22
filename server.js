@@ -7,7 +7,7 @@
 // ─── Boot-time env validation. Crashes loudly on misconfiguration. ──────────
 // Must run before any module that reads process.env at import time.
 const env = require('./lib/env').parse();
-// Railway injects PORT (e.g. 8080) — resolve before early listen
+// Railway injects PORT (e.g. 8080) — resolve before early listen (~line 330)
 const PORT = Number(process.env.PORT) || Number(env.PORT) || 3000;
 
 // OpenTelemetry — opt-in via OTEL_ENABLED=true. Must init BEFORE any
@@ -245,7 +245,7 @@ app.use(_abuseDetector.middleware);
 setInterval(_abuseDetector.sweep, 5 * 60 * 1000).unref();
 
 const paddleWebhookRawBody = express.raw({ type: 'application/json' });
-app.post('/webhook/paddle-webhook', paddleWebhookRawBody, paddleWebhookHandler);
+// Paddle route registered after paddleWebhookHandler (deferred route block below).
 
 // ─── Stripe webhook (parallel to Paddle — pick one or both per region) ──────
 // MUST use raw body so signature verification can hash the exact bytes
@@ -323,10 +323,163 @@ app.use(securityHeaders({ env: process.env.NODE_ENV }));
 const observability = require('./services/observability');
 app.use(observability.metricsMiddleware());
 
-// ─── Early listen (Railway /healthz) — routes register below on same server ─
+// ─── Config ───────────────────────────────────────────────────────────────────
+// All values come from the validated `env` object (see lib/env.js). No prod-URL
+// defaults — boot fails in lib/env.js if a required var is missing.
+const clean = (v) => (v || '').replace(/[^\x20-\x7E]/g, '').trim();
+
+const SUPABASE_URL = env.SUPABASE_URL;
+const SUPABASE_KEY = env.SUPABASE_KEY;
+const ANTHROPIC_KEY = env.ANTHROPIC_KEY;
+const SERPAPI_KEY = env.SERPAPI_KEY || '';
+const REPLICATE_API_KEY = env.REPLICATE_API_KEY || '';
+const PEXELS_API_KEY = env.PEXELS_API_KEY || '';
+const RESEND_API_KEY = env.RESEND_API_KEY || '';
+const FROM_EMAIL = env.FROM_EMAIL;
+const OPENAI_API_KEY = env.OPENAI_API_KEY || '';
+const PINECONE_API_KEY = env.PINECONE_API_KEY || '';
+const PINECONE_HOST = env.PINECONE_HOST || '';
+const RUNWAY_API_KEY = env.RUNWAY_API_KEY || '';
+const GOOGLE_AI_API_KEY = env.GOOGLE_AI_API_KEY || '';
+const TWILIO_ACCOUNT_SID = env.TWILIO_ACCOUNT_SID || '';
+const TWILIO_AUTH_TOKEN = env.TWILIO_AUTH_TOKEN || '';
+const TWILIO_WHATSAPP_FROM = env.TWILIO_WHATSAPP_FROM;
+const PADDLE_WEBHOOK_SECRET = env.PADDLE_WEBHOOK_SECRET || '';
+const PADDLE_STARTER_PRICE = env.PADDLE_STARTER_PRICE_ID || '';
+const PADDLE_GROWTH_PRICE = env.PADDLE_GROWTH_PRICE_ID || '';
+const PADDLE_AGENCY_PRICE = env.PADDLE_AGENCY_PRICE_ID || '';
+const ORCHESTRATOR_SECRET = env.ORCHESTRATOR_SECRET || '';
+const N8N_WEBHOOK_SECRET = env.N8N_WEBHOOK_SECRET;
+const EXTERNAL_HTTP_TIMEOUT_MS = env.EXTERNAL_HTTP_TIMEOUT_MS;
+
+// Paddle client initialized in services/paddle.js
+
+function isInternalMaroaWebhookUrl(urlString) {
+  try {
+    const u = new URL(urlString);
+    const p = u.pathname;
+    if (p === '/webhook/paddle-webhook') return false;
+    if (p === '/webhook/stripe-webhook') return false;
+    if (!p.startsWith('/webhook/')) return false;
+    const h = u.hostname.toLowerCase();
+    return h === 'localhost' || h === '127.0.0.1' || h === 'maroa-api-production.up.railway.app';
+  } catch {
+    return false;
+  }
+}
+
+// ─── HTTP helper ──────────────────────────────────────────────────────────────
+// Default timeout 15s. A 120s default lets one stuck call hold an Express
+// worker hostage for two minutes — under load that turns into request
+// starvation. Callers that legitimately need longer (Anthropic Opus streams,
+// Higgsfield polls) pass an explicit override.
+function apiRequest(method, url, headers = {}, body = null, timeoutMs = EXTERNAL_HTTP_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const bodyStr = body ? JSON.stringify(body) : null;
+    const proto = u.protocol === 'https:' ? https : http;
+    const extra =
+      N8N_WEBHOOK_SECRET && isInternalMaroaWebhookUrl(url) ? { 'x-webhook-secret': N8N_WEBHOOK_SECRET } : {};
+    const opts = {
+      hostname: u.hostname,
+      port: u.port || (u.protocol === 'https:' ? 443 : 80),
+      path: u.pathname + u.search,
+      method,
+      headers: { 'Content-Type': 'application/json', ...extra, ...headers },
+    };
+    if (bodyStr) opts.headers['Content-Length'] = Buffer.byteLength(bodyStr);
+    const req = proto.request(opts, (res) => {
+      let data = '';
+      res.on('data', (c) => (data += c));
+      res.on('end', () => {
+        try {
+          resolve({ status: res.statusCode, body: JSON.parse(data) });
+        } catch {
+          resolve({ status: res.statusCode, body: data });
+        }
+      });
+    });
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`Request timeout after ${timeoutMs}ms`));
+    });
+    req.on('error', reject);
+    if (bodyStr) req.write(bodyStr);
+    req.end();
+  });
+}
+
+// ─── Supabase helpers ─────────────────────────────────────────────────────────
+const sbH = () => ({ apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` });
+
+async function sbGet(table, query = '') {
+  const r = await apiRequest('GET', `${SUPABASE_URL}/rest/v1/${table}?${query}`, sbH());
+  if (r.status !== 200) throw new Error(`sbGet ${table}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+  return Array.isArray(r.body) ? r.body : [];
+}
+
+async function sbPost(table, data) {
+  const r = await apiRequest(
+    'POST',
+    `${SUPABASE_URL}/rest/v1/${table}`,
+    { ...sbH(), 'Content-Type': 'application/json', Prefer: 'return=representation' },
+    data
+  );
+  if (![200, 201].includes(r.status))
+    throw new Error(`sbPost ${table}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+  return Array.isArray(r.body) ? r.body[0] : r.body;
+}
+
+async function sbPatch(table, filter, data) {
+  const r = await apiRequest(
+    'PATCH',
+    `${SUPABASE_URL}/rest/v1/${table}?${filter}`,
+    { ...sbH(), 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+    data
+  );
+  if (![200, 201, 204].includes(r.status))
+    throw new Error(`sbPatch ${table}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+  return true;
+}
+
+async function sbDelete(table, filter) {
+  const r = await apiRequest('DELETE', `${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
+    ...sbH(),
+    Prefer: 'return=minimal',
+  });
+  if (![200, 201, 204, 404].includes(r.status))
+    throw new Error(`sbDelete ${table}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+  return true;
+}
+
+// ─── sbRpc — call plpgsql RPC functions (migration 071 + future) ──────────
+// PostgREST exposes every function under /rest/v1/rpc/<name>. RPC bodies
+// are keyword args matching the function's parameter names. Use this for
+// atomic multi-table writes — see migrations/071_atomic_rpcs.sql.
+async function sbRpc(fnName, args = {}) {
+  const r = await apiRequest(
+    'POST',
+    `${SUPABASE_URL}/rest/v1/rpc/${encodeURIComponent(fnName)}`,
+    { ...sbH(), 'Content-Type': 'application/json' },
+    args || {}
+  );
+  if (r.status === 200 || r.status === 204) return r.body;
+  if (r.status === 404) {
+    // RPC doesn't exist — likely the migration that defines it hasn't been
+    // applied yet. Surface a clear error so callers can fall back.
+    const err = new Error(`sbRpc ${fnName}: 404 (function not found — run migrations?)`);
+    err.code = 'RPC_NOT_FOUND';
+    err.status = 404;
+    throw err;
+  }
+  throw new Error(`sbRpc ${fnName}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+}
+
+// ─── Early listen — Railway healthcheck before the route table loads ────────
+// listen() + /healthz first; remaining routes register in setImmediate below
+// so health probes get event-loop time while server.js finishes loading.
 const { registerHealthRoutes } = require('./lib/healthCheck');
-const _sseClients = global._sseClients || (global._sseClients = new Set());
 const _openSockets = new Set();
+const _sseClients = global._sseClients || (global._sseClients = new Set());
 
 registerHealthRoutes({ app, sbGet, logger });
 
@@ -342,10 +495,7 @@ server.on('listening', () => {
   console.log(`  Maroa.ai API v2.0 — port :${PORT}`);
   console.log(`  Layer 1: Execution ✓  Layer 2: Intelligence ✓  Layer 3: Learning ✓`);
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-  console.log('[boot] listening — registering routes (/healthz live)');
-  console.log(
-    `[boot] Railway healthcheck timeout: ${process.env.RAILWAY_HEALTHCHECK_TIMEOUT_SEC || '300 (default)'}s`
-  );
+  console.log('[boot] listening — loading routes (/healthz ready)');
 
   setImmediate(() => {
     require('./lib/startupSelfTest')
@@ -354,6 +504,9 @@ server.on('listening', () => {
   });
 });
 
+// Defer route registration so /healthz can respond while ~10k lines of requires run.
+const _routeLoadStartedAt = Date.now();
+setImmediate(() => {
 // SLO monitor: every 60s, evaluate the SLO catalog against live metrics
 // and route violations to Sentry + Slack + Email + PagerDuty (per severity)
 // via the alert router. No-op in tests (NODE_ENV=test).
@@ -632,157 +785,6 @@ app.use('/api/ad-campaigns', _idempotency.optional);
 app.use('/api/email-lifecycle', _idempotency.optional);
 app.use('/api/launch', _idempotency.optional);
 app.use('/api/generate', _idempotency.optional);
-
-// ─── Config ───────────────────────────────────────────────────────────────────
-// All values come from the validated `env` object (see lib/env.js). No prod-URL
-// defaults — boot fails in lib/env.js if a required var is missing.
-const clean = (v) => (v || '').replace(/[^\x20-\x7E]/g, '').trim();
-
-const SUPABASE_URL = env.SUPABASE_URL;
-const SUPABASE_KEY = env.SUPABASE_KEY;
-const ANTHROPIC_KEY = env.ANTHROPIC_KEY;
-const SERPAPI_KEY = env.SERPAPI_KEY || '';
-const REPLICATE_API_KEY = env.REPLICATE_API_KEY || '';
-const PEXELS_API_KEY = env.PEXELS_API_KEY || '';
-const RESEND_API_KEY = env.RESEND_API_KEY || '';
-const FROM_EMAIL = env.FROM_EMAIL;
-const OPENAI_API_KEY = env.OPENAI_API_KEY || '';
-const PINECONE_API_KEY = env.PINECONE_API_KEY || '';
-const PINECONE_HOST = env.PINECONE_HOST || '';
-const RUNWAY_API_KEY = env.RUNWAY_API_KEY || '';
-const GOOGLE_AI_API_KEY = env.GOOGLE_AI_API_KEY || '';
-const TWILIO_ACCOUNT_SID = env.TWILIO_ACCOUNT_SID || '';
-const TWILIO_AUTH_TOKEN = env.TWILIO_AUTH_TOKEN || '';
-const TWILIO_WHATSAPP_FROM = env.TWILIO_WHATSAPP_FROM;
-const PADDLE_WEBHOOK_SECRET = env.PADDLE_WEBHOOK_SECRET || '';
-const PADDLE_STARTER_PRICE = env.PADDLE_STARTER_PRICE_ID || '';
-const PADDLE_GROWTH_PRICE = env.PADDLE_GROWTH_PRICE_ID || '';
-const PADDLE_AGENCY_PRICE = env.PADDLE_AGENCY_PRICE_ID || '';
-const ORCHESTRATOR_SECRET = env.ORCHESTRATOR_SECRET || '';
-const N8N_WEBHOOK_SECRET = env.N8N_WEBHOOK_SECRET;
-const EXTERNAL_HTTP_TIMEOUT_MS = env.EXTERNAL_HTTP_TIMEOUT_MS;
-
-// Paddle client initialized in services/paddle.js
-
-function isInternalMaroaWebhookUrl(urlString) {
-  try {
-    const u = new URL(urlString);
-    const p = u.pathname;
-    if (p === '/webhook/paddle-webhook') return false;
-    if (p === '/webhook/stripe-webhook') return false;
-    if (!p.startsWith('/webhook/')) return false;
-    const h = u.hostname.toLowerCase();
-    return h === 'localhost' || h === '127.0.0.1' || h === 'maroa-api-production.up.railway.app';
-  } catch {
-    return false;
-  }
-}
-
-// ─── HTTP helper ──────────────────────────────────────────────────────────────
-// Default timeout 15s. A 120s default lets one stuck call hold an Express
-// worker hostage for two minutes — under load that turns into request
-// starvation. Callers that legitimately need longer (Anthropic Opus streams,
-// Higgsfield polls) pass an explicit override.
-function apiRequest(method, url, headers = {}, body = null, timeoutMs = EXTERNAL_HTTP_TIMEOUT_MS) {
-  return new Promise((resolve, reject) => {
-    const u = new URL(url);
-    const bodyStr = body ? JSON.stringify(body) : null;
-    const proto = u.protocol === 'https:' ? https : http;
-    const extra =
-      N8N_WEBHOOK_SECRET && isInternalMaroaWebhookUrl(url) ? { 'x-webhook-secret': N8N_WEBHOOK_SECRET } : {};
-    const opts = {
-      hostname: u.hostname,
-      port: u.port || (u.protocol === 'https:' ? 443 : 80),
-      path: u.pathname + u.search,
-      method,
-      headers: { 'Content-Type': 'application/json', ...extra, ...headers },
-    };
-    if (bodyStr) opts.headers['Content-Length'] = Buffer.byteLength(bodyStr);
-    const req = proto.request(opts, (res) => {
-      let data = '';
-      res.on('data', (c) => (data += c));
-      res.on('end', () => {
-        try {
-          resolve({ status: res.statusCode, body: JSON.parse(data) });
-        } catch {
-          resolve({ status: res.statusCode, body: data });
-        }
-      });
-    });
-    req.setTimeout(timeoutMs, () => {
-      req.destroy(new Error(`Request timeout after ${timeoutMs}ms`));
-    });
-    req.on('error', reject);
-    if (bodyStr) req.write(bodyStr);
-    req.end();
-  });
-}
-
-// ─── Supabase helpers ─────────────────────────────────────────────────────────
-const sbH = () => ({ apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` });
-
-async function sbGet(table, query = '') {
-  const r = await apiRequest('GET', `${SUPABASE_URL}/rest/v1/${table}?${query}`, sbH());
-  if (r.status !== 200) throw new Error(`sbGet ${table}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
-  return Array.isArray(r.body) ? r.body : [];
-}
-
-async function sbPost(table, data) {
-  const r = await apiRequest(
-    'POST',
-    `${SUPABASE_URL}/rest/v1/${table}`,
-    { ...sbH(), 'Content-Type': 'application/json', Prefer: 'return=representation' },
-    data
-  );
-  if (![200, 201].includes(r.status))
-    throw new Error(`sbPost ${table}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
-  return Array.isArray(r.body) ? r.body[0] : r.body;
-}
-
-async function sbPatch(table, filter, data) {
-  const r = await apiRequest(
-    'PATCH',
-    `${SUPABASE_URL}/rest/v1/${table}?${filter}`,
-    { ...sbH(), 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-    data
-  );
-  if (![200, 201, 204].includes(r.status))
-    throw new Error(`sbPatch ${table}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
-  return true;
-}
-
-async function sbDelete(table, filter) {
-  const r = await apiRequest('DELETE', `${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
-    ...sbH(),
-    Prefer: 'return=minimal',
-  });
-  if (![200, 201, 204, 404].includes(r.status))
-    throw new Error(`sbDelete ${table}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
-  return true;
-}
-
-// ─── sbRpc — call plpgsql RPC functions (migration 071 + future) ──────────
-// PostgREST exposes every function under /rest/v1/rpc/<name>. RPC bodies
-// are keyword args matching the function's parameter names. Use this for
-// atomic multi-table writes — see migrations/071_atomic_rpcs.sql.
-async function sbRpc(fnName, args = {}) {
-  const r = await apiRequest(
-    'POST',
-    `${SUPABASE_URL}/rest/v1/rpc/${encodeURIComponent(fnName)}`,
-    { ...sbH(), 'Content-Type': 'application/json' },
-    args || {}
-  );
-  if (r.status === 200 || r.status === 204) return r.body;
-  if (r.status === 404) {
-    // RPC doesn't exist — likely the migration that defines it hasn't been
-    // applied yet. Surface a clear error so callers can fall back.
-    const err = new Error(`sbRpc ${fnName}: 404 (function not found — run migrations?)`);
-    err.code = 'RPC_NOT_FOUND';
-    err.status = 404;
-    throw err;
-  }
-  throw new Error(`sbRpc ${fnName}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
-}
 
 // ─── Universal decision logger (lib/decisionLog) ────────────────────────
 // Constructed here (above all agent factories) so every service that
@@ -8315,6 +8317,8 @@ async function paddleWebhookHandler(req, res) {
   }
 }
 
+app.post('/webhook/paddle-webhook', paddleWebhookRawBody, paddleWebhookHandler);
+
 // ── PIECE 6: Google My Business Auto-Post ───────────────────────────────────
 app.post('/webhook/gmb-post', async (req, res) => {
   const { business_id, content_id } = req.body;
@@ -9499,32 +9503,41 @@ const { createMemoryService } = require('./services/anthropic-memory');
 const { createManagedAgentService } = require('./services/managed-agent');
 const { registerAnthropicRoutes } = require('./services/anthropic/registerRoutes');
 
-const filesService = createFilesService({ apiKey: ANTHROPIC_KEY, logger });
-// Reuse the early batch service we wired into WF1 above (single instance per process)
-const batchService =
-  _batchServiceForWf1 || createBatchService({ apiKey: ANTHROPIC_KEY, logger, sbGet, sbPost, sbPatch });
-const memoryService = createMemoryService({ apiKey: ANTHROPIC_KEY, logger });
-const managedAgentService = createManagedAgentService({ apiKey: ANTHROPIC_KEY, logger });
+const _anthropicApiKey = ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY || '';
+let managedAgentService = null;
+if (_anthropicApiKey) {
+  const filesService = createFilesService({ apiKey: _anthropicApiKey, logger });
+  const batchService =
+    _batchServiceForWf1 ||
+    createBatchService({ apiKey: _anthropicApiKey, logger, sbGet, sbPost, sbPatch });
+  const memoryService = createMemoryService({ apiKey: _anthropicApiKey, logger });
+  managedAgentService = createManagedAgentService({ apiKey: _anthropicApiKey, logger });
 
-registerAnthropicRoutes({
-  app,
-  sbGet,
-  sbPost,
-  sbPatch,
-  sbDelete,
-  apiError,
-  logger,
-  checkOrchestrationIdempotency,
-  filesService,
-  batchService,
-  memoryService,
-  managedAgentService,
-  citations: anthropicCitations,
-  callClaude,
-});
+  registerAnthropicRoutes({
+    app,
+    sbGet,
+    sbPost,
+    sbPatch,
+    sbDelete,
+    apiError,
+    logger,
+    checkOrchestrationIdempotency,
+    filesService,
+    batchService,
+    memoryService,
+    managedAgentService,
+    citations: anthropicCitations,
+    callClaude,
+  });
+} else {
+  logger.warn('boot', null, 'Anthropic 2026 routes skipped — ANTHROPIC_KEY not set');
+}
 
 const { createDeepDiveService } = require('./services/deep-dive');
-const deepDiveService = createDeepDiveService({ managedAgentService, sbGet, sbPost, logger });
+const deepDiveService =
+  _anthropicApiKey && managedAgentService
+    ? createDeepDiveService({ managedAgentService, sbGet, sbPost, logger })
+    : null;
 
 const { createMonthlyReportService } = require('./services/monthly-report');
 const monthlyReportService = createMonthlyReportService({ sbGet, callClaude, logger });
@@ -10874,7 +10887,10 @@ app.post('/webhook/wf-content-performance-feedback', async (req, res) => {
   }
 });
 
-console.log('[boot] all routes registered — server fully ready');
+console.log('[boot] all routes registered — server fully ready', {
+  duration_ms: Date.now() - _routeLoadStartedAt,
+});
+});
 
 async function gracefulShutdown(signal) {
   log('shutdown', `Received ${signal}, beginning graceful shutdown`);

@@ -1,9 +1,10 @@
-# Railway config-as-code (repo root). Dashboard overrides are replaced by this file.
-# If deploys still fail at ~5m, set service variable RAILWAY_HEALTHCHECK_TIMEOUT_SEC=600
-# in Railway → Variables (see docs/RAILWAY_DEPLOY.md).
+# Config-as-code at repo root. Also set in Railway Variables:
+#   RAILWAY_HEALTHCHECK_TIMEOUT_SEC=600
+#
+# Use `node server.js` (not npm start) so prestart/sync_foundation does not run at boot.
 
 [build]
-buildCommand = "npm run build"
+buildCommand = "node scripts/sync_foundation.mjs"
 
 [deploy]
 startCommand = "node server.js"

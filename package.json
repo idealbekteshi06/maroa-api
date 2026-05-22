@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "build": "node scripts/sync_foundation.mjs",
-    "prestart": "node scripts/sync_foundation.mjs",
+    "prestart": "node scripts/prestart-guard.mjs",
     "start": "node server.js",
     "dev": "node scripts/sync_foundation.mjs && node --watch server.js",
     "test": "node --test tests/*.test.js",

@@ -30,6 +30,17 @@ Config uses `startCommand = "node server.js"` (not `npm start`) so **`prestart` 
 
 Probes use host **`healthcheck.railway.app`**. Do not add middleware that rejects that Host header.
 
+## Startup timing (local measurements)
+
+| Step | Time |
+|------|------|
+| `node scripts/sync_foundation.mjs` | **~0.3s** (no-op on Railway when frontend sibling repo absent) |
+| `npm start` prestart on Railway | **skipped** when `startCommand = node server.js` |
+| `/healthz` live (early listen) | **&lt;1s** after process start |
+| Deferred route table (`setImmediate`) | **~0.2–0.6s** on dev hardware |
+
+The 9+ minute Railway failures were **not** prestart — they were the **~10k-line synchronous `server.js` load** blocking the event loop before `/healthz` could respond. Fix: early `listen()` + `setImmediate` for route registration.
+
 ## Verify after deploy
 
 ```bash
@@ -39,5 +50,5 @@ curl -sS "https://maroa-api-production.up.railway.app/readyz" | head -c 500
 
 Logs should show:
 
-- `[boot] listening — registering routes (/healthz live)` early
-- `[boot] all routes registered — server fully ready` after route load
+- `[boot] listening — loading routes (/healthz ready)` within seconds of container start
+- `[boot] all routes registered — server fully ready { duration_ms: ... }` shortly after
