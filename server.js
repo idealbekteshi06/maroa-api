@@ -4912,7 +4912,7 @@ app.get('/api/business/:businessId/llm-spend', async (req, res) => {
 // GET /api/ops/platform — operator snapshot (auth: same as /api/business)
 app.get('/api/ops/platform', async (req, res) => {
   try {
-    const { probeMigrationsLedger, getPlatformSnapshot } = require('./lib/platformOps');
+    const { probeCriticalMigrations, getPlatformSnapshot } = require('./lib/platformOps');
     let inngestCount = null;
     try {
       const { functions } = require('./services/inngest/functions');
@@ -4920,7 +4920,7 @@ app.get('/api/ops/platform', async (req, res) => {
     } catch {
       /* soft */
     }
-    const migrations = await probeMigrationsLedger(sbGet);
+    const migrations = await probeCriticalMigrations(sbGet);
     return res.json({
       ...getPlatformSnapshot({ inngestFunctionCount: inngestCount }),
       migrations,

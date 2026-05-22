@@ -5,7 +5,7 @@ const assert = require('node:assert');
 
 const { enforceLLMBudget, LLMBudgetExceededError } = require('../lib/llmGateway');
 const { checkPlatform } = require('../lib/integrationGate');
-const { getPlatformSnapshot, CRITICAL_MIGRATIONS } = require('../lib/platformOps');
+const { getPlatformSnapshot, CRITICAL_MIGRATIONS, probeCriticalMigrations } = require('../lib/platformOps');
 const {
   collectRegisteredPaths,
   collectInngestInternalPaths,
@@ -55,6 +55,28 @@ test('integrationGate: meta_ads requires token and page', () => {
 test('platformOps: critical migrations list includes 079 and 080', () => {
   assert.ok(CRITICAL_MIGRATIONS.includes('079_wf11_smart_routing.sql'));
   assert.ok(CRITICAL_MIGRATIONS.includes('080_quality_gate_runs.sql'));
+});
+
+test('platformOps: probeCriticalMigrations uses table existence not ledger', async () => {
+  const sbGet = async (table) => {
+    if (table === 'inbox_routing_settings' || table === 'quality_gate_runs') return [];
+    throw new Error(`relation "public.${table}" does not exist`);
+  };
+  const r = await probeCriticalMigrations(sbGet);
+  assert.equal(r.method, 'table_probe');
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.missing_in_db, []);
+  assert.equal(r.tables.length, 2);
+});
+
+test('platformOps: probeCriticalMigrations reports missing table', async () => {
+  const sbGet = async (table) => {
+    if (table === 'inbox_routing_settings') return [];
+    throw new Error('relation "public.quality_gate_runs" does not exist');
+  };
+  const r = await probeCriticalMigrations(sbGet);
+  assert.equal(r.ok, false);
+  assert.deepEqual(r.missing_in_db, ['080_quality_gate_runs.sql']);
 });
 
 test('inngest: content feedback path registered on dispatcher', () => {
