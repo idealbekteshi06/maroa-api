@@ -12,7 +12,9 @@ const {
   applyCameraPresetToPayload,
   motionPromptFromPreset,
 } = require('./cameraPresets');
-const { estimateModelCost, logHiggsfieldGenerationCost } = require('./costTracking');
+const { estimateModelCost, logHiggsfieldGenerationCost, logMrHiggsCost } = require('./costTracking');
+const { requireAgency } = require('./agencyGate');
+const { VIDEO_AB_VARIANTS } = require('./videoAbVariants');
 
 module.exports = function createHiggsfieldService(deps) {
   const {
@@ -22,6 +24,7 @@ module.exports = function createHiggsfieldService(deps) {
     extractJSON,
     sbGet,
     sbPost,
+    sbPatch,
     ANTHROPIC_KEY,
     SERPAPI_KEY,
     SUPABASE_URL,
@@ -71,6 +74,7 @@ module.exports = function createHiggsfieldService(deps) {
   const PATH_CINEMA = process.env.HIGGSFIELD_PATH_CINEMA || '/higgsfield-ai/cinema-studio/v3-5';
   // Vibe Motion — Remotion code generator for kinetic typography (text never breaks)
   const PATH_VIBE_MOTION = process.env.HIGGSFIELD_PATH_VIBE_MOTION || '/higgsfield-ai/vibe-motion/standard';
+  const PATH_MR_HIGGS = process.env.HIGGSFIELD_PATH_MR_HIGGS || '/higgsfield-ai/mr-higgs/director';
   // ─── Soul ID character training — TWO-API REALITY ─────────────────────
   // Higgsfield runs two separate APIs:
   //
@@ -1617,6 +1621,10 @@ module.exports = function createHiggsfieldService(deps) {
     if (args.durationSeconds || args.duration_seconds) {
       payload.duration = args.durationSeconds || args.duration_seconds;
     }
+    attachSoulIdToPayload(payload, args.soul_id || args.higgsfield_soul_id);
+    if (args.shot_list_context) {
+      payload.prompt = `${payload.prompt} ${args.shot_list_context}`.trim();
+    }
     const url = await submitVideoAndWait(path, payload);
     const est = await recordGenerationCost(args.businessId, routed.model_slug, { skill: 'wf10_video' });
     return {
@@ -1628,6 +1636,205 @@ module.exports = function createHiggsfieldService(deps) {
       credits_used: est.credits,
       model_version: routed.model_slug,
       status: 'ready',
+    };
+  }
+
+  function attachSoulIdToPayload(payload, soulId) {
+    if (!soulId) return;
+    payload.custom_reference_id = soulId;
+    payload.soul_id = soulId;
+    payload.character_id = soulId;
+  }
+
+  function buildMotionFromBrief(brief, shotList) {
+    const base = brief?.video_prompt?.motion_prompt || brief?.motion_prompt || '';
+    if (!shotList?.shot_list?.length) return base;
+    const moves = shotList.camera_moves || [];
+    const shots = shotList.shot_list
+      .map((s, i) => {
+        const desc = typeof s === 'string' ? s : s.description || s.shot || '';
+        const cam = (typeof s === 'object' && s.camera) || moves[i] || '';
+        return `Shot ${i + 1}: ${desc}${cam ? `. Camera: ${cam}` : ''}`;
+      })
+      .join(' ');
+    const pacing = shotList.pacing ? ` Pacing: ${shotList.pacing}.` : '';
+    return hf.killSlop(`${base} ${shots}${pacing}`.trim());
+  }
+
+  function parseMrHiggsResponse(raw) {
+    const body = parseJsonBody(raw);
+    const nested = body.result || body.data || body;
+    if (nested.shot_list) return nested;
+    const text = nested.text || nested.prompt || nested.message;
+    if (typeof text === 'string') {
+      const parsed = extractJSON(text);
+      if (parsed?.shot_list) return parsed;
+    }
+    return null;
+  }
+
+  async function generateShotListFallback(sceneDescription) {
+    const prompt =
+      `You are Mr. Higgs, a professional AI commercial director. Break this scene into a shot list.\n` +
+      `Scene: ${sceneDescription}\n\n` +
+      `Return ONLY valid JSON:\n` +
+      `{"shot_list":[{"shot":1,"description":"...","duration_sec":2}],"camera_moves":["dolly in"],"pacing":"fast|medium|slow","suggested_model":"kling-3.0|wan-2.5|nano-banana-pro"}`;
+    const raw = await claudeText(prompt, 'mr_higgs_director', 2000, {
+      returnRaw: true,
+      skill: 'mr_higgs_shot_list',
+    });
+    const parsed = extractJSON(raw) || {};
+    return {
+      shot_list: Array.isArray(parsed.shot_list) ? parsed.shot_list : [{ shot: 1, description: sceneDescription, duration_sec: 5 }],
+      camera_moves: Array.isArray(parsed.camera_moves) ? parsed.camera_moves : ['static'],
+      pacing: parsed.pacing || 'medium',
+      suggested_model: parsed.suggested_model || 'kling-3.0',
+      source: 'claude_fallback',
+    };
+  }
+
+  /**
+   * Agency — Mr. Higgs AI director shot list.
+   */
+  async function generateShotList(sceneDescription, options = {}) {
+    const gate = requireAgency(options.plan);
+    if (gate.skipped) return gate;
+
+    const scene = String(sceneDescription || '').trim();
+    if (!scene) throw new Error('sceneDescription required');
+
+    let shotList = null;
+    try {
+      const v2 = await higgsfieldSdk.subscribeRaw(PATH_MR_HIGGS, {
+        scene_description: scene,
+        brief: scene,
+        prompt: scene,
+      });
+      shotList = parseMrHiggsResponse(v2);
+    } catch (e) {
+      logger.warn('higgsfield', null, 'Mr. Higgs API unavailable, using Claude fallback', { message: e.message });
+    }
+
+    if (!shotList) {
+      shotList = await generateShotListFallback(scene);
+    } else {
+      shotList.source = shotList.source || 'mr_higgs_api';
+    }
+
+    await logMrHiggsCost(sbPost, {
+      businessId: options.businessId,
+      skill: 'mr_higgs_shot_list',
+    });
+
+    return shotList;
+  }
+
+  /**
+   * Agency — three-way video A/B (nano social / kling cinematic / wan ugc).
+   */
+  async function generateVideoVariants(brief, options = {}) {
+    const gate = requireAgency(options.plan);
+    if (gate.skipped) return gate;
+
+    const motionBase = buildMotionFromBrief(brief, options.shotList);
+    const variants = [];
+    for (const def of VIDEO_AB_VARIANTS) {
+      const result = await generateVideo({
+        businessId: options.businessId,
+        motionPrompt: motionBase,
+        aspectRatio: brief?.video_prompt?.aspect_ratio || options.aspectRatio || '9:16',
+        durationSeconds: brief?.video_prompt?.duration_seconds || options.durationSeconds || 5,
+        sourceImageUrl: options.sourceImageUrl,
+        soul_id: options.soul_id,
+        model: def.model,
+        preset: def.preset,
+        content_type: def.content_type,
+        shot_list_context: options.shot_list_context,
+      });
+      variants.push({
+        variant: def.key,
+        job_id: result.request_id || `variant_${def.key}_${Date.now()}`,
+        ...result,
+      });
+    }
+
+    return {
+      variants,
+      variant_a: variants[0],
+      variant_b: variants[1],
+      variant_c: variants[2],
+      variant_a_job_id: variants[0]?.job_id,
+      variant_b_job_id: variants[1]?.job_id,
+      variant_c_job_id: variants[2]?.job_id,
+      variant_a_model: variants[0]?.model_slug,
+      variant_b_model: variants[1]?.model_slug,
+      variant_c_model: variants[2]?.model_slug,
+    };
+  }
+
+  /**
+   * Agency — train + persist one Soul ID per business.
+   */
+  async function uploadSoulId(businessId, imageUrl, options = {}) {
+    const gate = requireAgency(options.plan);
+    if (gate.skipped) return gate;
+
+    if (!businessId || !imageUrl) throw new Error('businessId and imageUrl required');
+
+    const refs = Array.isArray(options.sourceImageUrls) ? [...options.sourceImageUrls] : [imageUrl];
+    while (refs.length < 5) refs.push(imageUrl);
+
+    const trained = await trainSoulCharacter({
+      characterId: businessId,
+      sourceImageUrls: refs.slice(0, 20),
+      name: (options.character_name || options.characterName || 'Brand spokesperson').slice(0, 80),
+      model: options.model || 'soul_2',
+    });
+
+    const row = {
+      business_id: businessId,
+      higgsfield_soul_id: trained.higgsfield_character_id,
+      character_name: options.character_name || options.characterName || 'Brand spokesperson',
+      status: 'active',
+      uploaded_at: new Date().toISOString(),
+    };
+
+    const existing = await sbGet('soul_ids', `business_id=eq.${encodeURIComponent(businessId)}&select=id`).catch(
+      () => []
+    );
+    if (existing[0]?.id && typeof sbPatch === 'function') {
+      await sbPatch('soul_ids', `id=eq.${existing[0].id}`, row);
+    } else {
+      await sbPost('soul_ids', row);
+    }
+
+    return {
+      business_id: businessId,
+      higgsfield_soul_id: trained.higgsfield_character_id,
+      character_name: row.character_name,
+      status: 'active',
+    };
+  }
+
+  /**
+   * Agency — fetch stored Soul ID for a business.
+   */
+  async function getSoulId(businessId, options = {}) {
+    const gate = requireAgency(options.plan);
+    if (gate.skipped) return gate;
+
+    const rows = await sbGet(
+      'soul_ids',
+      `business_id=eq.${encodeURIComponent(businessId)}&status=eq.active&select=*`
+    ).catch(() => []);
+    const row = rows[0] || null;
+    if (!row) return { business_id: businessId, higgsfield_soul_id: null, status: 'not_found' };
+    return {
+      business_id: businessId,
+      higgsfield_soul_id: row.higgsfield_soul_id,
+      character_name: row.character_name,
+      status: row.status,
+      uploaded_at: row.uploaded_at,
     };
   }
 
@@ -1647,6 +1854,11 @@ module.exports = function createHiggsfieldService(deps) {
     generateWithModel,
     generateImage,
     generateVideo,
+    generateVideoVariants,
+    generateShotList,
+    uploadSoulId,
+    getSoulId,
+    requireAgency,
     pathForModel,
     modelForCapability,
     routeModelForContentType,

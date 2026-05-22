@@ -45,6 +45,11 @@ function createSdkWrapper({ apiBase, keyId, keySecret, pollIntervalMs, maxPollTi
     return null;
   }
 
+  async function subscribeRaw(path, payload) {
+    const hf = getClient();
+    return hf.subscribe(path, { input: payload, withPolling: true });
+  }
+
   async function subscribeAndWait(path, payload, kind) {
     const hf = getClient();
     const v2 = await hf.subscribe(path, { input: payload, withPolling: true });
@@ -65,7 +70,7 @@ function createSdkWrapper({ apiBase, keyId, keySecret, pollIntervalMs, maxPollTi
     return { url, request_id: v2.request_id || v2.requestId || null, raw: v2 };
   }
 
-  return { getClient, subscribeAndWait, extractImageUrl, extractVideoUrl };
+  return { getClient, subscribeRaw, subscribeAndWait, extractImageUrl, extractVideoUrl };
 }
 
 module.exports = { createSdkWrapper };

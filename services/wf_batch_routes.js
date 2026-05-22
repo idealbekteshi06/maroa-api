@@ -224,6 +224,87 @@ function registerBatchRoutes({ app, wf5, wf6, wf7, wf8, wf9, wf10, wf12, wf14, w
   app.get('/webhook/wf10-jobs-list', wf10list);
   app.post('/webhook/wf10-jobs-list', wf10list);
 
+  app.post('/webhook/wf10-ab-test-result', async (req, res) => {
+    const { business_id: businessId, ab_test_id: abTestId, winner_variant: winnerVariant, meta_experiment_id: metaExperimentId } =
+      req.body || {};
+    if (!businessId || !abTestId || !winnerVariant) {
+      return apiError(res, 400, 'INVALID_REQUEST', 'business_id, ab_test_id, winner_variant required');
+    }
+    try {
+      const plan = await wf10.getBusinessPlan(businessId);
+      if (plan !== 'agency') {
+        return apiError(res, 403, 'AGENCY_PLAN_REQUIRED', 'agency_plan_required', {
+          upgrade_url: 'https://maroa.ai/pricing',
+        });
+      }
+      res.json(
+        await wf10.recordAbTestResult({
+          businessId,
+          abTestId,
+          winnerVariant,
+          metaExperimentId,
+        })
+      );
+    } catch (e) {
+      apiError(res, 500, 'WF10_AB_RESULT_FAILED', e.message);
+    }
+  });
+
+  app.post('/webhook/wf10-soul-id-upload', async (req, res) => {
+    const { business_id: businessId, image_url: imageUrl, character_name: characterName, plan } = req.body || {};
+    if (!businessId || !imageUrl) return apiError(res, 400, 'INVALID_REQUEST', 'business_id and image_url required');
+    try {
+      const resolvedPlan = plan || (await wf10.getBusinessPlan(businessId));
+      if (resolvedPlan !== 'agency') {
+        return res.status(403).json({
+          skipped: true,
+          reason: 'agency_plan_required',
+          upgrade_url: 'https://maroa.ai/pricing',
+        });
+      }
+      res.json(await wf10.uploadSoulIdForBusiness({ businessId, imageUrl, characterName, plan: resolvedPlan }));
+    } catch (e) {
+      apiError(res, 500, 'WF10_SOUL_UPLOAD_FAILED', e.message);
+    }
+  });
+
+  app.get('/webhook/wf10-soul-id-get/:businessId', async (req, res) => {
+    const businessId = req.params.businessId || req.query?.business_id;
+    if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
+    try {
+      const plan = req.query?.plan || (await wf10.getBusinessPlan(businessId));
+      if (plan !== 'agency') {
+        return res.status(403).json({
+          skipped: true,
+          reason: 'agency_plan_required',
+          upgrade_url: 'https://maroa.ai/pricing',
+        });
+      }
+      res.json(await wf10.getSoulIdForBusiness({ businessId, plan }));
+    } catch (e) {
+      apiError(res, 500, 'WF10_SOUL_GET_FAILED', e.message);
+    }
+  });
+  app.post('/webhook/wf10-soul-id-get/:businessId', async (req, res) => {
+    req.params.businessId = req.params.businessId || req.body?.business_id;
+    req.query = { ...req.query, plan: req.body?.plan };
+    const businessId = req.params.businessId;
+    if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
+    try {
+      const plan = req.body?.plan || (await wf10.getBusinessPlan(businessId));
+      if (plan !== 'agency') {
+        return res.status(403).json({
+          skipped: true,
+          reason: 'agency_plan_required',
+          upgrade_url: 'https://maroa.ai/pricing',
+        });
+      }
+      res.json(await wf10.getSoulIdForBusiness({ businessId, plan }));
+    } catch (e) {
+      apiError(res, 500, 'WF10_SOUL_GET_FAILED', e.message);
+    }
+  });
+
   // ─── WF12 — Launch Orchestrator ───────────────────────────────────
   app.post('/webhook/wf12-plan-launch', async (req, res) => {
     const { businessId, request } = req.body || {};

@@ -20,6 +20,9 @@ const MODEL_COSTS = {
 
 const DEFAULT_COST = { credits: 4, cost_usd: 0.04 };
 
+/** Mr. Higgs AI director shot-list call (Agency). */
+const MR_HIGGS_COST = { credits: 3, cost_usd: 0.03 };
+
 function estimateModelCost(modelSlugOrCanonical) {
   const key = String(modelSlugOrCanonical || '')
     .trim()
@@ -53,8 +56,26 @@ async function logHiggsfieldGenerationCost(sbPost, opts = {}) {
   return { credits, cost_usd: costUsd, model: modelKey };
 }
 
+function estimateMrHiggsCost() {
+  return { ...MR_HIGGS_COST };
+}
+
+async function logMrHiggsCost(sbPost, opts = {}) {
+  const est = estimateMrHiggsCost();
+  return logHiggsfieldGenerationCost(sbPost, {
+    ...opts,
+    model: 'mr-higgs-director',
+    skill: opts.skill || 'mr_higgs_shot_list',
+    credits_used: est.credits,
+    cost_usd: est.cost_usd,
+  });
+}
+
 module.exports = {
   MODEL_COSTS,
+  MR_HIGGS_COST,
   estimateModelCost,
+  estimateMrHiggsCost,
   logHiggsfieldGenerationCost,
+  logMrHiggsCost,
 };
