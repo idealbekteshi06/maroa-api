@@ -20,15 +20,16 @@
  * is the template the rest of that work will follow.
  */
 
-function register({ app, observability, sbGet, apiError }) {
+function register({ app, observability, sbGet, apiError, requireMetricsAuth }) {
   if (!app) throw new Error('routes/observability: app required');
   if (!observability) throw new Error('routes/observability: observability required');
+  if (typeof requireMetricsAuth !== 'function') {
+    throw new Error('routes/observability: requireMetricsAuth required');
+  }
 
   // ─── /metrics ───────────────────────────────────────────────────────
-  // Prometheus-compatible scrape endpoint. No auth — internal use behind
-  // Railway. If exposing to the public internet, mount /metrics behind a
-  // separate basic-auth middleware first.
-  app.get('/metrics', (req, res) => {
+  // Prometheus scrape — METRICS_SCRAPE_TOKEN or ORCHESTRATOR_SECRET required.
+  app.get('/metrics', requireMetricsAuth, (req, res) => {
     res.setHeader('Content-Type', 'text/plain; version=0.0.4');
     res.send(observability.metrics.exportPrometheus());
   });

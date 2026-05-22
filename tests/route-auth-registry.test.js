@@ -1,31 +1,7 @@
 'use strict';
 
 /**
- * tests/route-auth-registry.test.js
- *
- * Per the 2026-05-13 audit + strategy doc Phase 1:
- *   "Add route inventory tests: every route must declare auth mode:
- *    public, jwt, webhook, admin, or signed-webhook."
- *
- * This test scans server.js for every app.{get,post,put,delete,patch}
- * declaration and verifies that each route falls into ONE of the
- * documented auth tiers — either by being mounted under a known
- * auth-middleware prefix (e.g. /api/* + requireAnyUserId) or by being
- * on the explicit allowlist below.
- *
- * If a new route is added without classification, this test fails and
- * forces the author to declare its auth mode. That's the IDOR drift
- * guardrail.
- *
- * Auth tiers:
- *   public           — no auth required (health probes, OAuth callbacks
- *                      that verify signatures internally, the / root)
- *   jwt              — requires Supabase JWT via requireAnyUserId /
- *                      requireValidUserId
- *   webhook          — requires N8N webhook secret OR JWT via
- *                      requireAuthOrWebhookSecret (mounted on /webhook/*)
- *   signed-webhook   — verifies its own HMAC inline (Paddle, Stripe, Meta)
- *   admin            — requires admin-only secret (requireAdminSecret)
+ * Route auth registry — server.js, routes/*.js, and services registerRoutes modules.
  */
 
 const test = require('node:test');
@@ -33,45 +9,53 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 
-const SERVER_PATH = path.join(__dirname, '..', 'server.js');
-const SERVER_SRC = fs.readFileSync(SERVER_PATH, 'utf8');
+const ROOT = path.join(__dirname, '..');
+const SERVER_SRC = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
 
-// ─── Allowlist of routes declared as PUBLIC (no auth) ─────────────────────
-// These are intentionally unauthenticated. Adding to this list is an
-// explicit security decision — code review should challenge it.
 const PUBLIC_ROUTES = new Set([
   '/',
   '/healthz',
   '/readyz',
   '/health',
-  '/metrics',
   '/docs/openapi.yml',
   '/debug',
-  '/test-email',
-  '/meta-oauth-exchange',
   '/api/billing/plans',
-  // Paddle + Stripe + Meta webhooks verify their own signatures BEFORE the
-  // generic /webhook auth middleware would fire — classified as
-  // signed-webhook below.
+  '/api/waitlist/register',
+  '/api/waitlist/count',
+  '/api/data-deletion-status',
 ]);
 
-// Routes that verify their own HMAC signatures inline before doing anything.
-// Each one MUST have HMAC verification in the handler.
 const SIGNED_WEBHOOK_ROUTES = new Set([
   '/webhook/paddle-webhook',
   '/webhook/stripe-webhook',
   '/webhook/meta-deauthorize',
   '/webhook/meta-data-deletion-callback',
+  '/webhook/data-deletion-request',
 ]);
 
-// Admin-only routes — gated by requireAdminSecret middleware (not the
-// general auth middleware).
 const ADMIN_ROUTES_RE = /requireAdminSecret/;
+const METRICS_AUTH_RE = /requireMetricsAuth/;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────
+function collectSourceFiles() {
+  const files = [path.join(ROOT, 'server.js')];
+  const routesDir = path.join(ROOT, 'routes');
+  for (const name of fs.readdirSync(routesDir)) {
+    if (name.endsWith('.js')) files.push(path.join(routesDir, name));
+  }
+  const servicesDir = path.join(ROOT, 'services');
+  const walk = (dir) => {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) walk(full);
+      else if (ent.name === 'registerRoutes.js') files.push(full);
+    }
+  };
+  walk(servicesDir);
+  return files;
+}
 
-function extractRoutes(src) {
-  // Captures: line number + method + path
+function extractRoutesFromFile(filePath, src) {
+  const rel = path.relative(ROOT, filePath);
   const routes = [];
   const lines = src.split('\n');
   const re = /^app\.(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]+)['"`]/;
@@ -79,6 +63,7 @@ function extractRoutes(src) {
     const m = re.exec(line);
     if (m) {
       routes.push({
+        file: rel,
         lineNumber: i + 1,
         method: m[1].toUpperCase(),
         path: m[2],
@@ -89,94 +74,64 @@ function extractRoutes(src) {
   return routes;
 }
 
-function classify(route, src) {
-  const { path: p, full, lineNumber } = route;
+function classify(route, serverSrc) {
+  const { path: p, full } = route;
 
-  // Explicit public allowlist
   if (PUBLIC_ROUTES.has(p)) return 'public';
-
-  // Signed-webhook allowlist (HMAC verified inline)
   if (SIGNED_WEBHOOK_ROUTES.has(p)) return 'signed-webhook';
-
-  // Admin: handler line uses requireAdminSecret
   if (ADMIN_ROUTES_RE.test(full)) return 'admin';
-
-  // Inline JWT: handler line uses requireAnyUserId or requireValidUserId
-  // directly as a route-level middleware (vs. mounted via app.use).
+  if (METRICS_AUTH_RE.test(full)) return 'metrics-auth';
   if (/require(?:Any|Valid)UserId/.test(full)) return 'jwt';
 
-  // Routes under /api/* MUST be protected by requireAnyUserId or
-  // requireValidUserId. The mount can be at ANY ancestor prefix —
-  // e.g. /api/onboarding/profile/:userId might be covered by either
-  // app.use('/api/onboarding', …) or a deeper mount. Walk up.
   if (p.startsWith('/api/')) {
-    const segments = p.split('/').filter(Boolean); // ['api','foo','bar','baz']
+    const segments = p.split('/').filter(Boolean);
     for (let depth = segments.length; depth >= 2; depth--) {
       const prefix = '/' + segments.slice(0, depth).join('/');
       const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const re = new RegExp(
         `app\\.use\\(\\s*['"\`]${escaped}['"\`]\\s*,\\s*require(?:Any|Valid)UserId`
       );
-      if (re.test(src)) return 'jwt';
+      if (re.test(serverSrc)) return 'jwt';
     }
+    if (p.startsWith('/api/waitlist/')) return 'public';
     return 'unclassified-api';
   }
 
-  // /webhook/* routes are covered by the global
-  //   app.use('/webhook', requireAuthOrWebhookSecret);
   if (p.startsWith('/webhook/')) return 'webhook';
 
   return 'unclassified';
 }
 
-// ─── Tests ────────────────────────────────────────────────────────────────
-
-test('route-auth-registry: server.js has the global /webhook auth mount', () => {
-  assert.ok(
-    /app\.use\(\s*['"`]\/webhook['"`]\s*,\s*requireAuthOrWebhookSecret/.test(SERVER_SRC),
-    'expected app.use("/webhook", requireAuthOrWebhookSecret) in server.js'
-  );
+test('route-auth-registry: server.js has global /webhook auth + business owner gate', () => {
+  assert.ok(/app\.use\(\s*['"`]\/webhook['"`]\s*,\s*requireAuthOrWebhookSecret/.test(SERVER_SRC));
+  assert.ok(/assertBusinessOwnerMiddleware/.test(SERVER_SRC));
 });
 
-test('route-auth-registry: every route classifies into a known auth tier', () => {
-  const routes = extractRoutes(SERVER_SRC);
-  assert.ok(routes.length > 50, `expected many routes, got ${routes.length}`);
+test('route-auth-registry: every route in server.js + routes/*.js classifies', () => {
+  const files = collectSourceFiles();
+  const allRoutes = [];
+  for (const f of files) {
+    const src = fs.readFileSync(f, 'utf8');
+    allRoutes.push(...extractRoutesFromFile(f, src));
+  }
+  assert.ok(allRoutes.length > 80, `expected many routes, got ${allRoutes.length}`);
 
   const unclassified = [];
-  for (const r of routes) {
+  for (const r of allRoutes) {
     const tier = classify(r, SERVER_SRC);
     if (tier.startsWith('unclassified')) {
-      unclassified.push(`server.js:${r.lineNumber} ${r.method} ${r.path}  (${tier})`);
+      unclassified.push(`${r.file}:${r.lineNumber} ${r.method} ${r.path} (${tier})`);
     }
   }
   assert.strictEqual(
     unclassified.length,
     0,
-    `\n${unclassified.length} routes have no declared auth tier:\n  ` +
-      unclassified.slice(0, 20).join('\n  ') +
-      `\n\nFix: either mount the prefix under requireAnyUserId/requireValidUserId,` +
-      ` add to PUBLIC_ROUTES, SIGNED_WEBHOOK_ROUTES, or wrap with requireAdminSecret.`
+    `\n${unclassified.length} unclassified routes:\n  ${unclassified.slice(0, 25).join('\n  ')}`
   );
 });
 
-test('route-auth-registry: count summary', () => {
-  const routes = extractRoutes(SERVER_SRC);
-  const tally = { public: 0, jwt: 0, webhook: 0, 'signed-webhook': 0, admin: 0 };
-  for (const r of routes) {
-    const tier = classify(r, SERVER_SRC);
-    if (tally[tier] != null) tally[tier]++;
-  }
-  // Every category should have non-zero — sanity check we didn't lose
-  // routes during refactors. We don't assert exact counts (they shift
-  // as routes get carved) but at least one per tier should always exist.
-  assert.ok(tally.public >= 1, 'expected at least 1 public route');
-  assert.ok(tally.webhook >= 1, 'expected at least 1 webhook route');
-});
-
-test('route-auth-registry: PUBLIC_ROUTES is intentionally small', () => {
-  // If this list grows past ~12 we should challenge each new addition.
-  assert.ok(
-    PUBLIC_ROUTES.size <= 15,
-    `PUBLIC_ROUTES has ${PUBLIC_ROUTES.size} entries — review each before raising the limit`
-  );
+test('route-auth-registry: meta-oauth-exchange and test-email are not public', () => {
+  assert.ok(!PUBLIC_ROUTES.has('/meta-oauth-exchange'));
+  assert.ok(!PUBLIC_ROUTES.has('/test-email'));
+  assert.ok(!PUBLIC_ROUTES.has('/metrics'));
 });

@@ -550,31 +550,9 @@ app.get('/docs/openapi.yml', (req, res) => {
 // First carve-out from server.js. See routes/observability.js for the
 // pattern that the rest of the server.js → routes/*.js extraction will
 // follow over the next sprint.
-require('./routes/observability').register({ app, observability, sbGet, apiError });
+const { requireMetricsAuth } = require('./middleware/requireMetricsAuth');
+require('./routes/observability').register({ app, observability, sbGet, apiError, requireMetricsAuth });
 require('./routes/status-page').register({ app });
-
-function requireN8nWebhookSecret(req, res, next) {
-  const pathOnly = req.originalUrl.split('?')[0];
-  if (pathOnly === '/webhook/paddle-webhook') return next();
-  if (pathOnly === '/webhook/stripe-webhook') return next(); // Stripe sig auth instead
-  if (pathOnly === '/webhook/oauth/meta/start') return next(); // public — redirect to FB
-  if (pathOnly === '/webhook/oauth/meta/callback') return next();
-  if (pathOnly === '/webhook/oauth/google/start') return next();
-  if (pathOnly === '/webhook/oauth/google/callback') return next();
-  if (pathOnly === '/webhook/email-approve') return next();
-  if (pathOnly === '/webhook/dashboard-events') return next();
-  if (pathOnly === '/webhook/data-deletion-request') return next();
-  if (req.method === 'OPTIONS') return next();
-  if (!N8N_WEBHOOK_SECRET) {
-    return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'N8N_WEBHOOK_SECRET not configured');
-  }
-  const provided = clean(String(req.headers['x-webhook-secret'] || ''));
-  // Timing-safe equality — prevents secret discovery via timing side-channel.
-  if (!provided || !timingSafeStringEqual(provided, N8N_WEBHOOK_SECRET)) {
-    return apiError(res, 401, 'UNAUTHORIZED', 'Invalid or missing x-webhook-secret');
-  }
-  next();
-}
 
 // Constant-time string compare. Returns false on length mismatch without
 // leaking which side was longer. Use for every secret / signature compare.
@@ -591,7 +569,10 @@ function timingSafeStringEqual(a, b) {
 }
 
 const { requireAuthOrWebhookSecret } = require('./middleware/requireAuthOrWebhookSecret');
+const { assertBusinessOwnerMiddleware } = require('./lib/assertBusinessOwner');
 app.use('/webhook', requireAuthOrWebhookSecret);
+app.use('/webhook', assertBusinessOwnerMiddleware({ sbGet, apiError, logger }));
+app.use('/api/business', assertBusinessOwnerMiddleware({ sbGet, apiError, logger }));
 
 const aiLimitExpress = expressRateLimit({
   windowMs: 60 * 1000,
@@ -4373,7 +4354,7 @@ app.post('/webhook/generate-landing-page', async (req, res) => {
 });
 
 // ─── Test email ───────────────────────────────────────────────────────────────
-app.post('/test-email', async (req, res) => {
+app.post('/test-email', requireAdminSecret, async (req, res) => {
   const to = req.body?.email;
   const apiKey = clean(process.env.RESEND_API_KEY) || RESEND_API_KEY;
   const from = clean(process.env.FROM_EMAIL) || FROM_EMAIL;
@@ -4408,9 +4389,12 @@ app.post('/test-email', async (req, res) => {
 // saves everything to Supabase, then fires /webhook/account-connected.
 // Body: { code, business_id, redirect_uri? }
 // ─────────────────────────────────────────────────────────────────────────────
-app.post('/meta-oauth-exchange', async (req, res) => {
+app.post('/meta-oauth-exchange', requireAnyUserId, async (req, res) => {
   const { code, business_id, redirect_uri } = req.body;
   if (!code || !business_id) return res.status(400).json({ error: 'code and business_id required' });
+
+  const { assertBusinessOwner } = require('./lib/assertBusinessOwner');
+  if (!(await assertBusinessOwner(req, res, business_id, { sbGet, apiError, logger }))) return;
 
   const APP_ID = clean(process.env.META_APP_ID) || '26551713411132003';
   const APP_SECRET = clean(process.env.META_APP_SECRET) || '';
@@ -5273,6 +5257,29 @@ require('./routes/google-campaigns').register({
   logError,
   GOOGLE_ADS_DEV_TOKEN,
   sbUpsert,
+});
+
+function actId(adAccountId) {
+  if (!adAccountId) return null;
+  const s = String(adAccountId).trim();
+  return s.startsWith('act_') ? s : `act_${s}`;
+}
+
+require('./routes/meta-campaigns').register({
+  app,
+  sbGet,
+  sbPost,
+  sbPatch,
+  callClaude,
+  apiRequest,
+  generateImage,
+  saveImageToSupabase,
+  sendEmail,
+  planGate,
+  actId,
+  log,
+  logError,
+  storeInsight,
 });
 
 
@@ -8030,9 +8037,14 @@ app.get('/webhook/email-approve', async (req, res) => {
 });
 
 // ── PIECE 4: Real-Time Dashboard Events (SSE) ──────────────────────────────
-app.get('/webhook/dashboard-events', (req, res) => {
+app.get('/webhook/dashboard-events', async (req, res) => {
+  if (req.authSource !== 'jwt' || !req.user) {
+    return apiError(res, 401, 'UNAUTHORIZED', 'JWT required for dashboard events (Authorization: Bearer)');
+  }
   const { business_id } = req.query;
   if (!business_id) return res.status(400).json({ error: 'business_id required' });
+  const { assertBusinessOwner } = require('./lib/assertBusinessOwner');
+  if (!(await assertBusinessOwner(req, res, business_id, { sbGet, apiError, logger }))) return;
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -8859,6 +8871,73 @@ function pCity(p) {
   return l[0]?.city || 'local area';
 }
 
+require('./routes/ideas').register({
+  app,
+  getProfile,
+  callClaude,
+  pCity,
+  claudeBiz,
+  sbGet,
+  sbPost,
+  sbPatch,
+  storeInsight,
+  checkOrchestrationIdempotency,
+  recordOrchestrationTaskRun,
+  extractJSON,
+  logError,
+  log,
+  safePublicError,
+});
+
+require('./routes/lead-magnets').register({
+  app,
+  getProfile,
+  callClaude,
+  pCity,
+  claudeBiz,
+  sbGet,
+  sbPost,
+  storeInsight,
+  checkOrchestrationIdempotency,
+  recordOrchestrationTaskRun,
+  log,
+  safePublicError,
+});
+
+require('./routes/launch').register({
+  app,
+  getProfile,
+  callClaude,
+  pCity,
+  claudeBiz,
+  sbGet,
+  sbPost,
+  storeInsight,
+  log,
+  safePublicError,
+});
+
+require('./routes/research').register({
+  app,
+  getProfile,
+  callClaude,
+  pCity,
+  claudeBiz,
+  sbPost,
+  storeInsight,
+  log,
+});
+
+require('./routes/waitlist').register({
+  app,
+  validate,
+  sbGet,
+  sbPost,
+  sendEmail,
+  apiError,
+  safePublicError,
+});
+
 // DEBUG: test getProfile directly
 app.get('/api/debug/profile/:userId', requireAdminSecret, async (req, res) => {
   const uid = req.params.userId;
@@ -9643,13 +9722,19 @@ const aiSeoForColdStart = (() => {
     return null;
   }
 })();
-const higgsfieldForColdStart = (() => {
-  try {
-    return require('./services/higgsfield');
-  } catch {
-    return null;
-  }
-})();
+const higgsfieldForColdStart = createHiggsfieldService({
+  apiRequest,
+  serpSearch,
+  logger,
+  extractJSON,
+  sbGet,
+  sbPost,
+  ANTHROPIC_KEY,
+  SERPAPI_KEY,
+  SUPABASE_URL,
+  SUPABASE_KEY,
+  callClaude,
+});
 const wf1ForColdStart = (() => {
   try {
     return require('./services/wf1');
@@ -10297,51 +10382,6 @@ registerCreativeEngineRoutes({
   // `creative` entity so the grounding library can rank future picks by
   // historical performance instead of relying on prompt-time heuristics.
   marketingGraph: _marketingGraph,
-});
-
-// ─── Data Deletion Request (public, no auth) ────────────────────────────────
-app.post('/webhook/data-deletion-request', async (req, res) => {
-  try {
-    const { name, email, meta_account, reason, requested_at } = req.body || {};
-    if (!name || !email) return apiError(res, 400, 'INVALID_REQUEST', 'name and email required');
-
-    // Log to Supabase
-    await sbPost('data_deletion_requests', {
-      name,
-      email,
-      meta_account: meta_account || null,
-      reason: reason || null,
-      requested_at: requested_at || new Date().toISOString(),
-      status: 'pending',
-    }).catch(() => {});
-
-    // Send email to info@maroa.ai via Resend
-    if (RESEND_API_KEY) {
-      const fromHdr = FROM_EMAIL.includes('<') ? FROM_EMAIL : `maroa.ai <${FROM_EMAIL}>`;
-      await apiRequest(
-        'POST',
-        'https://api.resend.com/emails',
-        { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        {
-          from: fromHdr,
-          to: ['info@maroa.ai'],
-          subject: `Data Deletion Request from ${name}`,
-          html: `<h2>New Data Deletion Request</h2>
-            <p><strong>Name:</strong> ${name}</p>
-            <p><strong>Email:</strong> ${email}</p>
-            <p><strong>Meta Account:</strong> ${meta_account || 'Not provided'}</p>
-            <p><strong>Reason:</strong> ${reason || 'Not provided'}</p>
-            <p><strong>Requested at:</strong> ${requested_at || new Date().toISOString()}</p>
-            <p><em>Process within 30 days per Meta Platform Terms.</em></p>`,
-        }
-      ).catch((e) => logger?.error('data-deletion email failed', e));
-    }
-
-    res.json({ success: true });
-  } catch (err) {
-    logger?.error('data-deletion-request', err);
-    apiError(res, 500, 'DELETION_REQUEST_FAILED', err.message);
-  }
 });
 
 // ─── WF1 hourly auto-run ────────────────────────────────────────────────────
@@ -11008,18 +11048,29 @@ function armShutdownDeadman() {
   }, 30000).unref();
 }
 
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('/process', null, 'Unhandled Promise Rejection — NOT crashing server', { reason: String(reason) });
-  if (process.env.SENTRY_DSN) Sentry.captureException(reason instanceof Error ? reason : new Error(String(reason)));
+let _shuttingDown = false;
+
+function beginFatalShutdown(signal, err) {
+  if (_shuttingDown) return;
+  _shuttingDown = true;
+  if (err && process.env.SENTRY_DSN) Sentry.captureException(err);
+  armShutdownDeadman();
+  gracefulShutdown(signal).catch(() => process.exit(1));
+}
+
+process.on('unhandledRejection', (reason) => {
+  logger.error('/process', null, 'Unhandled Promise Rejection — graceful shutdown', {
+    reason: String(reason),
+  });
+  beginFatalShutdown('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)));
 });
 
 process.on('uncaughtException', (err) => {
-  logger.error('/process', null, 'Uncaught Exception — shutting down gracefully', {
+  logger.error('/process', null, 'Uncaught Exception — graceful shutdown', {
     error: err.message,
     stack: err.stack,
   });
-  if (process.env.SENTRY_DSN) Sentry.captureException(err);
-  setTimeout(() => process.exit(1), 2000);
+  beginFatalShutdown('uncaughtException', err);
 });
 
 process.on('SIGTERM', () => {

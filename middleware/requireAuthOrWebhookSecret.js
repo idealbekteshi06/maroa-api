@@ -1,7 +1,9 @@
-// Accepts EITHER a Supabase user JWT (Authorization header OR ?token= query) OR the n8n webhook secret.
+// Accepts EITHER a Supabase user JWT (Authorization header) OR the n8n webhook secret.
 // Attaches req.user and req.businessId when authenticated via JWT.
 
 'use strict';
+
+const crypto = require('crypto');
 
 let createClient;
 try {
@@ -29,10 +31,20 @@ if (!supabaseAdmin) {
   console.warn('[auth] supabaseAdmin NOT initialized — JWT verification disabled');
 }
 
+function timingSafeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) {
+    crypto.timingSafeEqual(ab, ab);
+    return false;
+  }
+  return crypto.timingSafeEqual(ab, bb);
+}
+
 const OPEN_PATHS = new Set([
   '/webhook/paddle-webhook',
   '/webhook/email-approve',
-  '/webhook/dashboard-events',
   '/webhook/data-deletion-request',
   '/webhook/meta-deauthorize',
   '/webhook/meta-data-deletion',
@@ -45,22 +57,17 @@ function requireAuthOrWebhookSecret(req, res, next) {
   const pathOnly = req.originalUrl.split('?')[0];
   if (OPEN_PATHS.has(pathOnly)) return next();
 
-  // 1. Machine path: webhook secret
+  // 1. Machine path: webhook secret (timing-safe)
   const providedSecret = (req.get('x-webhook-secret') || '').trim();
-  if (N8N_WEBHOOK_SECRET && providedSecret && providedSecret === N8N_WEBHOOK_SECRET) {
+  if (N8N_WEBHOOK_SECRET && providedSecret && timingSafeEqual(providedSecret, N8N_WEBHOOK_SECRET)) {
     req.authSource = 'webhook';
     return next();
   }
 
-  // 2. User path: Supabase JWT from Authorization header OR ?token= query param (for SSE)
-  let token = null;
+  // 2. User path: Supabase JWT from Authorization header only (no ?token= query)
   const authHeader = req.get('authorization') || '';
   const headerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  if (headerMatch) {
-    token = headerMatch[1].trim();
-  } else if (req.query && typeof req.query.token === 'string' && req.query.token.length > 20) {
-    token = req.query.token.trim();
-  }
+  const token = headerMatch ? headerMatch[1].trim() : null;
 
   if (token && supabaseAdmin) {
     supabaseAdmin.auth
@@ -88,7 +95,7 @@ function requireAuthOrWebhookSecret(req, res, next) {
   return res.status(401).json({
     error: {
       code: 'UNAUTHORIZED',
-      message: 'Missing authentication (provide Authorization: Bearer <jwt>, ?token=<jwt>, or x-webhook-secret)',
+      message: 'Missing authentication (provide Authorization: Bearer <jwt> or x-webhook-secret)',
       timestamp: new Date().toISOString(),
     },
   });

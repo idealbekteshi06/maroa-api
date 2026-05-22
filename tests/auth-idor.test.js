@@ -346,94 +346,28 @@ test('idor: no Bearer + flag off + bad UUID → still 401 (fast path)', async ()
   assert.strictEqual(res.statusCode, 401);
 });
 
-// ─── Legacy fallback ON (transition window) ───────────────────────────────
+// ─── Legacy fallback removed (2026-05 security audit) ─────────────────────
 
-test('idor: no Bearer + flag on + valid UUID → next() + legacy metric', async () => {
-  const metrics = makeMetrics();
+test('idor: LEGACY_USERID_FALLBACK_ALLOWED no longer bypasses JWT', async () => {
   const mw = makeAuthenticateUserId({
     supabaseAdminGetUser: tokenGetter({}),
-    metrics,
+    metrics: makeMetrics(),
     env: { LEGACY_USERID_FALLBACK_ALLOWED: '1' },
     apiError,
   });
   const req = makeReq({ body: { userId: USER_A }, path: '/api/metrics' });
   const res = makeRes();
-  let called = false;
-  await new Promise((resolve) => mw(req, res, () => { called = true; resolve(); }));
-  assert.strictEqual(called, true);
-  assert.ok(metrics.calls.some((c) => c.name === 'auth_legacy_fallback_total'));
-  assert.ok(metrics.calls[0].labels.route === '/api/metrics');
-});
-
-test('idor: no Bearer + flag on + missing userId → 400 VALIDATION_ERROR', async () => {
-  const mw = makeAuthenticateUserId({
-    supabaseAdminGetUser: tokenGetter({}),
-    metrics: makeMetrics(),
-    env: { LEGACY_USERID_FALLBACK_ALLOWED: '1' },
-    apiError,
-  });
-  const req = makeReq({ body: {} });
-  const res = makeRes();
   await new Promise((resolve) => {
     mw(req, res, () => {});
     setTimeout(resolve, 20);
   });
-  assert.strictEqual(res.statusCode, 400);
-});
-
-test('idor: no Bearer + flag on + bad UUID → 400 VALIDATION_ERROR', async () => {
-  const mw = makeAuthenticateUserId({
-    supabaseAdminGetUser: tokenGetter({}),
-    metrics: makeMetrics(),
-    env: { LEGACY_USERID_FALLBACK_ALLOWED: '1' },
-    apiError,
-  });
-  const req = makeReq({ body: { userId: 'short' } });
-  const res = makeRes();
-  await new Promise((resolve) => {
-    mw(req, res, () => {});
-    setTimeout(resolve, 20);
-  });
-  assert.strictEqual(res.statusCode, 400);
-});
-
-test('idor: flag accepts truthy variants ("1", "true", "yes", "on")', async () => {
-  for (const v of ['1', 'true', 'TRUE', 'yes', 'on']) {
-    const mw = makeAuthenticateUserId({
-      supabaseAdminGetUser: tokenGetter({}),
-      metrics: makeMetrics(),
-      env: { LEGACY_USERID_FALLBACK_ALLOWED: v },
-      apiError,
-    });
-    const req = makeReq({ body: { userId: USER_A } });
-    const res = makeRes();
-    let called = false;
-    await new Promise((resolve) => mw(req, res, () => { called = true; resolve(); }));
-    assert.strictEqual(called, true, `expected next() with flag="${v}"`);
-  }
-});
-
-test('idor: flag rejects falsy variants ("0", "false", "", undefined)', async () => {
-  for (const v of ['0', 'false', '', undefined, null]) {
-    const mw = makeAuthenticateUserId({
-      supabaseAdminGetUser: tokenGetter({}),
-      metrics: makeMetrics(),
-      env: { LEGACY_USERID_FALLBACK_ALLOWED: v },
-      apiError,
-    });
-    const req = makeReq({ body: { userId: USER_A } });
-    const res = makeRes();
-    await new Promise((resolve) => {
-      mw(req, res, () => {});
-      setTimeout(resolve, 20);
-    });
-    assert.strictEqual(res.statusCode, 401, `expected 401 with flag="${v}"`);
-  }
+  assert.strictEqual(res.statusCode, 401);
+  assert.strictEqual(res.body.error, 'AUTH_REQUIRED');
 });
 
 // ─── Edge cases ───────────────────────────────────────────────────────────
 
-test('idor: malformed Authorization header (not Bearer) falls through to legacy path', async () => {
+test('idor: malformed Authorization header (not Bearer) returns 401', async () => {
   const mw = makeAuthenticateUserId({
     supabaseAdminGetUser: tokenGetter({}),
     metrics: makeMetrics(),

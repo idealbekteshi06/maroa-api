@@ -19,14 +19,7 @@
  *        req.body.userId / req.body.user_id / req.params.userId so existing
  *        handlers work unchanged.
  *
- *   2. No Bearer token (legacy fallback)
- *      - Gated by env.LEGACY_USERID_FALLBACK_ALLOWED. Default OFF in
- *        production. Set to "1" only during a documented migration window
- *        for legacy n8n callers that haven't moved to JWT yet.
- *      - When the flag is OFF: 401 AUTH_REQUIRED.
- *      - When the flag is ON: validates UUID format only AND increments
- *        auth_legacy_fallback_total{route} so we can prove this path is
- *        idle before flipping the flag off permanently.
+ *   2. No Bearer token — always 401 AUTH_REQUIRED (legacy UUID-only path removed).
  *
  * Dep injection makes this testable without a live Supabase client.
  * ---------------------------------------------------------------------------
@@ -91,37 +84,12 @@ function makeAuthenticateUserId({
         .catch(() => apiError(res, 401, 'UNAUTHORIZED', 'Auth verification failed'));
     }
 
-    // ── Legacy fallback ────────────────────────────────────────────────
-    const legacyAllowed = String(env.LEGACY_USERID_FALLBACK_ALLOWED || '').match(
-      /^(1|true|yes|on)$/i
+    return apiError(
+      res,
+      401,
+      'AUTH_REQUIRED',
+      'Authentication required (Authorization: Bearer <jwt>)'
     );
-    if (!legacyAllowed) {
-      return apiError(
-        res,
-        401,
-        'AUTH_REQUIRED',
-        'Authentication required (Bearer token). Legacy userId-only access is disabled.'
-      );
-    }
-
-    const uid =
-      (req.body && (req.body.userId || req.body.user_id)) ||
-      (req.params && req.params.userId) ||
-      (req.query && req.query.userId);
-    if (!uid || typeof uid !== 'string' || uid.length < 10) {
-      return apiError(res, 400, 'VALIDATION_ERROR', 'Valid user ID required');
-    }
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uid)) {
-      return apiError(res, 400, 'VALIDATION_ERROR', 'user ID must be a valid UUID');
-    }
-    if (metrics && typeof metrics.increment === 'function') {
-      try {
-        metrics.increment('auth_legacy_fallback_total', { route: req.path || 'unknown' });
-      } catch {
-        /* metrics is best-effort */
-      }
-    }
-    return next();
   };
 }
 
