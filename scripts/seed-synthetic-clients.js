@@ -5,12 +5,15 @@
 /**
  * Seed 5 realistic demo businesses with 3 months of performance history.
  *
+ * Idempotent — all writes use sbUpsert (merge-duplicates). Stable seedUuid() ids
+ * for child rows; content_plans upserts on (business_id, plan_date).
+ *
  * Usage: SUPABASE_URL=... SUPABASE_KEY=... node scripts/seed-synthetic-clients.js
  *        node scripts/seed-synthetic-clients.js --dry-run
  */
 
-const { randomUUID } = require('crypto');
-const { getSeedConfig, sbInsert, sbUpsert, sbSelect } = require('./lib/seedSupabase');
+const { createHash } = require('crypto');
+const { getSeedConfig, sbUpsert, sbSelect } = require('./lib/seedSupabase');
 
 const DRY_RUN = process.argv.includes('--dry-run');
 
@@ -120,6 +123,16 @@ function pick(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+/** Stable UUID v4-shaped id for idempotent seed upserts */
+function seedUuid(...parts) {
+  const h = createHash('sha256').update(parts.join(':')).digest();
+  const b = Buffer.from(h.subarray(0, 16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const hex = b.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
 async function seedBusiness(client) {
   const biz = {
     id: client.id,
@@ -178,109 +191,136 @@ async function seedBusiness(client) {
 }
 
 async function seedContentHistory(businessId, industry) {
-  const planId = randomUUID();
-  await sbInsert('content_plans', [
-    {
-      id: planId,
-      business_id: businessId,
-      plan_date: dateOnlyDaysAgo(0),
-      status: 'published',
-      analysis: { narrativeArc: 'trust_building', seeded: true },
-      autonomy_mode: 'hybrid',
-      model_used: 'seed',
-    },
-  ]);
+  const planId = seedUuid('seed-plan', businessId);
+  await sbUpsert(
+    'content_plans',
+    [
+      {
+        id: planId,
+        business_id: businessId,
+        plan_date: dateOnlyDaysAgo(0),
+        status: 'published',
+        analysis: { narrativeArc: 'trust_building', seeded: true },
+        autonomy_mode: 'hybrid',
+        model_used: 'seed',
+      },
+    ],
+    'business_id,plan_date'
+  );
 
   for (let day = 0; day < 90; day += 1) {
-    const conceptId = randomUUID();
-    const assetId = randomUUID();
-    const postId = randomUUID();
+    const conceptId = seedUuid('seed-concept', businessId, day);
+    const assetId = seedUuid('seed-asset', businessId, day);
+    const postId = seedUuid('seed-post', businessId, day);
+    const perfId = seedUuid('seed-perf', businessId, day);
     const engagementBase = industry === 'fitness' ? 0.04 : industry === 'legal' ? 0.008 : 0.022;
     const impressions = Math.floor(rand(800, 4500));
     const reach = Math.floor(impressions * rand(0.7, 0.95));
     const engagement = Math.floor(reach * rand(engagementBase * 0.6, engagementBase * 1.4));
 
-    await sbInsert('content_concepts', [
-      {
-        id: conceptId,
-        business_id: businessId,
-        plan_id: planId,
-        platform: day % 7 === 0 ? 'facebook' : 'instagram',
-        format: day % 3 === 0 ? '1:1 Feed post' : '9:16 Reel 7-15s',
-        status: 'published',
-        pillar: pick(['trust', 'offer', 'education', 'community']),
-        core_idea: `Day ${90 - day} ${industry} post theme`,
-        hook: `Hook for ${industry} day ${day}`,
-        funnel_stage: 'tofu',
-        created_at: daysAgo(day),
-      },
-    ]);
+    await sbUpsert(
+      'content_concepts',
+      [
+        {
+          id: conceptId,
+          business_id: businessId,
+          plan_id: planId,
+          platform: day % 7 === 0 ? 'facebook' : 'instagram',
+          format: day % 3 === 0 ? '1:1 Feed post' : '9:16 Reel 7-15s',
+          status: 'published',
+          pillar: pick(['trust', 'offer', 'education', 'community']),
+          core_idea: `Day ${90 - day} ${industry} post theme`,
+          hook: `Hook for ${industry} day ${day}`,
+          funnel_stage: 'tofu',
+          created_at: daysAgo(day),
+        },
+      ],
+      'id'
+    );
 
-    await sbInsert('content_assets', [
-      {
-        id: assetId,
-        business_id: businessId,
-        concept_id: conceptId,
-        platform: day % 7 === 0 ? 'facebook' : 'instagram',
-        caption: `SEED caption ${industry} — day ${90 - day}`,
-        hook: `SEED hook ${day}`,
-        hashtags: ['#maroa', '#seed', `#${industry}`],
-        cta: 'Book now',
-        posting_time_local: pick(['09:00', '12:00', '17:00', '19:00']),
-        status: 'published',
-        published_at: daysAgo(day),
-        generated_at: daysAgo(day),
-      },
-    ]);
+    await sbUpsert(
+      'content_assets',
+      [
+        {
+          id: assetId,
+          business_id: businessId,
+          concept_id: conceptId,
+          platform: day % 7 === 0 ? 'facebook' : 'instagram',
+          caption: `SEED caption ${industry} — day ${90 - day}`,
+          hook: `SEED hook ${day}`,
+          hashtags: ['#maroa', '#seed', `#${industry}`],
+          cta: 'Book now',
+          posting_time_local: pick(['09:00', '12:00', '17:00', '19:00']),
+          status: 'published',
+          published_at: daysAgo(day),
+          generated_at: daysAgo(day),
+        },
+      ],
+      'id'
+    );
 
-    await sbInsert('content_posts', [
-      {
-        id: postId,
-        business_id: businessId,
-        asset_id: assetId,
-        platform: day % 7 === 0 ? 'facebook' : 'instagram',
-        posted_at: daysAgo(day),
-        performance_measured_at: daysAgo(day - 1),
-      },
-    ]);
+    await sbUpsert(
+      'content_posts',
+      [
+        {
+          id: postId,
+          business_id: businessId,
+          asset_id: assetId,
+          platform: day % 7 === 0 ? 'facebook' : 'instagram',
+          posted_at: daysAgo(day),
+          performance_measured_at: daysAgo(day - 1),
+        },
+      ],
+      'id'
+    );
 
-    await sbInsert('content_performance', [
-      {
-        business_id: businessId,
-        post_id: postId,
-        asset_id: assetId,
-        platform: day % 7 === 0 ? 'facebook' : 'instagram',
-        measured_at: daysAgo(day - 1),
-        hours_since_post: 48,
-        impressions,
-        reach,
-        engagement_count: engagement,
-        engagement_rate: reach ? engagement / reach : 0,
-        vs_account_baseline: rand(0.85, 1.35),
-        vs_industry_benchmark: rand(0.9, 1.25),
-        classification: engagement / reach > engagementBase ? 'winner' : 'on_target',
-      },
-    ]);
+    await sbUpsert(
+      'content_performance',
+      [
+        {
+          id: perfId,
+          business_id: businessId,
+          post_id: postId,
+          asset_id: assetId,
+          platform: day % 7 === 0 ? 'facebook' : 'instagram',
+          measured_at: daysAgo(day - 1),
+          hours_since_post: 48,
+          impressions,
+          reach,
+          engagement_count: engagement,
+          engagement_rate: reach ? engagement / reach : 0,
+          vs_account_baseline: rand(0.85, 1.35),
+          vs_industry_benchmark: rand(0.9, 1.25),
+          classification: engagement / reach > engagementBase ? 'winner' : 'on_target',
+        },
+      ],
+      'id'
+    );
   }
 }
 
 async function seedAds(businessId, industry) {
-  const campaignId = randomUUID();
-  await sbInsert('ad_campaigns', [
-    {
-      id: campaignId,
-      business_id: businessId,
-      business_name: `SEED ${industry}`,
-      platform: 'meta',
-      status: 'active',
-      daily_budget: rand(25, 80),
-      total_spend: 0,
-      roas: rand(1.8, 3.2),
-      objective: 'conversions',
-    },
-  ]);
-
+  const campaignId = seedUuid('seed-campaign', businessId);
   const ctrBase = { dental: 0.009, restaurant: 0.012, fitness: 0.013, beauty: 0.014, legal: 0.007 }[industry] || 0.01;
+
+  await sbUpsert(
+    'ad_campaigns',
+    [
+      {
+        id: campaignId,
+        business_id: businessId,
+        business_name: `SEED ${industry}`,
+        platform: 'meta',
+        status: 'active',
+        daily_budget: rand(25, 80),
+        total_spend: 30 * 35,
+        roas: 2.4,
+        ctr: ctrBase,
+        objective: 'conversions',
+      },
+    ],
+    'id'
+  );
 
   for (let day = 0; day < 30; day += 1) {
     const spend = rand(18, 55);
@@ -290,36 +330,27 @@ async function seedAds(businessId, industry) {
     const conversions = Math.max(0, Math.floor(clicks * rand(0.04, 0.12)));
     const roas = rand(1.2, 4.5);
 
-    await sbInsert('ad_performance_logs', [
-      {
-        campaign_id: campaignId,
-        business_id: businessId,
-        spend,
-        clicks,
-        impressions,
-        ctr,
-        roas,
-        cpc: clicks ? spend / clicks : 0,
-        conversions,
-        logged_at: daysAgo(day),
-        recommendation: roas >= 2 ? 'scale' : 'optimize',
-      },
-    ]);
+    await sbUpsert(
+      'ad_performance_logs',
+      [
+        {
+          id: seedUuid('seed-adlog', businessId, day),
+          campaign_id: campaignId,
+          business_id: businessId,
+          spend,
+          clicks,
+          impressions,
+          ctr,
+          roas,
+          cpc: clicks ? spend / clicks : 0,
+          conversions,
+          logged_at: daysAgo(day),
+          recommendation: roas >= 2 ? 'scale' : 'optimize',
+        },
+      ],
+      'id'
+    );
   }
-
-  await sbUpsert(
-    'ad_campaigns',
-    [
-      {
-        id: campaignId,
-        business_id: businessId,
-        total_spend: 30 * 35,
-        roas: 2.4,
-        ctr: ctrBase,
-      },
-    ],
-    'id'
-  );
 }
 
 async function seedCompetitors(businessId, industry, location) {
@@ -332,17 +363,22 @@ async function seedCompetitors(businessId, industry, location) {
   }[industry] || ['SEED_Competitor A', 'SEED_Competitor B'];
 
   for (let i = 0; i < 10; i += 1) {
-    await sbInsert('competitor_snapshots', [
-      {
-        business_id: businessId,
-        competitor_name: `${pick(names)} ${i + 1}`,
-        competitor_url: `https://example.com/competitor-${industry}-${i}`,
-        snapshot_date: dateOnlyDaysAgo(i * 9),
-        social_posts: [{ platform: 'instagram', theme: pick(['promo', 'ugc', 'education']) }],
-        active_ads: [{ angle: pick(['discount', 'trust', 'speed']), spend_tier: 'medium' }],
-        content_themes: [pick(['seasonal', 'reviews', 'founder'])],
-      },
-    ]);
+    await sbUpsert(
+      'competitor_snapshots',
+      [
+        {
+          id: seedUuid('seed-competitor', businessId, i),
+          business_id: businessId,
+          competitor_name: `${pick(names)} ${i + 1}`,
+          competitor_url: `https://example.com/competitor-${industry}-${i}`,
+          snapshot_date: dateOnlyDaysAgo(i * 9),
+          social_posts: [{ platform: 'instagram', theme: pick(['promo', 'ugc', 'education']) }],
+          active_ads: [{ angle: pick(['discount', 'trust', 'speed']), spend_tier: 'medium' }],
+          content_themes: [pick(['seasonal', 'reviews', 'founder'])],
+        },
+      ],
+      'id'
+    );
   }
 }
 
