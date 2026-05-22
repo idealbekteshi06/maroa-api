@@ -208,7 +208,7 @@ const corsOptions = {
   credentials: true,
 };
 app.use(cors(corsOptions));
-app.use(require('./lib/deprecatedWebhooks').deprecatedWebhooksMiddleware);
+app.use(require('./lib/deprecatedWebhooks').deprecatedWebhooksMiddleware());
 app.options('*', cors(corsOptions));
 
 app.use((req, res, next) => {

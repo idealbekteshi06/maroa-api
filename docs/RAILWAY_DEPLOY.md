@@ -39,7 +39,9 @@ Probes use host **`healthcheck.railway.app`**. Do not add middleware that reject
 | `/healthz` live (early listen) | **&lt;1s** after process start |
 | Deferred route table (`setImmediate`) | **~0.2–0.6s** on dev hardware |
 
-The 9+ minute Railway failures were **not** prestart — they were the **~10k-line synchronous `server.js` load** blocking the event loop before `/healthz` could respond. Fix: early `listen()` + `setImmediate` for route registration.
+The 9+ minute Railway failures were **not** prestart or Railway routing. Root cause: **`deprecatedWebhooksMiddleware` was mounted without calling the factory** (`app.use(fn)` instead of `app.use(fn())`), so every request (including `/healthz`) hung forever and the HTTP healthcheck timed out.
+
+Also fixed: `Config` + `sbGet` moved before early `listen()` so boot does not throw `sbGet is not defined`.
 
 ## Verify after deploy
 
