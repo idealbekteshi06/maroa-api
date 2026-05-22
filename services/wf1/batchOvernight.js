@@ -298,7 +298,7 @@ function createBatchOvernight(deps) {
   return {
     submitOvernightBatch,
     applyOvernightBatch,
-    constants: { BATCH_HARD_CAP, SONNET_MODEL, OPUS_MODEL, MAX_TOKENS },
+    constants: { BATCH_HARD_CAP, SONNET_MODEL, OPUS_MODEL, MAX_TOKENS_DAILY },
   };
 }
 
