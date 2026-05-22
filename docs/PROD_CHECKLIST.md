@@ -15,6 +15,12 @@ Confirm Paddle dashboard SKUs match live prices: **Starter $29**, **Growth $59**
 
 ## After deploy
 
-1. Inngest dashboard — confirm 5 `ops-*` functions + existing crons synced.
-2. `GET /readyz` — Higgsfield + Inngest probes green.
-3. Dashboard — Integrations card shows Meta/Google status (not demo competitors).
+1. `npm run check-migrations:applied` — ledger shows 079 + 080 applied.
+2. `GET /readyz` — `checks.migrations.ok` true (or `missing_in_db` empty).
+3. `GET /api/ops/platform` (authenticated) — `internal_dispatcher.registered` includes all Inngest paths.
+4. Inngest dashboard — confirm `ops-*` + existing crons synced.
+5. Dashboard — Integrations v2 shows `status: healthy|degraded|disconnected` per channel.
+
+## Secret rotation (manual)
+
+If `setup.sh` or `n8n-workflows/*.json` ever contained live keys, rotate Anthropic, Supabase service-role, Meta app secret, and Resend per `PUNCHLIST.md` CRITICAL §1.

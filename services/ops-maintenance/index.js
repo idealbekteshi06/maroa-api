@@ -407,8 +407,10 @@ async function runGrowthEngineAll(deps) {
 }
 
 async function runAnalyticsSnapshotsAll(deps) {
-  const { runSnapshotForBusiness } = deps;
+  const { runSnapshotForBusiness, sbGet } = deps;
   if (!runSnapshotForBusiness) return { ok: false, reason: 'analytics_runner_missing' };
+
+  const { loadBusiness, checkPlatform } = require('../../lib/integrationGate');
 
   return fanOut({
     sbGet: deps.sbGet,
@@ -416,6 +418,10 @@ async function runAnalyticsSnapshotsAll(deps) {
     label: 'analytics-snapshots',
     growthPlusOnly: true,
     perBusiness: async (id) => {
+      const biz = await loadBusiness(id, sbGet);
+      if (!checkPlatform(biz, 'analytics_social')) {
+        return { ok: true, skipped: true, reason: 'no_social_integration' };
+      }
       const r = await runSnapshotForBusiness(id, deps);
       return { ok: true, platforms_saved: r?.saved?.length ?? 0 };
     },

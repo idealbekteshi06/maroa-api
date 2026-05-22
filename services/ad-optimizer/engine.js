@@ -338,9 +338,26 @@ function createEngine(deps) {
       `status=eq.ACTIVE&order=last_optimized_at.asc.nullsfirst&limit=${limit}&select=id,business_id`
     ).catch(() => []);
 
-    const results = { total: campaigns.length, audited: 0, errors: 0, decisions: {} };
+    const { loadBusiness, checkPlatform } = require('../../lib/integrationGate');
+    const results = {
+      total: campaigns.length,
+      audited: 0,
+      errors: 0,
+      skipped_no_meta: 0,
+      decisions: {},
+    };
+    const bizCache = new Map();
     for (const c of campaigns) {
       try {
+        let biz = bizCache.get(c.business_id);
+        if (!biz) {
+          biz = await loadBusiness(c.business_id, sbGet);
+          bizCache.set(c.business_id, biz);
+        }
+        if (!checkPlatform(biz, 'meta_ads')) {
+          results.skipped_no_meta++;
+          continue;
+        }
         const r = await auditOne({ campaignId: c.id, businessId: c.business_id, dryRun });
         results.audited++;
         results.decisions[r.audit.decision] = (results.decisions[r.audit.decision] || 0) + 1;

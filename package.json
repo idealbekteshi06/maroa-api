@@ -19,6 +19,7 @@
     "restore-drill": "bash scripts/restore-drill.sh",
     "check-migrations": "node scripts/check-migrations.js",
     "check-migrations:applied": "node scripts/check-migrations.js --verify-applied",
+    "webhook-inventory": "node scripts/generate-webhook-inventory.js",
     "generate-openapi": "node scripts/generate-openapi.js",
     "eval-prompts": "node scripts/eval-prompts.js",
     "eval-prompts:live": "node scripts/eval-prompts.js --live",

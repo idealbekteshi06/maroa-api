@@ -206,6 +206,7 @@ const corsOptions = {
   credentials: true,
 };
 app.use(cors(corsOptions));
+app.use(require('./lib/deprecatedWebhooks').deprecatedWebhooksMiddleware);
 app.options('*', cors(corsOptions));
 
 app.use((req, res, next) => {
@@ -567,6 +568,7 @@ app.use('/api/social', requireAnyUserId);
 app.use('/api/content', requireAnyUserId);          // /api/content/generate, /api/content/feedback, /api/content/repurpose
 app.use('/api/cron-health', requireAnyUserId);      // /api/cron-health/:businessId
 app.use('/api/business', requireAnyUserId);         // /api/business/:businessId/brand-voice
+app.use('/api/ops', requireAnyUserId);              // /api/ops/platform
 app.use('/api/generate', requireAnyUserId);         // /api/generate
 app.use('/api/schema', requireAnyUserId);           // /api/schema/:userId (READ side of schema)
 app.use('/api/pricing', requireAnyUserId);          // /api/pricing/:userId (READ side of pricing)
@@ -1008,14 +1010,14 @@ async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOver
   }
 
   if (extra.businessId && !extra.skipBudget) {
-    const b = await checkTokenBudgetForBusiness(extra.businessId);
-    if (!b.allowed) {
-      const e = new Error(b.reason || 'AI budget exceeded');
-      e.status = 402;
-      e.code = 'AI_BUDGET_EXCEEDED';
-      throw e;
-    }
-    maxTokens = Math.min(maxTokens, b.maxTokensPerCall || maxTokens);
+    const { enforceLLMBudget } = require('./lib/llmGateway');
+    const budget = await enforceLLMBudget({
+      businessId: extra.businessId,
+      sbGet,
+      checkTokenBudgetForBusiness,
+      skipCostCap: !!extra.skipCostCap,
+    });
+    maxTokens = Math.min(maxTokens, budget.maxTokensPerCall || maxTokens);
   }
 
   // ─── Brand-voice auto-load ────────────────────────────────────────────
@@ -1231,14 +1233,13 @@ async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOver
  */
 async function streamClaude({ model, system, messages, maxTokens = 2500, onToken, businessId }) {
   if (businessId) {
-    const b = await checkTokenBudgetForBusiness(businessId);
-    if (!b.allowed) {
-      const e = new Error(b.reason || 'AI budget exceeded');
-      e.status = 402;
-      e.code = 'AI_BUDGET_EXCEEDED';
-      throw e;
-    }
-    maxTokens = Math.min(maxTokens, b.maxTokensPerCall || maxTokens);
+    const { enforceLLMBudget } = require('./lib/llmGateway');
+    const budget = await enforceLLMBudget({
+      businessId,
+      sbGet,
+      checkTokenBudgetForBusiness,
+    });
+    maxTokens = Math.min(maxTokens, budget.maxTokensPerCall || maxTokens);
   }
 
   const body = { model, max_tokens: maxTokens, stream: true, messages };
@@ -4763,53 +4764,63 @@ app.get('/api/cron-health/:businessId', async (req, res) => {
   }
 });
 
-// GET /api/business/:businessId/integrations — connection status for dashboard
+const { createIntegrationsService } = require('./services/integrations');
+const integrationsService = createIntegrationsService({ sbGet, apiRequest, logger });
+
+// GET /api/business/:businessId/integrations — v2 health (live Meta probe when configured)
 app.get('/api/business/:businessId/integrations', async (req, res) => {
   const businessId = String(req.params.businessId || '').trim();
   if (!businessId) return apiError(res, 400, 'VALIDATION_ERROR', 'businessId required');
-  const safeBiz = encodeURIComponent(businessId);
   try {
-    const rows = await sbGet(
-      'businesses',
-      `id=eq.${safeBiz}&select=business_name,meta_access_token,facebook_page_id,instagram_account_id,` +
-        `google_access_token,google_ads_customer_id,linkedin_connected,linkedin_access_token,` +
-        `twitter_connected,twitter_access_token,tiktok_connected,tiktok_access_token,` +
-        `resend_from_email,plan`
-    ).catch(() => []);
-    const biz = rows[0];
-    if (!biz) return apiError(res, 404, 'NOT_FOUND', 'Business not found');
-
-    const item = (connected, label, detail) => ({
-      connected: !!connected,
-      label,
-      detail: detail || (connected ? 'Connected' : 'Not connected'),
+    const health = await integrationsService.getHealth(businessId, {
+      probeLive: req.query.probe !== '0',
     });
-
-    return res.json({
-      business_id: businessId,
-      business_name: biz.business_name,
-      plan: biz.plan || 'starter',
-      generated_at: new Date().toISOString(),
-      integrations: [
-        item(biz.meta_access_token && biz.facebook_page_id, 'Meta (Facebook & Instagram)', 'Ads + page insights'),
-        item(biz.google_access_token || biz.google_ads_customer_id, 'Google Ads', 'Search & display campaigns'),
-        item(biz.linkedin_connected && biz.linkedin_access_token, 'LinkedIn', 'Company page analytics'),
-        item(biz.twitter_connected && biz.twitter_access_token, 'X / Twitter', 'Post metrics'),
-        item(biz.tiktok_connected && biz.tiktok_access_token, 'TikTok', 'Business profile'),
-        item(!!process.env.RESEND_API_KEY, 'Email (Resend)', biz.resend_from_email ? `From ${biz.resend_from_email}` : 'Transactional email'),
-        item(!!(process.env.HIGGSFIELD_API_KEY_ID && process.env.HIGGSFIELD_API_KEY_SECRET), 'Higgsfield Studio', 'AI image & video generation'),
-        item(!!(process.env.OPENAI_API_KEY && process.env.PINECONE_API_KEY && process.env.PINECONE_HOST), 'Brand memory', 'Pinecone vector store'),
-      ],
-      connected_count: [
-        biz.meta_access_token && biz.facebook_page_id,
-        biz.google_access_token || biz.google_ads_customer_id,
-        biz.linkedin_connected && biz.linkedin_access_token,
-        biz.twitter_connected && biz.twitter_access_token,
-        biz.tiktok_connected && biz.tiktok_access_token,
-      ].filter(Boolean).length,
-    });
+    if (!health.ok) return apiError(res, 404, 'NOT_FOUND', health.reason || 'Business not found');
+    return res.json(health);
   } catch (err) {
     return apiError(res, 500, 'INTEGRATIONS_FAILED', err.message);
+  }
+});
+
+// GET /api/business/:businessId/llm-spend — monthly LLM cost vs plan cap
+app.get('/api/business/:businessId/llm-spend', async (req, res) => {
+  const businessId = String(req.params.businessId || '').trim();
+  if (!businessId) return apiError(res, 400, 'VALIDATION_ERROR', 'businessId required');
+  try {
+    const { checkCostCap } = require('./lib/costGuard');
+    const cap = await checkCostCap({ businessId, sbGet });
+    return res.json({
+      business_id: businessId,
+      month: new Date().toISOString().slice(0, 7),
+      used_usd: cap.used_usd,
+      cap_usd: cap.cap_usd,
+      plan: cap.plan,
+      allowed: cap.allowed,
+      percent_used: cap.cap_usd > 0 ? Math.round((cap.used_usd / cap.cap_usd) * 1000) / 10 : 0,
+    });
+  } catch (err) {
+    return apiError(res, 500, 'LLM_SPEND_FAILED', err.message);
+  }
+});
+
+// GET /api/ops/platform — operator snapshot (auth: same as /api/business)
+app.get('/api/ops/platform', async (req, res) => {
+  try {
+    const { probeMigrationsLedger, getPlatformSnapshot } = require('./lib/platformOps');
+    let inngestCount = null;
+    try {
+      const { functions } = require('./services/inngest/functions');
+      inngestCount = functions.length;
+    } catch {
+      /* soft */
+    }
+    const migrations = await probeMigrationsLedger(sbGet);
+    return res.json({
+      ...getPlatformSnapshot({ inngestFunctionCount: inngestCount }),
+      migrations,
+    });
+  } catch (err) {
+    return apiError(res, 500, 'OPS_PLATFORM_FAILED', err.message);
   }
 });
 
@@ -10650,57 +10661,64 @@ app.use((err, req, res, next) => {
 });
 
 // ─── /webhook/wf-content-performance-feedback (Inngest target) ──────────────
-// Called 24h after publish by the durable Inngest function
-// contentPublishFeedback24h (services/inngest/functions.js). Pulls live
-// Meta post insights, scores the content, and stashes high-performing
-// captions in brand-memory via Pinecone.
+async function runWfContentPerformanceFeedback(body) {
+  const { contentId, businessId } = body || {};
+  if (!contentId || !businessId) {
+    const e = new Error('contentId and businessId required');
+    e.status = 400;
+    throw e;
+  }
+  const bizRows = await sbGet(
+    'businesses',
+    `id=eq.${encodeURIComponent(businessId)}&select=meta_access_token,meta_access_token_enc,facebook_page_id`
+  );
+  const biz = bizRows[0];
+  if (!biz) {
+    const e = new Error('business not found');
+    e.status = 404;
+    throw e;
+  }
+  const oauthCrypto = require('./lib/oauthCrypto');
+  const token = oauthCrypto.readToken(biz, 'meta_access_token');
+  const pageId = biz.facebook_page_id;
+  if (!token || !pageId) {
+    return { ok: false, reason: 'meta token or page id missing — skipping' };
+  }
+  const postsResp = await apiRequest(
+    'GET',
+    `https://graph.facebook.com/v19.0/${encodeURIComponent(pageId)}/posts?fields=id,message,insights.metric(post_impressions,post_engaged_users)&limit=5&access_token=${encodeURIComponent(token)}`,
+    {}
+  );
+  const posts = postsResp.body?.data || [];
+  let totalImpressions = 0,
+    totalEngagement = 0;
+  for (const p of posts) {
+    const metrics = p.insights?.data || [];
+    for (const m of metrics) {
+      if (m.name === 'post_impressions') totalImpressions += m.values?.[0]?.value || 0;
+      if (m.name === 'post_engaged_users') totalEngagement += m.values?.[0]?.value || 0;
+    }
+  }
+  const performanceScore =
+    totalImpressions > 0 ? Math.min(10, Math.round((totalEngagement / totalImpressions) * 100)) : 0;
+  await sbPatch('generated_content', `id=eq.${encodeURIComponent(contentId)}`, {
+    performance_score: performanceScore,
+    total_reach: totalImpressions,
+  });
+  return { ok: true, contentId, performance_score: performanceScore, total_reach: totalImpressions };
+}
+internalDispatcher.register('/webhook/wf-content-performance-feedback', (body) =>
+  runWfContentPerformanceFeedback(body || {})
+);
 app.post('/webhook/wf-content-performance-feedback', async (req, res) => {
-  const { contentId, businessId } = req.body || {};
-  if (!contentId || !businessId) return apiError(res, 400, 'VALIDATION_ERROR', 'contentId and businessId required');
-
   try {
-    const bizRows = await sbGet(
-      'businesses',
-      `id=eq.${encodeURIComponent(businessId)}&select=meta_access_token,facebook_page_id,meta_access_token_enc`
-    );
-    const biz = bizRows[0];
-    if (!biz) return apiError(res, 404, 'NOT_FOUND', 'business not found');
-
-    // Prefer encrypted token, fall back to plaintext during transition.
-    const oauthCrypto = require('./lib/oauthCrypto');
-    const token = oauthCrypto.readToken(biz, 'meta_access_token');
-    const pageId = biz.facebook_page_id;
-    if (!token || !pageId) {
-      return res.json({ ok: false, reason: 'meta token or page id missing — skipping' });
-    }
-
-    const postsResp = await apiRequest(
-      'GET',
-      `https://graph.facebook.com/v19.0/${encodeURIComponent(pageId)}/posts?fields=id,message,insights.metric(post_impressions,post_engaged_users)&limit=5&access_token=${encodeURIComponent(token)}`,
-      {}
-    );
-    const posts = postsResp.body?.data || [];
-    let totalImpressions = 0,
-      totalEngagement = 0;
-    for (const p of posts) {
-      const metrics = p.insights?.data || [];
-      for (const m of metrics) {
-        if (m.name === 'post_impressions') totalImpressions += m.values?.[0]?.value || 0;
-        if (m.name === 'post_engaged_users') totalEngagement += m.values?.[0]?.value || 0;
-      }
-    }
-    const performanceScore =
-      totalImpressions > 0 ? Math.min(10, Math.round((totalEngagement / totalImpressions) * 100)) : 0;
-    await sbPatch('generated_content', `id=eq.${encodeURIComponent(contentId)}`, {
-      performance_score: performanceScore,
-      total_reach: totalImpressions,
-    });
-    return res.json({ ok: true, contentId, performance_score: performanceScore, total_reach: totalImpressions });
+    res.json(await runWfContentPerformanceFeedback(req.body || {}));
   } catch (e) {
-    logger.error('/webhook/wf-content-performance-feedback', businessId, '24h feedback failed', e, {
-      request_id: req.requestId,
-    });
-    return apiError(res, 500, 'FEEDBACK_FAILED', e.message);
+    const status = e.status || 500;
+    if (status >= 500) {
+      logger.error('/webhook/wf-content-performance-feedback', req.body?.businessId, e.message);
+    }
+    return apiError(res, status, status === 400 ? 'VALIDATION_ERROR' : 'FEEDBACK_FAILED', e.message);
   }
 });
 
