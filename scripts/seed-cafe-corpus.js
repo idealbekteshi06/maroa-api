@@ -26,8 +26,8 @@
  *   - Albania + Balkans context: Mulliri Vjetër, Kafe Komiteti, Kotorr,
  *     Caffe del Doge (Mediterranean style sister set)
  *
- * Idempotent — re-running won't duplicate rows. Each entry has a deterministic
- * source_ref that we use as the upsert key.
+ * Idempotent — re-running won't duplicate rows. Upserts on
+ * marketing_corpus_source_ref_unique (source_ref).
  *
  * Usage:
  *   SUPABASE_URL=... SUPABASE_KEY=... node scripts/seed-cafe-corpus.js
@@ -492,7 +492,7 @@ const SEEDS = [
 
 function postSb(table, rows, prefer = 'resolution=merge-duplicates') {
   return new Promise((resolve, reject) => {
-    const u = new URL(`${SUPABASE_URL}/rest/v1/${table}?on_conflict=source,source_ref`);
+    const u = new URL(`${SUPABASE_URL}/rest/v1/${table}?on_conflict=source_ref`);
     const body = JSON.stringify(rows);
     const req = https.request(
       {
