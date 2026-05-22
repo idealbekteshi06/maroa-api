@@ -7,6 +7,8 @@
 // ─── Boot-time env validation. Crashes loudly on misconfiguration. ──────────
 // Must run before any module that reads process.env at import time.
 const env = require('./lib/env').parse();
+// Railway injects PORT (e.g. 8080) — resolve before early listen (~line 330)
+const PORT = Number(process.env.PORT) || Number(env.PORT) || 3000;
 
 // OpenTelemetry — opt-in via OTEL_ENABLED=true. Must init BEFORE any
 // instrumented module is required (the SDK monkey-patches at require-time).
@@ -321,6 +323,40 @@ app.use(securityHeaders({ env: process.env.NODE_ENV }));
 const observability = require('./services/observability');
 app.use(observability.metricsMiddleware());
 
+// ─── Early listen — Railway healthcheck before the route table loads ────────
+// listen() + /healthz first; remaining routes register in setImmediate below
+// so health probes get event-loop time while server.js finishes loading.
+const { registerHealthRoutes } = require('./lib/healthCheck');
+const _openSockets = new Set();
+const _sseClients = global._sseClients || (global._sseClients = new Set());
+
+registerHealthRoutes({ app, sbGet, logger });
+
+const server = app.listen(PORT, '0.0.0.0', () => {});
+
+server.on('connection', (socket) => {
+  _openSockets.add(socket);
+  socket.on('close', () => _openSockets.delete(socket));
+});
+
+server.on('listening', () => {
+  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  console.log(`  Maroa.ai API v2.0 — port :${PORT}`);
+  console.log(`  Layer 1: Execution ✓  Layer 2: Intelligence ✓  Layer 3: Learning ✓`);
+  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  console.log('[boot] listening — loading routes (/healthz ready)');
+
+  setImmediate(() => {
+    require('./lib/startupSelfTest')
+      .runStartupSelfTest({ sbGet, logger })
+      .catch((e) => logger.error('startup-self-test', null, 'self-test crashed', e));
+  });
+});
+
+// Defer the route table so the event loop can answer /healthz while this file
+// continues loading (~10k lines). listen() alone is not enough — sync JS blocks
+// request handling until we yield.
+setImmediate(() => {
 // SLO monitor: every 60s, evaluate the SLO catalog against live metrics
 // and route violations to Sentry + Slack + Email + PagerDuty (per severity)
 // via the alert router. No-op in tests (NODE_ENV=test).
@@ -352,8 +388,6 @@ const internalDispatcher = require('./lib/internalDispatcher');
   );
 }
 
-// ─── Liveness + readiness probes (registered after Inngest mount — see boot) ─
-const { registerHealthRoutes } = require('./lib/healthCheck');
 const path = require('path');
 const fs = require('fs');
 app.get('/docs/openapi.yml', (req, res) => {
@@ -615,8 +649,6 @@ const REPLICATE_API_KEY = env.REPLICATE_API_KEY || '';
 const PEXELS_API_KEY = env.PEXELS_API_KEY || '';
 const RESEND_API_KEY = env.RESEND_API_KEY || '';
 const FROM_EMAIL = env.FROM_EMAIL;
-// Railway injects PORT (e.g. 8080) — always prefer raw process.env over schema default 3000
-const PORT = Number(process.env.PORT) || Number(env.PORT) || 3000;
 const OPENAI_API_KEY = env.OPENAI_API_KEY || '';
 const PINECONE_API_KEY = env.PINECONE_API_KEY || '';
 const PINECONE_HOST = env.PINECONE_HOST || '';
@@ -4631,10 +4663,8 @@ try {
     })
   );
   console.log(`[inngest] mounted ${inngestFunctions.length} functions at /api/inngest`);
-  registerHealthRoutes({ app, sbGet, logger, inngestClient: inngest });
 } catch (e) {
   console.error('[inngest] failed to mount:', e.message);
-  registerHealthRoutes({ app, sbGet, logger });
 }
 
 // ─── Brand Voice (read + rebuild) ─────────────────────────────────────────
@@ -10847,44 +10877,8 @@ app.post('/webhook/wf-content-performance-feedback', async (req, res) => {
   }
 });
 
-// ─── Start ────────────────────────────────────────────────────────────────────
-const server = app
-  .listen(PORT, '0.0.0.0', () => {
-    // (no-op here — startup self-test runs in the inner block below)
-  })
-  .on('listening', () => {
-    // Track every open socket so graceful shutdown can force-close
-    // keep-alive connections that server.close() would otherwise hang on.
-  });
-server.on('connection', (socket) => {
-  _openSockets.add(socket);
-  socket.on('close', () => _openSockets.delete(socket));
+console.log('[boot] all routes registered — server fully ready');
 });
-// Re-define the listening callback with the original message + self-test.
-server.on('listening', () => {
-  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-  console.log(`  Maroa.ai API v2.0 — port :${PORT}`);
-  console.log(`  Layer 1: Execution ✓  Layer 2: Intelligence ✓  Layer 3: Learning ✓`);
-  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-
-  // Run the startup self-test asynchronously after the server is up.
-  // Probes Supabase, Anthropic, encryption key, required env vars.
-  // Soft-fail: any probe failure logs a warning but does not crash boot.
-  setImmediate(() => {
-    require('./lib/startupSelfTest')
-      .runStartupSelfTest({ sbGet, logger })
-      .catch((e) => logger.error('startup-self-test', null, 'self-test crashed', e));
-  });
-});
-
-// Track in-flight SSE connections so shutdown can close them cleanly.
-const _sseClients = global._sseClients || (global._sseClients = new Set());
-
-// Track all open sockets so we can force-close keep-alive connections
-// on shutdown. server.close() alone hangs indefinitely on persistent
-// connections (browsers + load balancers keep them open). Flagged by
-// the 2026-05-11 Antigravity adversarial review.
-const _openSockets = new Set();
 
 async function gracefulShutdown(signal) {
   log('shutdown', `Received ${signal}, beginning graceful shutdown`);
