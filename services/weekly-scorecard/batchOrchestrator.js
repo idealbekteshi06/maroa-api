@@ -70,14 +70,18 @@ function createBatchOrchestrator(deps) {
       scorecardData,
       plan,
     });
+    const { batchMaxTokensForPlan } = require('../../lib/platformAnthropic');
     return batchSvc.buildRequest({
       customId: customIdFor(businessId),
       model: scorecard.modelForPlan(plan),
       system,
       prompt: user,
-      max_tokens: scorecard.maxTokensForPlan(plan),
-      temperature: 0.5,
-      meta: { businessId, plan }, // round-tripped via custom_id mapping
+      max_tokens: batchMaxTokensForPlan(plan, 'weekly_scorecard'),
+      plan,
+      purpose: 'weekly_scorecard',
+      cacheSystem: true,
+      cacheTtl: '1h',
+      meta: { businessId, plan },
     });
   }
 

@@ -6,6 +6,7 @@
 
 const { buildCompetitorAnalysisPrompt } = require('../prompts/workflow_5_competitors.js');
 const { buildBrandContext } = require('../wf1/brandContext.js');
+const { callMarketingClaude } = require('../../lib/marketingClaude');
 
 function createWf5(deps) {
   const { sbGet, sbPost, callClaude, extractJSON, serpSearch, logger } = deps;
@@ -79,7 +80,24 @@ function createWf5(deps) {
 
     const bundle = await gatherBundle(businessId);
     const { system, user } = buildCompetitorAnalysisPrompt(brandContext, bundle);
-    const raw = await callClaude(user, 'claude-opus-4-7', 3000, { system, businessId, returnRaw: true });
+    const planRows = await sbGet('businesses', `id=eq.${businessId}&select=plan`).catch(() => []);
+    const planTier = planRows[0]?.plan || 'starter';
+    const raw = await callMarketingClaude({
+      callClaude,
+      sbGet,
+      sbPost,
+      logger,
+      system,
+      user,
+      task: 'competitor',
+      planTier,
+      businessId,
+      skill: 'wf5_competitor_brief',
+      max_tokens: 3000,
+      webSearch: 'auto',
+      cacheSystem: true,
+      returnRaw: true,
+    });
     const parsed = extractJSON(raw) || {};
 
     const row = await sbPost('competitor_briefs', {
@@ -92,7 +110,7 @@ function createWf5(deps) {
       white_space: parsed.white_space_opportunities || [],
       actions: parsed.recommended_actions || [],
       frameworks_cited: parsed.frameworks_cited || [],
-      model_used: 'claude-opus-4-7',
+      model_used: planTier === 'agency' ? 'claude-opus-4-7' : 'claude-sonnet-4-6+advisor',
     });
 
     await sbPost('events', {

@@ -245,7 +245,7 @@ function buildGenerateUserMessage({ business, marketProfile, pages, baseLlmsTxt,
 
 function modelForPlan(plan) {
   const p = String(plan || 'free').toLowerCase();
-  return p === 'agency' ? 'claude-opus-4-7' : 'claude-sonnet-4-5';
+  return p === 'agency' ? 'claude-opus-4-7' : 'claude-sonnet-4-6';
 }
 
 function maxTokensForPlan(plan, mode = 'audit') {

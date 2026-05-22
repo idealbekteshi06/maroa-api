@@ -367,6 +367,21 @@ async function runDaily({ businessId, deps }) {
     }
   }
 
+  // Distill learnings into brain_memory (Dreaming-style curation)
+  try {
+    const { createAgentDreamingService } = require('../agent-dreaming');
+    const dreaming = createAgentDreamingService({
+      sbGet,
+      sbPost,
+      sbPatch: deps.sbPatch,
+      memoryService: deps.memoryService,
+      logger,
+    });
+    await dreaming.distillAutopilotLearnings({ businessId, snapshot, decisions });
+  } catch (e) {
+    logger?.warn?.('autopilot-brain.runDaily', businessId, 'dreaming distill failed', { error: e.message });
+  }
+
   // Persist the run
   await sbPost('autopilot_runs', {
     business_id: businessId,

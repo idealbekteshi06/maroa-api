@@ -24,6 +24,7 @@ const {
 } = require('../prompts/workflow_1_daily_content.js');
 const { FOUNDATION_SYSTEM_PROMPT } = require('../prompts/foundation.js');
 const creativeDirector = require('../prompts/creative-director');
+const { callMarketingClaude } = require('../../lib/marketingClaude');
 
 function createEngine({
   sbGet,
@@ -156,10 +157,21 @@ function createEngine({
           contentGoal: `Daily content theme for ${todayLocalDate}`,
           ideaLevel: 'campaign',
         });
-        const cdRaw = await callClaude(cdBrief.userTask, 'claude-opus-4-7', 4000, {
+        const cdRaw = await callMarketingClaude({
+          callClaude,
+          sbGet,
+          sbPost,
+          logger,
           system: cdBrief.system,
+          user: cdBrief.userTask,
+          task: 'creative',
+          planTier: 'agency',
           businessId,
-          cacheSystem: true, // creative-director prompt is 13k chars — high cache savings
+          skill: 'creative_director_wf1',
+          max_tokens: 4000,
+          webSearch: 3,
+          cacheSystem: true,
+          budget: 'deep',
           returnRaw: true,
         });
         creativeConcept = extractJSON(cdRaw) || {};

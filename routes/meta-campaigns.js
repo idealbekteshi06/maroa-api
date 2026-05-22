@@ -19,6 +19,7 @@
  */
 const oauthCrypto = require('../lib/oauthCrypto');
 const { validateMonthlyBudget } = require('../lib/adBudgetGuard');
+const { THREADS_PLACEMENTS, THREADS_OBJECTIVES, graphBaseUrl } = require('../lib/metaMetrics');
 
 // Selector for businesses rows used by Meta routes. Reads encrypted column;
 // keep the plaintext column name in the list too in case a row predates
@@ -193,6 +194,13 @@ function register({
         geo_locations: { countries: ['US'] },
       };
       const campaignObj = strategy.objective || objective;
+      const threadsEligible = THREADS_OBJECTIVES.has(String(campaignObj).toUpperCase());
+      if (threadsEligible && req.body?.include_threads !== false) {
+        targeting.publisher_platforms = ['facebook', 'instagram', 'threads'];
+        targeting.facebook_positions = ['feed'];
+        targeting.instagram_positions = ['stream', 'story', 'reels'];
+        targeting.threads_positions = THREADS_PLACEMENTS;
+      }
       const campBudget = strategy.daily_budget_usd || dailyBudget;
   
       // 2. Generate images via Flux / Pexels fallback → save to Supabase Storage
@@ -214,7 +222,7 @@ function register({
       const campaignName = `${biz.business_name} — ${campaignObj} — ${new Date().toISOString().slice(0, 10)}`;
       const campResp = await apiRequest(
         'POST',
-        `https://graph.facebook.com/v19.0/${accountId}/campaigns`,
+        `${graphBaseUrl()}/${accountId}/campaigns`,
         { 'Content-Type': 'application/json' },
         { name: campaignName, objective: campaignObj, status: 'PAUSED', special_ad_categories: [], access_token: token }
       );

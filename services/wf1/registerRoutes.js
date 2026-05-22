@@ -295,6 +295,28 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
   }
   internalDispatcher.register('/webhook/wf1-overnight-batch-submit', (body) => runWf1OvernightBatchSubmit(body || {}));
 
+  async function runWf1MonthlyBatchSubmit(body = {}) {
+    if (!wf1.batchOvernight) throw new Error('batchService not configured');
+    return wf1.batchOvernight.submitOvernightBatch({
+      dryRun: !!body.dryRun,
+      businessIds: Array.isArray(body.businessIds) ? body.businessIds : null,
+      purpose: 'wf1_monthly',
+    });
+  }
+  internalDispatcher.register('/webhook/wf1-monthly-batch-submit', (body) => runWf1MonthlyBatchSubmit(body || {}));
+
+  app.post('/webhook/wf1-monthly-batch-submit', async (req, res) => {
+    if (!wf1.batchOvernight) {
+      return apiError(res, 503, 'BATCH_OVERNIGHT_DISABLED', 'batchService not configured');
+    }
+    try {
+      res.json(await runWf1MonthlyBatchSubmit(req.body || {}));
+    } catch (e) {
+      logger?.error('/webhook/wf1-monthly-batch-submit', null, 'submit failed', e);
+      apiError(res, 500, 'WF1_MONTHLY_BATCH_FAILED', e.message);
+    }
+  });
+
   app.post('/webhook/wf1-overnight-batch-submit', async (req, res) => {
     if (!wf1.batchOvernight) {
       return apiError(res, 503, 'BATCH_OVERNIGHT_DISABLED', 'batchService not configured');

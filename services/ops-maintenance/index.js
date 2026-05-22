@@ -39,16 +39,16 @@ function isGrowthPlus(biz) {
 
 /** Deterministic crisis signals — unit-testable, no LLM. */
 function detectCrisisSignals({ thisWeekSnaps, lastWeekSnaps, campaigns, errors, reviews }) {
-  const sum = (arr, k) => arr.reduce((s, r) => s + (r[k] || 0), 0);
-  const thisReach = sum(thisWeekSnaps || [], 'reach');
-  const lastReach = sum(lastWeekSnaps || [], 'reach');
+  const { sumAudienceMetric } = require('../../lib/metaMetrics');
+  const thisReach = sumAudienceMetric(thisWeekSnaps, 'reach');
+  const lastReach = sumAudienceMetric(lastWeekSnaps, 'reach');
   const reachDrop = lastReach > 0 ? ((thisReach - lastReach) / lastReach) * 100 : 0;
   const negativeReviews = (reviews || []).filter((r) => (r.rating || 5) <= 2).length;
   const wastedSpend = (campaigns || []).filter((c) => (c.total_spend || 0) > 20 && (c.conversions || 0) === 0);
 
   const signals = [];
   if (reachDrop < -50)
-    signals.push({ type: 'reach_collapse', detail: `Reach dropped ${reachDrop.toFixed(0)}% vs last week` });
+    signals.push({ type: 'audience_collapse', detail: `Audience dropped ${reachDrop.toFixed(0)}% vs last week` });
   if (negativeReviews >= 3)
     signals.push({ type: 'negative_sentiment', detail: `${negativeReviews} negative reviews recently` });
   if ((errors || []).length >= 5)
@@ -59,7 +59,7 @@ function detectCrisisSignals({ thisWeekSnaps, lastWeekSnaps, campaigns, errors, 
       detail: `${wastedSpend.length} campaigns spending with 0 conversions`,
     });
 
-  return { signals, thisReach, lastReach, reachDrop, wastedSpend };
+  return { signals, thisReach, lastReach, reachDrop, wastedSpend, audience_metric: 'viewers_or_reach' };
 }
 
 async function runCrisisCheckForBusiness({ businessId, deps }) {

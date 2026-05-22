@@ -13,6 +13,7 @@
  */
 
 const i18nSeo = require('./i18n-seo');
+const { callMarketingClaude } = require('../../../lib/marketingClaude');
 const checks = require('./citability-checks');
 const llmsTxt = require('./llms-txt-generator');
 const schemaBuilder = require('./schema-builder');
@@ -74,9 +75,12 @@ async function auditSite(opts) {
     llms_txt_present,
     llms_full_txt_present,
     plan = 'free',
+    businessId,
     callClaude,
     extractJSON,
     logger,
+    sbGet,
+    sbPost,
   } = opts || {};
   if (typeof callClaude !== 'function') throw new Error('auditSite: callClaude required');
   if (typeof extractJSON !== 'function') throw new Error('auditSite: extractJSON required');
@@ -105,14 +109,26 @@ async function auditSite(opts) {
     llms_full_txt_present,
     plan,
   });
+  const bizId = businessId || business?.id || business?.user_id;
   let raw;
   try {
-    raw = await callClaude({
+    raw = await callMarketingClaude({
+      callClaude,
+      sbGet,
+      sbPost,
+      logger,
       system,
       user,
-      model: sysPrompt.modelForPlan(plan),
+      task: 'ai-seo',
+      planTier: plan,
+      businessId: bizId,
+      skill: 'ai_seo_audit',
       max_tokens: sysPrompt.maxTokensForPlan(plan, 'audit'),
-      extra: { cacheSystem: true, temperature: 0.2 },
+      model: sysPrompt.modelForPlan(plan),
+      webSearch: 'auto',
+      cacheSystem: true,
+      returnRaw: true,
+      extra: { temperature: 0.2 },
     });
   } catch (e) {
     logger?.error?.('ai-seo.auditSite', null, 'Claude call failed', e);
@@ -158,7 +174,8 @@ async function auditSite(opts) {
  * This is the PRODUCT side — actual artifacts the customer ships.
  */
 async function generateArtifacts(opts) {
-  const { business, pages = [], plan = 'free', callClaude, extractJSON, logger } = opts || {};
+  const { business, pages = [], plan = 'free', businessId, callClaude, extractJSON, logger, sbGet, sbPost } =
+    opts || {};
   if (typeof callClaude !== 'function') throw new Error('generateArtifacts: callClaude required');
   if (typeof extractJSON !== 'function') throw new Error('generateArtifacts: extractJSON required');
 
@@ -179,14 +196,26 @@ async function generateArtifacts(opts) {
     baseLlmsTxt,
     suggestedQuestions,
   });
+  const bizId = businessId || business?.id || business?.user_id;
   let raw;
   try {
-    raw = await callClaude({
+    raw = await callMarketingClaude({
+      callClaude,
+      sbGet,
+      sbPost,
+      logger,
       system,
       user,
-      model: sysPrompt.modelForPlan(plan),
+      task: 'ai-seo',
+      planTier: plan,
+      businessId: bizId,
+      skill: 'ai_seo_generate',
       max_tokens: sysPrompt.maxTokensForPlan(plan, 'generate'),
-      extra: { cacheSystem: true, temperature: 0.4 },
+      model: sysPrompt.modelForPlan(plan),
+      webSearch: plan === 'agency' ? 5 : false,
+      cacheSystem: true,
+      returnRaw: true,
+      extra: { temperature: 0.4 },
     });
   } catch (e) {
     logger?.error?.('ai-seo.generateArtifacts', null, 'Claude call failed', e);

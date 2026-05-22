@@ -168,6 +168,26 @@ test('anthropic-batch: buildRequest with cacheSystem wraps system in cacheable b
   assert.deepEqual(req.params.system[0].cache_control, { type: 'ephemeral' });
 });
 
+test('anthropic-batch: buildRequest cacheTtl 1h extends ephemeral TTL', () => {
+  const { createBatchService } = require(path.join(ROOT, 'services/anthropic-batch'));
+  const svc = createBatchService({
+    apiKey: 'test',
+    logger: {},
+    sbGet: async () => [],
+    sbPost: async () => ({}),
+    sbPatch: async () => ({}),
+  });
+  const req = svc.buildRequest({
+    customId: 'wf1',
+    model: 'claude-sonnet-4-6',
+    system: 'long',
+    prompt: 'u',
+    cacheSystem: true,
+    cacheTtl: '1h',
+  });
+  assert.deepEqual(req.params.system[0].cache_control, { type: 'ephemeral', ttl: '1h' });
+});
+
 test('anthropic-batch: buildRequest with fileIds + citations attaches document blocks', () => {
   const { createBatchService } = require(path.join(ROOT, 'services/anthropic-batch'));
   const svc = createBatchService({

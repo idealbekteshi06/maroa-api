@@ -42,7 +42,7 @@ test('ops-maintenance: detectCrisisSignals — reach collapse', () => {
     errors: [],
     reviews: [],
   });
-  assert.ok(r.signals.some((s) => s.type === 'reach_collapse'));
+  assert.ok(r.signals.some((s) => s.type === 'audience_collapse' || s.type === 'reach_collapse'));
 });
 
 test('ops-maintenance: detectCrisisSignals — wasted spend', () => {

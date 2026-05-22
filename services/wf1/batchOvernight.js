@@ -35,10 +35,11 @@
  */
 
 const { buildStrategicDecisionPrompt } = require('../prompts/workflow_1_daily_content.js');
+const { batchMaxTokensForPlan } = require('../../lib/platformAnthropic');
 
-const SONNET_MODEL = 'claude-sonnet-4-5';
+const SONNET_MODEL = 'claude-sonnet-4-6';
 const OPUS_MODEL = 'claude-opus-4-7';
-const MAX_TOKENS = 4096;
+const MAX_TOKENS_DAILY = 4096;
 const BATCH_HARD_CAP = 1000; // safety: even if Anthropic supports 100k, cap our nightly to 1000 businesses per batch
 
 function createBatchOvernight(deps) {
@@ -114,13 +115,18 @@ function createBatchOvernight(deps) {
         const isAgency = String(business.plan || '').toLowerCase() === 'agency';
         const customId = `wf1:${business.id}:${todayLocalDate}`;
 
+        const plan = String(business.plan || 'starter').toLowerCase();
+        const monthlyMode = purpose === 'wf1_monthly';
         const req = batchService.buildRequest({
           customId,
           model: isAgency ? OPUS_MODEL : SONNET_MODEL,
           system,
           prompt: user,
-          maxTokens: MAX_TOKENS,
-          cacheSystem: true, // strategic-decision system prompt is large + repeated → ideal cache target
+          maxTokens: monthlyMode ? undefined : MAX_TOKENS_DAILY,
+          plan,
+          purpose: monthlyMode ? 'wf1_monthly' : 'wf1_overnight',
+          cacheSystem: true,
+          cacheTtl: '1h',
         });
         builtRequests.push(req);
         requestIndex.push({

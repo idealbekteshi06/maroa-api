@@ -872,12 +872,12 @@ function selectModel(taskType) {
     return { model: 'claude-opus-4-7', max_tokens: 4000 };
   }
   if (['social_post', 'email', 'campaign', 'paid_ad', 'sales_pitch'].includes(taskType)) {
-    return { model: 'claude-sonnet-4-5', max_tokens: 2000 };
+    return { model: 'claude-sonnet-4-6', max_tokens: 2000 };
   }
   if (['caption', 'idea', 'hashtags', 'short_copy', 'community_post'].includes(taskType)) {
     return { model: 'claude-haiku-4-5', max_tokens: 1000 };
   }
-  return { model: 'claude-sonnet-4-5', max_tokens: 2000 };
+  return { model: 'claude-sonnet-4-6', max_tokens: 2000 };
 }
 
 // ─── Brand-voice auto-load support ──────────────────────────────────────────
@@ -1080,11 +1080,42 @@ async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOver
       }));
   } else if (extra.system) {
     if (extra.cacheSystem) {
-      body.system = [{ type: 'text', text: extra.system, cache_control: { type: 'ephemeral' } }];
+      const { cacheControlBlock } = require('./lib/claudeAnthropicTools');
+      body.system = [
+        {
+          type: 'text',
+          text: extra.system,
+          cache_control: cacheControlBlock(extra.cacheTtl === '1h' ? '1h' : undefined),
+        },
+      ];
     } else {
       body.system = extra.system;
     }
   }
+
+  const { attachToolsToBody } = require('./lib/claudeAnthropicTools');
+  if (extra.advisor || extra.webSearch || extra.codeExecution) {
+    attachToolsToBody(body, {
+      advisor: extra.advisor
+        ? { model: extra.advisor.model || 'claude-opus-4-7', maxUses: extra.advisor.max_uses || 3 }
+        : null,
+      webSearch: extra.webSearch
+        ? {
+            maxUses: extra.webSearch.max_uses || 5,
+            dynamicFilter: !!extra.webSearch.dynamicFilter,
+          }
+        : null,
+      codeExecution: extra.codeExecution || null,
+    });
+  }
+
+  const { buildDiagnosticsPayload, ingestResponse } = require('./lib/cacheDiagnostics');
+  const diagnostics = buildDiagnosticsPayload({
+    businessId: extra.businessId,
+    skill: extra.skill,
+    enable: !!(extra.cacheSystem || extra.systemBlocks),
+  });
+  if (diagnostics) body.diagnostics = diagnostics;
 
   const headers = {
     'x-api-key': ANTHROPIC_KEY,
@@ -1100,6 +1131,9 @@ async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOver
   if ((extra.fileIds && extra.fileIds.length) || extra.documentBlocks?.some?.((b) => b?.source?.type === 'file'))
     betas.push('files-api-2025-04-14');
   if (extra.extraBetas) betas.push(...(Array.isArray(extra.extraBetas) ? extra.extraBetas : [extra.extraBetas]));
+  if (extra.webSearch?.dynamicFilter || extra.codeExecution) {
+    betas.push('code-execution-2025-08-25');
+  }
   if (betas.length) headers['anthropic-beta'] = [...new Set(betas)].join(',');
 
   // Retry policy: `extra.retries` is total attempts (default 3). retryWithJitter
@@ -1183,18 +1217,45 @@ async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOver
         .catch(() => {});
     });
   }
+  if (extra.businessId || extra.skill) {
+    try {
+      ingestResponse({
+        businessId: extra.businessId,
+        skill: extra.skill,
+        responseBody: r.body,
+        logger,
+      });
+    } catch {
+      /* soft */
+    }
+  }
   if (r.body?.usage) {
     setImmediate(() => {
+      const skill = extra.skill || (typeof taskTypeOrModel === 'string' ? taskTypeOrModel : 'unknown');
       observability.costTracker
         .track({
           businessId: extra.businessId || null,
-          skill: extra.skill || (typeof taskTypeOrModel === 'string' ? taskTypeOrModel : 'unknown'),
+          skill,
           model,
           usage: r.body.usage,
           sbPost,
           logger,
         })
         .catch(() => {});
+      const advIn = Number(r.body.usage.advisor_input_tokens) || 0;
+      const advOut = Number(r.body.usage.advisor_output_tokens) || 0;
+      if ((advIn || advOut) && extra.businessId) {
+        observability.costTracker
+          .track({
+            businessId: extra.businessId,
+            skill: `${skill}_advisor`,
+            model: extra.advisor?.model || 'claude-opus-4-7',
+            usage: { input_tokens: advIn, output_tokens: advOut },
+            sbPost,
+            logger,
+          })
+          .catch(() => {});
+      }
     });
   }
   if (extra.cacheSystem && r.body?.usage) {
@@ -4788,7 +4849,11 @@ app.get('/api/business/:businessId/llm-spend', async (req, res) => {
   if (!businessId) return apiError(res, 400, 'VALIDATION_ERROR', 'businessId required');
   try {
     const { checkCostCap } = require('./lib/costGuard');
-    const cap = await checkCostCap({ businessId, sbGet });
+    const { checkWebSearchBudget } = require('./lib/webSearchGate');
+    const [cap, web] = await Promise.all([
+      checkCostCap({ businessId, sbGet }),
+      checkWebSearchBudget({ businessId, sbGet, plan: (await sbGet('businesses', `id=eq.${encodeURIComponent(businessId)}&select=plan`).catch(() => []))[0]?.plan }),
+    ]);
     return res.json({
       business_id: businessId,
       month: new Date().toISOString().slice(0, 7),
@@ -4797,6 +4862,17 @@ app.get('/api/business/:businessId/llm-spend', async (req, res) => {
       plan: cap.plan,
       allowed: cap.allowed,
       percent_used: cap.cap_usd > 0 ? Math.round((cap.used_usd / cap.cap_usd) * 1000) / 10 : 0,
+      web_search: {
+        used: web.used ?? 0,
+        cap: web.cap ?? 0,
+        allowed: !!web.allowed,
+        remaining: web.remaining ?? 0,
+      },
+      anthropic_features: {
+        advisor_tool: process.env.MAROA_ADVISOR_ENABLED !== 'false',
+        web_search: (web.cap ?? 0) > 0,
+        managed_agents_deep_dive: String(cap.plan || '').toLowerCase() === 'agency',
+      },
     });
   } catch (err) {
     return apiError(res, 500, 'LLM_SPEND_FAILED', err.message);
@@ -8913,15 +8989,18 @@ app.post('/api/content/feedback', validate('contentScore'), async (req, res) => 
 
 // ── IMPROVEMENT 9: Performance Tracking ─────────────────────────────────────
 app.post('/api/performance/update', async (req, res) => {
-  const { userId, platform, metric, value, date } = req.body;
+  const { userId, platform, metric, value, date, viewers } = req.body;
   if (!userId || !platform || !metric) return res.status(400).json({ error: 'userId, platform, metric required' });
   try {
-    await sbPost('analytics_snapshots', {
+    const payload = {
       business_id: userId,
       platform,
       [metric]: value || 0,
       snapshot_date: date || new Date().toISOString().slice(0, 10),
-    });
+    };
+    if (viewers != null) payload.viewers = viewers;
+    if (metric === 'viewers') payload.reach = value || 0;
+    await sbPost('analytics_snapshots', payload);
     storeInsight(userId, 'performance', 'performance_data', `${platform}_${metric}`, String(value || 0)).catch(
       () => {}
     );
@@ -9416,6 +9495,51 @@ registerAnthropicRoutes({
   callClaude,
 });
 
+const { createDeepDiveService } = require('./services/deep-dive');
+const deepDiveService = createDeepDiveService({ managedAgentService, sbGet, sbPost, logger });
+
+const { createMonthlyReportService } = require('./services/monthly-report');
+const monthlyReportService = createMonthlyReportService({ sbGet, callClaude, logger });
+
+// POST /api/business/:businessId/monthly-report — Code execution analytics (Growth+)
+app.post('/api/business/:businessId/monthly-report', async (req, res) => {
+  const businessId = String(req.params.businessId || '').trim();
+  if (!businessId) return apiError(res, 400, 'VALIDATION_ERROR', 'businessId required');
+  try {
+    const out = await monthlyReportService.generate({
+      businessId,
+      month: req.body?.month,
+    });
+    if (!out.ok) {
+      const code = out.reason === 'plan_upgrade_required' ? 403 : 404;
+      return apiError(res, code, out.reason?.toUpperCase() || 'REPORT_FAILED', out.reason);
+    }
+    return res.json(out);
+  } catch (err) {
+    return apiError(res, 500, 'MONTHLY_REPORT_FAILED', err.message);
+  }
+});
+
+// POST /api/business/:businessId/marketing-deep-dive — Agency async research (Managed Agents)
+app.post('/api/business/:businessId/marketing-deep-dive', async (req, res) => {
+  const businessId = String(req.params.businessId || '').trim();
+  if (!businessId) return apiError(res, 400, 'VALIDATION_ERROR', 'businessId required');
+  try {
+    const out = await deepDiveService.runMarketingDeepDive({
+      businessId,
+      brief: req.body?.brief || req.body?.prompt,
+      context: req.body?.context || {},
+    });
+    if (!out.ok) {
+      const code = out.reason === 'agency_plan_required' ? 403 : 404;
+      return apiError(res, code, out.reason?.toUpperCase() || 'DEEP_DIVE_FAILED', out.reason);
+    }
+    return res.json(out);
+  } catch (err) {
+    return apiError(res, 500, 'DEEP_DIVE_FAILED', err.message);
+  }
+});
+
 // ─── Real OAuth flows — Meta + Google (per-customer token capture) ──────────
 const { registerMetaOAuthRoutes } = require('./services/oauth/meta');
 const { registerGoogleOAuthRoutes } = require('./services/oauth/google');
@@ -9759,7 +9883,7 @@ async function runAutopilotBrainAll() {
   const businesses = await sbGet('businesses', 'is_active=eq.true&select=id&limit=1000').catch(() => []);
   let ran = 0,
     conflicts = 0;
-  const brainDeps = { sbGet, sbPost, logger, sentry: Sentry };
+  const brainDeps = { sbGet, sbPost, sbPatch, memoryService, logger, sentry: Sentry };
   for (const b of businesses) {
     try {
       const r = await autopilotBrainService.runDaily({ businessId: b.id, deps: brainDeps });
@@ -9788,7 +9912,7 @@ app.post('/webhook/autopilot-brain-run', async (req, res) => {
   try {
     const r = await autopilotBrainService.runDaily({
       businessId,
-      deps: { sbGet, sbPost, logger, sentry: Sentry },
+      deps: { sbGet, sbPost, sbPatch, memoryService, logger, sentry: Sentry },
     });
     res.json(r);
   } catch (e) {

@@ -55,6 +55,9 @@ module.exports = function createHiggsfieldService(deps) {
   const PATH_KLING_3 = process.env.HIGGSFIELD_PATH_KLING_3 || '/higgsfield-ai/kling/v3';
   const PATH_KLING_IMG_3 = process.env.HIGGSFIELD_PATH_KLING_IMG_3 || '/higgsfield-ai/kling-image/v3';
   const PATH_WAN = process.env.HIGGSFIELD_PATH_WAN || '/higgsfield-ai/wan/v2-7';
+  const PATH_WAN_25 = process.env.HIGGSFIELD_PATH_WAN_25 || '/higgsfield-ai/wan/v2-5';
+  const PATH_UGC_VEO = process.env.HIGGSFIELD_PATH_UGC_VEO || '/google/veo/v3/ugc-builder';
+  const PATH_SPEAK = process.env.HIGGSFIELD_PATH_SPEAK || '/higgsfield-ai/speak/standard';
   const PATH_FLUX_KONTEXT = process.env.HIGGSFIELD_PATH_FLUX_KONTEXT || '/black-forest-labs/flux-kontext';
   // Cinema Studio 3.5 — current default per Higgsfield 2026 (replaces 2.5/3.0)
   const PATH_CINEMA = process.env.HIGGSFIELD_PATH_CINEMA || '/higgsfield-ai/cinema-studio/v3-5';
@@ -99,6 +102,9 @@ module.exports = function createHiggsfieldService(deps) {
     'nano banana 2': PATH_NANO_BANANA,
     'nano banana pro': PATH_NANO_BANANA_PRO,
     'wan 2.7': PATH_WAN,
+    'wan 2.5': PATH_WAN_25,
+    'ugc veo 3': PATH_UGC_VEO,
+    'higgsfield speak': PATH_SPEAK,
     'flux kontext': PATH_FLUX_KONTEXT,
     'cinema studio': PATH_CINEMA,
     'cinema studio 3.5': PATH_CINEMA,
@@ -119,6 +125,9 @@ module.exports = function createHiggsfieldService(deps) {
     // Video
     short_reel: 'sora 2',
     short_reel_with_audio: 'kling 3.0',
+    ugc_testimonial: 'ugc veo 3',
+    ugc_lipsync: 'higgsfield speak',
+    ugc_audio_ambient: 'wan 2.5',
     hero_landing_video: 'veo 3.1',
     high_fps_action: 'wan 2.7',
     image_to_video: 'seedance 2.0',
@@ -1126,12 +1135,27 @@ module.exports = function createHiggsfieldService(deps) {
     // injected callClaude when available for prompt caching + token budget.
     const raw =
       typeof deps.callClaude === 'function'
-        ? await deps.callClaude(brief.userTask, options.model || 'claude-opus-4-7', 4096, {
-            system: brief.system,
-            businessId: options.businessId || null,
-            cacheSystem: true, // creative-director system prompt is 13k chars — perfect cache target
-            returnRaw: true,
-          })
+        ? await (async () => {
+            const { callMarketingClaude } = require('../lib/marketingClaude');
+            return callMarketingClaude({
+              callClaude: deps.callClaude,
+              sbGet: deps.sbGet,
+              sbPost: deps.sbPost,
+              logger: deps.logger,
+              system: brief.system,
+              user: brief.userTask,
+              task: 'creative',
+              planTier: options.planTier || 'growth',
+              businessId: options.businessId || null,
+              skill: 'creative_director_studio',
+              max_tokens: 4096,
+              model: options.model,
+              webSearch: options.planTier === 'agency' ? 5 : false,
+              cacheSystem: true,
+              budget: 'deep',
+              returnRaw: true,
+            });
+          })()
         : await claudeText(brief.userTask, 'strategy', 4096, {
             model: options.model || 'claude-opus-4-7',
             system: brief.system,

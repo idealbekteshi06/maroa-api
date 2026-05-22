@@ -20,6 +20,8 @@ Confirm Paddle dashboard SKUs match live prices: **Starter $29**, **Growth $59**
 3. `GET /api/ops/platform` (authenticated) — `internal_dispatcher.registered` includes all Inngest paths.
 4. Inngest dashboard — confirm `ops-*` + existing crons synced.
 5. Dashboard — Integrations v2 shows `status: healthy|degraded|disconnected` per channel.
+6. `GET /api/business/:id/llm-spend` — `anthropic_features.advisor_tool` + `web_search` caps visible.
+7. Agency — `POST /api/business/:id/marketing-deep-dive` returns managed-agent session (optional smoke).
 
 ## Secret rotation (manual)
 

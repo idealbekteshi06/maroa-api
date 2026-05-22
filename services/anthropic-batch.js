@@ -32,7 +32,13 @@ const https = require('https');
 const ANTHROPIC_API_BASE = 'https://api.anthropic.com';
 const ANTHROPIC_VERSION = '2023-06-01';
 const BATCH_MAX_REQUESTS = 100000; // Anthropic max
-const EXTENDED_OUTPUT_BETA = 'output-300k-2026-03-24'; // Opus 4.6+/Sonnet 4.6+ extended max_tokens
+const {
+  BETAS,
+  batchMaxTokensForPlan,
+  extendedBetasForMaxTokens,
+  supportsExtendedOutput,
+} = require('../lib/platformAnthropic');
+const EXTENDED_OUTPUT_BETA = BETAS.EXTENDED_OUTPUT;
 
 function rawHttp(method, urlStr, headers, body, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
@@ -95,8 +101,11 @@ function createBatchService({ apiKey, logger, sbPost, sbPatch, sbGet }) {
     maxTokens,
     fileIds,
     cacheSystem,
+    cacheTtl,
     citations,
     extraDocumentBlocks,
+    plan,
+    purpose,
   }) {
     if (!customId) throw new Error('buildRequest: customId required');
     if (!model) throw new Error('buildRequest: model required');
@@ -111,14 +120,29 @@ function createBatchService({ apiKey, logger, sbPost, sbPatch, sbGet }) {
     for (const blk of extraDocumentBlocks || []) userContent.push(blk);
     userContent.push({ type: 'text', text: prompt });
 
+    let resolvedMax = maxTokens || 4096;
+    if (!maxTokens && plan) {
+      resolvedMax = batchMaxTokensForPlan(plan, purpose || 'default');
+    }
+    if (!supportsExtendedOutput(model) && resolvedMax > 64000) {
+      resolvedMax = 64000;
+    }
+
     const params = {
       model,
-      max_tokens: maxTokens || 4096,
+      max_tokens: resolvedMax,
       messages: [{ role: 'user', content: userContent }],
     };
     if (system) {
       if (cacheSystem) {
-        params.system = [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }];
+        const { cacheControlBlock } = require('../lib/claudeAnthropicTools');
+        params.system = [
+          {
+            type: 'text',
+            text: system,
+            cache_control: cacheControlBlock(cacheTtl === '1h' ? '1h' : undefined),
+          },
+        ];
       } else {
         params.system = system;
       }
@@ -139,7 +163,9 @@ function createBatchService({ apiKey, logger, sbPost, sbPatch, sbGet }) {
       throw new Error(`submitBatch: ${requests.length} exceeds ${BATCH_MAX_REQUESTS} max`);
     }
     const purpose = opts.purpose || 'custom';
-    const wantsExtended = requests.some((r) => Number(r.params?.max_tokens) > 64000);
+    const wantsExtended =
+      opts.forceExtendedOutput ||
+      requests.some((r) => Number(r.params?.max_tokens) > 64000);
     const extraBetas = wantsExtended ? [EXTENDED_OUTPUT_BETA, ...(opts.extraBetas || [])] : opts.extraBetas || [];
 
     // Validate prompt caching beta header is set when any request uses cache_control on system

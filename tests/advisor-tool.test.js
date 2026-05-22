@@ -46,9 +46,9 @@ test('buildAdvisorOptions: preserves existing beta headers', () => {
   assert.ok(o.extraBetas.includes(advisor.ADVISOR_BETA));
 });
 
-test('modelsFor: agency=Opus exec, growth=Sonnet exec + Opus advisor, free=Sonnet only', () => {
+test('modelsFor: agency=Opus exec, growth=Sonnet 4.6 exec + Opus advisor, free=Sonnet only', () => {
   assert.strictEqual(advisor.modelsFor('agency').executor, 'claude-opus-4-7');
-  assert.strictEqual(advisor.modelsFor('growth').executor, 'claude-sonnet-4-5');
+  assert.strictEqual(advisor.modelsFor('growth').executor, 'claude-sonnet-4-6');
   assert.strictEqual(advisor.modelsFor('growth').advisor, 'claude-opus-4-7');
   assert.strictEqual(advisor.modelsFor('free').advisor, null);
 });
@@ -68,12 +68,12 @@ test('callWithAdvisor: routes through callClaude with advisor extras when enable
     task: 'audit',
     budget: 'standard',
     planTier: 'growth',
-    executor: 'claude-sonnet-4-5',
+    executor: 'claude-sonnet-4-6',
     advisor: 'claude-opus-4-7',
   });
   assert.strictEqual(r, 'OK');
   assert.strictEqual(captured.prompt, 'u');
-  assert.strictEqual(captured.model, 'claude-sonnet-4-5');
+  assert.strictEqual(captured.model, 'claude-sonnet-4-6');
   assert.ok(captured.extra.extraBetas.includes(advisor.ADVISOR_BETA));
   assert.strictEqual(captured.extra.advisor.model, 'claude-opus-4-7');
   assert.strictEqual(captured.extra.system, 's');

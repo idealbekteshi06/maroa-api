@@ -22,7 +22,7 @@
 
 const ADVISOR_BETA = 'advisor-tool-2026-03-01';
 
-const DEFAULT_EXECUTOR = 'claude-sonnet-4-5';
+const DEFAULT_EXECUTOR = 'claude-sonnet-4-6';
 const DEFAULT_ADVISOR = 'claude-opus-4-7';
 
 /**
@@ -43,6 +43,9 @@ function shouldUseAdvisor({ task = 'audit', budget = 'standard', planTier = 'gro
     'rewrite', // hero/CTA rewrites
     'forecast', // forecasting engine
     'voc-synthesis', // voice-of-customer extraction
+    'competitor', // WF5 competitor intelligence briefs
+    'ai-seo', // AI search optimization audits + artifacts
+    'creative', // Cannes-grade creative-director concepts
   ]);
   return advisorTasks.has(task);
 }
@@ -62,7 +65,14 @@ function shouldUseAdvisor({ task = 'audit', budget = 'standard', planTier = 'gro
  * If the runtime callClaude doesn't recognize the advisor field, the call
  * silently degrades to plain executor — no breakage.
  */
-function buildAdvisorOptions({ executor, advisor, mode = 'auto', existingExtraBetas = [] } = {}) {
+function maxUsesForBudget(budget = 'standard') {
+  const b = String(budget).toLowerCase();
+  if (b === 'deep') return 5;
+  if (b === 'quick') return 1;
+  return 3;
+}
+
+function buildAdvisorOptions({ executor, advisor, mode = 'auto', budget = 'standard', existingExtraBetas = [] } = {}) {
   const ex = executor || DEFAULT_EXECUTOR;
   const ad = advisor || DEFAULT_ADVISOR;
   return {
@@ -70,7 +80,8 @@ function buildAdvisorOptions({ executor, advisor, mode = 'auto', existingExtraBe
     extraBetas: [ADVISOR_BETA, ...existingExtraBetas],
     advisor: {
       model: ad,
-      mode, // 'auto' = fire when executor hesitates, 'always' = check every reply
+      mode,
+      max_uses: maxUsesForBudget(budget),
     },
   };
 }
@@ -105,7 +116,7 @@ async function callWithAdvisor(opts = {}) {
 
   const useAdvisor = shouldUseAdvisor({ task, budget, planTier });
   const opt = useAdvisor
-    ? buildAdvisorOptions({ executor, advisor, existingExtraBetas: extraBetas })
+    ? buildAdvisorOptions({ executor, advisor, budget, existingExtraBetas: extraBetas })
     : { model: executor || DEFAULT_EXECUTOR, extraBetas };
 
   // Compose extra in the shape callClaude (server.js:547) expects:
@@ -136,8 +147,8 @@ async function callWithAdvisor(opts = {}) {
 function modelsFor(planTier) {
   const t = String(planTier || 'free').toLowerCase();
   if (t === 'agency') return { executor: 'claude-opus-4-7', advisor: 'claude-opus-4-7' };
-  if (t === 'growth') return { executor: 'claude-sonnet-4-5', advisor: 'claude-opus-4-7' };
-  return { executor: 'claude-sonnet-4-5', advisor: null }; // free
+  if (t === 'growth') return { executor: 'claude-sonnet-4-6', advisor: 'claude-opus-4-7' };
+  return { executor: 'claude-sonnet-4-6', advisor: null }; // free
 }
 
 module.exports = {
@@ -145,6 +156,7 @@ module.exports = {
   DEFAULT_EXECUTOR,
   DEFAULT_ADVISOR,
   shouldUseAdvisor,
+  maxUsesForBudget,
   buildAdvisorOptions,
   callWithAdvisor,
   modelsFor,

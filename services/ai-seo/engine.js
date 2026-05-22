@@ -33,6 +33,7 @@ function createEngine(deps) {
 
       const audit = await aiSeo.auditSite({
         business,
+        businessId,
         html,
         text,
         llms_txt_present,
@@ -41,6 +42,8 @@ function createEngine(deps) {
         callClaude,
         extractJSON,
         logger,
+        sbGet,
+        sbPost,
       });
 
       // Persist
@@ -80,11 +83,14 @@ function createEngine(deps) {
 
     const result = await aiSeo.generateArtifacts({
       business,
+      businessId,
       pages,
       plan: business.plan || 'free',
       callClaude,
       extractJSON,
       logger,
+      sbGet,
+      sbPost,
     });
 
     await sbPost('ai_seo_artifacts', {
