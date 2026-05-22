@@ -28,6 +28,7 @@ const scoring = require('./scoring');
 const schema = require('./output-schema');
 const antiSlop = require('./anti-slop');
 const sysPrompt = require('./system-prompt');
+const multiPlatform = require('./multi-platform');
 
 /**
  * Phase 1 — Build audit inputs from raw data.
@@ -36,12 +37,24 @@ const sysPrompt = require('./system-prompt');
 function buildAuditInputs({
   business,
   metrics,
+  metricsByPlatform,
+  historyByPlatform,
   history = [],
   decisionHistory = [],
   plan,
   platform = 'meta',
   liveRates = {},
 }) {
+  if (metricsByPlatform && typeof metricsByPlatform === 'object' && Object.keys(metricsByPlatform).length > 0) {
+    return multiPlatform.buildMultiPlatformAuditInputs({
+      business,
+      metricsByPlatform,
+      historyByPlatform: historyByPlatform || {},
+      decisionHistory,
+      plan,
+      liveRates,
+    });
+  }
   const marketProfile = i18n.buildMarketProfile(business, { liveRates });
   const dailyBudgetUsd =
     i18n.toUsd(metrics?.daily_budget, marketProfile.currency, liveRates) ?? metrics?.daily_budget ?? 0;
@@ -118,6 +131,7 @@ function buildAuditPrompt(inputs, { business, metrics, decisionHistory, plan }) 
     decisionHistory,
     plan,
     antiThrashing: inputs.antiThrashing,
+    multi_platform: inputs.multi_platform,
   });
   return {
     system,
@@ -414,4 +428,5 @@ module.exports = {
   trend: trendMod,
   checksMeta,
   checksGoogle,
+  multiPlatform,
 };

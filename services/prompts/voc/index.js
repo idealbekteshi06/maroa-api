@@ -19,6 +19,7 @@
 const cl = require('./clusterer');
 const adI18n = require('../ad-optimizer/i18n-market');
 const advisor = require('../advisor-tool');
+const customerResearch = require('../frameworks/customer-research');
 
 // ─── System prompt ─────────────────────────────────────────────────────────
 
@@ -60,6 +61,8 @@ Each recommendation must be ACTIONABLE in <2 hours by a small-business owner. Ex
   ✗ "Improve customer experience" (vague)
   ✗ "Run a brand awareness campaign" (not from the data)
 
+${customerResearch.buildCustomerResearchPromptSection()}
+
 # OUTPUT (JSON ONLY)
 
 \`\`\`json
@@ -85,6 +88,8 @@ Each recommendation must be ACTIONABLE in <2 hours by a small-business owner. Ex
     { "competitor": "<name>", "context": "<short>", "frequency": N }
   ],
   "recommendations_for_marketing": ["<actionable, ≤2hr to ship>"],
+  "trigger_events": [{ "event": "...", "evidence_quotes": ["..."], "confidence": "high|medium|low" }],
+  "positioning_implications": ["<tied to verbatim evidence>"],
   "caveats": ["<if any>"]
 }
 \`\`\`

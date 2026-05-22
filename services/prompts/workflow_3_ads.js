@@ -14,6 +14,7 @@
 'use strict';
 
 const { buildSystemPrompt } = require('./foundation.js');
+const adCreative = require('./frameworks/ad-creative');
 
 function buildAdOptimizationPrompt(ctx, snapshot) {
   const addendum = `
@@ -43,6 +44,8 @@ Decision framework (use in order)
      move more than 30% of a channel's budget in one week.
   6. Creative rotation cadence: if no new creative in 14d, schedule a
      refresh regardless of current performance (preemptive).
+
+${adCreative.buildAdCreativeSection('meta')}
 
 OUTPUT FORMAT — strict JSON
 {

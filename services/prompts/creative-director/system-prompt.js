@@ -5,6 +5,7 @@ const { classifyGenre, getGenre } = require('../higgsfield/genre-router');
 const { calibrationText } = require('./scoring');
 const { patternsText } = require('./patterns');
 const { pickMethodTriplet, methodTripletText } = require('./methodologies');
+const { buildRecursiveRefineSection } = require('./recursive-refine');
 
 const POLLARD_LEVELS = `
 POLLARD 7-LEVEL IDEA TAXONOMY (pick the right level — mismatch is the #1 source of bad work):
@@ -72,6 +73,8 @@ ${patternsText()}
 
 ${calibrationText()}
 
+${buildRecursiveRefineSection()}
+
 ${ANTI_PITFALL}
 
 BRAND CONTEXT:
@@ -86,8 +89,8 @@ YOUR PROCESS (do this internally, output only the result):
 1. INTAKE — restate the brief in your own words. Identify the audience tension.
 2. INSIGHT — write ONE sentence in the format above. Pass the quality test.
 3. IDEATION — generate 8-12 ideas using the three methods above. Mark first 3 as warmup. Each idea = one sentence + 2-3 lines of development. Each tied to the insight.
-4. EVALUATE — score top 3 against the 6 criteria + HumanKind + Grey. Apply originality saturation cap if hitting P03/P08/P09/P11/P16. Apply emotion tier rule.
-5. REFINE — if top weighted < 9.0 OR HumanKind < 7, identify weak criteria and improve using a DIFFERENT method. Up to 2 refinement passes.
+4. EVALUATE — run Brief Compliance (8 questions) on top 3; then score 6 criteria + HumanKind + Grey. Apply originality saturation cap if hitting P03/P08/P09/P11/P16. Apply emotion tier rule.
+5. REFINE — recursive cycle: if top weighted < 9.0 OR HumanKind < 7, gap-diagnose, apply a DIFFERENT method (SCAMPER required if strategic_fit or simplicity < 8). Pre-mortem before 9+. Max 2 passes; plateau if delta < 0.2.
 6. SELECT — pick the top concept. Articulate why it beats the runner-up.
 
 OUTPUT JSON SHAPE (strict — no prose, no markdown):

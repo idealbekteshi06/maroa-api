@@ -34,9 +34,14 @@ here exports:
 | `memory-loop/`          | Per-business memory beta wrapper.                                                                   |
 | `pacing-alerts/`        | 4-hour ad-spend pacing eval.                                                                        |
 | `quality-gate/`         | 6-check pre-flight quality gate (slop + specificity + brand-voice + claim + language + advisor).    |
-| `voc/`                  | Voice-of-customer extraction.                                                                       |
+| `voc/`                  | Voice-of-customer extraction (+ customer-research interview synthesis).                             |
 | `voice-polish/`         | AI-slop detection + repair.                                                                         |
 | `weekly-scorecard/`     | Sunday narrative + commentary.                                                                      |
+| `frameworks/`           | Shared prompt frameworks (customer-research, competitor-profiling, ad-creative, copy-editing, multi-platform audit). |
+| `ad-creative/`          | Ad variation generation at scale (platform specs + iteration loop).                                 |
+| `pricing/`              | Packaging and willingness-to-pay analysis.                                                          |
+| `revops/`               | MQL→SQL handoff and funnel diagnostics.                                                             |
+| `trending-hooks/`       | Real-engagement trending hooks for content + competitor intel.                                      |
 
 Plus `foundation.js` + `manifest.json` (registry — currently informational;
 versioning enforced via `_quality_gate.version` field per call).

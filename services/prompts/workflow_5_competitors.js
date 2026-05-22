@@ -5,6 +5,7 @@
 'use strict';
 
 const { buildSystemPrompt } = require('./foundation.js');
+const competitorProfiling = require('./frameworks/competitor-profiling');
 
 function buildCompetitorAnalysisPrompt(ctx, bundle) {
   const addendum = `
@@ -18,6 +19,8 @@ FRAMEWORK
   - Position on Porter's 5 Forces: where is each competitor weakest/strongest?
   - Blue Ocean: what's the underserved segment?
   - Movement analysis: velocity of change matters more than absolute position
+
+${competitorProfiling.buildCompetitorProfilingSection()}
 
 BRIEF STRUCTURE (JSON, required)
 {

@@ -20,6 +20,7 @@
 const { buildAntiSlopSystemSection } = require('./anti-slop');
 const { DIMENSIONS } = require('./scoring');
 const { REGION_TIERS } = require('./i18n-market');
+const { buildMultiPlatformPromptSection } = require('../frameworks/multi-platform-audit');
 
 function buildStableSystemBlock() {
   const regionTable = Object.entries(REGION_TIERS)
@@ -133,7 +134,17 @@ Return ONLY valid JSON matching the schema. No commentary. No markdown fences. J
  * Build the per-campaign user-message portion of the prompt.
  * This is the variable part — never cached.
  */
-function buildUserMessage({ business, marketProfile, metrics, trend, findings, decisionHistory, plan, antiThrashing }) {
+function buildUserMessage({
+  business,
+  marketProfile,
+  metrics,
+  trend,
+  findings,
+  decisionHistory,
+  plan,
+  antiThrashing,
+  multi_platform,
+}) {
   const businessProfile = {
     name: business?.business_name,
     industry: business?.industry,
@@ -187,6 +198,7 @@ function buildUserMessage({ business, marketProfile, metrics, trend, findings, d
     `\`\`\`json`,
     JSON.stringify(findings, null, 2),
     `\`\`\``,
+    multi_platform ? `\n${buildMultiPlatformPromptSection(multi_platform)}\n` : '',
     ``,
     `## Recent decision history (anti-thrashing)`,
     `\`\`\`json`,

@@ -147,7 +147,7 @@ function detect(text, lang) {
 /**
  * Rewrite — LLM-driven polish anchored to brand voice.
  */
-async function rewrite({ text, business, plan = 'free', callClaude, extractJSON, logger }) {
+async function rewrite({ text, business, plan = 'free', callClaude, extractJSON, logger, extraSystem = '' }) {
   if (typeof callClaude !== 'function') throw new Error('rewrite: callClaude required');
   if (typeof extractJSON !== 'function') throw new Error('rewrite: extractJSON required');
   if (!text || typeof text !== 'string')
@@ -175,7 +175,7 @@ async function rewrite({ text, business, plan = 'free', callClaude, extractJSON,
   try {
     raw = await advisor.callWithAdvisor({
       callClaude,
-      system: buildRewriteSystemPrompt(),
+      system: buildRewriteSystemPrompt() + (extraSystem ? `\n\n${extraSystem}` : ''),
       user: buildRewriteUserMessage({ text, business, slopAnalysis: slopBefore }),
       executor: 'claude-sonnet-4-5',
       advisor: 'claude-opus-4-7',
@@ -297,6 +297,7 @@ async function polish({
   logger,
   includePsychology = false,
   funnelStage,
+  extraSystem = '',
 }) {
   const detected = detect(text);
   if (!detected.should_rewrite) {
@@ -308,7 +309,7 @@ async function polish({
       ...(includePsychology ? { psychology: _quickPsychAudit(text, business, funnelStage) } : {}),
     };
   }
-  const r = await rewrite({ text, business, plan, callClaude, extractJSON, logger });
+  const r = await rewrite({ text, business, plan, callClaude, extractJSON, logger, extraSystem });
   return {
     polished: r.polished,
     changed: r.polished !== text,

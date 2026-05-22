@@ -22,11 +22,23 @@ const brandVoice = require('../brand-voice');
 const advisor = require('../advisor-tool');
 const adI18n = require('../ad-optimizer/i18n-market');
 const psychology = require('../marketing-psychology');
+const copyEditing = require('../frameworks/copy-editing');
 
 // ─── Default thresholds (per content type) ─────────────────────────────────
 
 // `psychology_min` — content types that benefit from psychology principles
 // have a minimum overall_score. Set to 0 to skip psychology entirely.
+/** Content types that get Seven Sweeps copy-editing before ship */
+const COPY_EDITING_TYPES = new Set([
+  'ad_copy',
+  'caption',
+  'social_post',
+  'hero_rewrite',
+  'email_subject',
+  'email_body',
+  'push_notification',
+]);
+
 const DEFAULT_THRESHOLDS = {
   caption: { slop_max: 35, specificity_min: 40, psychology_min: 30, allow_retry: true, use_advisor_growth: false },
   ad_copy: { slop_max: 25, specificity_min: 60, psychology_min: 50, allow_retry: true, use_advisor_growth: true },
@@ -564,18 +576,53 @@ async function gate(opts) {
     });
   }
 
+  // ─── Copy-editing polish (Seven Sweeps) for marketing copy types ──
+  let finalText = text;
+  if (COPY_EDITING_TYPES.has(contentType)) {
+    checks.copy_editing = copyEditing.runSevenSweepsHeuristics(text);
+    if (
+      !checks.copy_editing.passed &&
+      thr.allow_retry &&
+      callClaude &&
+      extractJSON &&
+      planTier !== 'free'
+    ) {
+      try {
+        const repairHint = copyEditing.buildCopyEditingRepairInstruction(checks.copy_editing.issues);
+        const polished = await voicePolish.rewrite({
+          text,
+          business: { ...business, brand_voice_anchor: anchor },
+          plan: planTier,
+          callClaude,
+          extractJSON,
+          logger,
+          extraSystem: repairHint,
+        });
+        const recheckCe = copyEditing.runSevenSweepsHeuristics(polished.polished);
+        const issueCountBefore = checks.copy_editing.issues.length;
+        checks.copy_editing = recheckCe;
+        if (recheckCe.passed || recheckCe.issues.length < issueCountBefore) {
+          finalText = polished.polished;
+        }
+      } catch (e) {
+        logger?.warn?.('quality-gate', null, 'copy-editing polish failed', e?.message);
+      }
+    }
+  }
+
   // ─── Clean ship ──
   return finish({
     decision: 'ship',
     ship_safe: true,
     checks,
     retries: 0,
-    final_text: text,
+    final_text: finalText,
     blocking_issues: [],
   });
 }
 
 module.exports = {
+  COPY_EDITING_TYPES,
   DEFAULT_THRESHOLDS,
   UNGROUNDED_CLAIM_PATTERNS,
   thresholdsFor,
