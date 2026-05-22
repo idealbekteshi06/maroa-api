@@ -315,6 +315,7 @@ function createEngine(deps) {
         callClaude,
         extractJSON,
         logger,
+        sbGet,
       });
 
       // ─── Persist audit result ──────────────────────────────────────────

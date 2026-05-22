@@ -371,6 +371,7 @@ function createEngine({
     // the system prompt. The model writes from real signal, not a generic
     // template. Cached 5min so concepts in the same daily batch share work.
     // See ADR-0005 + CLAUDE.md Rule 6.
+    let groundingSchedule = null;
     try {
       const surface = concept.platform === 'email' ? 'email' : 'social_post';
       const grounding = await _grounding.buildGroundingContext({
@@ -381,6 +382,7 @@ function createEngine({
         limit: 3,
       });
       const block = grounding.toPromptBlock();
+      groundingSchedule = grounding.postingSchedule;
       if (block) {
         system = `${block}\n${system}`;
       }
@@ -403,10 +405,21 @@ function createEngine({
       }
     }
 
+    const defaultPostTime =
+      groundingSchedule?.best_times?.length
+        ? groundingSchedule.best_times[concept.id.charCodeAt(0) % groundingSchedule.best_times.length]
+        : null;
+    const postRationale =
+      parsed.postingTime?.rationale ||
+      (defaultPostTime
+        ? `Industry benchmark best time (${defaultPostTime} local)`
+        : null);
+
     const raw = await callClaude(user, 'claude-sonnet-4-5', 3000, {
       system,
       businessId,
       returnRaw: true,
+      skipGrounding: true,
     });
     const parsed = extractJSON(raw) || {};
 
@@ -483,8 +496,8 @@ function createEngine({
       visual_brief: parsed.visualBrief || null,
       accessibility_alt_text: parsed.accessibilityAltText || null,
       burned_in_captions: parsed.burnedInCaptions || null,
-      posting_time_local: parsed.postingTime?.localTime || null,
-      posting_time_rationale: parsed.postingTime?.rationale || null,
+      posting_time_local: parsed.postingTime?.localTime || defaultPostTime || null,
+      posting_time_rationale: postRationale,
       framework_justification: parsed.frameworkJustification || null,
       predicted_quality_score: Number(parsed.predictedQualityScore || 0),
       confidence: Number(parsed.confidence || 0),

@@ -144,6 +144,7 @@ function buildUserMessage({
   plan,
   antiThrashing,
   multi_platform,
+  benchmarkLines = [],
 }) {
   const businessProfile = {
     name: business?.business_name,
@@ -189,6 +190,14 @@ function buildUserMessage({
     JSON.stringify(metrics, null, 2),
     `\`\`\``,
     ``,
+    benchmarkLines.length
+      ? [
+          `## Industry benchmark comparison`,
+          `Use these public SMB averages when judging performance. Cite them in decision_reason when relevant.`,
+          ...benchmarkLines.map((line) => `- ${line}`),
+          ``,
+        ].join('\n')
+      : '',
     `## Trend (computed from last 14 days of ad_performance_logs)`,
     `\`\`\`json`,
     JSON.stringify(trend, null, 2),

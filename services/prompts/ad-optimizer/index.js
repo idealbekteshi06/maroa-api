@@ -132,6 +132,7 @@ function buildAuditPrompt(inputs, { business, metrics, decisionHistory, plan }) 
     plan,
     antiThrashing: inputs.antiThrashing,
     multi_platform: inputs.multi_platform,
+    benchmarkLines: inputs.benchmarkLines,
   });
   return {
     system,
@@ -161,10 +162,27 @@ async function auditCampaign(opts) {
     callClaude,
     extractJSON,
     logger,
+    sbGet,
   } = opts || {};
 
   if (typeof callClaude !== 'function') throw new Error('auditCampaign: callClaude required');
   if (typeof extractJSON !== 'function') throw new Error('auditCampaign: extractJSON required');
+
+  let benchmarkLines = [];
+  if (sbGet && business?.industry) {
+    try {
+      const { fetchIndustryBenchmarks, formatBenchmarkComparison } = require('../../../lib/groundingContext');
+      const bm = await fetchIndustryBenchmarks({ sbGet, industry: business.industry });
+      benchmarkLines =
+        formatBenchmarkComparison(bm, {
+          ctr: metrics?.ctr,
+          cpc: metrics?.cpc,
+          roas: metrics?.roas,
+        }) || [];
+    } catch {
+      benchmarkLines = [];
+    }
+  }
 
   const inputs = buildAuditInputs({
     business,
@@ -177,6 +195,7 @@ async function auditCampaign(opts) {
     platform,
     liveRates,
   });
+  inputs.benchmarkLines = benchmarkLines;
 
   // ─── Hard short-circuits (don't even spend an LLM call) ────────────────
   // These are deterministic decisions — saves cost, prevents dumb LLM moves.
@@ -237,6 +256,9 @@ async function auditCampaign(opts) {
         temperature: 0.2, // low randomness for decisions
         businessId: business?.id,
         skill: 'ad_optimizer_audit',
+        groundingSurface: 'ad_copy',
+        clientMetrics: { ctr: metrics?.ctr, cpc: metrics?.cpc, roas: metrics?.roas },
+        plan: business?.plan || plan,
       },
     });
   } catch (e) {

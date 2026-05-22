@@ -1052,6 +1052,41 @@ async function callClaude(prompt, taskTypeOrModel = 'social_post', maxTokensOver
     }
   }
 
+  // Industry benchmarks + performance grounding for every business-scoped Claude call.
+  if (extra.businessId && !extra.skipGrounding && !Array.isArray(extra.systemBlocks)) {
+    try {
+      const groundingLib = require('./lib/groundingContext');
+      const skill = String(extra.skill || taskTypeOrModel || '');
+      const surface =
+        extra.groundingSurface ||
+        (skill.includes('ad_optimizer') || skill.includes('wf3') || skill.includes('audit')
+          ? 'ad_copy'
+          : skill.includes('email')
+            ? 'email'
+            : skill.includes('seo')
+              ? 'seo'
+              : skill.includes('cro') || skill.includes('landing')
+                ? 'landing_page'
+                : 'social_post');
+      const gCtx = await groundingLib.buildGroundingContext({
+        sbGet,
+        businessId: extra.businessId,
+        surface,
+        intent: extra.groundingIntent || 'conversion',
+        plan: extra.plan,
+        semanticQuery: extra.semanticQuery,
+        clientMetrics: extra.clientMetrics,
+        limit: 3,
+      });
+      const gBlock = gCtx.toPromptBlock();
+      if (gBlock) {
+        extra = { ...extra, system: (extra.system ? `${extra.system}\n\n` : '') + gBlock };
+      }
+    } catch (gErr) {
+      log('callClaude', `grounding inject failed (non-fatal): ${gErr.message}`);
+    }
+  }
+
   // Build user message content. Default = single text block from `prompt`.
   // If extra.fileIds, extra.documentBlocks, or extra.imageBlocks are provided,
   // prepend them as content blocks (Files API + Citations support).

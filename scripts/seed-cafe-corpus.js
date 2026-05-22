@@ -51,7 +51,7 @@ const SUPABASE_KEY = (
   .trim();
 const DRY_RUN = process.argv.includes('--dry-run');
 
-if (!SUPABASE_URL || !SUPABASE_KEY) {
+if (!DRY_RUN && (!SUPABASE_URL || !SUPABASE_KEY)) {
   console.error('[seed-cafe] Need SUPABASE_URL + SUPABASE_KEY (service role) in env');
   process.exit(1);
 }
