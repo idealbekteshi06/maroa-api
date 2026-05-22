@@ -615,7 +615,8 @@ const REPLICATE_API_KEY = env.REPLICATE_API_KEY || '';
 const PEXELS_API_KEY = env.PEXELS_API_KEY || '';
 const RESEND_API_KEY = env.RESEND_API_KEY || '';
 const FROM_EMAIL = env.FROM_EMAIL;
-const PORT = env.PORT;
+// Railway injects PORT (e.g. 8080) — always prefer raw process.env over schema default 3000
+const PORT = Number(process.env.PORT) || Number(env.PORT) || 3000;
 const OPENAI_API_KEY = env.OPENAI_API_KEY || '';
 const PINECONE_API_KEY = env.PINECONE_API_KEY || '';
 const PINECONE_HOST = env.PINECONE_HOST || '';
@@ -10848,7 +10849,7 @@ app.post('/webhook/wf-content-performance-feedback', async (req, res) => {
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 const server = app
-  .listen(PORT, () => {
+  .listen(PORT, '0.0.0.0', () => {
     // (no-op here — startup self-test runs in the inner block below)
   })
   .on('listening', () => {
