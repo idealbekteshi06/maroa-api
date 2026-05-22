@@ -43,6 +43,18 @@ The 9+ minute Railway failures were **not** prestart or Railway routing. Root ca
 
 Also fixed: `Config` + `sbGet` moved before early `listen()` so boot does not throw `sbGet is not defined`.
 
+## Higgsfield 2026 (WF10 smart routing)
+
+Optional model overrides for `services/higgsfield/modelRouter.js`:
+
+| Variable | Example | Purpose |
+|----------|---------|---------|
+| `HIGGSFIELD_DEFAULT_MODEL` | `nano-banana-pro` | Default when `content_type` is unknown |
+| `HIGGSFIELD_CINEMATIC_MODEL` | `kling-3.0` | Override for `content_type=cinematic` |
+| `HIGGSFIELD_UGC_MODEL` | `wan-2.5` | Override for UGC content types |
+
+Requires `HIGGSFIELD_API_KEY_ID` + `HIGGSFIELD_API_KEY_SECRET` (official `@higgsfield/client` SDK).
+
 ## Verify after deploy
 
 ```bash

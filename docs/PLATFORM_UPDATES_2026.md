@@ -40,7 +40,7 @@ Set `META_GRAPH_API_VERSION=v22.0` and `META_VIEWERS_CUTOVER=2026-06-01`.
 | WAN 2.5 audio | `wan 2.5` | `HIGGSFIELD_PATH_WAN_25` |
 | Sora 2 / Veo 3.1 / DOP | existing router | unchanged |
 
-Use `modelForCapability('ugc_testimonial')` etc. in `services/higgsfield.js`.
+Use `routeModelForContentType('ugc_testimonial')` in `services/higgsfield/` (2026 SDK + smart router). Legacy `modelForCapability()` remains for WF1/creative-engine paths.
 
 ## 4. vs Claude for Small Business
 

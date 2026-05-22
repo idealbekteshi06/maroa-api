@@ -30,13 +30,18 @@
     "prepare": "test -d .git && (test -f .husky/pre-commit || node scripts/install-husky.js) || true"
   },
   "lint-staged": {
-    "*.{js,jsx}": ["eslint --fix"],
-    "*.{js,jsx,json,md,yml,yaml}": ["prettier --write"]
+    "*.{js,jsx}": [
+      "eslint --fix"
+    ],
+    "*.{js,jsx,json,md,yml,yaml}": [
+      "prettier --write"
+    ]
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "@higgsfield/client": "^0.2.1",
     "@sentry/node": "^10.49.0",
     "@supabase/supabase-js": "^2.103.3",
     "@upstash/ratelimit": "^2.0.8",

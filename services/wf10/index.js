@@ -43,13 +43,25 @@ function createWf10(deps) {
         let resultUrl = null;
         let thumbnailUrl = null;
 
+        const contentType =
+          brief.content_type ||
+          request.content_type ||
+          (brief.asset_type === 'reel' ? 'social_reel' : null) ||
+          (brief.asset_type === 'video' ? 'product_video' : null);
+        const cameraPreset =
+          brief.camera_preset || request.preset || request.camera_preset || 'ugc';
+
+        let genMeta = {};
         if (higgsfieldAI?.generateImage && (brief.asset_type === 'image' || !brief.asset_type)) {
           const imagePrompt = brief.image_prompts?.[0] || request.subject;
           const result = await higgsfieldAI.generateImage({
             prompt: imagePrompt,
             businessId,
+            content_type: contentType,
+            preset: cameraPreset,
           });
           resultUrl = result?.url || result?.imageUrl;
+          genMeta = result || {};
         } else if (higgsfieldAI?.generateVideo && (brief.asset_type === 'video' || brief.asset_type === 'reel')) {
           const result = await higgsfieldAI.generateVideo({
             sourceImagePrompt: brief.video_prompt?.source_image_prompt,
@@ -57,15 +69,30 @@ function createWf10(deps) {
             aspectRatio: brief.video_prompt?.aspect_ratio || '9:16',
             durationSeconds: brief.video_prompt?.duration_seconds || 5,
             businessId,
+            content_type: contentType,
+            preset: cameraPreset,
           });
           resultUrl = result?.url || result?.videoUrl;
           thumbnailUrl = result?.thumbnailUrl;
+          genMeta = result || {};
         }
+
+        const costUsd =
+          genMeta.credits_used != null
+            ? require('../higgsfield/costTracking').estimateModelCost(genMeta.model_slug || genMeta.model_version)
+                .cost_usd
+            : null;
 
         await sbPatch('studio_jobs', `id=eq.${job.id}`, {
           status: resultUrl ? 'completed' : 'failed',
           result_url: resultUrl,
           thumbnail_url: thumbnailUrl,
+          provider: 'higgsfield',
+          model_used: genMeta.model_used || null,
+          camera_preset: genMeta.camera_preset || cameraPreset,
+          credits_used: genMeta.credits_used ?? null,
+          model_version: genMeta.model_version || genMeta.model_slug || null,
+          cost_usd: costUsd,
           completed_at: new Date().toISOString(),
           error: resultUrl ? null : 'No result URL returned from provider',
         });

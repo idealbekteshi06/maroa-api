@@ -46,7 +46,7 @@ test('opus swap: no claude-opus-4-5 or 4-6 references in production code', () =>
 });
 
 test('opus swap: at least one claude-opus-4-7 reference exists', () => {
-  const targets = ['services/higgsfield.js', 'services/wf1/engine.js'];
+  const targets = ['services/higgsfield/index.js', 'services/wf1/engine.js'];
   for (const rel of targets) {
     const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
     assert.ok(/claude-opus-4-7/.test(src), `${rel} should reference claude-opus-4-7`);
