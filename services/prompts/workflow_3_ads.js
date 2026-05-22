@@ -14,7 +14,7 @@
 'use strict';
 
 const { buildSystemPrompt } = require('./foundation.js');
-const adCreative = require('./frameworks/ad-creative');
+const { buildAdCreativeSection } = require('./ad-creative/index.js');
 
 function buildAdOptimizationPrompt(ctx, snapshot) {
   const addendum = `
@@ -45,7 +45,7 @@ Decision framework (use in order)
   6. Creative rotation cadence: if no new creative in 14d, schedule a
      refresh regardless of current performance (preemptive).
 
-${adCreative.buildAdCreativeSection('meta')}
+${buildAdCreativeSection('meta')}
 
 OUTPUT FORMAT — strict JSON
 {

@@ -24,6 +24,7 @@ const {
 } = require('../prompts/workflow_1_daily_content.js');
 const { FOUNDATION_SYSTEM_PROMPT } = require('../prompts/foundation.js');
 const creativeDirector = require('../prompts/creative-director');
+const trendingHooks = require('../prompts/trending-hooks');
 const { callMarketingClaude } = require('../../lib/marketingClaude');
 
 function createEngine({
@@ -125,7 +126,8 @@ function createEngine({
       todayLocalDate,
     });
 
-    const { system, user } = buildStrategicDecisionPrompt(brandContext, bundle);
+    let { system, user } = buildStrategicDecisionPrompt(brandContext, bundle);
+    user = trendingHooks.appendTrendingHooksToUserMessage(user, brandContext, bundle);
 
     // Agency tier gets the upstream Cannes-grade creative-director pass FIRST,
     // then folds the chosen concept into the daily-content prompt for richer

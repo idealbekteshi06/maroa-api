@@ -2,6 +2,7 @@
 
 /**
  * Recursive self-assessment + brief compliance (smixs/creative-director-skill Phase 4).
+ * Gap analysis and stopping criteria live in scoring.js — not duplicated here.
  */
 
 const BRIEF_COMPLIANCE_8 = `
@@ -17,46 +18,35 @@ const BRIEF_COMPLIANCE_8 = `
 8. Supported by real product attributes?
 `.trim();
 
-const RECURSIVE_REFINE_ALGORITHM = `
-## Recursive refine cycle (Phase 4)
+function smbStoppingLine(ideaLevel) {
+  const lvl = String(ideaLevel || 'campaign').toLowerCase();
+  if (lvl === 'brand' || lvl === 'advertising' || lvl === 'business') {
+    return 'Success: weighted ≥ 8.5 AND HumanKind ≥ 7 (stretch 9+ only with named canon + pre-mortem).';
+  }
+  return 'Success: weighted ≥ 8.0 AND HumanKind ≥ 6 (SMB daily content — do not chase Cannes 9+ unless brief is brand-level).';
+}
 
-PASS 0 — Idea level matches Pollard requirement from intake.
-PASS 1 — Three-axis evaluation:
-  - Axis 1: Brief compliance (8 questions above)
-  - Axis 2: Six weighted criteria + HumanKind + Grey scales
-  - Axis 3: Pattern saturation (P01-P18) — cap originality if saturated
-
-PASS 2 — Gap diagnosis:
-  - Weighted ≥ 8 + HumanKind < 7 → clever but doesn't matter
-  - Weighted < 7 + HumanKind ≥ 8 → matters but boring
-  - Both ≥ 8 → polish scalability
-  - Both < 7 → restart with different HMW + different method triad
-
-PASS 3 — Refine (max 2 passes):
-  - If top weighted < 9.0 OR HumanKind < 7: pick weakest criterion, apply a DIFFERENT method from the triad (not the same one)
-  - SCAMPER is mandatory on at least one pass when strategic_fit or simplicity scores < 8
-  - Pre-mortem before presenting 9+ scores
-
-Stopping:
-  - Success: weighted ≥ 9.0 AND HumanKind ≥ 7
-  - Plateau: 2 passes with delta < 0.2 → ship best with honest note
-  - Max 2 refinement passes in this call (deeper recursion is engine responsibility)
-`.trim();
-
-const SCAMPER_IDEATION_RULE = `
-## SCAMPER (required in ideation triad)
-
-Pick three moves minimum: Substitute / Combine / Adapt / Modify / Put to other use / Eliminate / Reverse.
-Apply to the most-defended brand assumption — not the product feature list.
-`.trim();
-
-function buildRecursiveRefineSection() {
-  return [BRIEF_COMPLIANCE_8, '', RECURSIVE_REFINE_ALGORITHM, '', SCAMPER_IDEATION_RULE].join('\n');
+function buildRecursiveRefineSection(ideaLevel = 'campaign') {
+  return [
+    BRIEF_COMPLIANCE_8,
+    '',
+    '## Recursive refine cycle (Phase 4)',
+    '',
+    'PASS 0 — Idea level matches Pollard requirement from intake.',
+    'PASS 1 — Brief compliance (8 questions above), then apply the scoring block above (six criteria + HumanKind + Grey + gap analysis).',
+    'PASS 2–3 — Refine (max 3 passes total in this call):',
+    '  - If below stopping criteria: gap-diagnose using the GAP ANALYSIS RULES in the scoring section.',
+    '  - Apply a DIFFERENT method from the triad (not the one that produced the weak idea).',
+    '  - Pre-mortem before presenting the final concept.',
+    '',
+    `Stopping for this brief (${ideaLevel}): ${smbStoppingLine(ideaLevel)}`,
+    '  - Plateau: 2 consecutive passes with weighted delta < 0.2 → ship best with honest note in rationale.',
+    '  - Hard stop: 3 refinement passes completed → deliver best with honest assessment.',
+  ].join('\n');
 }
 
 module.exports = {
   BRIEF_COMPLIANCE_8,
-  RECURSIVE_REFINE_ALGORITHM,
-  SCAMPER_IDEATION_RULE,
   buildRecursiveRefineSection,
+  smbStoppingLine,
 };

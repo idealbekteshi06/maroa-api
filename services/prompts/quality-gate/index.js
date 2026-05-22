@@ -427,16 +427,53 @@ async function gate(opts) {
   const anchor = business?.brand_voice_anchor || brandVoice.buildAnchor({ business });
   const expectedLang = anchor?.language_primary || business?.primary_language || 'en';
 
-  // ─── Deterministic checks ──
-  const checks = {
-    slop: checkSlop(text, thr.slop_max),
-    specificity: checkSpecificity(text, thr.specificity_min),
-    brand_voice_match: checkBrandVoiceMatch(text, anchor),
-    claim_substantiation: checkClaimSubstantiation(text, citations),
-    language_match: checkLanguageMatch(text, expectedLang),
-    psychology: checkPsychology(text, business, contentType, thr.psychology_min, opts?.funnelStage),
-    advisor: null,
-  };
+  let workingText = text;
+  let copyEditRetries = 0;
+
+  // ─── Seven Sweeps copy-editing (before 6-check pipeline + voice-polish) ──
+  const checks = { copy_editing: null, advisor: null };
+  if (COPY_EDITING_TYPES.has(contentType)) {
+    checks.copy_editing = copyEditing.runSevenSweepsHeuristics(workingText);
+    if (
+      !checks.copy_editing.passed &&
+      thr.allow_retry &&
+      callClaude &&
+      extractJSON &&
+      planTier !== 'free'
+    ) {
+      try {
+        const repairHint = copyEditing.buildCopyEditingRepairInstruction(checks.copy_editing.issues);
+        const polished = await voicePolish.rewrite({
+          text: workingText,
+          business: { ...business, brand_voice_anchor: anchor },
+          plan: planTier,
+          callClaude,
+          extractJSON,
+          logger,
+          extraSystem: repairHint,
+        });
+        const recheckCe = copyEditing.runSevenSweepsHeuristics(polished.polished);
+        const issueCountBefore = checks.copy_editing.issues.length;
+        checks.copy_editing = recheckCe;
+        if (recheckCe.passed || recheckCe.issues.length < issueCountBefore) {
+          workingText = polished.polished;
+          copyEditRetries = 1;
+        }
+      } catch (e) {
+        logger?.warn?.('quality-gate', null, 'copy-editing polish failed', e?.message);
+      }
+    }
+  }
+
+  // ─── Deterministic checks (on post-copy-edit text) ──
+  Object.assign(checks, {
+    slop: checkSlop(workingText, thr.slop_max),
+    specificity: checkSpecificity(workingText, thr.specificity_min),
+    brand_voice_match: checkBrandVoiceMatch(workingText, anchor),
+    claim_substantiation: checkClaimSubstantiation(workingText, citations),
+    language_match: checkLanguageMatch(workingText, expectedLang),
+    psychology: checkPsychology(workingText, business, contentType, thr.psychology_min, opts?.funnelStage),
+  });
 
   // ─── Decide blocking issues ──
   // HARD blockers (no retry helps): language mismatch, ungrounded factual claims.
@@ -467,7 +504,7 @@ async function gate(opts) {
       ship_safe: false,
       checks,
       retries: 0,
-      final_text: text,
+      final_text: workingText,
       blocking_issues: hardBlockingIssues,
     });
   }
@@ -476,7 +513,7 @@ async function gate(opts) {
   const wantAdvisor = planTier === 'agency' || (planTier === 'growth' && thr.use_advisor_growth);
   if (wantAdvisor && callClaude && extractJSON) {
     checks.advisor = await checkAdvisor({
-      text,
+      text: workingText,
       business,
       contentType,
       brandVoiceAnchor: anchor,
@@ -490,7 +527,7 @@ async function gate(opts) {
         ship_safe: false,
         checks,
         retries: 0,
-        final_text: text,
+        final_text: workingText,
         blocking_issues: ['advisor_reject'],
       });
     }
@@ -506,7 +543,7 @@ async function gate(opts) {
   if (needsRetry && thr.allow_retry && callClaude && extractJSON && planTier !== 'free') {
     try {
       const polish = await voicePolish.polish({
-        text,
+        text: workingText,
         business: { ...business, brand_voice_anchor: anchor },
         plan: planTier,
         callClaude,
@@ -514,6 +551,7 @@ async function gate(opts) {
         logger,
       });
       const polishedText = polish.polished;
+      workingText = polishedText;
       // Re-run deterministic checks on polished text
       const recheck = {
         slop: checkSlop(polishedText, thr.slop_max),
@@ -533,9 +571,9 @@ async function gate(opts) {
         return finish({
           decision: 'ship',
           ship_safe: true,
-          checks: recheck,
-          retries: 1,
-          final_text: polishedText,
+          checks: { ...checks, ...recheck },
+          retries: copyEditRetries + 1,
+          final_text: workingText,
           blocking_issues: [],
         });
       }
@@ -543,9 +581,9 @@ async function gate(opts) {
       return finish({
         decision: 'reject',
         ship_safe: false,
-        checks: recheck,
-        retries: 1,
-        final_text: polishedText,
+        checks: { ...checks, ...recheck },
+        retries: copyEditRetries + 1,
+        final_text: workingText,
         blocking_issues: stillBlocked.length ? stillBlocked : ['retry_failed_to_pass_slop'],
       });
     } catch (e) {
@@ -560,7 +598,7 @@ async function gate(opts) {
       ship_safe: false,
       checks,
       retries: 0,
-      final_text: text,
+      final_text: workingText,
       blocking_issues: softBlockingIssues,
     });
   }
@@ -569,45 +607,11 @@ async function gate(opts) {
       decision: 'ship',
       ship_safe: true,
       checks,
-      retries: 0,
-      final_text: text,
+      retries: copyEditRetries,
+      final_text: workingText,
       blocking_issues: [],
       ship_warning: 'slop_score_above_threshold_but_no_retry_path',
     });
-  }
-
-  // ─── Copy-editing polish (Seven Sweeps) for marketing copy types ──
-  let finalText = text;
-  if (COPY_EDITING_TYPES.has(contentType)) {
-    checks.copy_editing = copyEditing.runSevenSweepsHeuristics(text);
-    if (
-      !checks.copy_editing.passed &&
-      thr.allow_retry &&
-      callClaude &&
-      extractJSON &&
-      planTier !== 'free'
-    ) {
-      try {
-        const repairHint = copyEditing.buildCopyEditingRepairInstruction(checks.copy_editing.issues);
-        const polished = await voicePolish.rewrite({
-          text,
-          business: { ...business, brand_voice_anchor: anchor },
-          plan: planTier,
-          callClaude,
-          extractJSON,
-          logger,
-          extraSystem: repairHint,
-        });
-        const recheckCe = copyEditing.runSevenSweepsHeuristics(polished.polished);
-        const issueCountBefore = checks.copy_editing.issues.length;
-        checks.copy_editing = recheckCe;
-        if (recheckCe.passed || recheckCe.issues.length < issueCountBefore) {
-          finalText = polished.polished;
-        }
-      } catch (e) {
-        logger?.warn?.('quality-gate', null, 'copy-editing polish failed', e?.message);
-      }
-    }
   }
 
   // ─── Clean ship ──
@@ -615,8 +619,8 @@ async function gate(opts) {
     decision: 'ship',
     ship_safe: true,
     checks,
-    retries: 0,
-    final_text: finalText,
+    retries: copyEditRetries,
+    final_text: workingText,
     blocking_issues: [],
   });
 }

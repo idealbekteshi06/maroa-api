@@ -81,18 +81,21 @@ function computeWeightedScore(scores) {
 }
 
 function gapAnalysis(weightedScore, humankindScore) {
-  if (weightedScore >= 8 && humankindScore < 7)
+  if (weightedScore >= 8 && humankindScore < 6)
     return { diagnosis: 'clever_but_doesnt_matter', action: 'strengthen human purpose, find tension' };
-  if (weightedScore < 7 && humankindScore >= 8)
+  if (weightedScore < 7 && humankindScore >= 7)
     return { diagnosis: 'matters_but_boring', action: 'strengthen craft, originality, surprise' };
-  if (weightedScore >= 8 && humankindScore >= 8)
+  if (weightedScore >= 8 && humankindScore >= 6)
     return { diagnosis: 'strong_candidate', action: 'check scalability, polish' };
   return { diagnosis: 'restart', action: 'different HMW, different methods' };
 }
 
 const STOPPING_CRITERIA = {
-  exit_success: 'top idea weighted ≥ 9.0 AND HumanKind ≥ 7 → run pre-mortem then exit to articulate',
-  exit_attempts: '5 passes completed → deliver best with honest assessment',
+  exit_success_smb:
+    'execution/campaign level: weighted ≥ 8.0 AND HumanKind ≥ 6 → pre-mortem then articulate',
+  exit_success_brand:
+    'brand/advertising level: weighted ≥ 8.5 AND HumanKind ≥ 7 → pre-mortem then articulate',
+  exit_attempts: '3 refinement passes completed → deliver best with honest assessment',
   exit_plateau: '2 consecutive passes with delta < 0.2 → convergence, deliver with note',
 };
 
@@ -121,10 +124,10 @@ Tier 1 (generic): ${TIER_EMOTION[1].join(', ')}
 Tier 2 (specific): ${TIER_EMOTION[2].join(', ')}
 Tier 3 (complex): ${TIER_EMOTION[3].join(', ')}
 
-GAP ANALYSIS RULES:
-- Weighted ≥ 8 + HumanKind < 7 → "clever but doesn't matter" — strengthen human purpose
-- Weighted < 7 + HumanKind ≥ 8 → "matters but boring" — strengthen craft, originality, surprise
-- Both ≥ 8 → strong candidate, polish for scalability
+GAP ANALYSIS RULES (SMB-calibrated):
+- Weighted ≥ 8 + HumanKind < 6 → "clever but doesn't matter" — strengthen human purpose
+- Weighted < 7 + HumanKind ≥ 7 → "matters but boring" — strengthen craft, originality, surprise
+- Weighted ≥ 8 + HumanKind ≥ 6 → strong candidate for ship, polish for scalability
 - Both < 7 → restart with different HMW
 
 STOPPING CRITERIA:

@@ -73,7 +73,7 @@ ${patternsText()}
 
 ${calibrationText()}
 
-${buildRecursiveRefineSection()}
+${buildRecursiveRefineSection(ideaLevel)}
 
 ${ANTI_PITFALL}
 
@@ -90,7 +90,7 @@ YOUR PROCESS (do this internally, output only the result):
 2. INSIGHT — write ONE sentence in the format above. Pass the quality test.
 3. IDEATION — generate 8-12 ideas using the three methods above. Mark first 3 as warmup. Each idea = one sentence + 2-3 lines of development. Each tied to the insight.
 4. EVALUATE — run Brief Compliance (8 questions) on top 3; then score 6 criteria + HumanKind + Grey. Apply originality saturation cap if hitting P03/P08/P09/P11/P16. Apply emotion tier rule.
-5. REFINE — recursive cycle: if top weighted < 9.0 OR HumanKind < 7, gap-diagnose, apply a DIFFERENT method (SCAMPER required if strategic_fit or simplicity < 8). Pre-mortem before 9+. Max 2 passes; plateau if delta < 0.2.
+5. REFINE — recursive cycle (max 3 passes): if below stopping criteria in scoring block, gap-diagnose and apply a DIFFERENT method from the triad. Pre-mortem before final selection. Plateau if delta < 0.2 for 2 passes.
 6. SELECT — pick the top concept. Articulate why it beats the runner-up.
 
 OUTPUT JSON SHAPE (strict — no prose, no markdown):
@@ -149,7 +149,7 @@ OUTPUT JSON SHAPE (strict — no prose, no markdown):
 ABSOLUTE RULES:
 - Do NOT output anything except this JSON.
 - Do NOT skip the insight step (its absence shows in the final concept and gets caught downstream).
-- Do NOT score 9+ without naming a comparable canonical campaign.
+- For execution/campaign SMB work: target weighted ≥ 8 and HumanKind ≥ 6; name a comparable canon when ≥ 8.5.
 - Do NOT use Tier 1 emotion words (happy/sad/angry/positive/excited) in emotional_response justification — Tier 2 minimum, Tier 3 for 9+ scores.
 - Do NOT mention the brand by name inside the visualization or tagline (filter-safety + bigger ideas).
 `;

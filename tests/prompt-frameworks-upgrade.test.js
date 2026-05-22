@@ -52,12 +52,13 @@ test('buildAuditInputs supports metricsByPlatform parallel path', () => {
   assert.equal(inputs.multi_platform.platforms.length, 2);
 });
 
-test('creative-director system prompt includes recursive refine + SCAMPER', () => {
-  const p = buildCreativeDirectorSystemPrompt({}, 'grow revenue', 'instagram reel');
+test('creative-director system prompt includes recursive refine + SMB stopping', () => {
+  const p = buildCreativeDirectorSystemPrompt({}, 'grow revenue', 'instagram reel', { ideaLevel: 'execution' });
   assert.match(p, /Brief compliance/i);
-  assert.match(p, /SCAMPER/i);
   assert.match(p, /recursive refine/i);
-  assert.ok(recursiveRefine.buildRecursiveRefineSection().includes('HumanKind'));
+  assert.match(p, /3 refinement passes/i);
+  assert.match(p, /HumanKind ≥ 6/i);
+  assert.ok(recursiveRefine.buildRecursiveRefineSection('execution').includes('HumanKind'));
 });
 
 test('quality gate COPY_EDITING_TYPES includes ad_copy', () => {

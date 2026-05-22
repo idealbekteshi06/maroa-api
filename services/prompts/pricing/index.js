@@ -27,4 +27,11 @@ You are a pricing strategist for SMBs. Analyze willingness-to-pay signals, packa
   };
 }
 
-module.exports = { buildPricingAnalysisPrompt };
+function buildPricingFrameworkSection() {
+  return buildPricingAnalysisPrompt({ business: {}, competitors: [], currentOffer: {} }).system.replace(
+    '# ROLE',
+    '## Pricing & packaging lens (WF14)'
+  );
+}
+
+module.exports = { buildPricingAnalysisPrompt, buildPricingFrameworkSection };

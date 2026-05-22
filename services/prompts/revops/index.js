@@ -26,4 +26,11 @@ You diagnose marketing → sales handoff for SMB RevOps. Focus on MQL→SQL conv
   };
 }
 
-module.exports = { buildRevOpsHandoffPrompt };
+function buildRevOpsFrameworkSection() {
+  return buildRevOpsHandoffPrompt({ business: {}, funnelMetrics: {}, crmStage: 'mql' }).system.replace(
+    '# ROLE',
+    '## RevOps / MQL→SQL handoff lens (WF2)'
+  );
+}
+
+module.exports = { buildRevOpsHandoffPrompt, buildRevOpsFrameworkSection };

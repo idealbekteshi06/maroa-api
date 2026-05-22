@@ -190,6 +190,10 @@ function validateOutput(raw) {
       recommendations_for_marketing: Array.isArray(raw.recommendations_for_marketing)
         ? raw.recommendations_for_marketing
         : [],
+      trigger_events: Array.isArray(raw.trigger_events) ? raw.trigger_events : [],
+      positioning_implications: Array.isArray(raw.positioning_implications)
+        ? raw.positioning_implications
+        : [],
       caveats: Array.isArray(raw.caveats) ? raw.caveats : [],
     },
   };
@@ -253,6 +257,8 @@ async function synthesizeVoc(opts) {
     persona_refinement: null,
     competitor_mentions: competitorMentions, // deterministic baseline
     recommendations_for_marketing: [],
+    trigger_events: [],
+    positioning_implications: [],
     caveats: [],
   };
 
@@ -319,6 +325,8 @@ async function synthesizeVoc(opts) {
     sentiment: { ...sentimentPcts, trend_30d: trend },
     competitor_mentions: synth.competitor_mentions,
     recommendations_for_marketing: synth.recommendations_for_marketing,
+    trigger_events: synth.trigger_events,
+    positioning_implications: synth.positioning_implications,
     data_quality: normalized.length >= 50 ? 'good' : normalized.length >= 20 ? 'limited' : 'minimal',
     caveats: synth.caveats,
     short_circuited: false,
@@ -339,6 +347,8 @@ function _shortCircuit({ reason, normalized, marketProfile }) {
     sentiment: null,
     competitor_mentions: [],
     recommendations_for_marketing: [],
+    trigger_events: [],
+    positioning_implications: [],
     data_quality: 'insufficient',
     caveats: [reason],
     short_circuited: true,

@@ -98,6 +98,8 @@ function buildMultiPlatformAuditInputs({
     multi_platform: merged.multi_platform,
     platform: 'multi',
     primary_platform: primary,
+    metrics: primaryMetrics,
+    history: historyByPlatform[primary] || [],
   };
 }
 

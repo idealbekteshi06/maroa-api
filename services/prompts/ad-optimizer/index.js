@@ -166,7 +166,17 @@ async function auditCampaign(opts) {
   if (typeof callClaude !== 'function') throw new Error('auditCampaign: callClaude required');
   if (typeof extractJSON !== 'function') throw new Error('auditCampaign: extractJSON required');
 
-  const inputs = buildAuditInputs({ business, metrics, history, decisionHistory, plan, platform, liveRates });
+  const inputs = buildAuditInputs({
+    business,
+    metrics,
+    metricsByPlatform: opts.metricsByPlatform,
+    historyByPlatform: opts.historyByPlatform,
+    history,
+    decisionHistory,
+    plan,
+    platform,
+    liveRates,
+  });
 
   // ─── Hard short-circuits (don't even spend an LLM call) ────────────────
   // These are deterministic decisions — saves cost, prevents dumb LLM moves.
@@ -200,7 +210,12 @@ async function auditCampaign(opts) {
   }
 
   // ─── LLM synthesis ─────────────────────────────────────────────────────
-  const prompt = buildAuditPrompt(inputs, { business, metrics, decisionHistory, plan });
+  const prompt = buildAuditPrompt(inputs, {
+    business,
+    metrics: inputs.metrics || metrics,
+    decisionHistory,
+    plan,
+  });
 
   // Route through callWithAdvisor — for Growth/Agency plans this layers an
   // Opus advisor on the Sonnet executor; for Free plans it stays on the

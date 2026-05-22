@@ -5,6 +5,7 @@
 'use strict';
 
 const { buildSystemPrompt } = require('./foundation.js');
+const { buildPricingFrameworkSection } = require('./pricing/index.js');
 
 function buildBudgetOptimizerPrompt(ctx, state) {
   const addendum = `
@@ -22,6 +23,8 @@ METHOD
   4. Propose reallocation that maximizes blended ROAS without starving
      any channel below its effective minimum
   5. Flag channels where performance is deteriorating WoW
+
+${buildPricingFrameworkSection()}
 
 OUTPUT JSON
 {

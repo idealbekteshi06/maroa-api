@@ -128,6 +128,8 @@ function createEngine(deps) {
         sentiment: result.sentiment,
         competitor_mentions: result.competitor_mentions,
         recommendations_for_marketing: result.recommendations_for_marketing,
+        trigger_events: result.trigger_events || [],
+        positioning_implications: result.positioning_implications || [],
         data_quality: result.data_quality,
         caveats: result.caveats,
         short_circuited: !!result.short_circuited,

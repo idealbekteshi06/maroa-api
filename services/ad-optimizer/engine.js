@@ -20,6 +20,63 @@
  */
 
 const adOptimizer = require('../prompts/ad-optimizer');
+const { loadBusiness, checkPlatform } = require('../../lib/integrationGate');
+
+function metricsFromLogAndCampaign(latest, campaign = {}) {
+  return {
+    spend: Number(latest.spend || 0),
+    clicks: Number(latest.clicks || 0),
+    impressions: Number(latest.impressions || 0),
+    ctr: Number(latest.ctr || 0),
+    roas: Number(latest.roas || 0),
+    cpc: Number(latest.cpc || 0),
+    cpm: Number(latest.cpm || 0),
+    cpa: Number(latest.cpa || 0),
+    frequency: Number(latest.frequency || 0),
+    reach: Number(latest.reach || 0),
+    conversions: Number(latest.conversions || 0),
+    daily_budget: Number(campaign.daily_budget || latest.daily_budget || 0),
+    status: campaign.status,
+    ad_status: campaign.ad_status,
+    creative_count: campaign.creative_count,
+    creative_age_days: campaign.creative_age_days,
+    days_active: campaign.days_active,
+    learning_phase_state: campaign.learning_phase_state || latest.learning_phase_state,
+    capi_configured: campaign.capi_configured,
+    event_match_quality: campaign.event_match_quality,
+    attribution_window: campaign.attribution_window,
+    target_cpa: campaign.target_cpa,
+    conversions_since_edit: campaign.conversions_since_edit,
+    days_since_edit: campaign.days_since_edit,
+  };
+}
+
+async function fetchPlatformAuditContext(businessId, platform, sbGet) {
+  const camps = await sbGet(
+    'ad_campaigns',
+    `business_id=eq.${businessId}&platform=eq.${platform}&select=*&order=last_optimized_at.desc.nullsfirst&limit=20`
+  ).catch(() => []);
+  if (!camps.length) return null;
+
+  let best = null;
+  for (const camp of camps) {
+    const logs = await sbGet(
+      'ad_performance_logs',
+      `campaign_id=eq.${camp.id}&order=logged_at.desc&limit=14&select=*`
+    ).catch(() => []);
+    if (!logs.length) continue;
+    const spend = Number(logs[0]?.spend || 0);
+    if (!best || spend > best.spend) {
+      best = {
+        metrics: metricsFromLogAndCampaign(logs[0], camp),
+        history: [...logs].reverse(),
+        spend,
+      };
+    }
+  }
+  if (!best) return null;
+  return { metrics: best.metrics, history: best.history };
+}
 
 function createEngine(deps) {
   const {
@@ -208,14 +265,53 @@ function createEngine(deps) {
         days_since_edit: campaign.days_since_edit,
       };
 
+      // ─── Multi-platform audit when Meta + Google are both connected ───
+      const bizIntegrations = await loadBusiness(businessId, sbGet);
+      const hasMeta = checkPlatform(bizIntegrations, 'meta_ads');
+      const hasGoogle = checkPlatform(bizIntegrations, 'google_ads');
+      let metricsByPlatform;
+      let historyByPlatform;
+      const campaignPlatform = String(campaign.platform || 'meta').toLowerCase();
+
+      if (hasMeta && hasGoogle) {
+        metricsByPlatform = {};
+        historyByPlatform = {};
+        if (campaignPlatform === 'meta') {
+          metricsByPlatform.meta = metrics;
+          historyByPlatform.meta = orderedHistory;
+        } else {
+          const metaCtx = await fetchPlatformAuditContext(businessId, 'meta', sbGet);
+          if (metaCtx) {
+            metricsByPlatform.meta = metaCtx.metrics;
+            historyByPlatform.meta = metaCtx.history;
+          }
+        }
+        if (campaignPlatform === 'google') {
+          metricsByPlatform.google = metrics;
+          historyByPlatform.google = orderedHistory;
+        } else {
+          const googleCtx = await fetchPlatformAuditContext(businessId, 'google', sbGet);
+          if (googleCtx) {
+            metricsByPlatform.google = googleCtx.metrics;
+            historyByPlatform.google = googleCtx.history;
+          }
+        }
+        if (Object.keys(metricsByPlatform).length < 2) {
+          metricsByPlatform = undefined;
+          historyByPlatform = undefined;
+        }
+      }
+
       // ─── Run the audit ─────────────────────────────────────────────────
       const audit = await adOptimizer.auditCampaign({
         business,
         metrics,
+        metricsByPlatform,
+        historyByPlatform,
         history: orderedHistory,
         decisionHistory,
         plan: business.plan || 'free',
-        platform: 'meta',
+        platform: metricsByPlatform ? 'multi' : campaignPlatform,
         callClaude,
         extractJSON,
         logger,
@@ -338,7 +434,6 @@ function createEngine(deps) {
       `status=eq.ACTIVE&order=last_optimized_at.asc.nullsfirst&limit=${limit}&select=id,business_id`
     ).catch(() => []);
 
-    const { loadBusiness, checkPlatform } = require('../../lib/integrationGate');
     const results = {
       total: campaigns.length,
       audited: 0,
