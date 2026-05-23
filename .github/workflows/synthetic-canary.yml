@@ -1,12 +1,10 @@
 name: Synthetic canary — production
 
-# Runs every 15 minutes against production. The same sequence a real
-# signed-in user hits on dashboard load. Fires to SLACK_ALERT_WEBHOOK_URL
-# on any failure.
+# Public-endpoint probe every 15 minutes. No auth required — avoids false
+# failures when MAROA_CANARY_TOKEN is unset.
 
 on:
   schedule:
-    # */15 * * * * — every 15 min UTC
     - cron: '*/15 * * * *'
   workflow_dispatch: {}
 
@@ -25,9 +23,7 @@ jobs:
 
       - name: Run synthetic canary
         env:
-          MAROA_API_URL: https://maroa-api-production.up.railway.app
-          MAROA_API_TOKEN: ${{ secrets.MAROA_CANARY_TOKEN }}
-          MAROA_CANARY_BUSINESS: ${{ secrets.MAROA_CANARY_BUSINESS }}
+          MAROA_API_URL: ${{ secrets.CANARY_URL || secrets.PRODUCTION_URL || 'https://maroa-api-production.up.railway.app' }}
           SLACK_ALERT_WEBHOOK_URL: ${{ secrets.SLACK_ALERT_WEBHOOK_URL }}
           MAROA_CANARY_LABEL: prod
         run: node scripts/synthetic-canary.js

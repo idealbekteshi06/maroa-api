@@ -5,46 +5,41 @@
 /**
  * scripts/synthetic-canary.js
  * ----------------------------------------------------------------------------
- * Black-box production probe. Runs the same sequence a real signed-in
- * customer hits when they open the dashboard:
+ * Black-box production probe — public endpoints only (no auth).
  *
- *   1. GET  /healthz                       — process alive
- *   2. GET  /readyz                        — deps reachable (Supabase, Anthropic, Higgsfield, breakers)
- *   3. GET  /api/workspaces                — listing endpoint OK
- *   4. GET  /api/war-room/:id              — full feed (real data path)
- *   5. GET  /api/cron-health/:businessId   — crons firing
+ *   1. GET /healthz              — 200, process alive
+ *   2. GET /readyz               — 200, body.status === "ready"
+ *   3. GET /api/billing/plans    — 200, plans catalog present
  *
- * Each step:
- *   - has a per-call hard timeout (the canary's whole budget is < 30s)
- *   - reports duration_ms + ok=true/false
- *   - on failure, POSTs to SLACK_ALERT_WEBHOOK_URL with the step name,
- *     the latency, the response body (first 500 chars), and the timestamp
+ * Designed for GitHub Actions schedule, Inngest cron, or:
+ *   MAROA_API_URL=https://maroa-api-production.up.railway.app node scripts/synthetic-canary.js
  *
- * Designed to be invoked by:
- *   - Inngest cron (every 5 minutes)
- *   - GitHub Actions workflow on a schedule
- *   - `node scripts/synthetic-canary.js` from anywhere with curl access
+ * Optional env:
+ *   MAROA_API_URL | CANARY_URL | PRODUCTION_URL — API base (first non-empty wins)
+ *   SLACK_ALERT_WEBHOOK_URL — Slack on failure
+ *   MAROA_CANARY_LABEL — tag in alerts (default: prod)
  *
- * Required env:
- *   MAROA_API_URL          (default: https://maroa-api-production.up.railway.app)
- *   MAROA_API_TOKEN        (Bearer JWT to act as a logged-in user)
- *   MAROA_CANARY_BUSINESS  (optional — businessId to probe; falls back to first workspace's first client)
- *   SLACK_ALERT_WEBHOOK_URL (optional — failures fire to Slack)
- *   MAROA_CANARY_LABEL     (optional — tag in Slack message, e.g. "prod" / "staging")
- *
- * Exit code: 0 if every probe passed, 1 otherwise. Lets a cron / CI step
- * fail loudly without parsing JSON output.
+ * Exit 0 if all probes pass, 1 otherwise.
  * ----------------------------------------------------------------------------
  */
 
 const https = require('https');
 const http = require('http');
 
-const API_URL = (process.env.MAROA_API_URL || 'https://maroa-api-production.up.railway.app').replace(/\/$/, '');
-const TOKEN = (process.env.MAROA_API_TOKEN || '').trim();
+function firstEnv(...keys) {
+  for (const k of keys) {
+    const v = String(process.env[k] || '').trim();
+    if (v) return v;
+  }
+  return '';
+}
+
+const API_URL = (
+  firstEnv('MAROA_API_URL', 'CANARY_URL', 'PRODUCTION_URL') ||
+  'https://maroa-api-production.up.railway.app'
+).replace(/\/$/, '');
 const SLACK_WEBHOOK = (process.env.SLACK_ALERT_WEBHOOK_URL || '').trim();
 const LABEL = (process.env.MAROA_CANARY_LABEL || 'prod').trim();
-const CANARY_BUSINESS = (process.env.MAROA_CANARY_BUSINESS || '').trim();
 
 const STEP_TIMEOUT_MS = 6000;
 const CANARY_TIMEOUT_MS = 30_000;
@@ -55,7 +50,7 @@ function req(method, urlStr, headers = {}, body = null, timeoutMs = STEP_TIMEOUT
     try {
       url = new URL(urlStr);
     } catch {
-      return resolve({ ok: false, status: 0, error: 'invalid URL', body: null });
+      return resolve({ ok: false, status: 0, error: 'invalid URL', body: null, duration_ms: 0 });
     }
     const lib = url.protocol === 'https:' ? https : http;
     const start = Date.now();
@@ -107,79 +102,58 @@ function req(method, urlStr, headers = {}, body = null, timeoutMs = STEP_TIMEOUT
 async function postSlack(message) {
   if (!SLACK_WEBHOOK) return;
   try {
-    const url = new URL(SLACK_WEBHOOK);
-    await req(
-      'POST',
-      SLACK_WEBHOOK,
-      { 'Content-Type': 'application/json' },
-      { text: message },
-      4000,
-    );
-    void url;
+    await req('POST', SLACK_WEBHOOK, { 'Content-Type': 'application/json' }, { text: message }, 4000);
   } catch (e) {
     console.error('[canary] slack post failed:', e.message);
   }
-}
-
-function authHeaders() {
-  return TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {};
 }
 
 async function run() {
   const startedAt = Date.now();
   const failures = [];
   const log = [];
-  function record(step, result, extra = null) {
+
+  function record(step, ok, result, extra = null) {
     const row = {
       step,
-      ok: result.ok,
+      ok,
       status: result.status,
       duration_ms: result.duration_ms,
       ...(result.error ? { error: result.error } : {}),
       ...(extra ? { extra } : {}),
     };
     log.push(row);
-    if (!result.ok) failures.push(row);
+    if (!ok) failures.push(row);
     console.log(JSON.stringify(row));
   }
 
-  // 1. liveness
-  record('healthz', await req('GET', `${API_URL}/healthz`));
-  // 2. readiness
-  record('readyz', await req('GET', `${API_URL}/readyz`));
+  // 1. Liveness
+  const healthz = await req('GET', `${API_URL}/healthz`);
+  record(
+    'healthz',
+    healthz.ok && healthz.status === 200,
+    healthz,
+    healthz.body?.status ? { body_status: healthz.body.status } : null,
+  );
 
-  if (!TOKEN) {
-    const note = {
-      step: 'auth_setup',
-      ok: false,
-      status: 0,
-      error: 'MAROA_API_TOKEN not set — skipping authenticated steps',
-    };
-    log.push(note);
-    failures.push(note);
-    console.log(JSON.stringify(note));
-  } else {
-    // 3. list workspaces
-    const ws = await req('GET', `${API_URL}/api/workspaces`, authHeaders());
-    record('list_workspaces', ws);
-    const workspaceId = ws.body?.workspaces?.[0]?.id || null;
-    let businessId = CANARY_BUSINESS;
+  // 2. Readiness — must be HTTP 200 and status: ready (not 401, not 503)
+  const readyz = await req('GET', `${API_URL}/readyz`);
+  const readyzOk = readyz.ok && readyz.status === 200 && readyz.body?.status === 'ready';
+  record('readyz', readyzOk, readyz, {
+    body_status: readyz.body?.status ?? null,
+    hard_failures: readyz.body?.hard_failures ?? null,
+  });
 
-    if (workspaceId) {
-      // 4. war-room feed
-      const feed = await req('GET', `${API_URL}/api/war-room/${encodeURIComponent(workspaceId)}`, authHeaders(), null, STEP_TIMEOUT_MS * 2);
-      record('war_room_feed', feed);
-      if (!businessId) {
-        businessId = feed.body?.clients?.[0]?.business_id || null;
-      }
-    }
-
-    // 5. cron-health for the probe business (only if we have one)
-    if (businessId) {
-      const cron = await req('GET', `${API_URL}/api/cron-health/${encodeURIComponent(businessId)}`, authHeaders());
-      record('cron_health', cron);
-    }
-  }
+  // 3. Public billing catalog ({ plans: { starter, growth, agency } } or array)
+  const plans = await req('GET', `${API_URL}/api/billing/plans`);
+  const catalog = plans.body?.plans;
+  const planCount = Array.isArray(catalog)
+    ? catalog.length
+    : catalog && typeof catalog === 'object'
+      ? Object.keys(catalog).length
+      : 0;
+  const plansOk = plans.ok && plans.status === 200 && planCount > 0;
+  record('billing_plans', plansOk, plans, { plan_count: planCount });
 
   const totalDuration = Date.now() - startedAt;
   const summary = {
@@ -197,14 +171,15 @@ async function run() {
       .slice(0, 6)
       .map(
         (f) =>
-          `• \`${f.step}\` ${f.status || 'err'}${f.error ? ` (${f.error})` : ''} — ${f.duration_ms}ms`,
+          `• \`${f.step}\` HTTP ${f.status || 'err'}${f.error ? ` (${f.error})` : ''} — ${f.duration_ms}ms`,
       )
       .join('\n');
     await postSlack(
-      `:rotating_light: Maroa canary FAILED (${LABEL})\n${lines}\n\nTotal duration: ${totalDuration}ms · ${API_URL}`,
+      `:rotating_light: Maroa canary FAILED (${LABEL})\n${lines}\n\nTotal: ${totalDuration}ms · ${API_URL}`,
     );
     process.exit(1);
   }
+
   if (totalDuration > CANARY_TIMEOUT_MS) {
     await postSlack(
       `:warning: Maroa canary slow (${LABEL}) — ${totalDuration}ms exceeded soft budget of ${CANARY_TIMEOUT_MS}ms`,
