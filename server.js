@@ -153,6 +153,14 @@ const logger = {
   },
 };
 
+// Forward bindings for routes registered before the deferred route table loads.
+let sendEmail = async () => ({ sent: false, reason: 'routes_loading' });
+let memoryService = null;
+
+function log(route, msg) {
+  console.log(`[${new Date().toISOString()}] ${route} — ${msg}`);
+}
+
 function apiError(res, status, code, message, details = null) {
   return res.status(status).json({
     error: {
@@ -245,7 +253,15 @@ app.use(_abuseDetector.middleware);
 setInterval(_abuseDetector.sweep, 5 * 60 * 1000).unref();
 
 const paddleWebhookRawBody = express.raw({ type: 'application/json' });
-// Paddle route registered after paddleWebhookHandler (deferred route block below).
+let _paddleWebhookHandler = null;
+function paddleWebhookEntry(req, res) {
+  if (!_paddleWebhookHandler) {
+    return res
+      .status(503)
+      .json({ error: { code: 'BOOTING', message: 'Server still loading webhook routes' } });
+  }
+  return _paddleWebhookHandler(req, res);
+}
 
 // ─── Stripe webhook (parallel to Paddle — pick one or both per region) ──────
 // MUST use raw body so signature verification can hash the exact bytes
@@ -303,6 +319,9 @@ app.post('/webhook/stripe-webhook', stripeWebhookRawBody, async (req, res) => {
     })
     .catch((e) => logger.error('/webhook/stripe-webhook', null, 'async handler failed', { error: e.message }));
 });
+
+// Paddle must register before express.json() so req.body stays a Buffer for HMAC.
+app.post('/webhook/paddle-webhook', paddleWebhookRawBody, paddleWebhookEntry);
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -2444,7 +2463,7 @@ async function generateImage(prompt, fallbackQuery = 'business marketing profess
 // Railway blocks outbound SMTP (465/587). Resend uses HTTPS port 443 only.
 // Sign up free at resend.com → get API key → set RESEND_API_KEY on Railway.
 // Set FROM_EMAIL to a verified domain address (or leave as onboarding@resend.dev for testing).
-async function sendEmail(to, subject, html) {
+sendEmail = async function sendEmail(to, subject, html) {
   const apiKey = clean(process.env.RESEND_API_KEY) || RESEND_API_KEY;
   const from = clean(process.env.FROM_EMAIL) || FROM_EMAIL;
 
@@ -2937,10 +2956,6 @@ async function updateLearning(businessId) {
   }
 }
 
-// ─── Log helper ───────────────────────────────────────────────────────────────
-function log(route, msg) {
-  console.log(`[${new Date().toISOString()}] ${route} — ${msg}`);
-}
 function requireAdminSecret(req, res, next) {
   if (!ORCHESTRATOR_SECRET) return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'Admin secret not configured');
   const provided = clean(
@@ -8365,7 +8380,7 @@ async function paddleWebhookHandler(req, res) {
   }
 }
 
-app.post('/webhook/paddle-webhook', paddleWebhookRawBody, paddleWebhookHandler);
+_paddleWebhookHandler = paddleWebhookHandler;
 
 // ── PIECE 6: Google My Business Auto-Post ───────────────────────────────────
 app.post('/webhook/gmb-post', async (req, res) => {
@@ -9625,7 +9640,7 @@ if (_anthropicApiKey) {
   const batchService =
     _batchServiceForWf1 ||
     createBatchService({ apiKey: _anthropicApiKey, logger, sbGet, sbPost, sbPatch });
-  const memoryService = createMemoryService({ apiKey: _anthropicApiKey, logger });
+  memoryService = createMemoryService({ apiKey: _anthropicApiKey, logger });
   managedAgentService = createManagedAgentService({ apiKey: _anthropicApiKey, logger });
 
   registerAnthropicRoutes({
