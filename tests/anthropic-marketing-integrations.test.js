@@ -3,7 +3,12 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { attachToolsToBody, buildAdvisorTool, buildWebSearchTool, cacheControlBlock } = require('../lib/claudeAnthropicTools');
+const {
+  attachToolsToBody,
+  buildAdvisorTool,
+  buildWebSearchTool,
+  cacheControlBlock,
+} = require('../lib/claudeAnthropicTools');
 const { checkWebSearchBudget, capForPlan } = require('../lib/webSearchGate');
 const advisor = require('../services/prompts/advisor-tool');
 const { createBatchService } = require('../services/anthropic-batch');

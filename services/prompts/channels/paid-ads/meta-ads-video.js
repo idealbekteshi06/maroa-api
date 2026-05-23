@@ -39,13 +39,21 @@ module.exports = buildChannelModule({
     cta_placement: 'last_3_sec',
   },
   hook_patterns: [
-    { name: 'Problem in 3s', template: 'Specific visible problem on screen + agitating line', why: 'Pain-aware hooks beat brand-aware' },
+    {
+      name: 'Problem in 3s',
+      template: 'Specific visible problem on screen + agitating line',
+      why: 'Pain-aware hooks beat brand-aware',
+    },
     { name: 'Customer testimonial', template: 'Real customer on camera, 1-2 sentences', why: 'Native-feeling proof' },
-    { name: 'Demo cold-open', template: 'Show the product solving the problem in first 3s', why: 'Outcome visible = scroll-stop' },
+    {
+      name: 'Demo cold-open',
+      template: 'Show the product solving the problem in first 3s',
+      why: 'Outcome visible = scroll-stop',
+    },
     { name: 'Pattern interrupt', template: 'Unusual visual or sound in first 1s', why: 'Breaks the feed pattern' },
   ],
   anti_patterns: [
-    { pattern: 'you\'re overweight', why: 'Meta personal-attributes policy' },
+    { pattern: "you're overweight", why: 'Meta personal-attributes policy' },
     { pattern: 'before and after', why: 'Body-transform ads disapproved' },
     { pattern: 'guaranteed results', why: 'Absolute claim auto-flagged' },
     { pattern: 'as seen on tv', why: 'Vague authority — Meta low-quality flag' },

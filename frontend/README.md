@@ -73,17 +73,20 @@ frontend/
 ## Pages
 
 ### Public (SEO-indexed)
+
 - `/` — Landing page
 - `/features` — 9-section feature deep-dive
 - `/pricing` — 3 plans + FAQ
 - `/about` — Why Maroa exists
 
 ### Auth (not indexed)
+
 - `/login` — Magic-link login
 - `/signup` — Magic-link signup with business name
 - `/auth/callback` — Magic-link exchange route handler
 
 ### Dashboard (auth-gated, not indexed)
+
 - `/dashboard` — KPI cards + today's queue
 - `/onboarding` — 5-step cold-start wizard
 - `/content` — Approve/edit/reject content queue (skeleton)
@@ -95,26 +98,31 @@ frontend/
 ## Design system
 
 **Colors**
+
 - `ink` — Apple-style monochrome (50 → 900, anchored at #1d1d1f primary text)
 - `accent` — Apple "Buy" blue (#0071e3 at 500)
 
 **Type scale**
+
 - `display-xl` (5.5rem) — hero
 - `display-lg` (4rem) — section headlines
 - `display-md` (3rem) — page titles
 - `eyebrow` (0.875rem, tracked, uppercase) — section labels
 
 **Shadow**
+
 - `shadow-subtle` — input/card baseline
 - `shadow-card` — card hover
 - `shadow-lifted` — hero mockups
 
 **Radius**
+
 - `rounded-xl` (14px) — inputs
 - `rounded-2xl` (20px) — buttons
 - `rounded-3xl` (28px) — cards & hero panels
 
 **Typography**
+
 - System SF Pro / Inter stack with `-apple-system` fallback
 - Antialiased, kerned, ligature-on (`ss01`, `cv01`)
 - `text-balance` on headings, `text-pretty` on body
@@ -142,6 +150,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY     <anon key from Supabase>
 ### Domain setup
 
 In Vercel: Add Domain → `maroa.ai`. Update DNS at your registrar:
+
 - A record `@` → `76.76.21.21`
 - CNAME `www` → `cname.vercel-dns.com`
 
@@ -162,19 +171,19 @@ The code here is **standard Next.js 14 App Router** so it works in any host that
 
 ## What's wired vs. what's skeleton
 
-| Page | Status | Notes |
-|---|---|---|
-| Landing | ✅ Complete | Hero, features grid, social proof, CTAs |
-| Pricing | ✅ Complete | 3 plans, FAQ, CTAs |
-| Features | ✅ Complete | 9-section deep-dive |
-| About | ✅ Complete | |
-| Login / Signup | ✅ Complete | Wired to Supabase Auth (magic link) |
-| Auth callback | ✅ Complete | Exchanges code for session |
-| Dashboard | 🟡 Mock data | KPIs + queue use placeholder data |
-| Onboarding | ✅ Complete | 5-step wizard, calls backend `/webhook/cold-start-trigger` |
-| Content | 🔴 Skeleton | Wire to backend `/api/content` |
-| Ads | 🔴 Skeleton | Wire to backend `/api/ads/campaigns` |
-| Settings | 🟡 UI only | Buttons not yet wired to backend actions |
+| Page           | Status       | Notes                                                      |
+| -------------- | ------------ | ---------------------------------------------------------- |
+| Landing        | ✅ Complete  | Hero, features grid, social proof, CTAs                    |
+| Pricing        | ✅ Complete  | 3 plans, FAQ, CTAs                                         |
+| Features       | ✅ Complete  | 9-section deep-dive                                        |
+| About          | ✅ Complete  |                                                            |
+| Login / Signup | ✅ Complete  | Wired to Supabase Auth (magic link)                        |
+| Auth callback  | ✅ Complete  | Exchanges code for session                                 |
+| Dashboard      | 🟡 Mock data | KPIs + queue use placeholder data                          |
+| Onboarding     | ✅ Complete  | 5-step wizard, calls backend `/webhook/cold-start-trigger` |
+| Content        | 🔴 Skeleton  | Wire to backend `/api/content`                             |
+| Ads            | 🔴 Skeleton  | Wire to backend `/api/ads/campaigns`                       |
+| Settings       | 🟡 UI only   | Buttons not yet wired to backend actions                   |
 
 **To finish:** Replace mock data in `dashboard/page.tsx`, `content/page.tsx`, `ads/page.tsx` with real `lib/api` calls. Wire Settings buttons. Add error/loading states.
 

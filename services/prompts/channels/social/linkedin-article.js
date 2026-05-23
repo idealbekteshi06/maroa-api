@@ -36,14 +36,26 @@ module.exports = buildChannelModule({
     emoji_use: 'none',
   },
   hook_patterns: [
-    { name: 'Specific number title', template: '"How we increased X by Y in Z months"', why: 'Specific titles get clicked' },
-    { name: 'Contrarian title', template: '"Why [common practice] is killing your [goal]"', why: 'POV titles beat how-to titles on LinkedIn' },
-    { name: 'Personal opener', template: 'Open with a specific moment, then zoom out to the lesson', why: 'Anecdote → insight is the LinkedIn article shape' },
+    {
+      name: 'Specific number title',
+      template: '"How we increased X by Y in Z months"',
+      why: 'Specific titles get clicked',
+    },
+    {
+      name: 'Contrarian title',
+      template: '"Why [common practice] is killing your [goal]"',
+      why: 'POV titles beat how-to titles on LinkedIn',
+    },
+    {
+      name: 'Personal opener',
+      template: 'Open with a specific moment, then zoom out to the lesson',
+      why: 'Anecdote → insight is the LinkedIn article shape',
+    },
   ],
   anti_patterns: [
     { pattern: 'in conclusion', why: 'Reads as a school essay' },
     { pattern: 'in this article', why: 'Filler — cut it' },
-    { pattern: 'we will explore', why: 'Filler — show, don\'t announce' },
+    { pattern: 'we will explore', why: "Filler — show, don't announce" },
   ],
   retention_mechanics: [
     'H2 header every ~300 words',

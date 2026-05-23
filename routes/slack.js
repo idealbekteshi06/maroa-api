@@ -80,9 +80,7 @@ function register({
     if (age > SLACK_REPLAY_WINDOW_S) return { ok: false, reason: 'replay_window_exceeded' };
 
     const base = `v0:${ts}:${req.rawBody || ''}`;
-    const computed =
-      'v0=' +
-      crypto.createHmac('sha256', SLACK_SIGNING_SECRET).update(base).digest('hex');
+    const computed = 'v0=' + crypto.createHmac('sha256', SLACK_SIGNING_SECRET).update(base).digest('hex');
     // Constant-time compare
     try {
       const a = Buffer.from(computed, 'utf8');
@@ -103,7 +101,7 @@ function register({
     try {
       const rows = await sbGet(
         'slack_identities',
-        `slack_user_id=eq.${encodeURIComponent(slackUserId)}&select=maroa_user_id&limit=1`,
+        `slack_user_id=eq.${encodeURIComponent(slackUserId)}&select=maroa_user_id&limit=1`
       );
       return rows?.[0]?.maroa_user_id || null;
     } catch {
@@ -135,9 +133,7 @@ function register({
     try {
       const memberships = await workspaces.listForUser(maroaUserId).catch(() => []);
       if (!memberships?.length) {
-        return res.json(
-          ephemeral("You're not a member of any Maroa workspace. Ask the owner to invite you."),
-        );
+        return res.json(ephemeral("You're not a member of any Maroa workspace. Ask the owner to invite you."));
       }
       const wsId = memberships[0].workspace_id || memberships[0].id;
       const feed = await warRoomFeed.getWorkspaceFeed(wsId).catch(() => null);
@@ -272,8 +268,8 @@ function register({
           '• `/maroa approve <id>` — approve a decision\n' +
           '• `/maroa reject <id> <reason>` — reject with a reason\n' +
           '• `/maroa link` — connect your Slack account to Maroa (one-time)\n' +
-          '• `/maroa help` — this message',
-      ),
+          '• `/maroa help` — this message'
+      )
     );
   }
 
@@ -281,15 +277,14 @@ function register({
     // Link is an out-of-band magic-link flow. We return the URL the user
     // clicks in their DMs; clicking it lands on a Maroa page that POSTs
     // their Maroa-side JWT + Slack user id to /api/slack/link-complete.
-    const apiBase =
-      process.env.MAROA_PUBLIC_BASE || 'https://maroa.ai';
+    const apiBase = process.env.MAROA_PUBLIC_BASE || 'https://maroa.ai';
     const slackUserId = payload.user_id || 'unknown';
     const linkUrl = `${apiBase}/settings/slack-link?slack_user=${encodeURIComponent(slackUserId)}`;
     return res.json(
       ephemeral(
         `:link: Click here to link your Slack account to Maroa:\n${linkUrl}\n` +
-          `_(One-time. The link is private to you.)_`,
-      ),
+          `_(One-time. The link is private to you.)_`
+      )
     );
   }
 
@@ -319,15 +314,13 @@ function register({
       const maroaUserId = await maroaUserForSlack(payload.user_id);
       if (!maroaUserId && handler !== handleLink && handler !== handleHelp) {
         return res.json(
-          ephemeral(
-            "I don't see a linked Maroa account for you. Run `/maroa link` first to connect (one-time).",
-          ),
+          ephemeral("I don't see a linked Maroa account for you. Run `/maroa link` first to connect (one-time).")
         );
       }
       return handler(maroaUserId, args, payload, res);
     } catch (e) {
       log?.('/webhook/slack/command', null, 'crashed', { error: e.message });
-      return res.status(500).json(ephemeral("I hit an error. Try again in a moment."));
+      return res.status(500).json(ephemeral('I hit an error. Try again in a moment.'));
     }
   });
 
@@ -392,7 +385,7 @@ function register({
             await sbPatch(
               'slack_identities',
               `slack_user_id=eq.${encodeURIComponent(slackUserId)}&revoked_at=is.null&maroa_user_id=neq.${encodeURIComponent(userId)}`,
-              { revoked_at: new Date().toISOString() },
+              { revoked_at: new Date().toISOString() }
             );
           } catch {
             // If there's no row to revoke, PostgREST 404s — ignore.
@@ -401,15 +394,15 @@ function register({
           // Check if this exact (slack_user_id, maroa_user_id) already exists.
           const existing = await sbGet(
             'slack_identities',
-            `slack_user_id=eq.${encodeURIComponent(slackUserId)}&maroa_user_id=eq.${encodeURIComponent(userId)}&select=id&limit=1`,
+            `slack_user_id=eq.${encodeURIComponent(slackUserId)}&maroa_user_id=eq.${encodeURIComponent(userId)}&select=id&limit=1`
           );
           if (existing && existing[0]?.id) {
             // Re-activate if it was revoked, otherwise no-op.
-            await sbPatch(
-              'slack_identities',
-              `id=eq.${existing[0].id}`,
-              { revoked_at: null, linked_at: new Date().toISOString(), slack_team_id: slackTeamId },
-            );
+            await sbPatch('slack_identities', `id=eq.${existing[0].id}`, {
+              revoked_at: null,
+              linked_at: new Date().toISOString(),
+              slack_team_id: slackTeamId,
+            });
             return res.json({ ok: true, linked: true, reactivated: true });
           }
 
@@ -423,7 +416,7 @@ function register({
           log?.('/api/slack/link-complete', null, 'failed', { error: err.message });
           return apiError(res, 500, 'INTERNAL_ERROR', safePublicError ? safePublicError(err) : 'link failed');
         }
-      },
+      }
     );
 
     // Reverse — unlink from settings UI. User can disconnect Slack any time.
@@ -431,11 +424,9 @@ function register({
       try {
         const userId = req.user?.id;
         if (!userId) return apiError(res, 401, 'UNAUTHORIZED', 'Sign in first');
-        await sbPatch(
-          'slack_identities',
-          `maroa_user_id=eq.${encodeURIComponent(userId)}&revoked_at=is.null`,
-          { revoked_at: new Date().toISOString() },
-        );
+        await sbPatch('slack_identities', `maroa_user_id=eq.${encodeURIComponent(userId)}&revoked_at=is.null`, {
+          revoked_at: new Date().toISOString(),
+        });
         return res.json({ ok: true });
       } catch (err) {
         log?.('/api/slack/link', null, 'unlink failed', { error: err.message });

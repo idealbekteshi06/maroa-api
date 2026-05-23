@@ -206,10 +206,7 @@ async function runReportForBusiness(business_id, { sbGet, sbPost, callClaude, se
   }
 
   const contentThisWeek = (
-    await sbGet(
-      'generated_content',
-      `business_id=eq.${business_id}&created_at=gte.${weekAgo}T00:00:00.000Z&select=id`
-    )
+    await sbGet('generated_content', `business_id=eq.${business_id}&created_at=gte.${weekAgo}T00:00:00.000Z&select=id`)
   ).length;
   const campaigns = await sbGet('ad_campaigns', `business_id=eq.${business_id}&select=status`);
   const activeCampaigns = campaigns.filter((c) => c.status === 'ACTIVE' || c.status === 'active').length;
@@ -264,17 +261,7 @@ Return ONLY JSON: { "headline": "...", "wins": ["..."], "concerns": ["..."], "re
   return { ok: true, report_id: dbReport?.id, overall_score: report.overall_score };
 }
 
-function register({
-  app,
-  sbGet,
-  sbPost,
-  sbUpsert,
-  callClaude,
-  apiRequest,
-  sendEmail,
-  log,
-  logError,
-}) {
+function register({ app, sbGet, sbPost, sbUpsert, callClaude, apiRequest, sendEmail, log, logError }) {
   const deps = { sbGet, sbPost, sbUpsert, callClaude, apiRequest, sendEmail, log, logError };
 
   app.post('/webhook/analytics-snapshot', async (req, res) => {

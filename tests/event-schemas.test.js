@@ -64,7 +64,5 @@ test('decision_logs: agent required', () => {
 test('cold-start phase: status enum enforced', () => {
   const v = validateColdStartPhase({ phase: 'compose-strategy', status: 'succeeded' });
   assert.equal(v.status, 'succeeded');
-  assert.throws(() =>
-    validateColdStartPhase({ phase: 'compose-strategy', status: 'not-a-real-status' })
-  );
+  assert.throws(() => validateColdStartPhase({ phase: 'compose-strategy', status: 'not-a-real-status' }));
 });

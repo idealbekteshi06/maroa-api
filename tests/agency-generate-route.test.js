@@ -169,9 +169,7 @@ test('route: 422 + refused=true on compliance violation', async () => {
   assert.strictEqual(res.body.refused, true);
   assert.ok(/compliance/i.test(res.body.refusal_reason));
   assert.ok(
-    metrics.counters.some(
-      (c) => c.name === 'agency_pipeline_calls_total' && c.labels.outcome === 'refused_compliance'
-    )
+    metrics.counters.some((c) => c.name === 'agency_pipeline_calls_total' && c.labels.outcome === 'refused_compliance')
   );
   assert.ok(metrics.counters.some((c) => c.name === 'agency_pipeline_refusals_total'));
 });

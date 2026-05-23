@@ -36,9 +36,21 @@ module.exports = buildChannelModule({
     emoji_use: 'none',
   },
   hook_patterns: [
-    { name: 'Pain-led headline', template: '"For [audience] who [specific pain]"', why: 'Pain-aware audience converts highest' },
-    { name: 'Outcome + objection-flip', template: '"How to [outcome] in [time] — even if [common objection]"', why: 'Classic Halbert headline' },
-    { name: 'Stack reveal', template: 'List every component with itemized retail value, total, then offer price', why: 'Anchors value' },
+    {
+      name: 'Pain-led headline',
+      template: '"For [audience] who [specific pain]"',
+      why: 'Pain-aware audience converts highest',
+    },
+    {
+      name: 'Outcome + objection-flip',
+      template: '"How to [outcome] in [time] — even if [common objection]"',
+      why: 'Classic Halbert headline',
+    },
+    {
+      name: 'Stack reveal',
+      template: 'List every component with itemized retail value, total, then offer price',
+      why: 'Anchors value',
+    },
   ],
   anti_patterns: [
     { pattern: 'change your life', why: 'Vague promise — Critic flag' },

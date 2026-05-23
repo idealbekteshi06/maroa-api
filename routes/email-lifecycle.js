@@ -50,7 +50,8 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, sendEmailWithTags, 
   // ───────────────────────────────────────────────────────────────────────
   app.post('/webhook/email-enroll', async (req, res) => {
     const { business_id, contact_email, contact_name, trigger_type, sequence_id } = req.body;
-    if (!business_id || !contact_email) return res.status(400).json({ error: 'business_id and contact_email required' });
+    if (!business_id || !contact_email)
+      return res.status(400).json({ error: 'business_id and contact_email required' });
     res.json({ received: true, message: 'Enrollment processing' });
 
     try {

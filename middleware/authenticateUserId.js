@@ -25,21 +25,14 @@
  * ---------------------------------------------------------------------------
  */
 
-function makeAuthenticateUserId({
-  supabaseAdminGetUser,
-  metrics,
-  env = process.env,
-  apiError,
-} = {}) {
+function makeAuthenticateUserId({ supabaseAdminGetUser, metrics, env = process.env, apiError } = {}) {
   if (typeof apiError !== 'function') {
     // Default apiError shape — mirrors server.js apiError for standalone use.
-    apiError = (res, status, code, message) =>
-      res.status(status).json({ error: code, message });
+    apiError = (res, status, code, message) => res.status(status).json({ error: code, message });
   }
 
   return function authenticateUserId(req, res, next) {
-    const authHeader =
-      (req.get && req.get('authorization')) || (req.headers && req.headers.authorization) || '';
+    const authHeader = (req.get && req.get('authorization')) || (req.headers && req.headers.authorization) || '';
     const match = String(authHeader).match(/^Bearer\s+(.+)$/i);
 
     if (match) {
@@ -84,12 +77,7 @@ function makeAuthenticateUserId({
         .catch(() => apiError(res, 401, 'UNAUTHORIZED', 'Auth verification failed'));
     }
 
-    return apiError(
-      res,
-      401,
-      'AUTH_REQUIRED',
-      'Authentication required (Authorization: Bearer <jwt>)'
-    );
+    return apiError(res, 401, 'AUTH_REQUIRED', 'Authentication required (Authorization: Bearer <jwt>)');
   };
 }
 

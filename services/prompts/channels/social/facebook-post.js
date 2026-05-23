@@ -49,8 +49,6 @@ module.exports = buildChannelModule({
     'local/community angle if applicable',
     'use the page name + location in profile, not in caption',
   ],
-  invariants: [
-    { id: 'media-required', rule: 'Photo or video attached (text-only kills reach)', kind: 'must_have' },
-  ],
+  invariants: [{ id: 'media-required', rule: 'Photo or video attached (text-only kills reach)', kind: 'must_have' }],
   manipulation_risk: 1,
 });

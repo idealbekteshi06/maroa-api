@@ -24,11 +24,7 @@ chrome.runtime.onInstalled.addListener(() => {
     id: 'maroa-save-inspiration',
     title: 'Save to Maroa as inspiration',
     contexts: ['page', 'image', 'link', 'selection'],
-    documentUrlPatterns: [
-      'https://*.instagram.com/*',
-      'https://*.facebook.com/*',
-      'https://*.tiktok.com/*',
-    ],
+    documentUrlPatterns: ['https://*.instagram.com/*', 'https://*.facebook.com/*', 'https://*.tiktok.com/*'],
   });
   chrome.contextMenus.create({
     id: 'maroa-save-as-claim',
@@ -60,10 +56,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 async function captureInspiration(payload) {
   const cfg = await getConfig();
   if (!cfg.token) {
-    notify(
-      'Maroa: token not set',
-      'Open the Maroa popup and add your token to save inspiration.',
-    );
+    notify('Maroa: token not set', 'Open the Maroa popup and add your token to save inspiration.');
     return;
   }
   try {
@@ -81,10 +74,10 @@ async function captureInspiration(payload) {
       }),
     });
     if (res.ok) {
-      notify('Saved to Maroa', 'I\'ll learn from this for your next drafts.');
+      notify('Saved to Maroa', "I'll learn from this for your next drafts.");
     } else {
       const text = await res.text();
-      notify('Couldn\'t save', `${res.status}: ${text.slice(0, 80)}`);
+      notify("Couldn't save", `${res.status}: ${text.slice(0, 80)}`);
     }
   } catch (e) {
     notify('Network error', e.message);

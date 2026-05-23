@@ -134,9 +134,14 @@ Return ONLY valid JSON:
   }
 
   if (response.emergency_content_needed && selfBaseUrl) {
-    apiRequest('POST', `${selfBaseUrl}/webhook/instant-content`, { 'Content-Type': 'application/json' }, {
-      business_id: businessId,
-    }).catch(() => {});
+    apiRequest(
+      'POST',
+      `${selfBaseUrl}/webhook/instant-content`,
+      { 'Content-Type': 'application/json' },
+      {
+        business_id: businessId,
+      }
+    ).catch(() => {});
   }
 
   log?.('ops-maintenance/crisis', `⚠️ ${level} for ${biz.business_name}: ${response.diagnosis}`);
@@ -280,7 +285,10 @@ Pick THE SINGLE HIGHEST LEVERAGE action. Return ONLY valid JSON:
     ai_brain_decisions: JSON.stringify({ ...prior, growth_engine: result, updated_at: new Date().toISOString() }),
   });
 
-  log?.('ops-maintenance/growth-engine', `✅ Lever for ${biz.business_name}: ${result.recommended_action?.lever || 'n/a'}`);
+  log?.(
+    'ops-maintenance/growth-engine',
+    `✅ Lever for ${biz.business_name}: ${result.recommended_action?.lever || 'n/a'}`
+  );
   return { ok: true, lever: result.recommended_action?.lever || null };
 }
 
@@ -364,7 +372,15 @@ async function fanOut({ sbGet, logger, label, growthPlusOnly, perBusiness }) {
     }
   }
 
-  return { ok: true, businesses: businesses.length, processed, succeeded: ok, crises, skipped, errors: errors.slice(0, 20) };
+  return {
+    ok: true,
+    businesses: businesses.length,
+    processed,
+    succeeded: ok,
+    crises,
+    skipped,
+    errors: errors.slice(0, 20),
+  };
 }
 
 async function runDailyHealthAll(deps) {

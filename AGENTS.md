@@ -83,7 +83,7 @@ Cross-cutting layers:
 | HTTP          | Express 4                       | One monolithic `server.js` — being carved into `routes/*.js`                    |
 | Background    | Inngest 4                       | Replaces n8n cron; events + `step.sleep`                                        |
 | DB            | Supabase Postgres               | PostgREST + service-role key for inserts                                        |
-| LLM           | Anthropic Codex 4.x            | Sonnet 4.5 default · Opus 4.7 for hard reasoning · Haiku 4.5 for cheap classify |
+| LLM           | Anthropic Codex 4.x             | Sonnet 4.5 default · Opus 4.7 for hard reasoning · Haiku 4.5 for cheap classify |
 | Image/Video   | Higgsfield 2026                 | Cloud-first → FNF fallback                                                      |
 | Social        | Meta v21 + Ayrshare             | LinkedIn, Pinterest, TikTok, YouTube via Ayrshare                               |
 | Payments      | Paddle                          | Stripe still wired but secondary                                                |

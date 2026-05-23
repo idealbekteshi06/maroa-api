@@ -163,9 +163,7 @@ function createBatchService({ apiKey, logger, sbPost, sbPatch, sbGet }) {
       throw new Error(`submitBatch: ${requests.length} exceeds ${BATCH_MAX_REQUESTS} max`);
     }
     const purpose = opts.purpose || 'custom';
-    const wantsExtended =
-      opts.forceExtendedOutput ||
-      requests.some((r) => Number(r.params?.max_tokens) > 64000);
+    const wantsExtended = opts.forceExtendedOutput || requests.some((r) => Number(r.params?.max_tokens) > 64000);
     const extraBetas = wantsExtended ? [EXTENDED_OUTPUT_BETA, ...(opts.extraBetas || [])] : opts.extraBetas || [];
 
     // Validate prompt caching beta header is set when any request uses cache_control on system

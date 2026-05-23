@@ -6,10 +6,7 @@ const assert = require('node:assert');
 const { enforceLLMBudget, LLMBudgetExceededError } = require('../lib/llmGateway');
 const { checkPlatform } = require('../lib/integrationGate');
 const { getPlatformSnapshot, CRITICAL_MIGRATIONS, probeCriticalMigrations } = require('../lib/platformOps');
-const {
-  collectRegisteredPaths,
-  collectInngestInternalPaths,
-} = require('../lib/scanDispatcherRegistry');
+const { collectRegisteredPaths, collectInngestInternalPaths } = require('../lib/scanDispatcherRegistry');
 const { functions } = require('../services/inngest/functions');
 
 test('llmGateway: denies when daily budget exceeded', async () => {
@@ -45,10 +42,7 @@ test('llmGateway: denies when monthly cost cap exceeded', async () => {
 });
 
 test('integrationGate: meta_ads requires token and page', () => {
-  assert.strictEqual(
-    checkPlatform({ meta_access_token: 'x', facebook_page_id: '1' }, 'meta_ads'),
-    true
-  );
+  assert.strictEqual(checkPlatform({ meta_access_token: 'x', facebook_page_id: '1' }, 'meta_ads'), true);
   assert.strictEqual(checkPlatform({ meta_access_token: 'x' }, 'meta_ads'), false);
 });
 
@@ -95,11 +89,7 @@ test('inngest: all callInternal paths have dispatcher handlers', () => {
   const registered = collectRegisteredPaths();
   const paths = collectInngestInternalPaths();
   const missing = paths.filter((p) => !registered.has(p));
-  assert.strictEqual(
-    missing.length,
-    0,
-    `Inngest paths missing dispatcher: ${missing.join(', ')}`
-  );
+  assert.strictEqual(missing.length, 0, `Inngest paths missing dispatcher: ${missing.join(', ')}`);
 });
 
 test('inngest: function count stable floor', () => {

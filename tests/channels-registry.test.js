@@ -83,20 +83,14 @@ for (const field of REQUIRED_EXPORTS) {
 test('channels: every module has valid category', () => {
   for (const id of registry.listAllIds()) {
     const mod = registry.getChannel(id);
-    assert.ok(
-      VALID_CATEGORIES.includes(mod.category),
-      `${id} has invalid category "${mod.category}"`
-    );
+    assert.ok(VALID_CATEGORIES.includes(mod.category), `${id} has invalid category "${mod.category}"`);
   }
 });
 
 test('channels: every module has valid surface_type', () => {
   for (const id of registry.listAllIds()) {
     const mod = registry.getChannel(id);
-    assert.ok(
-      VALID_SURFACE_TYPES.includes(mod.surface_type),
-      `${id} has invalid surface_type "${mod.surface_type}"`
-    );
+    assert.ok(VALID_SURFACE_TYPES.includes(mod.surface_type), `${id} has invalid surface_type "${mod.surface_type}"`);
   }
 });
 
@@ -111,20 +105,14 @@ test('channels: every module ID matches its filename / kebab-case', () => {
 test('channels: every module has at least one hook pattern', () => {
   for (const id of registry.listAllIds()) {
     const mod = registry.getChannel(id);
-    assert.ok(
-      Array.isArray(mod.hook_patterns) && mod.hook_patterns.length > 0,
-      `${id} has no hook_patterns`
-    );
+    assert.ok(Array.isArray(mod.hook_patterns) && mod.hook_patterns.length > 0, `${id} has no hook_patterns`);
   }
 });
 
 test('channels: every module has at least one invariant', () => {
   for (const id of registry.listAllIds()) {
     const mod = registry.getChannel(id);
-    assert.ok(
-      Array.isArray(mod.invariants) && mod.invariants.length > 0,
-      `${id} has no invariants`
-    );
+    assert.ok(Array.isArray(mod.invariants) && mod.invariants.length > 0, `${id} has no invariants`);
   }
 });
 
@@ -132,9 +120,7 @@ test('channels: manipulation_risk is 0-10', () => {
   for (const id of registry.listAllIds()) {
     const mod = registry.getChannel(id);
     assert.ok(
-      typeof mod.manipulation_risk === 'number' &&
-        mod.manipulation_risk >= 0 &&
-        mod.manipulation_risk <= 10,
+      typeof mod.manipulation_risk === 'number' && mod.manipulation_risk >= 0 && mod.manipulation_risk <= 10,
       `${id} manipulation_risk out of range: ${mod.manipulation_risk}`
     );
   }

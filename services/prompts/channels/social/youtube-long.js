@@ -37,13 +37,25 @@ module.exports = buildChannelModule({
     description_length_window: { min: 200, max: 1500, ideal: 600 },
   },
   hook_patterns: [
-    { name: 'Question + payoff promise', template: '"[Question]? In this video, I\'ll show you [outcome]."', why: 'Anchor the value within first 30s' },
-    { name: 'Stakes hook', template: '"I spent $X / Y hours / Z attempts on this. Here\'s what I learned."', why: 'Stakes = watch-time' },
-    { name: 'Counterintuitive thesis', template: 'Open with the contrarian finding, justify across the video', why: 'Hook viewers who would otherwise skip' },
+    {
+      name: 'Question + payoff promise',
+      template: '"[Question]? In this video, I\'ll show you [outcome]."',
+      why: 'Anchor the value within first 30s',
+    },
+    {
+      name: 'Stakes hook',
+      template: '"I spent $X / Y hours / Z attempts on this. Here\'s what I learned."',
+      why: 'Stakes = watch-time',
+    },
+    {
+      name: 'Counterintuitive thesis',
+      template: 'Open with the contrarian finding, justify across the video',
+      why: 'Hook viewers who would otherwise skip',
+    },
   ],
   anti_patterns: [
-    { pattern: 'don\'t forget to like and subscribe', why: 'In first 30s = watch-time killer' },
-    { pattern: 'today we\'re going to', why: 'Filler — show, don\'t announce' },
+    { pattern: "don't forget to like and subscribe", why: 'In first 30s = watch-time killer' },
+    { pattern: "today we're going to", why: "Filler — show, don't announce" },
     { pattern: 'as you can see', why: 'Filler' },
   ],
   retention_mechanics: [

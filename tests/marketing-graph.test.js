@@ -113,10 +113,7 @@ test('upsertEntity: returns null when graph table is missing', async () => {
   const sb = makeFakeSb();
   sb.markOffline('marketing_graph_entities');
   const g = makeMarketingGraph(sb);
-  assert.strictEqual(
-    await g.upsertEntity({ businessId: 'b1', type: 'product', title: 'X' }),
-    null
-  );
+  assert.strictEqual(await g.upsertEntity({ businessId: 'b1', type: 'product', title: 'X' }), null);
 });
 
 // ─── Edges ───────────────────────────────────────────────────────────────
@@ -248,7 +245,7 @@ test('updateCreativePerformance: computes performance_score from ROAS', async ()
     clicks: 400,
     conversions: 20,
     spendUsd: 100,
-    revenueUsd: 500,        // ROAS = 5 → score 1.0
+    revenueUsd: 500, // ROAS = 5 → score 1.0
   });
   const patch = sb.patches[0];
   assert.strictEqual(patch.updates.performance_score, 1);
@@ -260,7 +257,7 @@ test('updateCreativePerformance: falls back to CTR when no spend data', async ()
   await g.updateCreativePerformance({
     id: 'creative-2',
     impressions: 10000,
-    clicks: 500,             // 5% CTR → score 1.0
+    clicks: 500, // 5% CTR → score 1.0
     conversions: 0,
     spendUsd: 0,
     revenueUsd: 0,
@@ -278,7 +275,7 @@ test('updateCreativePerformance: clamps performance to [0,1]', async () => {
     clicks: 100,
     conversions: 5,
     spendUsd: 50,
-    revenueUsd: 1000,        // ROAS = 20 → clamped to 1
+    revenueUsd: 1000, // ROAS = 20 → clamped to 1
   });
   const patch = sb.patches[0];
   assert.strictEqual(patch.updates.performance_score, 1);
@@ -316,7 +313,7 @@ test('completeExperiment: writes winner + lift + conclusion', async () => {
     confidenceScore: 0.95,
     liftPct: 23.5,
     conclusion: 'Variant A wins',
-    spendUsd: 48.30,
+    spendUsd: 48.3,
   });
   const patch = sb.patches[0];
   assert.strictEqual(patch.updates.status, 'completed');

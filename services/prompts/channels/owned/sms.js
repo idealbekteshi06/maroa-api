@@ -36,12 +36,24 @@ module.exports = buildChannelModule({
     opt_out_required: true,
   },
   hook_patterns: [
-    { name: 'Brand + offer', template: '"[Brand]: [specific offer], ends [date]. [link]"', why: 'Brand name first = recognized opt-in' },
-    { name: 'Personal callback', template: '"[Brand]: [Specific item they liked] is back in stock. [link]"', why: 'Reference signal' },
-    { name: 'Timing trigger', template: '"[Brand]: Your [order/appt] is [status]. [link]"', why: 'Transactional has 95%+ open rate' },
+    {
+      name: 'Brand + offer',
+      template: '"[Brand]: [specific offer], ends [date]. [link]"',
+      why: 'Brand name first = recognized opt-in',
+    },
+    {
+      name: 'Personal callback',
+      template: '"[Brand]: [Specific item they liked] is back in stock. [link]"',
+      why: 'Reference signal',
+    },
+    {
+      name: 'Timing trigger',
+      template: '"[Brand]: Your [order/appt] is [status]. [link]"',
+      why: 'Transactional has 95%+ open rate',
+    },
   ],
   anti_patterns: [
-    { pattern: 'congrats! you\'ve won', why: 'Spam trigger' },
+    { pattern: "congrats! you've won", why: 'Spam trigger' },
     { pattern: 'click here to claim', why: 'Phishing pattern' },
     { pattern: 'urgent', why: 'Over-used — diluted' },
   ],

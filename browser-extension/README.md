@@ -1,7 +1,7 @@
 # Maroa browser extension
 
 MV3 Chrome extension. Right-click any Instagram / Facebook / TikTok post →
-*Save to Maroa as inspiration* → it lands in your cold-start corpus and
+_Save to Maroa as inspiration_ → it lands in your cold-start corpus and
 shapes the next round of drafts.
 
 ## Why it exists (distribution wedge)

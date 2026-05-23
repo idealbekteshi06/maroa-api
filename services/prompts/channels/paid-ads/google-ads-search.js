@@ -44,9 +44,17 @@ module.exports = buildChannelModule({
   },
   hook_patterns: [
     { name: 'Keyword headline', template: '"[Keyword] in [City]"', why: 'Google rewards keyword match' },
-    { name: 'Specific number', template: '"Save 20%" / "Free Shipping" / "From $49"', why: 'Numbers cut through noise' },
+    {
+      name: 'Specific number',
+      template: '"Save 20%" / "Free Shipping" / "From $49"',
+      why: 'Numbers cut through noise',
+    },
     { name: 'Question headline', template: '"Looking for [keyword]?"', why: 'Matches user intent phrasing' },
-    { name: 'Trust signal', template: '"[N]-Star Rated" / "[N]K+ Customers"', why: 'Outperforms generic "Best..." claims' },
+    {
+      name: 'Trust signal',
+      template: '"[N]-Star Rated" / "[N]K+ Customers"',
+      why: 'Outperforms generic "Best..." claims',
+    },
   ],
   anti_patterns: [
     { pattern: 'all caps', why: 'Google disapproves ALL-CAPS words' },

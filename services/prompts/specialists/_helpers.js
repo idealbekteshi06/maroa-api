@@ -52,12 +52,7 @@ function buildSpecialistModule(spec) {
     extraSegments,
   } = spec;
 
-  function chooseForJob({
-    goal,
-    funnel_stage,
-    channel,
-    customer_type,
-  } = {}) {
+  function chooseForJob({ goal, funnel_stage, channel, customer_type } = {}) {
     const signals = {};
     // Channel match
     if (channel) {
@@ -65,7 +60,10 @@ function buildSpecialistModule(spec) {
     }
     // Goal keyword match
     const goalLower = _normalize(goal || '');
-    if (job_fit_weights.urgency_goal && /\b(sale|launch|black friday|flash|countdown|deadline|today\s+only)\b/i.test(goalLower)) {
+    if (
+      job_fit_weights.urgency_goal &&
+      /\b(sale|launch|black friday|flash|countdown|deadline|today\s+only)\b/i.test(goalLower)
+    ) {
       signals.urgency_goal = 1;
     } else {
       signals.urgency_goal = 0;

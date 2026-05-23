@@ -58,7 +58,7 @@ function register({
       }
       const r = await sbGet(
         'launch_campaigns',
-        `user_id=eq.${encodeURIComponent(req.params.userId)}&order=created_at.desc&limit=5`,
+        `user_id=eq.${encodeURIComponent(req.params.userId)}&order=created_at.desc&limit=5`
       );
       res.json({ campaigns: r });
     } catch (err) {

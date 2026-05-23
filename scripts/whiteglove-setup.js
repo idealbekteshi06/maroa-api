@@ -101,7 +101,11 @@ async function main() {
   const args = parseArgs(process.argv);
 
   if (args.help) {
-    process.stdout.write(require('fs').readFileSync(__filename, 'utf8').match(/^\/\*\*[\s\S]+?\*\//m)[0]);
+    process.stdout.write(
+      require('fs')
+        .readFileSync(__filename, 'utf8')
+        .match(/^\/\*\*[\s\S]+?\*\//m)[0]
+    );
     console.log('');
     return;
   }
@@ -140,10 +144,9 @@ async function main() {
   // 1) Supabase Auth user
   const userId = await step(`Ensure auth user for ${email}`, async () => {
     // Look up first; only create if not present.
-    const lookup = await fetch(
-      `${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(email)}`,
-      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } },
-    );
+    const lookup = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(email)}`, {
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+    });
     if (lookup.ok) {
       const body = await lookup.json();
       const existing = Array.isArray(body?.users) ? body.users.find((u) => u.email === email) : null;
@@ -152,9 +155,10 @@ async function main() {
     const create = await postJson(
       `${SUPABASE_URL}/auth/v1/admin/users`,
       { email, email_confirm: true, user_metadata: { onboarded_via: 'whiteglove' } },
-      { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
     );
-    if (!create.ok) throw new Error(`auth create failed: ${create.status} ${JSON.stringify(create.body).slice(0, 200)}`);
+    if (!create.ok)
+      throw new Error(`auth create failed: ${create.status} ${JSON.stringify(create.body).slice(0, 200)}`);
     return create.body?.user?.id || create.body?.id;
   });
 
@@ -182,7 +186,7 @@ async function main() {
         apikey: SUPABASE_KEY,
         Authorization: `Bearer ${SUPABASE_KEY}`,
         Prefer: 'return=representation',
-      },
+      }
     );
     if (!r.ok) throw new Error(`businesses insert failed: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
     const row = Array.isArray(r.body) ? r.body[0] : r.body;
@@ -194,7 +198,7 @@ async function main() {
     const r = await postJson(
       `${MAROA_API_URL}/webhook/cold-start-trigger`,
       { businessId },
-      { 'X-Internal-Secret': WEBHOOK_SECRET },
+      { 'X-Internal-Secret': WEBHOOK_SECRET }
     );
     if (!r.ok) {
       throw new Error(`status ${r.status}: ${JSON.stringify(r.body).slice(0, 200)}`);
@@ -210,7 +214,7 @@ async function main() {
     const r = await postJson(
       `${MAROA_API_URL}/api/content/generate`,
       { business_id: businessId, content_theme: 'introduction', industry, brand_tone: 'professional' },
-      { 'X-Internal-Secret': WEBHOOK_SECRET },
+      { 'X-Internal-Secret': WEBHOOK_SECRET }
     );
     if (!r.ok && r.status !== 401) {
       // 401 is OK — it means the operator path through the webhook secret

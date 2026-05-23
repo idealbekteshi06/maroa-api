@@ -48,7 +48,7 @@ function register({
   app.post('/webhook/meta-campaign-create', async (req, res) => {
     const { business_id, objective = 'OUTCOME_TRAFFIC', monthly_budget = 300 } = req.body;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
-  
+
     try {
       const biz = (
         await sbGet('businesses', `id=eq.${encodeURIComponent(business_id)}&select=${META_BIZ_SELECT},plan`)
@@ -69,7 +69,7 @@ function register({
           status: 'draft',
           message: 'Campaign strategy being built in draft mode — connect Meta Ads to launch',
         });
-  
+
         setImmediate(async () => {
           try {
             const dailyBudget = Math.max(1, Math.round(monthly_budget / 30));
@@ -79,7 +79,7 @@ function register({
   Return ONLY valid JSON: { "objective": "OUTCOME_TRAFFIC", "daily_budget_usd": ${dailyBudget}, "targeting": { "age_min": 25, "age_max": 55 }, "creatives": [{ "headline": "max 40 chars", "primary_text": "max 125 chars", "description": "max 30 chars", "cta": "LEARN_MORE", "image_prompt": "image description" }] }`;
             const strategy = await callClaude(strategyPrompt, 'strategy', 1500);
             const creatives = Array.isArray(strategy.creatives) ? strategy.creatives.slice(0, 3) : [];
-  
+
             // Save draft campaign
             await sbPost('ad_campaigns', {
               business_id,
@@ -92,7 +92,7 @@ function register({
               last_decision_reason: 'Campaign ready to launch when ad account connected',
               business_name: biz.business_name,
             });
-  
+
             // Save draft creatives
             for (const cr of creatives) {
               await sbPost('ad_creatives', {
@@ -106,7 +106,7 @@ function register({
                 status: 'draft',
               }).catch(() => {});
             }
-  
+
             if (biz.email) {
               await sendEmail(
                 biz.email,
@@ -125,20 +125,18 @@ function register({
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
-  
+
     res.json({ received: true, message: 'Meta campaign creation started — check your email in ~2 minutes' });
-  
+
     try {
-      const biz = (
-        await sbGet('businesses', `id=eq.${business_id}&select=${META_BIZ_SELECT}`)
-      )[0];
+      const biz = (await sbGet('businesses', `id=eq.${business_id}&select=${META_BIZ_SELECT}`))[0];
       const dailyBudget = Math.max(1, Math.round(monthly_budget / 30));
       const accountId = actId(biz.ad_account_id);
       const token = oauthCrypto.readToken(biz, 'meta_access_token');
       if (!token) {
         return res.status(400).json({ error: 'meta_not_connected', detail: 'Connect Meta in Settings → Connections.' });
       }
-  
+
       // 1. Claude Opus — full campaign strategy + 3 creative variations
       const strategyPrompt = `You are a Meta Ads expert. Return ONLY valid JSON, no markdown, no explanation.
   
@@ -184,7 +182,7 @@ function register({
       }
     ]
   }`;
-  
+
       const strategy = await callClaude(strategyPrompt, 'strategy', 1500);
       const rawCreatives = Array.isArray(strategy.creatives) ? strategy.creatives.slice(0, 3) : [];
       const targeting = strategy.targeting || {
@@ -202,7 +200,7 @@ function register({
         targeting.threads_positions = THREADS_PLACEMENTS;
       }
       const campBudget = strategy.daily_budget_usd || dailyBudget;
-  
+
       // 2. Generate images via Flux / Pexels fallback → save to Supabase Storage
       const creativesWithImages = [];
       for (const cr of rawCreatives) {
@@ -217,7 +215,7 @@ function register({
           creativesWithImages.push({ ...cr, image_url: null, image_source: 'none' });
         }
       }
-  
+
       // 3. Create Meta Campaign
       const campaignName = `${biz.business_name} — ${campaignObj} — ${new Date().toISOString().slice(0, 10)}`;
       const campResp = await apiRequest(
@@ -226,10 +224,10 @@ function register({
         { 'Content-Type': 'application/json' },
         { name: campaignName, objective: campaignObj, status: 'PAUSED', special_ad_categories: [], access_token: token }
       );
-  
+
       if (!campResp.body?.id) throw new Error(`Campaign create failed: ${JSON.stringify(campResp.body).slice(0, 300)}`);
       const metaCampaignId = campResp.body.id;
-  
+
       // 4. Create Ad Set
       const adSetResp = await apiRequest(
         'POST',
@@ -246,10 +244,10 @@ function register({
           access_token: token,
         }
       );
-  
+
       if (!adSetResp.body?.id) throw new Error(`Ad set create failed: ${JSON.stringify(adSetResp.body).slice(0, 300)}`);
       const metaAdSetId = adSetResp.body.id;
-  
+
       // 5. Save DB record early (so creatives can reference campaign_id).
       // Note: meta_access_token deliberately NOT stored here — tokens live
       // on the businesses row (encrypted) and are looked up at activate /
@@ -266,7 +264,7 @@ function register({
         ai_strategy: strategy,
         creatives: creativesWithImages.map((c) => ({ headline: c.headline, image_url: c.image_url })),
       });
-  
+
       // 6. Create ads (one per creative)
       const adsCreated = [];
       for (let i = 0; i < creativesWithImages.length; i++) {
@@ -288,7 +286,7 @@ function register({
               /* non-critical */
             }
           }
-  
+
           // Build link_data
           const linkData = {
             message: cr.primary_text || '',
@@ -298,7 +296,7 @@ function register({
             call_to_action: { type: cr.cta || 'LEARN_MORE' },
           };
           if (imageHash) linkData.image_hash = imageHash;
-  
+
           // Create Ad Creative
           const creativeResp = await apiRequest(
             'POST',
@@ -311,7 +309,7 @@ function register({
             }
           );
           const metaCreativeId = creativeResp.body?.id;
-  
+
           // Create Ad
           if (metaCreativeId) {
             const adResp = await apiRequest(
@@ -328,7 +326,7 @@ function register({
             );
             if (adResp.body?.id) adsCreated.push({ ad_id: adResp.body.id, creative_id: metaCreativeId });
           }
-  
+
           // Save to ad_creatives
           await sbPost('ad_creatives', {
             business_id,
@@ -347,7 +345,7 @@ function register({
           log('/webhook/meta-campaign-create', `Creative ${i + 1} error: ${ce.message}`);
         }
       }
-  
+
       // 7. Review email
       const html = `
   <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
@@ -392,7 +390,7 @@ function register({
       await logError(business_id, 'meta-campaign-create', err.message, req.body);
     }
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // POST /webhook/meta-campaign-activate
   // ─────────────────────────────────────────────────────────────────────────────
@@ -400,20 +398,30 @@ function register({
     const { business_id, campaign_id } = req.body;
     if (!business_id || !campaign_id) return res.status(400).json({ error: 'business_id and campaign_id required' });
     try {
-      const campaign = (await sbGet('ad_campaigns', `id=eq.${encodeURIComponent(campaign_id)}&business_id=eq.${encodeURIComponent(business_id)}`))[0];
+      const campaign = (
+        await sbGet(
+          'ad_campaigns',
+          `id=eq.${encodeURIComponent(campaign_id)}&business_id=eq.${encodeURIComponent(business_id)}`
+        )
+      )[0];
       if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
       if (campaign.platform !== 'meta')
         return res.status(400).json({ error: 'Not a Meta campaign — use /webhook/google-campaign-activate' });
 
       // Token lives on the business, not the campaign (post-migration 073).
       const biz = (
-        await sbGet('businesses', `id=eq.${encodeURIComponent(business_id)}&select=meta_access_token,meta_access_token_enc`)
+        await sbGet(
+          'businesses',
+          `id=eq.${encodeURIComponent(business_id)}&select=meta_access_token,meta_access_token_enc`
+        )
       )[0];
       const token = oauthCrypto.readToken(biz, 'meta_access_token');
       if (!token) {
-        return res.status(400).json({ error: 'meta_not_connected', detail: 'Reconnect Meta to activate this campaign.' });
+        return res
+          .status(400)
+          .json({ error: 'meta_not_connected', detail: 'Reconnect Meta to activate this campaign.' });
       }
-  
+
       // Activate campaign + ad set via Meta API
       await apiRequest(
         'POST',
@@ -421,7 +429,7 @@ function register({
         { 'Content-Type': 'application/json' },
         { status: 'ACTIVE', access_token: token }
       );
-  
+
       if (campaign.meta_ad_set_id) {
         await apiRequest(
           'POST',
@@ -430,7 +438,7 @@ function register({
           { status: 'ACTIVE', access_token: token }
         );
       }
-  
+
       // Activate all ads for this campaign (stored in ad_creatives)
       // Pre-fetch creative rows to warm any Supabase cache; the actual
       // adsData below comes from campaign.creatives JSONB.
@@ -454,7 +462,7 @@ function register({
           }
         }
       }
-  
+
       await sbPatch('ad_campaigns', `id=eq.${campaign_id}`, { status: 'active' });
       res.json({ activated: true, campaign_id, meta_campaign_id: campaign.meta_campaign_id });
     } catch (err) {
@@ -462,7 +470,7 @@ function register({
       res.status(500).json({ error: err.message });
     }
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // POST /webhook/meta-campaign-optimize  — LEVEL 7: PORTFOLIO OPTIMIZER
   // Full portfolio optimization — pulls all campaigns, Claude Opus decides
@@ -472,12 +480,12 @@ function register({
     const { business_id } = req.body;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
     res.json({ received: true, message: 'Portfolio optimization started' });
-  
+
     try {
       const biz = (
         await sbGet(
           'businesses',
-          `id=eq.${encodeURIComponent(business_id)}&select=business_name,marketing_goal,target_cpc,avg_order_value,meta_access_token,meta_access_token_enc`,
+          `id=eq.${encodeURIComponent(business_id)}&select=business_name,marketing_goal,target_cpc,avg_order_value,meta_access_token,meta_access_token_enc`
         )
       )[0];
       if (!biz) return;
@@ -486,7 +494,10 @@ function register({
         return log('/webhook/meta-campaign-optimize', 'No meta_access_token — skipping');
       }
 
-      const campaigns = await sbGet('ad_campaigns', `business_id=eq.${encodeURIComponent(business_id)}&platform=eq.meta&status=eq.active`);
+      const campaigns = await sbGet(
+        'ad_campaigns',
+        `business_id=eq.${encodeURIComponent(business_id)}&platform=eq.meta&status=eq.active`
+      );
 
       if (!campaigns.length) return log('/webhook/meta-campaign-optimize', 'No active campaigns');
 
@@ -530,11 +541,11 @@ function register({
           /* soft-fail */
         }
       }
-  
+
       const totalSpend = campData.reduce((s, c) => s + c.spend, 0);
       const totalRevenue = campData.reduce((s, c) => s + c.conversions * (biz.avg_order_value || 50), 0);
       const portfolioRoas = totalSpend > 0 ? (totalRevenue / totalSpend).toFixed(2) : '0';
-  
+
       // Claude Opus — full portfolio optimization decision
       const prompt = `You are a senior media buyer optimizing a full ad portfolio for ${biz.business_name}.
   Goal: ${biz.marketing_goal || 'maximize leads'}
@@ -562,10 +573,10 @@ function register({
     "portfolio_health": "healthy|needs_attention|critical",
     "summary": "1-2 sentence summary"
   }`;
-  
+
       const result = await callClaude(prompt, 'strategy', 1200);
       const reallocations = result.reallocations || [];
-  
+
       // Execute reallocations
       for (const r of reallocations) {
         const camp = campData.find((c) => c.id === r.campaign_id);
@@ -601,7 +612,7 @@ function register({
           log('/webhook/meta-campaign-optimize', `Reallocation error ${camp.id}: ${e.message}`);
         }
       }
-  
+
       // Log to ad_performance_logs
       try {
         await sbPost('ad_performance_logs', {
@@ -615,7 +626,7 @@ function register({
       } catch {
         /* soft-fail */
       }
-  
+
       try {
         storeInsight(business_id, 'meta_ads', 'ad_strategy', 'portfolio_health', result.portfolio_health || '');
         storeInsight(business_id, 'meta_ads', 'ad_strategy', 'optimization_summary', result.summary || '');
@@ -628,7 +639,7 @@ function register({
       await logError(business_id, 'meta-campaign-optimize', err.message, req.body);
     }
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // GET /webhook/meta-campaigns-get?business_id=X
   // ─────────────────────────────────────────────────────────────────────────────

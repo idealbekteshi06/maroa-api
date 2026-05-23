@@ -5,15 +5,7 @@
 
 'use strict';
 
-const SPECIALISTS = [
-  'sdr',
-  'support',
-  'customer_success',
-  'reputation',
-  'community',
-  'executive_assistant',
-  'crisis',
-];
+const SPECIALISTS = ['sdr', 'support', 'customer_success', 'reputation', 'community', 'executive_assistant', 'crisis'];
 
 /** Map WF9 classification → specialist role */
 const CLASSIFICATION_TO_SPECIALIST = {
@@ -63,7 +55,9 @@ function createWf11(deps) {
       specialist_overrides: patch.specialist_overrides || {},
       updated_at: new Date().toISOString(),
     };
-    const existing = await sbGet('inbox_routing_settings', `business_id=eq.${businessId}&select=business_id`).catch(() => []);
+    const existing = await sbGet('inbox_routing_settings', `business_id=eq.${businessId}&select=business_id`).catch(
+      () => []
+    );
     if (existing[0]) {
       await sbPatch('inbox_routing_settings', `business_id=eq.${businessId}`, row);
     } else {
@@ -118,10 +112,7 @@ function createWf11(deps) {
 
     const urgency = (triage?.urgency || thread.urgency || 'medium').toLowerCase();
     const slaMinutes =
-      Number(triage?.sla_minutes) ||
-      URGENCY_SLA_MINUTES[urgency] ||
-      settings.default_sla_minutes ||
-      240;
+      Number(triage?.sla_minutes) || URGENCY_SLA_MINUTES[urgency] || settings.default_sla_minutes || 240;
 
     const patch = {
       specialist_role: specialist,
@@ -150,7 +141,9 @@ function createWf11(deps) {
           text: `Thread ${threadId} needs human attention.\nReasons: ${escalationReasons.join(', ')}\nPreview: ${(thread.body || '').slice(0, 280)}`,
         }).catch((e) => logger?.warn?.('wf11', businessId, 'escalation email failed', e?.message));
       }
-      await sbPatch('inbox_escalations', `thread_id=eq.${threadId}&resolved_at=is.null`, { notified: true }).catch(() => {});
+      await sbPatch('inbox_escalations', `thread_id=eq.${threadId}&resolved_at=is.null`, { notified: true }).catch(
+        () => {}
+      );
     }
 
     await sbPost('events', {

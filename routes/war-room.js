@@ -81,9 +81,7 @@ function register({
         businessId,
         type: 'decision',
         subtype: decision.agent_name || null,
-        title:
-          decision.recommendation_text?.slice(0, 200) ||
-          `${action} ${decision.agent_name || 'decision'}`,
+        title: decision.recommendation_text?.slice(0, 200) || `${action} ${decision.agent_name || 'decision'}`,
         externalId: `decision:${decision.id}`,
         source: `route:war-room.${action}`,
         attrs: {
@@ -194,53 +192,49 @@ function register({
 
   // POST /api/war-room/:workspaceId/decisions/:decisionId/approve
   // Body: ignored. Idempotent — already-approved decisions return 200 with the row.
-  app.post(
-    '/api/war-room/:workspaceId/decisions/:decisionId/approve',
-    requireAnyUserId,
-    async (req, res) => {
-      try {
-        const { workspaceId, decisionId } = req.params;
-        if (!decisionLog) return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'Decision log not available');
+  app.post('/api/war-room/:workspaceId/decisions/:decisionId/approve', requireAnyUserId, async (req, res) => {
+    try {
+      const { workspaceId, decisionId } = req.params;
+      if (!decisionLog) return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'Decision log not available');
 
-        const m = await checkMembership(workspaceId, req.user.id);
-        if (!m) return apiError(res, 404, 'NOT_FOUND', 'Workspace not found or no access');
+      const m = await checkMembership(workspaceId, req.user.id);
+      if (!m) return apiError(res, 404, 'NOT_FOUND', 'Workspace not found or no access');
 
-        const decision = await decisionBelongsToWorkspace(decisionId, workspaceId);
-        if (!decision) return apiError(res, 404, 'NOT_FOUND', 'Decision not found in this workspace');
-        if (decision.refused) {
-          return apiError(res, 409, 'ALREADY_REJECTED', 'Decision was already rejected');
-        }
-        if (decision.approved_at) {
-          return res.json({ decision });
-        }
-
-        const updated = await decisionLog.approve(decisionId, req.user.id);
-        if (!updated) return apiError(res, 500, 'INTERNAL_ERROR', 'Failed to approve decision');
-        // Fire-and-forget memory + graph writes — never block the response.
-        _rememberApproval(updated.business_id || decision.business_id, updated);
-        _mirrorApprovalToGraph(updated, 'approved').catch(() => {});
-
-        // P0-7 (audit 2026-05-20): approval now triggers an executor so
-        // the decision actually happens. Fire-and-forget — the customer
-        // gets an instant "approved" response while the executor runs
-        // async, then writes back execution_details on the decision row.
-        Promise.resolve()
-          .then(() =>
-            decisionExecutor.execute(updated, {
-              sbPatch,
-              logger,
-              internalSecret: process.env.N8N_WEBHOOK_SECRET || '',
-            }),
-          )
-          .catch((e) => log?.('/api/war-room/approve', null, 'executor crashed', { error: e.message }));
-
-        return res.json({ decision: updated });
-      } catch (err) {
-        log?.('/api/war-room/approve', null, 'approve error', { error: err.message });
-        return apiError(res, 500, 'INTERNAL_ERROR', safePublicError(err));
+      const decision = await decisionBelongsToWorkspace(decisionId, workspaceId);
+      if (!decision) return apiError(res, 404, 'NOT_FOUND', 'Decision not found in this workspace');
+      if (decision.refused) {
+        return apiError(res, 409, 'ALREADY_REJECTED', 'Decision was already rejected');
       }
-    },
-  );
+      if (decision.approved_at) {
+        return res.json({ decision });
+      }
+
+      const updated = await decisionLog.approve(decisionId, req.user.id);
+      if (!updated) return apiError(res, 500, 'INTERNAL_ERROR', 'Failed to approve decision');
+      // Fire-and-forget memory + graph writes — never block the response.
+      _rememberApproval(updated.business_id || decision.business_id, updated);
+      _mirrorApprovalToGraph(updated, 'approved').catch(() => {});
+
+      // P0-7 (audit 2026-05-20): approval now triggers an executor so
+      // the decision actually happens. Fire-and-forget — the customer
+      // gets an instant "approved" response while the executor runs
+      // async, then writes back execution_details on the decision row.
+      Promise.resolve()
+        .then(() =>
+          decisionExecutor.execute(updated, {
+            sbPatch,
+            logger,
+            internalSecret: process.env.N8N_WEBHOOK_SECRET || '',
+          })
+        )
+        .catch((e) => log?.('/api/war-room/approve', null, 'executor crashed', { error: e.message }));
+
+      return res.json({ decision: updated });
+    } catch (err) {
+      log?.('/api/war-room/approve', null, 'approve error', { error: err.message });
+      return apiError(res, 500, 'INTERNAL_ERROR', safePublicError(err));
+    }
+  });
 
   // POST /api/war-room/:workspaceId/decisions/:decisionId/reject
   // Body: { reason?: string } — optional, capped at 500 chars by the lib.
@@ -278,7 +272,7 @@ function register({
         log?.('/api/war-room/reject', null, 'reject error', { error: err.message });
         return apiError(res, 500, 'INTERNAL_ERROR', safePublicError(err));
       }
-    },
+    }
   );
 
   app.get('/api/war-room/:workspaceId/decisions', requireAnyUserId, async (req, res) => {

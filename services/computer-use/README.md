@@ -63,7 +63,7 @@ const outcome = await cu.runFlow({
 
 - **`pixel-debug`** — Inspect a Meta Pixel via Events Manager → Test
   Events. Returns `{ status, last_event_name, last_event_seconds_ago,
-  source_url, issues[] }`.
+source_url, issues[] }`.
 
 ## Adding a new flow
 
@@ -82,6 +82,7 @@ const outcome = await cu.runFlow({
 
 `runner-worker.js` is the optional Playwright-backed module that
 actually drives the browser. Deploy it as a separate Docker image with:
+
 - Playwright Chromium pinned
 - `--no-sandbox` flag inside the unprivileged container
 - No volume mounts (read-only filesystem)

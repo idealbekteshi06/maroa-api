@@ -45,7 +45,7 @@ module.exports = buildChannelModule({
     { pattern: '$$$', why: 'Spam trigger' },
     { pattern: '100% free', why: 'Spam trigger' },
     { pattern: 'act now', why: 'Vague urgency — pair with real deadline' },
-    { pattern: 'don\'t miss out', why: 'Vague urgency' },
+    { pattern: "don't miss out", why: 'Vague urgency' },
   ],
   retention_mechanics: [
     'offer in the subject line',

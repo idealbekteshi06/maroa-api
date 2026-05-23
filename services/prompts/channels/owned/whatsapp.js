@@ -34,9 +34,21 @@ module.exports = buildChannelModule({
     quick_replies: 'recommended',
   },
   hook_patterns: [
-    { name: 'Template + variable', template: '"Hi {{1}}, your [thing] is [status]"', why: 'Pre-approved template = high deliverability' },
-    { name: 'Quick-reply buttons', template: 'Add 2-3 quick-reply buttons for common follow-ups', why: 'Drives session engagement' },
-    { name: 'Conversational casual', template: 'Lower-case, emoji-light, like a friend message', why: 'WhatsApp punishes broadcast tone' },
+    {
+      name: 'Template + variable',
+      template: '"Hi {{1}}, your [thing] is [status]"',
+      why: 'Pre-approved template = high deliverability',
+    },
+    {
+      name: 'Quick-reply buttons',
+      template: 'Add 2-3 quick-reply buttons for common follow-ups',
+      why: 'Drives session engagement',
+    },
+    {
+      name: 'Conversational casual',
+      template: 'Lower-case, emoji-light, like a friend message',
+      why: 'WhatsApp punishes broadcast tone',
+    },
   ],
   anti_patterns: [
     { pattern: 'congratulations you', why: 'Promo phrasing in transactional template = policy violation' },

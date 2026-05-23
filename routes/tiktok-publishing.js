@@ -179,7 +179,7 @@ Return only valid JSON: {"hook":"...","script":"...","caption":"...","hashtags":
         if (cgErr instanceof ComplianceBlocked) {
           return log?.(
             '/webhook/tiktok-publish',
-            `Compliance hard-block: ${cgErr.violations.map((v) => v.rule_id).join(',')}`,
+            `Compliance hard-block: ${cgErr.violations.map((v) => v.rule_id).join(',')}`
           );
         }
         throw cgErr;

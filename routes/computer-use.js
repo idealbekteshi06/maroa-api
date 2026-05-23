@@ -22,17 +22,7 @@
  * ---------------------------------------------------------------------------
  */
 
-function register({
-  app,
-  computerUse,
-  workspaces,
-  requireAnyUserId,
-  sbGet,
-  apiError,
-  safePublicError,
-  log,
-  express,
-}) {
+function register({ app, computerUse, workspaces, requireAnyUserId, sbGet, apiError, safePublicError, log, express }) {
   if (!computerUse) {
     // Service not constructed — skip mounting so the rest of the API stays up.
     return;
@@ -43,7 +33,7 @@ function register({
     try {
       const rows = await sbGet(
         'businesses',
-        `id=eq.${encodeURIComponent(businessId)}&user_id=eq.${encodeURIComponent(userId)}&select=id&limit=1`,
+        `id=eq.${encodeURIComponent(businessId)}&user_id=eq.${encodeURIComponent(userId)}&select=id&limit=1`
       );
       if (rows && rows.length > 0) return true;
     } catch {
@@ -100,7 +90,7 @@ function register({
         log?.('/api/computer-use/run', null, 'run error', { error: err.message });
         return apiError(res, 500, 'INTERNAL_ERROR', safePublicError(err));
       }
-    },
+    }
   );
 }
 

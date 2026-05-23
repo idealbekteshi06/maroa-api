@@ -66,7 +66,7 @@ function register({
       }
       const r = await sbGet(
         'lead_magnets',
-        `user_id=eq.${encodeURIComponent(req.params.userId)}&order=created_at.desc&limit=10`,
+        `user_id=eq.${encodeURIComponent(req.params.userId)}&order=created_at.desc&limit=10`
       );
       res.json({ magnets: r });
     } catch (err) {

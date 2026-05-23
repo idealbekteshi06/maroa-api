@@ -40,10 +40,26 @@ module.exports = buildChannelModule({
     secrets_taught: { min: 3, max: 3 },
   },
   hook_patterns: [
-    { name: 'Big promise intro', template: 'State the 3 secrets up front; promise the framework', why: 'Sets stay-rate expectations' },
-    { name: 'Bonding story', template: 'Specific 90-sec personal story → why you teach this', why: 'Cialdini liking + authority' },
-    { name: 'Three secrets', template: 'Each secret = belief shift + small teach + transition', why: 'Fladlien "perfect webinar" structure' },
-    { name: 'Stack close', template: 'Offer + stack + bonus + guarantee in 10-15 min', why: 'Value-anchor → offer-anchor' },
+    {
+      name: 'Big promise intro',
+      template: 'State the 3 secrets up front; promise the framework',
+      why: 'Sets stay-rate expectations',
+    },
+    {
+      name: 'Bonding story',
+      template: 'Specific 90-sec personal story → why you teach this',
+      why: 'Cialdini liking + authority',
+    },
+    {
+      name: 'Three secrets',
+      template: 'Each secret = belief shift + small teach + transition',
+      why: 'Fladlien "perfect webinar" structure',
+    },
+    {
+      name: 'Stack close',
+      template: 'Offer + stack + bonus + guarantee in 10-15 min',
+      why: 'Value-anchor → offer-anchor',
+    },
   ],
   anti_patterns: [
     { pattern: 'fake live', why: 'Inconsistent timestamps damage trust' },

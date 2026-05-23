@@ -43,9 +43,7 @@ function makeMinimalDeps({ recordedDecisions, auditOverride } = {}) {
       return [{ id: 'biz-1', plan: 'growth', location: 'New York', primary_language: 'en' }];
     }
     if (table === 'ad_performance_logs') {
-      return [
-        { logged_at: '2026-05-13T08:00:00Z', spend: 47, clicks: 30, conversions: 2, ctr: 1.5 },
-      ];
+      return [{ logged_at: '2026-05-13T08:00:00Z', spend: 47, clicks: 30, conversions: 2, ctr: 1.5 }];
     }
     if (table === 'ad_audit_results') return [];
     return [];
@@ -55,23 +53,30 @@ function makeMinimalDeps({ recordedDecisions, auditOverride } = {}) {
   const sbPatch = async () => {};
 
   // Stub Claude to return a deterministic audit decision
-  const callClaude = async () => JSON.stringify(auditOverride || {
-    decision: 'keep',
-    decision_reason: 'Campaign performing within bands',
-    audit_score: 72,
-    score_breakdown: {},
-    critical_issues: [],
-    warnings: [],
-    opportunities: [],
-    trend: 'stable',
-    citations: [],
-    market_tier: 'ULTRA_HIGH',
-    budget_tier: 'STARTER',
-    gates: {},
-  });
+  const callClaude = async () =>
+    JSON.stringify(
+      auditOverride || {
+        decision: 'keep',
+        decision_reason: 'Campaign performing within bands',
+        audit_score: 72,
+        score_breakdown: {},
+        critical_issues: [],
+        warnings: [],
+        opportunities: [],
+        trend: 'stable',
+        citations: [],
+        market_tier: 'ULTRA_HIGH',
+        budget_tier: 'STARTER',
+        gates: {},
+      }
+    );
 
   const extractJSON = (s) => {
-    try { return JSON.parse(s); } catch { return null; }
+    try {
+      return JSON.parse(s);
+    } catch {
+      return null;
+    }
   };
 
   // Stub decisionLog that records what would be written
@@ -89,14 +94,16 @@ function makeMinimalDeps({ recordedDecisions, auditOverride } = {}) {
 
 test('ad-optimizer decisionLog mirror: writes a row after a "keep" decision', async () => {
   const recorded = [];
-  const engine = createEngine(makeMinimalDeps({
-    recordedDecisions: recorded,
-    auditOverride: {
-      decision: 'keep',
-      decision_reason: 'Stable, no action needed',
-      audit_score: 80,
-    },
-  }));
+  const engine = createEngine(
+    makeMinimalDeps({
+      recordedDecisions: recorded,
+      auditOverride: {
+        decision: 'keep',
+        decision_reason: 'Stable, no action needed',
+        audit_score: 80,
+      },
+    })
+  );
 
   await engine.auditOne({ campaignId: 'camp-1', businessId: 'biz-1', dryRun: true });
 
@@ -137,10 +144,12 @@ test('ad-optimizer decisionLog mirror: decisionSubtype is a known audit verb', a
 
 test('ad-optimizer decisionLog mirror: dryRun=true → executed=false', async () => {
   const recorded = [];
-  const engine = createEngine(makeMinimalDeps({
-    recordedDecisions: recorded,
-    auditOverride: { decision: 'scale', new_daily_budget: 100, audit_score: 88 },
-  }));
+  const engine = createEngine(
+    makeMinimalDeps({
+      recordedDecisions: recorded,
+      auditOverride: { decision: 'scale', new_daily_budget: 100, audit_score: 88 },
+    })
+  );
 
   await engine.auditOne({ campaignId: 'camp-1', businessId: 'biz-1', dryRun: true });
 
@@ -154,9 +163,7 @@ test('ad-optimizer decisionLog mirror: missing decisionLog dep is safe (no throw
 
   // Should not throw — the mirror is a pure side-effect that no-ops when
   // the logger isn't wired.
-  await assert.doesNotReject(
-    engine.auditOne({ campaignId: 'camp-1', businessId: 'biz-1', dryRun: true })
-  );
+  await assert.doesNotReject(engine.auditOne({ campaignId: 'camp-1', businessId: 'biz-1', dryRun: true }));
 });
 
 test('ad-optimizer decisionLog mirror: decisionLog throw must NOT break the audit', async () => {
@@ -181,15 +188,17 @@ test('ad-optimizer decisionLog mirror: decisionLog throw must NOT break the audi
 
 test('ad-optimizer decisionLog mirror: budgetImpactUsd is always a number (not null/undefined)', async () => {
   const recorded = [];
-  const engine = createEngine(makeMinimalDeps({
-    recordedDecisions: recorded,
-    auditOverride: {
-      decision: 'scale',
-      decision_reason: 'Scaling',
-      audit_score: 90,
-      new_daily_budget: 75,
-    },
-  }));
+  const engine = createEngine(
+    makeMinimalDeps({
+      recordedDecisions: recorded,
+      auditOverride: {
+        decision: 'scale',
+        decision_reason: 'Scaling',
+        audit_score: 90,
+        new_daily_budget: 75,
+      },
+    })
+  );
 
   await engine.auditOne({ campaignId: 'camp-1', businessId: 'biz-1', dryRun: true });
 
@@ -201,10 +210,12 @@ test('ad-optimizer decisionLog mirror: budgetImpactUsd is always a number (not n
 
 test('ad-optimizer decisionLog mirror: targetEntity captures campaign id + name', async () => {
   const recorded = [];
-  const engine = createEngine(makeMinimalDeps({
-    recordedDecisions: recorded,
-    auditOverride: { decision: 'keep', audit_score: 70 },
-  }));
+  const engine = createEngine(
+    makeMinimalDeps({
+      recordedDecisions: recorded,
+      auditOverride: { decision: 'keep', audit_score: 70 },
+    })
+  );
 
   await engine.auditOne({ campaignId: 'camp-1', businessId: 'biz-1', dryRun: true });
 

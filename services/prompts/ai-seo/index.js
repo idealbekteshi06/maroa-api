@@ -174,8 +174,17 @@ async function auditSite(opts) {
  * This is the PRODUCT side — actual artifacts the customer ships.
  */
 async function generateArtifacts(opts) {
-  const { business, pages = [], plan = 'free', businessId, callClaude, extractJSON, logger, sbGet, sbPost } =
-    opts || {};
+  const {
+    business,
+    pages = [],
+    plan = 'free',
+    businessId,
+    callClaude,
+    extractJSON,
+    logger,
+    sbGet,
+    sbPost,
+  } = opts || {};
   if (typeof callClaude !== 'function') throw new Error('generateArtifacts: callClaude required');
   if (typeof extractJSON !== 'function') throw new Error('generateArtifacts: extractJSON required');
 

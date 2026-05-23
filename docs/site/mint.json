@@ -28,23 +28,11 @@
     },
     {
       "group": "Core API",
-      "pages": [
-        "api/workspaces",
-        "api/war-room",
-        "api/approvals",
-        "api/content",
-        "api/business",
-        "api/billing"
-      ]
+      "pages": ["api/workspaces", "api/war-room", "api/approvals", "api/content", "api/business", "api/billing"]
     },
     {
       "group": "Integrations",
-      "pages": [
-        "integrations/mcp",
-        "integrations/cli",
-        "integrations/slack",
-        "integrations/browser-extension"
-      ]
+      "pages": ["integrations/mcp", "integrations/cli", "integrations/slack", "integrations/browser-extension"]
     },
     {
       "group": "Reference",

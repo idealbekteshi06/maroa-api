@@ -79,11 +79,7 @@ function createDeepDiveService({ managedAgentService, sbGet, sbPost, logger }) {
     });
 
     const sessionId = session.id || session.session_id;
-    const output =
-      session.output?.content?.[0]?.text ||
-      session.message?.content ||
-      session.result ||
-      session;
+    const output = session.output?.content?.[0]?.text || session.message?.content || session.result || session;
 
     if (sbPost) {
       await sbPost('events', {

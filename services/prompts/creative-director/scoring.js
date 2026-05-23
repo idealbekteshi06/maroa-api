@@ -91,10 +91,8 @@ function gapAnalysis(weightedScore, humankindScore) {
 }
 
 const STOPPING_CRITERIA = {
-  exit_success_smb:
-    'execution/campaign level: weighted ≥ 8.0 AND HumanKind ≥ 6 → pre-mortem then articulate',
-  exit_success_brand:
-    'brand/advertising level: weighted ≥ 8.5 AND HumanKind ≥ 7 → pre-mortem then articulate',
+  exit_success_smb: 'execution/campaign level: weighted ≥ 8.0 AND HumanKind ≥ 6 → pre-mortem then articulate',
+  exit_success_brand: 'brand/advertising level: weighted ≥ 8.5 AND HumanKind ≥ 7 → pre-mortem then articulate',
   exit_attempts: '3 refinement passes completed → deliver best with honest assessment',
   exit_plateau: '2 consecutive passes with delta < 0.2 → convergence, deliver with note',
 };

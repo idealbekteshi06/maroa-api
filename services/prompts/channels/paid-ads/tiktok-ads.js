@@ -38,9 +38,21 @@ module.exports = buildChannelModule({
     cta_button: 'required',
   },
   hook_patterns: [
-    { name: 'Native UGC', template: 'Creator-style POV with phone-camera feel', why: '"Don\'t make ads — make TikToks"' },
-    { name: 'Problem snapshot', template: 'Specific visible problem in first second', why: 'Problem-aware hooks beat brand-aware' },
-    { name: 'Stitch / trend leverage', template: 'Build on a current trend or sound', why: 'Borrowed reach from the trend' },
+    {
+      name: 'Native UGC',
+      template: 'Creator-style POV with phone-camera feel',
+      why: '"Don\'t make ads — make TikToks"',
+    },
+    {
+      name: 'Problem snapshot',
+      template: 'Specific visible problem in first second',
+      why: 'Problem-aware hooks beat brand-aware',
+    },
+    {
+      name: 'Stitch / trend leverage',
+      template: 'Build on a current trend or sound',
+      why: 'Borrowed reach from the trend',
+    },
   ],
   anti_patterns: [
     { pattern: 'broadcast-style', why: 'TikTok punishes polished TV-ad feel' },

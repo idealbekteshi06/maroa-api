@@ -9,6 +9,7 @@ npx maroa setup
 ```
 
 This walks you through:
+
 1. The API URL (defaults to production)
 2. Your Maroa API token (paste from `https://maroa.ai/settings → API tokens`)
 
@@ -16,16 +17,16 @@ The config is saved to `~/.maroa/config.json` with `chmod 600`.
 
 ## Commands
 
-| Command | What it does |
-|---|---|
-| `maroa setup` | First-time configuration |
-| `maroa status` | One-line workspace summary |
-| `maroa pending` | List things waiting on your approval |
-| `maroa approve <id>` | Approve a specific decision |
-| `maroa reject <id> [reason]` | Reject a decision, optional reason |
-| `maroa draft "theme"` | Ask Maroa to draft new content with a theme |
-| `maroa whoami` | Show your configured account + accessible workspaces |
-| `maroa logout` | Clear stored credentials |
+| Command                      | What it does                                         |
+| ---------------------------- | ---------------------------------------------------- |
+| `maroa setup`                | First-time configuration                             |
+| `maroa status`               | One-line workspace summary                           |
+| `maroa pending`              | List things waiting on your approval                 |
+| `maroa approve <id>`         | Approve a specific decision                          |
+| `maroa reject <id> [reason]` | Reject a decision, optional reason                   |
+| `maroa draft "theme"`        | Ask Maroa to draft new content with a theme          |
+| `maroa whoami`               | Show your configured account + accessible workspaces |
+| `maroa logout`               | Clear stored credentials                             |
 
 ## Examples
 

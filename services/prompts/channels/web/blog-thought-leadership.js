@@ -35,12 +35,24 @@ module.exports = buildChannelModule({
     emoji_use: 'none',
   },
   hook_patterns: [
-    { name: 'Contrarian thesis', template: 'Open with the counter-consensus claim, support across the post', why: 'POV beats summary' },
-    { name: 'Specific moment', template: '"Last week I [specific moment]. Here\'s what I learned about [larger lesson]:"', why: 'Story → insight is the shape' },
-    { name: 'Data + insight', template: 'Lead with original data, then the contrarian interpretation', why: 'Data + POV = high credibility' },
+    {
+      name: 'Contrarian thesis',
+      template: 'Open with the counter-consensus claim, support across the post',
+      why: 'POV beats summary',
+    },
+    {
+      name: 'Specific moment',
+      template: '"Last week I [specific moment]. Here\'s what I learned about [larger lesson]:"',
+      why: 'Story → insight is the shape',
+    },
+    {
+      name: 'Data + insight',
+      template: 'Lead with original data, then the contrarian interpretation',
+      why: 'Data + POV = high credibility',
+    },
   ],
   anti_patterns: [
-    { pattern: 'in today\'s rapidly evolving', why: 'AI-tell phrase' },
+    { pattern: "in today's rapidly evolving", why: 'AI-tell phrase' },
     { pattern: 'thought leader', why: 'Self-anointing — Critic flag' },
     { pattern: 'unprecedented times', why: 'Cliché' },
     { pattern: 'navigate the complexity', why: 'AI-tell phrase' },

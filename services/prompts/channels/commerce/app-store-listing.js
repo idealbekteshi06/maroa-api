@@ -44,7 +44,11 @@ module.exports = buildChannelModule({
   hook_patterns: [
     { name: 'Keyword-led name', template: '"[App name]: [Primary keyword]"', why: 'Apple weighs name keyword heavily' },
     { name: 'Benefit subtitle', template: '"Get [outcome] in [time]"', why: 'Subtitle is the secondary hook' },
-    { name: 'Social proof open', template: '"4.8★ from 100K+ users — [hook line]"', why: 'Proof in first 3 visible lines' },
+    {
+      name: 'Social proof open',
+      template: '"4.8★ from 100K+ users — [hook line]"',
+      why: 'Proof in first 3 visible lines',
+    },
   ],
   anti_patterns: [
     { pattern: 'like uber for', why: 'Trademark misuse — Apple rejects' },
@@ -55,7 +59,7 @@ module.exports = buildChannelModule({
     'keyword in name (Apple) + title (Play)',
     'first 3 lines of description carry the hook',
     'specific metrics + social proof up top',
-    'screenshots tell the story (most users don\'t read past 3 lines)',
+    "screenshots tell the story (most users don't read past 3 lines)",
   ],
   invariants: [
     { id: 'name-length', rule: 'App name ≤30 chars', kind: 'must_have' },

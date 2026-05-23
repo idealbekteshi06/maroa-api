@@ -24,10 +24,7 @@ function requireMetricsAuth(req, res, next) {
       error: { code: 'NOT_CONFIGURED', message: 'METRICS_SCRAPE_TOKEN not set' },
     });
   }
-  const provided = (
-    req.get('x-metrics-token') ||
-    (req.get('authorization') || '').replace(/^Bearer\s+/i, '').trim()
-  );
+  const provided = req.get('x-metrics-token') || (req.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();
   if (!provided || !timingSafeEqual(provided, expected)) {
     return res.status(401).json({
       error: { code: 'UNAUTHORIZED', message: 'Invalid or missing metrics token' },

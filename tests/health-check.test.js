@@ -2,11 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {
-  probeInngestDlq,
-  probeInngest,
-  _resetProbeCache,
-} = require('../lib/healthCheck');
+const { probeInngestDlq, probeInngest, _resetProbeCache } = require('../lib/healthCheck');
 
 test('probeInngestDlq queries failed_at column', async () => {
   _resetProbeCache();

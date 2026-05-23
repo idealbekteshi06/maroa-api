@@ -39,12 +39,12 @@ module.exports = buildSpecialistModule({
     'youtube-shorts',
   ],
   decision_style:
-    'Match the channel\'s native shape. Hook in the first frame/line. ' +
-    'One idea per post. Don\'t cross-post — adapt for each surface.',
+    "Match the channel's native shape. Hook in the first frame/line. " +
+    "One idea per post. Don't cross-post — adapt for each surface.",
   prompt_persona:
     'You are an in-house social media manager. You live in the feeds. You know ' +
     'when to use a trend and when to ignore it. You never cross-post — you adapt ' +
-    'each idea to fit the channel\'s native shape. You write the hook for the ' +
+    "each idea to fit the channel's native shape. You write the hook for the " +
     'first second, not the last.',
   manipulation_risk_ceiling: 2,
   job_fit_weights: {

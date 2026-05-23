@@ -22,8 +22,12 @@ function makeFakeSb() {
   return {
     writes,
     patches,
-    setProbe(b) { probeReachable = b; },
-    preload(table, rows) { tableData.set(table, rows); },
+    setProbe(b) {
+      probeReachable = b;
+    },
+    preload(table, rows) {
+      tableData.set(table, rows);
+    },
     sbGet: async (table, filter) => {
       if (filter === 'select=id&limit=1' && !probeReachable) {
         throw new Error('relation does not exist');
@@ -75,9 +79,9 @@ test('proposeDecision: writes a row with sensible defaults', async () => {
   });
   assert.ok(r.id);
   assert.strictEqual(r.agent_name, 'ad-optimizer');
-  assert.strictEqual(r.confidence, 0.5);              // default
-  assert.strictEqual(r.auto_safe_band, 'green');      // default
-  assert.strictEqual(r.required_approval, false);     // green = no approval
+  assert.strictEqual(r.confidence, 0.5); // default
+  assert.strictEqual(r.auto_safe_band, 'green'); // default
+  assert.strictEqual(r.required_approval, false); // green = no approval
 });
 
 test('proposeDecision: clamps confidence to [0,1]', async () => {
@@ -178,7 +182,7 @@ test('proposeDecision: rounds costUsd to 2 decimals', async () => {
     recommendationText: 'x',
     costUsd: 0.301234,
   });
-  assert.strictEqual(r.cost_usd, 0.30);
+  assert.strictEqual(r.cost_usd, 0.3);
 });
 
 // ─── recordExecution ──────────────────────────────────────────────────────

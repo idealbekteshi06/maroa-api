@@ -3,12 +3,7 @@
   "name": "Maroa — Save inspiration",
   "version": "0.1.0",
   "description": "Right-click any Instagram, Facebook, or TikTok post and save it as Maroa inspiration. Your cold-start corpus grows with every save.",
-  "permissions": [
-    "contextMenus",
-    "activeTab",
-    "storage",
-    "notifications"
-  ],
+  "permissions": ["contextMenus", "activeTab", "storage", "notifications"],
   "host_permissions": [
     "https://*.instagram.com/*",
     "https://*.facebook.com/*",
@@ -37,11 +32,7 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://*.instagram.com/*",
-        "https://*.facebook.com/*",
-        "https://*.tiktok.com/*"
-      ],
+      "matches": ["https://*.instagram.com/*", "https://*.facebook.com/*", "https://*.tiktok.com/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }

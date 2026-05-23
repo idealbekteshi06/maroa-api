@@ -97,7 +97,9 @@ async function runAgencyPipeline(job = {}, deps = {}) {
     });
     route = r;
     detection = r.detection || {};
-    log(`routed to ${detection.awareness}×${detection.funnel} (source=${detection.source}, conf=${detection.confidence})`);
+    log(
+      `routed to ${detection.awareness}×${detection.funnel} (source=${detection.source}, conf=${detection.confidence})`
+    );
   } catch (e) {
     log(`route step crashed: ${e.message} — using safe defaults`);
     route = { ok: false, refusal: `route failure: ${e.message}` };
@@ -176,7 +178,9 @@ async function runAgencyPipeline(job = {}, deps = {}) {
       if (methodologyIds.length >= 4) break;
     }
   }
-  log(`methodology pick: ${methodologyIds.join(', ')} (sum_risk=${pickedRiskSum}, ceiling=${specialistCeilingForPick})`);
+  log(
+    `methodology pick: ${methodologyIds.join(', ')} (sum_risk=${pickedRiskSum}, ceiling=${specialistCeilingForPick})`
+  );
 
   for (const mid of methodologyIds) {
     try {
@@ -318,8 +322,8 @@ async function runAgencyPipeline(job = {}, deps = {}) {
   const refusalReason = !complianceResult.ok
     ? `compliance: ${(complianceResult.violations[0] || {}).issue || 'unspecified'}`
     : !ethicsOk
-    ? `ethics ceiling exceeded: ${manipulationRiskTotal} > ${effectiveCeiling}`
-    : null;
+      ? `ethics ceiling exceeded: ${manipulationRiskTotal} > ${effectiveCeiling}`
+      : null;
 
   const result = {
     ok: !refused,
@@ -432,7 +436,7 @@ async function runAgencyPipeline(job = {}, deps = {}) {
         risk: refused ? refusalReason : `manip_risk=${manipulationRiskTotal}/${effectiveCeiling}`,
         costUsd: 0, // agency-pipeline charges via callClaude cost tracker; this row is audit only
         manipulationRisk: manipulationRiskTotal,
-        autoSafeBand: refused ? 'red' : (manipulationRiskTotal >= effectiveCeiling * 0.8 ? 'yellow' : 'green'),
+        autoSafeBand: refused ? 'red' : manipulationRiskTotal >= effectiveCeiling * 0.8 ? 'yellow' : 'green',
       });
       if (decision?.id) {
         await decisionLog.recordExecution(decision.id, {

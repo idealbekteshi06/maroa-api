@@ -21,6 +21,7 @@
     "check-migrations:applied": "node scripts/check-migrations.js --verify-applied",
     "webhook-inventory": "node scripts/generate-webhook-inventory.js",
     "generate-openapi": "node scripts/generate-openapi.js",
+    "polish-openapi": "node scripts/polish-openapi.js",
     "eval-prompts": "node scripts/eval-prompts.js",
     "eval-prompts:live": "node scripts/eval-prompts.js --live",
     "encrypt-oauth-tokens": "node scripts/encrypt-oauth-tokens.js",
@@ -41,7 +42,6 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "@higgsfield/client": "^0.2.1",
     "@sentry/node": "^10.49.0",
     "@supabase/supabase-js": "^2.103.3",
     "@upstash/ratelimit": "^2.0.8",

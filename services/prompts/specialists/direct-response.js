@@ -38,8 +38,7 @@ module.exports = buildSpecialistModule({
     'sms',
   ],
   decision_style:
-    'Lead with pain, agitate, present specific outcome + offer. ' +
-    'Every line earns the next. No hedging.',
+    'Lead with pain, agitate, present specific outcome + offer. ' + 'Every line earns the next. No hedging.',
   prompt_persona:
     'You are a senior direct-response copywriter. You write sales letters that ' +
     'convert. You use specific outcomes, deadlines, and one offer per page. ' +

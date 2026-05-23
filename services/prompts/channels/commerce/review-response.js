@@ -36,9 +36,21 @@ module.exports = buildChannelModule({
     tone: 'specific_human',
   },
   hook_patterns: [
-    { name: 'Specific acknowledgment', template: '"Thanks, [Name] — glad [specific thing they mentioned] worked for you."', why: 'Proves the reply is for them' },
-    { name: 'Negative-handling', template: 'Empathize → context → resolution offer + contact', why: 'Defuses defensiveness' },
-    { name: 'Local touch', template: 'Reference local context if relevant (event, neighborhood)', why: 'Local SEO + authentic feel' },
+    {
+      name: 'Specific acknowledgment',
+      template: '"Thanks, [Name] — glad [specific thing they mentioned] worked for you."',
+      why: 'Proves the reply is for them',
+    },
+    {
+      name: 'Negative-handling',
+      template: 'Empathize → context → resolution offer + contact',
+      why: 'Defuses defensiveness',
+    },
+    {
+      name: 'Local touch',
+      template: 'Reference local context if relevant (event, neighborhood)',
+      why: 'Local SEO + authentic feel',
+    },
   ],
   anti_patterns: [
     { pattern: 'we appreciate your feedback', why: 'Boilerplate — kills authenticity' },

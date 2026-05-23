@@ -40,9 +40,7 @@ const PBKDF2_KEYLEN = 64;
 
 function hashSecret(secret, salt) {
   const useSalt = salt || crypto.randomBytes(16).toString('hex');
-  const derived = crypto
-    .pbkdf2Sync(secret, useSalt, PBKDF2_ITERS, PBKDF2_KEYLEN, 'sha512')
-    .toString('hex');
+  const derived = crypto.pbkdf2Sync(secret, useSalt, PBKDF2_ITERS, PBKDF2_KEYLEN, 'sha512').toString('hex');
   return `pbkdf2$${PBKDF2_ITERS}$${useSalt}$${derived}`;
 }
 
@@ -53,9 +51,7 @@ function verifySecret(secret, stored) {
     const iters = Number(parts[1]);
     const salt = parts[2];
     const expected = parts[3];
-    const derived = crypto
-      .pbkdf2Sync(secret, salt, iters, PBKDF2_KEYLEN, 'sha512')
-      .toString('hex');
+    const derived = crypto.pbkdf2Sync(secret, salt, iters, PBKDF2_KEYLEN, 'sha512').toString('hex');
     return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(derived, 'hex'));
   } catch {
     return false;
@@ -106,7 +102,7 @@ function register({ app, requireAnyUserId, sbGet, sbPost, sbPatch, apiError, saf
         log?.('/api/tokens', null, 'create failed', { error: err.message });
         return apiError(res, 500, 'INTERNAL_ERROR', safePublicError(err));
       }
-    },
+    }
   );
 
   app.get('/api/tokens', requireAnyUserId, async (req, res) => {
@@ -115,7 +111,7 @@ function register({ app, requireAnyUserId, sbGet, sbPost, sbPatch, apiError, saf
       if (!userId) return apiError(res, 401, 'UNAUTHORIZED', 'Sign in first');
       const rows = await sbGet(
         'api_tokens',
-        `user_id=eq.${encodeURIComponent(userId)}&select=id,label,prefix,scopes,last_used_at,expires_at,revoked_at,created_at&order=created_at.desc&limit=50`,
+        `user_id=eq.${encodeURIComponent(userId)}&select=id,label,prefix,scopes,last_used_at,expires_at,revoked_at,created_at&order=created_at.desc&limit=50`
       );
       const tokens = (rows || []).map((r) => ({
         ...r,
@@ -135,11 +131,9 @@ function register({ app, requireAnyUserId, sbGet, sbPost, sbPatch, apiError, saf
       const id = String(req.params.id || '');
       if (!id) return apiError(res, 400, 'VALIDATION_ERROR', 'token id required');
       // PostgREST filter — user can only revoke their own tokens.
-      await sbPatch(
-        'api_tokens',
-        `id=eq.${encodeURIComponent(id)}&user_id=eq.${encodeURIComponent(userId)}`,
-        { revoked_at: new Date().toISOString() },
-      );
+      await sbPatch('api_tokens', `id=eq.${encodeURIComponent(id)}&user_id=eq.${encodeURIComponent(userId)}`, {
+        revoked_at: new Date().toISOString(),
+      });
       return res.json({ ok: true });
     } catch (err) {
       log?.('/api/tokens', null, 'revoke failed', { error: err.message });

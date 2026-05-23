@@ -62,13 +62,9 @@ test('passes through GET requests untouched', async () => {
 test('required: returns 400 when key missing', async () => {
   const { required } = makeIdempotency({ ...fakeSb() });
   const res = makeFakeRes();
-  await required(
-    { method: 'POST', headers: {}, path: '/api/content/publish', body: { x: 1 } },
-    res,
-    () => {
-      throw new Error('next should not be called');
-    }
-  );
+  await required({ method: 'POST', headers: {}, path: '/api/content/publish', body: { x: 1 } }, res, () => {
+    throw new Error('next should not be called');
+  });
   assert.equal(res.statusCode, 400);
   assert.equal(res._json.error.code, 'IDEMPOTENCY_KEY_REQUIRED');
 });
@@ -146,12 +142,8 @@ test('same key + different body = 409 conflict', async () => {
 test('optional middleware lets unkeyed requests through', async () => {
   const { optional } = makeIdempotency({ ...fakeSb() });
   let called = false;
-  await optional(
-    { method: 'POST', headers: {}, path: '/api/legacy', body: {} },
-    makeFakeRes(),
-    () => {
-      called = true;
-    }
-  );
+  await optional({ method: 'POST', headers: {}, path: '/api/legacy', body: {} }, makeFakeRes(), () => {
+    called = true;
+  });
   assert.equal(called, true);
 });

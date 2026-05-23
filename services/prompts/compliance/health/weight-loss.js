@@ -41,7 +41,13 @@ module.exports = buildComplianceModule({
       statute: 'FTC Gateway Health Products Compliance Guide §IV.A',
     },
     {
-      patterns: ['lose 10 lbs in a week', 'lose 20 lbs in a month', 'lose 30 lbs fast', 'rapid weight loss', 'instant weight loss'],
+      patterns: [
+        'lose 10 lbs in a week',
+        'lose 20 lbs in a month',
+        'lose 30 lbs fast',
+        'rapid weight loss',
+        'instant weight loss',
+      ],
       issue: 'specific weight outcome in specific time — unsubstantiated',
       regulator: 'FTC',
       statute: 'FTC Gateway §IV.B',

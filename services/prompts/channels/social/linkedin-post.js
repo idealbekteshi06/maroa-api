@@ -40,10 +40,26 @@ module.exports = buildChannelModule({
     external_links: 'first_comment_only',
   },
   hook_patterns: [
-    { name: 'Contrarian POV', template: '"Everyone\'s wrong about [X]. Here\'s why:"', why: 'POV opener = saves + shares' },
-    { name: 'Story-led', template: '"I just [specific moment]. Here\'s what I learned:"', why: 'Narrative beats listicle on LinkedIn' },
-    { name: 'Mistake confession', template: '"I lost $X by [specific mistake]. Here\'s what I should have done:"', why: 'Vulnerability + specificity' },
-    { name: 'Counterintuitive data', template: '"[Specific stat] from this week says [counterintuitive insight]"', why: 'Data hooks LinkedIn power-users' },
+    {
+      name: 'Contrarian POV',
+      template: '"Everyone\'s wrong about [X]. Here\'s why:"',
+      why: 'POV opener = saves + shares',
+    },
+    {
+      name: 'Story-led',
+      template: '"I just [specific moment]. Here\'s what I learned:"',
+      why: 'Narrative beats listicle on LinkedIn',
+    },
+    {
+      name: 'Mistake confession',
+      template: '"I lost $X by [specific mistake]. Here\'s what I should have done:"',
+      why: 'Vulnerability + specificity',
+    },
+    {
+      name: 'Counterintuitive data',
+      template: '"[Specific stat] from this week says [counterintuitive insight]"',
+      why: 'Data hooks LinkedIn power-users',
+    },
   ],
   anti_patterns: [
     { pattern: 'buy now', why: 'LinkedIn flags as promo' },

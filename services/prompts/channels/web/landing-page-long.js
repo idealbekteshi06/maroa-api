@@ -36,8 +36,16 @@ module.exports = buildChannelModule({
     emoji_use: 'none',
   },
   hook_patterns: [
-    { name: 'Specific hero promise', template: '"[Outcome] in [time] without [pain]"', why: 'Outcome + time + objection-flip' },
-    { name: 'Problem-aware hero', template: 'Lead with the specific pain, not the solution', why: 'For pain-aware traffic' },
+    {
+      name: 'Specific hero promise',
+      template: '"[Outcome] in [time] without [pain]"',
+      why: 'Outcome + time + objection-flip',
+    },
+    {
+      name: 'Problem-aware hero',
+      template: 'Lead with the specific pain, not the solution',
+      why: 'For pain-aware traffic',
+    },
     { name: 'Quote-led hero', template: 'Customer outcome quote + before/after metric', why: 'Proof above the fold' },
   ],
   anti_patterns: [

@@ -64,9 +64,9 @@ function register({
   app.post('/webhook/seo-audit', async (req, res) => {
     const { business_id } = req.body;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
-  
+
     res.json({ received: true, message: 'SEO audit started — recommendations ready in ~60 seconds' });
-  
+
     setImmediate(async () => {
       try {
         const bizArr = await sbGet(
@@ -79,14 +79,14 @@ function register({
           log('/webhook/seo-audit', `No website_url for ${business_id}`);
           return;
         }
-  
+
         let competitors = [];
         try {
           competitors = JSON.parse(biz.competitors || '[]');
         } catch {
           /* soft-fail */
         }
-  
+
         let created = 0;
         const saveRec = async (
           type,
@@ -113,7 +113,7 @@ function register({
             log('/webhook/seo-audit', `saveRec error: ${e.message}`);
           }
         };
-  
+
         // ── CHECK 1: Keyword gap + LOCAL SEO via SerpAPI ──────────────────────
         const kwGapPromise = (async () => {
           if (!SERPAPI_KEY) return;
@@ -122,7 +122,7 @@ function register({
             const baseQuery = `${biz.industry} ${loc}`.trim();
             const bizResults = await serpSearch(baseQuery, 10);
             const bizLinks = new Set(bizResults.map((r) => r.link));
-  
+
             for (const comp of competitors.slice(0, 3)) {
               const compName = typeof comp === 'string' ? comp : comp.name || comp;
               const compQ = `${compName} ${biz.industry}`;
@@ -158,7 +158,7 @@ function register({
                 biz.website_url
               );
             }
-  
+
             // ── LOCAL SEO: geo-specific keyword gaps ────────────────────────────
             if (loc) {
               const localQueries = [
@@ -187,7 +187,7 @@ function register({
             log('/webhook/seo-audit', `kwGap error: ${e.message}`);
           }
         })();
-  
+
         // ── CHECK 2: Meta tag audit ───────────────────────────────────────────
         const metaPromise = (async () => {
           try {
@@ -197,21 +197,21 @@ function register({
               {}
             );
             const html = typeof fetchResp.body === 'string' ? fetchResp.body : JSON.stringify(fetchResp.body);
-  
+
             const currentTitle = extractTitle(html);
             const currentDesc = extractMetaTag(html, 'description');
             const baseKw = `${biz.industry} ${biz.location || ''}`.trim();
-  
+
             const needsTitle = !currentTitle || currentTitle.length > 60 || currentTitle.length < 10;
             const needsDesc = !currentDesc || currentDesc.length > 155 || currentDesc.length < 50;
-  
+
             if (needsTitle || needsDesc) {
               const metaPrompt = `Write an SEO-optimized meta title (max 60 chars) and meta description (max 155 chars) for ${biz.business_name} (${biz.industry}).
   Website: ${biz.website_url} | Target keyword: "${baseKw}" | Location: ${biz.location || 'United States'}
   Make the title include the keyword. Make the description include a clear benefit + CTA.
   Return ONLY valid JSON: { "meta_title": "...", "meta_description": "..." }`;
               const meta = await callClaude(metaPrompt, 'short_copy', 300);
-  
+
               if (needsTitle)
                 await saveRec(
                   'meta_title',
@@ -237,7 +237,7 @@ function register({
             log('/webhook/seo-audit', `meta error: ${e.message}`);
           }
         })();
-  
+
         // ── CHECK 3: Schema markup ────────────────────────────────────────────
         const schemaPromise = (async () => {
           try {
@@ -269,7 +269,7 @@ function register({
             log('/webhook/seo-audit', `schema error: ${e.message}`);
           }
         })();
-  
+
         await Promise.all([kwGapPromise, metaPromise, schemaPromise]);
         try {
           storeInsight(
@@ -289,7 +289,7 @@ function register({
       }
     });
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // GET /webhook/seo-recommendations-get?business_id=X[&status=X][&priority=X]
   // ─────────────────────────────────────────────────────────────────────────────
@@ -301,13 +301,13 @@ function register({
       let filter = `business_id=eq.${business_id}&order=created_at.desc`;
       if (status) filter += `&status=eq.${status}`;
       if (priority) filter += `&priority=eq.${priority}`;
-  
+
       const recs = await sbGet('seo_recommendations', filter);
-  
+
       // Sort high → medium → low client-side
       const order = { high: 0, medium: 1, low: 2 };
       recs.sort((a, b) => (order[a.priority] ?? 1) - (order[b.priority] ?? 1));
-  
+
       const summary = {
         total: recs.length,
         pending: recs.filter((r) => r.status === 'pending').length,
@@ -322,13 +322,13 @@ function register({
           low: recs.filter((r) => r.priority === 'low').length,
         },
       };
-  
+
       res.json({ recommendations: recs, summary });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // POST /webhook/seo-recommendation-apply
   // Mark a recommendation applied; return full details for frontend to show.
@@ -346,7 +346,7 @@ function register({
       res.status(500).json({ error: err.message });
     }
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // POST /webhook/cro-analyze
   // Claude Opus generates 3 A/B test recommendations + saves to ab_tests.
@@ -362,7 +362,7 @@ function register({
       );
       const biz = bizArr[0];
       if (!biz) return res.status(404).json({ error: 'business not found' });
-  
+
       const prompt = `You are a CRO expert. Analyze this business and generate 3 high-impact A/B tests.
   Business: ${biz.business_name} | Industry: ${biz.industry}
   Goal: ${biz.marketing_goal || 'generate leads'} | Audience: ${biz.target_audience || 'general consumers'}
@@ -380,10 +380,10 @@ function register({
       "priority": "high|medium|low"
     }
   ]`;
-  
+
       const tests = await callClaude(prompt, 'strategy', 1200);
       const testArr = Array.isArray(tests) ? tests : tests.tests || [];
-  
+
       // Save each test to ab_tests table
       const saved = [];
       for (const t of testArr.slice(0, 3)) {
@@ -405,13 +405,13 @@ function register({
           saved.push(t);
         }
       }
-  
+
       res.json({ tests_created: saved.length, tests: saved });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // POST /webhook/cro-generate-copy
   // Generate 3 copy variations for a specific page element using brand voice.
@@ -428,22 +428,22 @@ function register({
       );
       const biz = bizArr[0];
       if (!biz) return res.status(404).json({ error: 'business not found' });
-  
+
       // Retrieve brand voice context
       const brandContext = await getBrandExamples(
         business_id,
         'social_post',
         `${biz.business_name} ${page_type} ${element_type}`
       );
-  
+
       const prompt = `${brandContext}Write 3 distinct variations of a ${element_type} for the ${page_type} page of ${biz.business_name} (${biz.industry}).
   Goal: ${goal || biz.marketing_goal || 'convert visitors'} | Audience: ${biz.target_audience || 'general consumers'} | Tone: ${biz.brand_tone || 'professional'}
   Each variation should use a different psychological angle (e.g. urgency, social proof, curiosity).
   Return ONLY valid JSON: { "variations": [{ "text": "...", "rationale": "why this angle works" }] }`;
-  
+
       const result = await callClaude(prompt, 'social_post', 800);
       const variations = result.variations || (Array.isArray(result) ? result : []);
-  
+
       res.json({ variations, count: variations.length, page_type, element_type });
     } catch (err) {
       res.status(500).json({ error: err.message });

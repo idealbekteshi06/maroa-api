@@ -263,9 +263,8 @@ test('mcp-server: roundtrip — initialize + tools/list returns correct schema',
     // Server renamed from 'maroa-internal' to 'maroa' in v2 (action tools
     // shipped 2026-05-19). Accept either for one release cycle.
     assert.ok(
-      resp1.result.serverInfo.name === 'maroa' ||
-        resp1.result.serverInfo.name === 'maroa-internal',
-      `unexpected serverInfo.name: ${resp1.result.serverInfo.name}`,
+      resp1.result.serverInfo.name === 'maroa' || resp1.result.serverInfo.name === 'maroa-internal',
+      `unexpected serverInfo.name: ${resp1.result.serverInfo.name}`
     );
     assert.ok(resp1.result.serverInfo.version, 'version present');
     assert.ok(resp1.result.protocolVersion);
@@ -290,12 +289,7 @@ test('mcp-server: roundtrip — initialize + tools/list returns correct schema',
       assert.ok(names.includes(expected), `tools/list should include ${expected}`);
     }
     // Spot-check at least one v2 action tool is exposed.
-    const actionTools = [
-      'list_workspaces',
-      'list_pending_approvals',
-      'approve_decision',
-      'draft_post',
-    ];
+    const actionTools = ['list_workspaces', 'list_pending_approvals', 'approve_decision', 'draft_post'];
     const hasAnyAction = actionTools.some((n) => names.includes(n));
     if (resp2.result.tools.length > 6) {
       assert.ok(hasAnyAction, 'v2 server should expose at least one action tool');

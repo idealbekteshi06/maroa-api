@@ -49,7 +49,12 @@ module.exports = buildComplianceModule({
       regulator: 'SEC / CFTC',
     },
     {
-      patterns: ['turn $100 into $1 million', 'turn $1000 into $10 million', 'get rich with crypto', 'guaranteed riches'],
+      patterns: [
+        'turn $100 into $1 million',
+        'turn $1000 into $10 million',
+        'get rich with crypto',
+        'guaranteed riches',
+      ],
       issue: 'unsubstantiated specific-return claim',
       regulator: 'SEC',
       statute: 'Securities Act §17',

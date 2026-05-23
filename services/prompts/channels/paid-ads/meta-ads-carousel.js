@@ -35,13 +35,19 @@ module.exports = buildChannelModule({
     emoji_use: 'minimal',
   },
   hook_patterns: [
-    { name: 'Benefit ladder', template: 'Card 1: hook. Cards 2-4: benefits. Card 5: CTA.', why: 'Cascading benefits earn the swipe' },
-    { name: 'Product showcase', template: 'One card per product, same style', why: 'For e-commerce — high catalog discovery' },
+    {
+      name: 'Benefit ladder',
+      template: 'Card 1: hook. Cards 2-4: benefits. Card 5: CTA.',
+      why: 'Cascading benefits earn the swipe',
+    },
+    {
+      name: 'Product showcase',
+      template: 'One card per product, same style',
+      why: 'For e-commerce — high catalog discovery',
+    },
     { name: 'Step-by-step', template: 'Step 1, Step 2, Step 3, Outcome card', why: 'Tutorial framing earns swipes' },
   ],
-  anti_patterns: [
-    { pattern: 'duplicate hook', why: 'Same headline on every card = spam flag' },
-  ],
+  anti_patterns: [{ pattern: 'duplicate hook', why: 'Same headline on every card = spam flag' }],
   retention_mechanics: [
     'first card = hook + value prop',
     'each card delivers ONE distinct payoff',

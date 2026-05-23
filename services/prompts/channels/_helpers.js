@@ -38,7 +38,10 @@ function _charCount(text) {
 
 function _firstLine(text) {
   if (!text) return '';
-  const lines = String(text).split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const lines = String(text)
+    .split(/\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
   return lines[0] || '';
 }
 
@@ -50,9 +53,7 @@ function _countHashtags(text) {
 function _countEmoji(text) {
   if (!text) return 0;
   // Rough emoji range matcher — good enough for "is there lots of emoji" checks.
-  return (
-    (String(text).match(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F000}-\u{1F2FF}]/gu) || []).length
-  );
+  return (String(text).match(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F000}-\u{1F2FF}]/gu) || []).length;
 }
 
 function _containsAny(text, patterns) {

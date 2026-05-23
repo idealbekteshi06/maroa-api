@@ -109,10 +109,7 @@ test('createWorkspace: validates required fields', () => {
 
 test('createWorkspace: validates plan_tier', () => {
   const ws = makeWorkspacesService(makeFakeSb());
-  assert.rejects(
-    () => ws.createWorkspace({ ownerUserId: 'u', name: 'X', planTier: 'bogus' }),
-    /planTier must be/
-  );
+  assert.rejects(() => ws.createWorkspace({ ownerUserId: 'u', name: 'X', planTier: 'bogus' }), /planTier must be/);
 });
 
 test('createWorkspace: creates workspace + auto-adds owner as member', async () => {
@@ -243,7 +240,7 @@ test('acceptInvite: expired invite returns ok:false', async () => {
       token: 'tok-x',
       workspace_id: 'ws-1',
       role: 'designer',
-      expires_at: new Date(Date.now() - 86400000).toISOString(),  // expired
+      expires_at: new Date(Date.now() - 86400000).toISOString(), // expired
       accepted_at: null,
       cancelled_at: null,
     },
@@ -266,9 +263,7 @@ test('cancelInvite: patches cancelled_at', async () => {
 
 test('addClient: idempotent (returns existing)', async () => {
   const sb = makeFakeSb();
-  sb.preload('client_relationships', [
-    { id: 'cr-1', workspace_id: 'w-1', business_id: 'b-1', status: 'active' },
-  ]);
+  sb.preload('client_relationships', [{ id: 'cr-1', workspace_id: 'w-1', business_id: 'b-1', status: 'active' }]);
   const ws = makeWorkspacesService(sb);
   const r = await ws.addClient({ workspaceId: 'w-1', businessId: 'b-1' });
   assert.strictEqual(r.id, 'cr-1');
@@ -383,7 +378,7 @@ test('lookupApproval: lazy-expires past-deadline rows', async () => {
       id: 'ca-1',
       approval_token: 'tok-x',
       status: 'pending',
-      expires_at: new Date(Date.now() - 60000).toISOString(),  // expired
+      expires_at: new Date(Date.now() - 60000).toISOString(), // expired
     },
   ]);
   const ws = makeWorkspacesService(sb);

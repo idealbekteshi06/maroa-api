@@ -195,7 +195,7 @@ function createWf5(deps) {
       const trendUp = ['scaling', 'pivoting'].includes(String(c.posture_change || '').toLowerCase());
       const eng = threatToEngagement(c.threat_level);
       const sparkline = Array.from({ length: 12 }, (_, j) =>
-        Math.max(1, eng + (trendUp ? j * 0.05 : -j * 0.03) + (i * 0.1))
+        Math.max(1, eng + (trendUp ? j * 0.05 : -j * 0.03) + i * 0.1)
       );
       return {
         name,

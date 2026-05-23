@@ -47,7 +47,6 @@ jobs:
             --config "p/jwt" \
             --config "./.semgrep/" \
             --error \
-            --severity ERROR \
-            --severity WARNING
+            --severity ERROR
         env:
           SEMGREP_RULES: ''

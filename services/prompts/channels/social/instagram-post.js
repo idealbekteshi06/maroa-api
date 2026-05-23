@@ -47,7 +47,7 @@ module.exports = buildChannelModule({
     },
     {
       name: 'Contrarian POV',
-      template: 'Stop doing [common advice]. Here\'s what actually works:',
+      template: "Stop doing [common advice]. Here's what actually works:",
       why: 'Saves + shares spike on POV posts',
     },
     {
@@ -57,7 +57,7 @@ module.exports = buildChannelModule({
     },
     {
       name: 'Confession',
-      template: 'I was wrong about [topic]. Here\'s what I learned:',
+      template: "I was wrong about [topic]. Here's what I learned:",
       why: 'Vulnerability outperforms expertise-posing',
     },
   ],
@@ -85,7 +85,7 @@ module.exports = buildChannelModule({
     if (firstLine.length > 200 && !firstLine.includes('.')) {
       fixes.push({
         severity: 'suggest',
-        issue: 'Instagram: first line >200 chars without punctuation — won\'t fit the visible window',
+        issue: "Instagram: first line >200 chars without punctuation — won't fit the visible window",
         suggestion: 'Front-load the hook in the first 125 chars (before "more" cuts in).',
         span: null,
       });

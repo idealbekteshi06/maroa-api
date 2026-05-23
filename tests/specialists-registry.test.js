@@ -123,7 +123,7 @@ test('chooseForJob: social-media-manager wins a daily Instagram post', () => {
 
 test('chooseForJob: lifecycle-marketer wins a winback retention email', () => {
   const r = registry.pickSpecialist({
-    goal: 'Write a winback email for customers who haven\'t purchased in 90 days',
+    goal: "Write a winback email for customers who haven't purchased in 90 days",
     funnel_stage: 'retention',
     customer_type: 'existing',
     channel: 'email-retention',
@@ -171,8 +171,14 @@ test('generateBriefSegments: every specialist produces non-empty segments', () =
     const mod = registry.getSpecialist(id);
     const segs = mod.generateBriefSegments({});
     assert.ok(Array.isArray(segs) && segs.length > 0, `${id} produced no segments`);
-    assert.ok(segs.some((s) => /SPECIALIST:/.test(s)), `${id} missing SPECIALIST: line`);
-    assert.ok(segs.some((s) => /MANIPULATION-RISK CEILING:/.test(s)), `${id} missing ceiling line`);
+    assert.ok(
+      segs.some((s) => /SPECIALIST:/.test(s)),
+      `${id} missing SPECIALIST: line`
+    );
+    assert.ok(
+      segs.some((s) => /MANIPULATION-RISK CEILING:/.test(s)),
+      `${id} missing ceiling line`
+    );
   }
 });
 

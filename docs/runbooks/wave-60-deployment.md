@@ -51,6 +51,7 @@ field — you're live.
 **File:** [`migrations/064_agency_pipeline_runs.sql`](../../migrations/064_agency_pipeline_runs.sql)
 
 Creates `agency_pipeline_runs` table with:
+
 - `business_id` FK (UUID)
 - `job_goal`, `channel`, `industry`
 - detection + dispatch + composition + validation columns (all jsonb)
@@ -75,11 +76,13 @@ VALUES (
 ```
 
 Get checksum locally:
+
 ```bash
 shasum -a 256 migrations/064_agency_pipeline_runs.sql
 ```
 
 **Verify:**
+
 ```sql
 SELECT * FROM _migrations WHERE filename = '064_agency_pipeline_runs.sql';
 SELECT to_regclass('public.agency_pipeline_runs');  -- should return the OID
@@ -93,18 +96,18 @@ Open Railway → project → Variables.
 
 ### Required (pipeline will not run without these)
 
-| Variable                     | Source                                        | Required? |
-| ---------------------------- | --------------------------------------------- | --------- |
-| `AGENCY_PIPELINE_ENABLED`    | Set to `1`                                    | YES       |
+| Variable                  | Source     | Required? |
+| ------------------------- | ---------- | --------- |
+| `AGENCY_PIPELINE_ENABLED` | Set to `1` | YES       |
 
 ### Recommended (degrade gracefully if missing)
 
-| Variable                     | Source                                        | Effect if missing                |
-| ---------------------------- | --------------------------------------------- | -------------------------------- |
-| `OPENAI_API_KEY`             | platform.openai.com → API keys                | embeddings + reranker degraded   |
-| `META_AD_LIBRARY_TOKEN`      | developers.facebook.com → app → tokens (free) | corpus seed source unavailable   |
-| `GOOGLE_PLACES_API_KEY`      | console.cloud.google.com → APIs               | local-cohort seed unavailable    |
-| `SLACK_ALERT_WEBHOOK_URL`    | Slack → app → Incoming Webhooks               | refusal alerts won't fire        |
+| Variable                  | Source                                        | Effect if missing              |
+| ------------------------- | --------------------------------------------- | ------------------------------ |
+| `OPENAI_API_KEY`          | platform.openai.com → API keys                | embeddings + reranker degraded |
+| `META_AD_LIBRARY_TOKEN`   | developers.facebook.com → app → tokens (free) | corpus seed source unavailable |
+| `GOOGLE_PLACES_API_KEY`   | console.cloud.google.com → APIs               | local-cohort seed unavailable  |
+| `SLACK_ALERT_WEBHOOK_URL` | Slack → app → Incoming Webhooks               | refusal alerts won't fire      |
 
 Railway restarts the service automatically when env vars change. Wait
 ~30s for the new container to come up before running step 4.
@@ -121,6 +124,7 @@ node scripts/wave-60-preflight.js
 Pulls `.env` (or Doppler env), reports what's missing in one screen.
 
 **Expected output when ready:**
+
 ```
 1. Code surface     ✓ (all 7 files present)
 2. Registry counts  ✓ (29 methodologies, 35 channels, 20 compliance, 7 specialists)
@@ -144,6 +148,7 @@ curl -s https://maroa-api-production.up.railway.app/readyz | jq .checks.wave60
 ```
 
 Expected when flag is on + registries load:
+
 ```json
 {
   "ok": true,
@@ -175,6 +180,7 @@ curl -X POST https://maroa-api-production.up.railway.app/webhook/agency-generate
 ```
 
 **Expected:**
+
 ```json
 {
   "ok": true,
@@ -186,6 +192,7 @@ curl -X POST https://maroa-api-production.up.railway.app/webhook/agency-generate
 ```
 
 **Verify audit row landed:**
+
 ```sql
 SELECT id, specialist_picked, refused, refusal_reason, created_at
 FROM agency_pipeline_runs
@@ -209,6 +216,7 @@ curl -X POST https://maroa-api-production.up.railway.app/webhook/agency-generate
 ```
 
 **Expected:**
+
 ```json
 {
   "ok": false,
@@ -229,6 +237,7 @@ curl -s https://maroa-api-production.up.railway.app/metrics | grep agency_pipeli
 ```
 
 After a few requests, you should see:
+
 ```
 agency_pipeline_calls_total{outcome="ok",specialist="social-media-manager"} N
 agency_pipeline_calls_total{outcome="refused_compliance",specialist="performance-marketer"} N

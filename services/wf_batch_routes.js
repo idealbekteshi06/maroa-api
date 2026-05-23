@@ -143,11 +143,13 @@ function registerBatchRoutes({ app, wf5, wf6, wf7, wf8, wf9, wf10, wf12, wf14, w
     try {
       const result = await wf9.intakeThread(body);
       if (wf11 && result?.threadId) {
-        const routing = await wf11.applyRouting({
-          businessId: body.businessId,
-          threadId: result.threadId,
-          triage: result,
-        }).catch(() => null);
+        const routing = await wf11
+          .applyRouting({
+            businessId: body.businessId,
+            threadId: result.threadId,
+            triage: result,
+          })
+          .catch(() => null);
         if (routing) result.routing = routing;
       }
       res.json(result);
@@ -225,8 +227,12 @@ function registerBatchRoutes({ app, wf5, wf6, wf7, wf8, wf9, wf10, wf12, wf14, w
   app.post('/webhook/wf10-jobs-list', wf10list);
 
   app.post('/webhook/wf10-ab-test-result', async (req, res) => {
-    const { business_id: businessId, ab_test_id: abTestId, winner_variant: winnerVariant, meta_experiment_id: metaExperimentId } =
-      req.body || {};
+    const {
+      business_id: businessId,
+      ab_test_id: abTestId,
+      winner_variant: winnerVariant,
+      meta_experiment_id: metaExperimentId,
+    } = req.body || {};
     if (!businessId || !abTestId || !winnerVariant) {
       return apiError(res, 400, 'INVALID_REQUEST', 'business_id, ab_test_id, winner_variant required');
     }

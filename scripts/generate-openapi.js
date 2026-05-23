@@ -59,6 +59,22 @@ function extractRoutes(sourceFile) {
   return routes;
 }
 
+function describeRoute(method, routePath) {
+  const m = method.toLowerCase();
+  const p = routePath;
+  if (p === '/healthz') return 'Liveness probe — process is up.';
+  if (p === '/readyz') return 'Readiness probe with dependency checks.';
+  if (p === '/health') return 'Minimal public health; x-orchestrator-secret for operator detail.';
+  if (p === '/metrics') return 'Prometheus metrics; requires METRICS_SCRAPE_TOKEN.';
+  if (p === '/api/billing/plans') return 'Public billing plan catalog.';
+  if (p.startsWith('/webhook/paddle')) return 'Paddle subscription webhook (HMAC-signed).';
+  if (p.startsWith('/webhook/')) {
+    return `Automation webhook (${m.toUpperCase()} ${p}). See docs/openapi-overrides.json for detail.`;
+  }
+  if (p.startsWith('/api/')) return `Dashboard API (${m.toUpperCase()} ${p}); JWT required unless public.`;
+  return `Maroa API (${m.toUpperCase()} ${p}).`;
+}
+
 function classifyRoute(route) {
   // Tag by leading path segment for OpenAPI tags grouping.
   const seg = route.path.split('/').filter(Boolean)[0] || 'root';
@@ -81,7 +97,7 @@ function buildOpenApi(routes) {
       paths[p][op.method] = {
         tags: [op.tag],
         summary: `${op.method.toUpperCase()} ${p}`,
-        description: `Auto-generated from ${op.source}. Hand-edit this entry for accuracy.`,
+        description: describeRoute(op.method, p),
         responses: {
           200: { description: 'Successful response' },
           400: {

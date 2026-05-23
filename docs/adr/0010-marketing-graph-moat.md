@@ -33,18 +33,19 @@ days of customer usage, the graph IS the product.
 
 Eight tables:
 
-| Table | What | Why |
-| --- | --- | --- |
-| `marketing_graph_entities` | typed nodes (product, audience, channel, creative, …) | Generic enough to grow without migrations |
-| `marketing_graph_edges` | typed directed relationships (used_in, targeted_at, attributed_to, …) | Stitches everything together |
-| `claims_library` | atomic marketing claims with outcome_signal | High-performing claims surface first in N-best |
-| `offer_library` | promotional offers with conversion + revenue counters | Reusable across creatives |
-| `audience_segments` | platform-addressable audiences | Stored once, referenced by creatives |
-| `creative_assets` | every creative with Creative Genome decomposition | The core learning surface |
-| `experiments` | A/B testing state | Powers the Experiment Engine (Phase 4) |
-| `decision_logs` | universal agent decision audit trail | Powers the Autopilot Control Room UI (Phase 3) |
+| Table                      | What                                                                  | Why                                            |
+| -------------------------- | --------------------------------------------------------------------- | ---------------------------------------------- |
+| `marketing_graph_entities` | typed nodes (product, audience, channel, creative, …)                 | Generic enough to grow without migrations      |
+| `marketing_graph_edges`    | typed directed relationships (used_in, targeted_at, attributed_to, …) | Stitches everything together                   |
+| `claims_library`           | atomic marketing claims with outcome_signal                           | High-performing claims surface first in N-best |
+| `offer_library`            | promotional offers with conversion + revenue counters                 | Reusable across creatives                      |
+| `audience_segments`        | platform-addressable audiences                                        | Stored once, referenced by creatives           |
+| `creative_assets`          | every creative with Creative Genome decomposition                     | The core learning surface                      |
+| `experiments`              | A/B testing state                                                     | Powers the Experiment Engine (Phase 4)         |
+| `decision_logs`            | universal agent decision audit trail                                  | Powers the Autopilot Control Room UI (Phase 3) |
 
 Design principles:
+
 - **Typed but not rigid.** `entity_type` is text + `attrs` is jsonb. New
   entity types (webinar, podcast, ad-set, etc.) don't need migrations.
 - **Denormalized business_id on every table.** Keeps RLS simple + every
@@ -81,14 +82,15 @@ Factory `makeDecisionLogger({ sbGet, sbPost, sbPatch, logger, metrics })`.
 Lifecycle per decision:
 
 1. `proposeDecision({ businessId, agentName, decisionType, recommendationText,
-   confidence, expectedUpside, risk, costUsd, manipulationRisk,
-   autoSafeBand })` — write row before acting.
+confidence, expectedUpside, risk, costUsd, manipulationRisk,
+autoSafeBand })` — write row before acting.
 2. `recordExecution(id, { executed, executionDetails, refused, refusalReason })`
    — after the agent has actually run.
 3. `recordOutcome(id, { outcome, outcomeScore })` — after measurement
    window (typically 1–7 days).
 
 Auto-safe banding matches the strategy doc:
+
 - **green** → auto-publish, no approval (default for routine agent actions)
 - **yellow** → operator notified before publish (brand-sensitive)
 - **red** → never auto-publish (regulated / high-risk / above spend threshold)
@@ -121,6 +123,7 @@ fallback paths). Each new addition is a code-review event.
 ### 5. Wiring into existing agents (TODO — separate commit)
 
 The libraries are READY. Wiring is a per-agent task:
+
 - ad-optimizer → log every refresh / pause / scale decision
 - content-generate → log + record creative in the graph
 - cro → log every audit + rewrite recommendation
@@ -135,12 +138,12 @@ applied + smoke test passes.
 
 ## Cost model
 
-| Activity | Cost | Frequency |
-| --- | --- | --- |
-| Migration 065 apply | $0 | one-time |
-| Decision log row write | ~$0 (single Supabase INSERT) | per agent decision |
-| Graph entity/edge write | ~$0 | per agent action |
-| Performance score recompute | ~$0 (pure compute) | per outcome measurement |
+| Activity                    | Cost                         | Frequency               |
+| --------------------------- | ---------------------------- | ----------------------- |
+| Migration 065 apply         | $0                           | one-time                |
+| Decision log row write      | ~$0 (single Supabase INSERT) | per agent decision      |
+| Graph entity/edge write     | ~$0                          | per agent action        |
+| Performance score recompute | ~$0 (pure compute)           | per outcome measurement |
 
 Read costs dominate at scale (the N-best reranker hits `topCreatives` +
 `pickTopClaims` on every generation). Indexes on
@@ -149,12 +152,12 @@ millions of rows per business.
 
 ## Failure modes (all soft)
 
-| Failure | Behavior |
-| --- | --- |
-| Migration 065 not applied | `isHealthy()` returns false; all writes/reads no-op |
-| Supabase outage mid-write | Logged, metric incremented, function returns null |
-| Stale outcome_signal | Library is read-only after first probe; latency-tolerant |
-| RLS misconfig | Reads return `[]` (operator sees in metrics) |
+| Failure                   | Behavior                                                 |
+| ------------------------- | -------------------------------------------------------- |
+| Migration 065 not applied | `isHealthy()` returns false; all writes/reads no-op      |
+| Supabase outage mid-write | Logged, metric incremented, function returns null        |
+| Stale outcome_signal      | Library is read-only after first probe; latency-tolerant |
+| RLS misconfig             | Reads return `[]` (operator sees in metrics)             |
 
 Same fail-safe envelope as 061 (performance memory) + 062 (corpus).
 

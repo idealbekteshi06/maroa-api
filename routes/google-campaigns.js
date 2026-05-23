@@ -109,9 +109,7 @@ function register({
     res.json({ received: true, message: 'Google Ads campaign creation started — check email in ~2 minutes' });
 
     try {
-      const biz = (
-        await sbGet('businesses', `id=eq.${encodeURIComponent(business_id)}&select=${G_BIZ_SELECT}`)
-      )[0];
+      const biz = (await sbGet('businesses', `id=eq.${encodeURIComponent(business_id)}&select=${G_BIZ_SELECT}`))[0];
 
       const customerId = gCid(biz.google_ads_customer_id);
       const token = oauthCrypto.readToken(biz, 'google_access_token');
@@ -269,9 +267,10 @@ Return exactly:
                     { text: truncate(ad.headline2, 30) },
                     { text: truncate(ad.headline3, 30) },
                   ].filter((h) => h.text),
-                  descriptions: [{ text: truncate(ad.description1, 90) }, { text: truncate(ad.description2, 90) }].filter(
-                    (d) => d.text
-                  ),
+                  descriptions: [
+                    { text: truncate(ad.description1, 90) },
+                    { text: truncate(ad.description2, 90) },
+                  ].filter((d) => d.text),
                 },
               },
             },
@@ -329,7 +328,7 @@ Return exactly:
       const camp = (
         await sbGet(
           'ad_campaigns',
-          `id=eq.${encodeURIComponent(campaign_id)}&business_id=eq.${encodeURIComponent(business_id)}`,
+          `id=eq.${encodeURIComponent(campaign_id)}&business_id=eq.${encodeURIComponent(business_id)}`
         )
       )[0];
       if (!camp) return res.status(404).json({ error: 'Campaign not found' });
@@ -338,7 +337,7 @@ Return exactly:
       const biz = (
         await sbGet(
           'businesses',
-          `id=eq.${encodeURIComponent(business_id)}&select=google_access_token,google_access_token_enc,google_ads_customer_id`,
+          `id=eq.${encodeURIComponent(business_id)}&select=google_access_token,google_access_token_enc,google_ads_customer_id`
         )
       )[0];
       const token = oauthCrypto.readToken(biz, 'google_access_token');
@@ -373,7 +372,7 @@ Return exactly:
         await sbGet(
           'businesses',
           `id=eq.${encodeURIComponent(business_id)}&select=business_name,marketing_goal,target_cpc,avg_order_value,` +
-            `google_access_token,google_access_token_enc,google_ads_customer_id`,
+            `google_access_token,google_access_token_enc,google_ads_customer_id`
         )
       )[0];
       const token = biz ? oauthCrypto.readToken(biz, 'google_access_token') : null;
@@ -382,7 +381,7 @@ Return exactly:
       const customerId = gCid(biz.google_ads_customer_id);
       const campaigns = await sbGet(
         'ad_campaigns',
-        `business_id=eq.${encodeURIComponent(business_id)}&platform=eq.google&status=eq.active`,
+        `business_id=eq.${encodeURIComponent(business_id)}&platform=eq.google&status=eq.active`
       );
 
       let optimizedCount = 0;
@@ -527,7 +526,7 @@ Return ONLY JSON: {"action":"increase_budget"|"decrease_budget"|"pause"|"refresh
     try {
       const campaigns = await sbGet(
         'ad_campaigns',
-        `business_id=eq.${encodeURIComponent(business_id)}&platform=eq.google&order=created_at.desc`,
+        `business_id=eq.${encodeURIComponent(business_id)}&platform=eq.google&order=created_at.desc`
       );
       const summary = {
         total: campaigns.length,

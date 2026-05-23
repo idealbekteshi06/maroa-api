@@ -3,12 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const {
-  detectCrisisSignals,
-  normalizePlan,
-  isPaidActive,
-  isGrowthPlus,
-} = require('../services/ops-maintenance');
+const { detectCrisisSignals, normalizePlan, isPaidActive, isGrowthPlus } = require('../services/ops-maintenance');
 
 test('ops-maintenance: normalizePlan maps free to starter', () => {
   assert.strictEqual(normalizePlan('free'), 'starter');

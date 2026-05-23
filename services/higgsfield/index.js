@@ -7,11 +7,7 @@ const vetter = require('../prompts/image-vetter');
 const creative = require('../prompts/creative-director');
 const { createSdkWrapper } = require('./sdkClient');
 const { routeModelForContentType, resolveModelSlug } = require('./modelRouter');
-const {
-  getCameraPreset,
-  applyCameraPresetToPayload,
-  motionPromptFromPreset,
-} = require('./cameraPresets');
+const { getCameraPreset, applyCameraPresetToPayload, motionPromptFromPreset } = require('./cameraPresets');
 const { estimateModelCost, logHiggsfieldGenerationCost, logMrHiggsCost } = require('./costTracking');
 const { requireAgency } = require('./agencyGate');
 const { VIDEO_AB_VARIANTS } = require('./videoAbVariants');
@@ -1685,7 +1681,9 @@ module.exports = function createHiggsfieldService(deps) {
     });
     const parsed = extractJSON(raw) || {};
     return {
-      shot_list: Array.isArray(parsed.shot_list) ? parsed.shot_list : [{ shot: 1, description: sceneDescription, duration_sec: 5 }],
+      shot_list: Array.isArray(parsed.shot_list)
+        ? parsed.shot_list
+        : [{ shot: 1, description: sceneDescription, duration_sec: 5 }],
       camera_moves: Array.isArray(parsed.camera_moves) ? parsed.camera_moves : ['static'],
       pacing: parsed.pacing || 'medium',
       suggested_model: parsed.suggested_model || 'kling-3.0',

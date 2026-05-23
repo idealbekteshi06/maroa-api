@@ -37,15 +37,23 @@ module.exports = buildChannelModule({
     cta_placement: 'end_only',
   },
   hook_patterns: [
-    { name: 'Story open', template: 'Specific 1-2 sentence anecdote, then zoom out', why: 'Stories outperform tips in nurture' },
+    {
+      name: 'Story open',
+      template: 'Specific 1-2 sentence anecdote, then zoom out',
+      why: 'Stories outperform tips in nurture',
+    },
     { name: 'Curiosity subject', template: '"The mistake I made last week"', why: 'Curiosity > urgency in nurture' },
-    { name: 'Question subject', template: '"Are you doing this [common thing]?"', why: 'Reads as a friend, not a broadcast' },
+    {
+      name: 'Question subject',
+      template: '"Are you doing this [common thing]?"',
+      why: 'Reads as a friend, not a broadcast',
+    },
   ],
   anti_patterns: [
     { pattern: 'hey [first name]', why: 'Template tell — kills the 1:1 feel' },
     { pattern: 'limited time only', why: 'Promo language — wrong for nurture' },
-    { pattern: 'don\'t miss out', why: 'FOMO in nurture damages trust' },
-    { pattern: 'p.s. don\'t forget', why: 'Pushy — wrong tone' },
+    { pattern: "don't miss out", why: 'FOMO in nurture damages trust' },
+    { pattern: "p.s. don't forget", why: 'Pushy — wrong tone' },
   ],
   retention_mechanics: [
     'subject driven by curiosity, not promo',

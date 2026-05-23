@@ -44,7 +44,7 @@ module.exports = buildChannelModule({
   hook_patterns: [
     {
       name: 'Pattern interrupt',
-      template: 'Visual or audio that doesn\'t match the expected feed flow',
+      template: "Visual or audio that doesn't match the expected feed flow",
       why: 'First 1-2 sec must break the scroll',
     },
     {

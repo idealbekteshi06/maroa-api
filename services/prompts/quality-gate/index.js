@@ -434,13 +434,7 @@ async function gate(opts) {
   const checks = { copy_editing: null, advisor: null };
   if (COPY_EDITING_TYPES.has(contentType)) {
     checks.copy_editing = copyEditing.runSevenSweepsHeuristics(workingText);
-    if (
-      !checks.copy_editing.passed &&
-      thr.allow_retry &&
-      callClaude &&
-      extractJSON &&
-      planTier !== 'free'
-    ) {
+    if (!checks.copy_editing.passed && thr.allow_retry && callClaude && extractJSON && planTier !== 'free') {
       try {
         const repairHint = copyEditing.buildCopyEditingRepairInstruction(checks.copy_editing.issues);
         const polished = await voicePolish.rewrite({

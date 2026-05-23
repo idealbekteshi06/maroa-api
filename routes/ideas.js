@@ -53,7 +53,7 @@ function register({
         try {
           const recent = await sbGet(
             'marketing_ideas',
-            `user_id=eq.${encodeURIComponent(userId)}&order=created_at.desc&limit=15&select=idea,status`,
+            `user_id=eq.${encodeURIComponent(userId)}&order=created_at.desc&limit=15&select=idea,status`
           );
           if (Array.isArray(recent) && recent.length) {
             const titles = recent
@@ -142,7 +142,7 @@ function register({
       }
       const r = await sbGet(
         'marketing_ideas',
-        `user_id=eq.${encodeURIComponent(req.params.userId)}&order=created_at.desc&limit=20`,
+        `user_id=eq.${encodeURIComponent(req.params.userId)}&order=created_at.desc&limit=20`
       );
       res.json({ ideas: r });
     } catch (err) {
@@ -160,7 +160,7 @@ function register({
       await sbPatch(
         'marketing_ideas',
         `id=eq.${encodeURIComponent(req.params.ideaId)}&user_id=eq.${encodeURIComponent(req.user.id)}`,
-        req.body,
+        req.body
       );
       res.json({ updated: true });
     } catch (err) {

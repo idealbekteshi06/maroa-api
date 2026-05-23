@@ -14,17 +14,7 @@
  * Behavior unchanged. Dep injection for testability.
  */
 
-function register({
-  app,
-  sbGet,
-  sbPost,
-  callClaude,
-  apiRequest,
-  sendEmail,
-  log,
-  logError,
-  SERPAPI_KEY,
-}) {
+function register({ app, sbGet, sbPost, callClaude, apiRequest, sendEmail, log, logError, SERPAPI_KEY }) {
   // ─────────────────────────────────────────────────────────────────────────────
   // POST /webhook/competitor-analyze
   // Full competitor intelligence run for one business.
@@ -32,10 +22,10 @@ function register({
   app.post('/webhook/competitor-analyze', async (req, res) => {
     const { business_id } = req.body;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
-  
+
     // Return immediately — analysis runs in background (~30-60s)
     res.json({ received: true, message: 'Competitor analysis started — report ready in ~60 seconds' });
-  
+
     setImmediate(async () => {
       try {
         const bizArr = await sbGet(
@@ -44,7 +34,7 @@ function register({
         );
         const biz = bizArr[0];
         if (!biz) return;
-  
+
         let competitors = [];
         try {
           competitors = JSON.parse(biz.competitors || '[]');
@@ -70,15 +60,15 @@ function register({
           }
           if (!competitors.length) competitors = [`top ${biz.industry} company`];
         }
-  
+
         const snapshots = [];
         const today = new Date().toISOString().split('T')[0];
-  
+
         for (const comp of competitors.slice(0, 5)) {
           const compName = typeof comp === 'string' ? comp : comp.name || comp;
           let serpData = {},
             adData = {};
-  
+
           // SerpAPI: brand search
           if (SERPAPI_KEY) {
             try {
@@ -101,7 +91,7 @@ function register({
               /* soft-fail */
             }
           }
-  
+
           const keyword_rankings = (serpData.organic_results || []).slice(0, 5).map((r) => ({
             keyword: r.title?.slice(0, 60),
             url: r.link,
@@ -112,7 +102,7 @@ function register({
             description: a.snippet,
             url: a.link,
           }));
-  
+
           // Save snapshot
           try {
             await sbPost('competitor_snapshots', {
@@ -125,10 +115,10 @@ function register({
           } catch {
             /* soft-fail */
           }
-  
+
           snapshots.push({ name: compName, keyword_rankings, active_ads });
         }
-  
+
         // Claude Opus — competitive intelligence analysis
         const analyzePrompt = `You are a competitive intelligence analyst for ${biz.business_name} (${biz.industry}).
   
@@ -143,9 +133,9 @@ function register({
     "pricing_changes": ["any pricing signals found"],
     "recommendation": "one specific strategic action ${biz.business_name} should take this week based on this intelligence"
   }`;
-  
+
         const analysis = await callClaude(analyzePrompt, 'strategy', 1500);
-  
+
         // Save report
         const report = await sbPost('competitor_reports', {
           business_id,
@@ -157,7 +147,7 @@ function register({
           recommendation: analysis.recommendation || '',
           raw_analysis: analysis,
         });
-  
+
         // Also update legacy competitor_insights table
         try {
           await sbPost('competitor_insights', {
@@ -170,7 +160,7 @@ function register({
         } catch {
           /* soft-fail */
         }
-  
+
         log('/webhook/competitor-analyze', `✅ ${snapshots.length} competitors analyzed | report: ${report?.id}`);
       } catch (err) {
         console.error('[competitor-analyze ERROR]', err.message);
@@ -178,7 +168,7 @@ function register({
       }
     });
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // GET /webhook/competitor-report-get?business_id=X
   // Latest competitor report for a business.

@@ -74,7 +74,7 @@ module.exports = buildComplianceModule({
   },
   examples_blocked: [
     'This CBD cures cancer.',
-    'Best high you\'ll ever experience — ship anywhere.',
+    "Best high you'll ever experience — ship anywhere.",
     'CBD gummies for kids.',
   ],
 });

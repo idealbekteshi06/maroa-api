@@ -118,7 +118,7 @@ function CurrentBanner({ plan }: { plan: string }) {
 }
 
 interface Tier {
-  key: 'growth' | 'agency';
+  key: 'starter' | 'growth' | 'agency';
   name: string;
   price: string;
   cadence: string;

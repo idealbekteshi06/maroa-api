@@ -71,7 +71,8 @@ module.exports = buildComplianceModule({
   required_disclosures: [
     {
       when: 'always',
-      disclosure: 'Past performance does not guarantee future results. All investments carry risk including loss of principal',
+      disclosure:
+        'Past performance does not guarantee future results. All investments carry risk including loss of principal',
       regulator: 'SEC / FINRA',
       statute: 'SEC §206(4)-1, FINRA Rule 2210',
     },

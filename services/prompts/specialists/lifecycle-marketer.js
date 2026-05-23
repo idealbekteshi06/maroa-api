@@ -21,20 +21,8 @@ module.exports = buildSpecialistModule({
   name: 'Lifecycle Marketer',
   description: 'Email + SMS + push lifecycle journeys. Onboarding, drip, retention, winback.',
   source_citation: 'Klaviyo + Iterable lifecycle playbooks + Drift conversational marketing',
-  preferred_methodologies: [
-    'schaefer-conversational-copy',
-    'cialdini-7',
-    'storybrand',
-    'hormozi-value-equation',
-  ],
-  preferred_channels: [
-    'email-nurture',
-    'email-retention',
-    'email-promo',
-    'sms',
-    'whatsapp',
-    'push-notification',
-  ],
+  preferred_methodologies: ['schaefer-conversational-copy', 'cialdini-7', 'storybrand', 'hormozi-value-equation'],
+  preferred_channels: ['email-nurture', 'email-retention', 'email-promo', 'sms', 'whatsapp', 'push-notification'],
   decision_style:
     'Treat existing customers differently from prospects. Reference their ' +
     'specific behavior. Soft CTAs over hard sells. Cadence and timing matter ' +

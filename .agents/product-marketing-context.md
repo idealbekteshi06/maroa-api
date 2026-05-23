@@ -114,7 +114,7 @@ Secondary audience: small marketing agencies (Agency tier) managing 5-20 client 
 | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | "AI content sounds generic"                    | Agents are trained on your brand voice, products, and past posts. You can review the first week before going autopilot. Quality bar is "would you have approved this anyway?" |
 | "I don't want to lose control of my brand"     | Two modes — Approval (review before publish) or Autopilot (publish, you can edit/delete after). Start with Approval, switch when you trust it.                                |
-| "$59/mo is a lot for a small business"         | One agency hour costs more. Starter ($25) covers essentials; Growth adds ads + social + email automation.                                                    |
+| "$59/mo is a lot for a small business"         | One agency hour costs more. Starter ($25) covers essentials; Growth adds ads + social + email automation.                                                                     |
 | "I've been burned by AI tools that don't work" | 14-day trial, no credit card. If the first week of content doesn't sound like you, it's free.                                                                                 |
 | "How is this different from ChatGPT?"          | ChatGPT writes when you ask. Maroa writes, posts, runs the ads, measures the result, and adjusts — without being asked.                                                       |
 

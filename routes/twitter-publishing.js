@@ -191,7 +191,7 @@ Return only valid JSON: {"tweet":"...","content_theme":"..."}`;
         if (cgErr instanceof ComplianceBlocked) {
           return log?.(
             '/webhook/twitter-publish',
-            `Compliance hard-block: ${cgErr.violations.map((v) => v.rule_id).join(',')}`,
+            `Compliance hard-block: ${cgErr.violations.map((v) => v.rule_id).join(',')}`
           );
         }
         throw cgErr;

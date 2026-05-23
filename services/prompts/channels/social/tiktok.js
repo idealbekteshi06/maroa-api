@@ -41,11 +41,23 @@ module.exports = buildChannelModule({
     emoji_use: 'light',
   },
   hook_patterns: [
-    { name: 'Stitch / duet hook', template: 'React-to or build-on existing trend', why: 'Borrowed reach from the original' },
+    {
+      name: 'Stitch / duet hook',
+      template: 'React-to or build-on existing trend',
+      why: 'Borrowed reach from the original',
+    },
     { name: 'POV hook', template: '"POV: you\'re [niche scenario]"', why: 'Niche POVs over-index in 2025 FYP' },
     { name: 'List tease', template: '"3 things I\'d do if I had to start over"', why: 'Finite list = high completion' },
-    { name: 'Contrarian', template: '"Everyone tells you to [X]. I did the opposite. Here\'s what happened."', why: 'POV content out-performs explainer' },
-    { name: 'Tutorial cold-open', template: 'Skip the intro — start mid-demo', why: 'No "welcome back to my channel" filler' },
+    {
+      name: 'Contrarian',
+      template: '"Everyone tells you to [X]. I did the opposite. Here\'s what happened."',
+      why: 'POV content out-performs explainer',
+    },
+    {
+      name: 'Tutorial cold-open',
+      template: 'Skip the intro — start mid-demo',
+      why: 'No "welcome back to my channel" filler',
+    },
   ],
   anti_patterns: [
     { pattern: 'link in bio', why: 'TikTok hides external links — confusing CTA' },

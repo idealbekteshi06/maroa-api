@@ -45,7 +45,7 @@ function register({
     call: 15,
     email_bounce: -5,
   };
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // POST /webhook/contact-create
   // UPSERT contact, log activity, auto-enroll in signup sequence.
@@ -53,7 +53,7 @@ function register({
   app.post('/webhook/contact-create', async (req, res) => {
     const { business_id, email, first_name, last_name, phone, company, source = 'manual', tags = [] } = req.body;
     if (!business_id || !email) return res.status(400).json({ error: 'business_id and email required' });
-  
+
     try {
       // UPSERT via REST: POST with Prefer: resolution=merge-duplicates
       const r = await apiRequest(
@@ -72,14 +72,14 @@ function register({
           last_activity_at: new Date().toISOString(),
         }
       );
-  
+
       if (![200, 201].includes(r.status))
         throw new Error(`contact upsert: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
-  
+
       const contact = Array.isArray(r.body) ? r.body[0] : r.body;
       const contact_id = contact?.id;
       if (!contact_id) throw new Error('No contact id returned');
-  
+
       // Log creation activity
       await sbPost('contact_activities', {
         business_id,
@@ -87,7 +87,7 @@ function register({
         activity_type: 'contact_created',
         metadata: { source },
       });
-  
+
       // Auto-enroll in 'signup' sequence if one exists
       let enrolled = false;
       try {
@@ -110,13 +110,13 @@ function register({
       } catch {
         /* soft-fail */
       }
-  
+
       res.json({ success: true, contact_id, enrolled_in_sequence: enrolled });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // POST /webhook/contact-update
   // Update arbitrary fields on a contact.
@@ -137,7 +137,7 @@ function register({
       res.status(500).json({ error: err.message });
     }
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // POST /webhook/contact-import
   // Bulk UPSERT contacts from CSV array. Dedupe on (business_id, email).
@@ -147,7 +147,7 @@ function register({
     const { business_id, contacts = [] } = req.body;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
     if (!contacts.length) return res.json({ imported: 0, updated: 0, failed: 0 });
-  
+
     let imported = 0,
       updated = 0,
       failed = 0;
@@ -175,7 +175,7 @@ function register({
     }
     res.json({ imported, updated, failed, total: contacts.length });
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // GET /webhook/contacts-get
   // ?business_id=X [&stage=X] [&min_score=X] [&limit=50] [&offset=0]
@@ -187,9 +187,9 @@ function register({
       let filter = `business_id=eq.${business_id}&order=lead_score.desc&limit=${limit}&offset=${offset}`;
       if (stage) filter += `&stage=eq.${stage}`;
       if (min_score) filter += `&lead_score=gte.${min_score}`;
-  
+
       const contacts = await sbGet('contacts', filter);
-  
+
       // Count total (without limit)
       let countFilter = `business_id=eq.${business_id}`;
       if (stage) countFilter += `&stage=eq.${stage}`;
@@ -199,13 +199,13 @@ function register({
         Prefer: 'count=exact',
       });
       const total = parseInt(countR.body?.length || contacts.length);
-  
+
       res.json({ contacts, total, limit: Number(limit), offset: Number(offset) });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // POST /webhook/contact-activity-log  — UPGRADE 6: AI LEAD SCORING
   // Log activity, use Claude Sonnet to evaluate full contact history,
@@ -217,11 +217,11 @@ function register({
     if (!business_id || !contact_id || !activity_type)
       return res.status(400).json({ error: 'business_id, contact_id, activity_type required' });
     if (!isUUID(contact_id)) return res.status(400).json({ error: 'contact_id must be a valid UUID' });
-  
+
     try {
       // Insert activity
       await sbPost('contact_activities', { business_id, contact_id, activity_type, metadata });
-  
+
       // Fetch full contact + all activities for AI scoring
       const [contactArr, activities, bizArr] = await Promise.all([
         sbGet('contacts', `id=eq.${contact_id}&select=*&limit=1`),
@@ -236,22 +236,22 @@ function register({
       const old_score = contact?.lead_score || 0;
       const old_stage = contact?.stage || 'lead';
       const old_intent = contact?.intent_level || 'cold';
-  
+
       // ── Static score as baseline (fast) ──────────────────────────────────
       const staticScore = activities.reduce((sum, a) => sum + (SCORE_WEIGHTS[a.activity_type] || 0), 0);
-  
+
       // ── AI scoring with Claude Sonnet (full context) ─────────────────────
       let aiScore = staticScore;
       let intentLevel = old_intent;
       let recommendedAction = '';
-  
+
       // Only call Claude if there are enough activities to justify it
       if (activities.length >= 3) {
         try {
           const activitySummary = activities
             .map((a) => `${a.activity_type} at ${a.created_at}${a.metadata ? ' | ' + JSON.stringify(a.metadata) : ''}`)
             .join('\n');
-  
+
           const prompt = `You are an AI lead scoring engine. Evaluate this contact's buying intent.
   
   CONTACT: ${contact?.first_name || ''} ${contact?.last_name || ''} (${contact?.email || ''})
@@ -278,7 +278,7 @@ function register({
     "recommended_action": "specific next step",
     "reasoning": "1-2 sentences why"
   }`;
-  
+
           const aiResult = await callClaude(prompt, 'social_post', 500);
           if (aiResult.score !== undefined) aiScore = Math.max(0, Math.min(100, aiResult.score));
           if (aiResult.intent_level) intentLevel = aiResult.intent_level;
@@ -287,7 +287,7 @@ function register({
           log('/webhook/contact-activity-log', `AI scoring fallback to static: ${aiErr.message}`);
         }
       }
-  
+
       // ── Update contact ──────────────────────────────────────────────────
       const updates = {
         lead_score: aiScore,
@@ -296,18 +296,18 @@ function register({
         last_activity_at: new Date().toISOString(),
       };
       let stage_changed = false;
-  
+
       // Auto-qualify if score >= 50 and still a lead
       if (old_score < 50 && aiScore >= 50 && old_stage === 'lead') {
         updates.stage = 'qualified';
         stage_changed = true;
       }
-  
+
       // Auto-escalate: ready_to_buy → enroll in priority sequence + alert
       if (intentLevel === 'ready_to_buy' && old_intent !== 'ready_to_buy') {
         updates.stage = 'opportunity';
         stage_changed = true;
-  
+
         // Enroll in priority / ready_to_buy sequence
         try {
           const seqs = await sbGet(
@@ -337,7 +337,7 @@ function register({
         } catch {
           /* soft-fail */
         }
-  
+
         // Send alert email to business owner
         if (biz?.email && contact) {
           const html = `<h2>🔥 Ready-to-Buy Lead Detected!</h2>
@@ -349,7 +349,7 @@ function register({
           );
         }
       }
-  
+
       await sbPatch('contacts', `id=eq.${contact_id}`, updates);
       try {
         if (intentLevel === 'ready_to_buy' || aiScore >= 75)
@@ -376,7 +376,7 @@ function register({
       res.status(500).json({ error: err.message });
     }
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // GET /webhook/pipeline-get?business_id=X
   // Deals grouped by stage + top contacts by score.
@@ -392,7 +392,7 @@ function register({
           `business_id=eq.${business_id}&order=lead_score.desc&limit=10&select=id,email,first_name,last_name,lead_score,stage`
         ),
       ]);
-  
+
       const stages = ['new', 'contacted', 'proposal', 'negotiation', 'won', 'lost'];
       const pipeline = stages.reduce((acc, s) => {
         const group = deals.filter((d) => d.stage === s);
@@ -403,18 +403,18 @@ function register({
         };
         return acc;
       }, {});
-  
+
       const total_value = deals.reduce((sum, d) => sum + parseFloat(d.value || 0), 0).toFixed(2);
       const weighted_value = deals
         .reduce((sum, d) => sum + (parseFloat(d.value || 0) * (d.probability || 0)) / 100, 0)
         .toFixed(2);
-  
+
       res.json({ pipeline, total_value, weighted_value, total_deals: deals.length, top_contacts });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // POST /webhook/deal-create
   // ─────────────────────────────────────────────────────────────────────────────
@@ -446,7 +446,7 @@ function register({
       res.status(500).json({ error: err.message });
     }
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // POST /webhook/deal-stage-update
   // ─────────────────────────────────────────────────────────────────────────────

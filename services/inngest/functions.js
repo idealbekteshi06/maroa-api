@@ -527,9 +527,7 @@ const opsWeeklyMaintenance = inngest.createFunction(
     triggers: [{ cron: 'TZ=UTC 30 5 * * 0' }],
   }),
   async ({ step }) => {
-    const result = await step.run('weekly-bundle', async () =>
-      callInternal('/webhook/ops-weekly-maintenance-all', {})
-    );
+    const result = await step.run('weekly-bundle', async () => callInternal('/webhook/ops-weekly-maintenance-all', {}));
     return { ok: true, businesses: result?.businesses ?? 0, succeeded: result?.succeeded ?? 0 };
   }
 );

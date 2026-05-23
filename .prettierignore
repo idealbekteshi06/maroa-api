@@ -7,3 +7,4 @@ mcp-server/
 package-lock.json
 .github/
 migrations/
+frontend/.next/

@@ -27,9 +27,7 @@ function makeStubGraph() {
       return row;
     },
     getEntitiesByType: async ({ businessId, type, limit }) => {
-      return entities
-        .filter((e) => e.businessId === businessId && e.type === type)
-        .slice(0, limit || 50);
+      return entities.filter((e) => e.businessId === businessId && e.type === type).slice(0, limit || 50);
     },
   };
 }
@@ -71,7 +69,16 @@ test('compiler: exports model routing for all valid intents', () => {
 });
 
 test('compiler: exports HOOK_DIRECTING for the 8 Creative Genome hook types', () => {
-  const hooks = ['pattern_interrupt', 'curiosity', 'social_proof', 'fear_relief', 'authority', 'aspiration', 'scarcity', 'reciprocity'];
+  const hooks = [
+    'pattern_interrupt',
+    'curiosity',
+    'social_proof',
+    'fear_relief',
+    'authority',
+    'aspiration',
+    'scarcity',
+    'reciprocity',
+  ];
   for (const h of hooks) {
     assert.ok(HOOK_DIRECTING[h], `missing hook directing for ${h}`);
     assert.ok(HOOK_DIRECTING[h].opener);
@@ -248,9 +255,7 @@ test('compileVisualBrief: writes decision_logs row when decisionLog is wired', a
 test('compileVisualBrief: compliance violation blocks compile', async () => {
   const c = makeVisualProductionCompiler({
     marketingGraph: makeStubGraph(),
-    compliance: makeStubCompliance([
-      { severity: 'block', issue: 'banned mortgage approval claim' },
-    ]),
+    compliance: makeStubCompliance([{ severity: 'block', issue: 'banned mortgage approval claim' }]),
   });
   const r = await c.compileVisualBrief({
     businessId: 'b',
@@ -284,10 +289,7 @@ test('cacheBrandVisualDna: requires businessId', () => {
 
 test('cacheBrandVisualDna: requires at least one DNA field', () => {
   const c = makeVisualProductionCompiler({ marketingGraph: makeStubGraph() });
-  assert.rejects(
-    () => c.cacheBrandVisualDna({ businessId: 'b' }),
-    /at least one/
-  );
+  assert.rejects(() => c.cacheBrandVisualDna({ businessId: 'b' }), /at least one/);
 });
 
 test('cacheBrandVisualDna: stores soul_id + palette in attrs', async () => {

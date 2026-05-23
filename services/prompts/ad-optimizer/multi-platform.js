@@ -61,12 +61,9 @@ function buildMultiPlatformAuditInputs({
   const merged = mp.mergeMultiPlatformBundles(bundles, spendWeights);
   const primary = platforms.reduce((a, b) => (spendWeights[b] > spendWeights[a] ? b : a), platforms[0]);
   const primaryMetrics = metricsByPlatform[primary];
-  const spendUsd =
-    i18n.toUsd(primaryMetrics?.spend, marketProfile.currency, liveRates) ?? primaryMetrics?.spend ?? 0;
+  const spendUsd = i18n.toUsd(primaryMetrics?.spend, marketProfile.currency, liveRates) ?? primaryMetrics?.spend ?? 0;
   const dailyBudgetUsd =
-    i18n.toUsd(primaryMetrics?.daily_budget, marketProfile.currency, liveRates) ??
-    primaryMetrics?.daily_budget ??
-    0;
+    i18n.toUsd(primaryMetrics?.daily_budget, marketProfile.currency, liveRates) ?? primaryMetrics?.daily_budget ?? 0;
 
   const significance = budget.isPauseDataSignificant({
     clicks: primaryMetrics?.clicks,

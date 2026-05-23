@@ -15,7 +15,10 @@ function placesGet(url, apiKey) {
         hostname: u.hostname,
         path: u.pathname + u.search,
         method: 'GET',
-        headers: { 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': 'displayName,rating,userRatingCount,websiteUri,formattedAddress,types' },
+        headers: {
+          'X-Goog-Api-Key': apiKey,
+          'X-Goog-FieldMask': 'displayName,rating,userRatingCount,websiteUri,formattedAddress,types',
+        },
       },
       (res) => {
         let data = '';
@@ -44,7 +47,10 @@ async function fetchGbpSnapshot(opts = {}) {
   if (!apiKey) return null;
 
   if (opts.placeId) {
-    const detail = await placesGet(`https://places.googleapis.com/v1/places/${encodeURIComponent(opts.placeId)}`, apiKey);
+    const detail = await placesGet(
+      `https://places.googleapis.com/v1/places/${encodeURIComponent(opts.placeId)}`,
+      apiKey
+    );
     if (!detail) return null;
     return {
       source: 'google_places',
@@ -71,7 +77,8 @@ async function fetchGbpSnapshot(opts = {}) {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(searchBody),
           'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask': 'places.displayName,places.rating,places.userRatingCount,places.websiteUri,places.formattedAddress,places.types',
+          'X-Goog-FieldMask':
+            'places.displayName,places.rating,places.userRatingCount,places.websiteUri,places.formattedAddress,places.types',
         },
       },
       (res) => {

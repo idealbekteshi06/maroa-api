@@ -36,7 +36,11 @@ module.exports = buildChannelModule({
     hashtag_count: { min: 0, max: 1 },
   },
   hook_patterns: [
-    { name: 'Conversational opener', template: '"Hot take:" / "Real question:" / "Confession:"', why: 'Threads rewards casual + replies-bait shape' },
+    {
+      name: 'Conversational opener',
+      template: '"Hot take:" / "Real question:" / "Confession:"',
+      why: 'Threads rewards casual + replies-bait shape',
+    },
     { name: 'Specific detail', template: 'Specific number or moment + reflection', why: 'Specificity beats abstract' },
     { name: 'Single question', template: 'One genuine question to followers', why: 'Replies = distribution' },
   ],
@@ -49,8 +53,6 @@ module.exports = buildChannelModule({
     'add a photo or short video',
     'reply to your own post to extend (Threads-native pattern)',
   ],
-  invariants: [
-    { id: 'char-limit', rule: '≤500 chars', kind: 'must_have' },
-  ],
+  invariants: [{ id: 'char-limit', rule: '≤500 chars', kind: 'must_have' }],
   manipulation_risk: 1,
 });

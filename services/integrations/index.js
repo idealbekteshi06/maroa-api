@@ -114,8 +114,7 @@ function createIntegrationsService({ sbGet, apiRequest, logger }) {
         key: 'higgsfield',
         label: 'Higgsfield Studio',
         connected: !!(process.env.HIGGSFIELD_API_KEY_ID && process.env.HIGGSFIELD_API_KEY_SECRET),
-        status:
-          process.env.HIGGSFIELD_API_KEY_ID && process.env.HIGGSFIELD_API_KEY_SECRET ? 'healthy' : 'degraded',
+        status: process.env.HIGGSFIELD_API_KEY_ID && process.env.HIGGSFIELD_API_KEY_SECRET ? 'healthy' : 'degraded',
         detail: 'AI image & video',
         gates: ['creative_engine', 'wf10'],
       },
@@ -132,9 +131,7 @@ function createIntegrationsService({ sbGet, apiRequest, logger }) {
       },
     ];
 
-    const socialCount = items.filter((i) =>
-      ['meta', 'google', 'linkedin'].includes(i.key) && i.connected
-    ).length;
+    const socialCount = items.filter((i) => ['meta', 'google', 'linkedin'].includes(i.key) && i.connected).length;
 
     return {
       ok: true,

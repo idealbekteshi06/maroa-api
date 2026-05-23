@@ -42,12 +42,24 @@ module.exports = buildChannelModule({
   },
   hook_patterns: [
     { name: 'Specific outcome', template: '[Audience]: [specific outcome] in [time].', why: 'Specificity beats hype' },
-    { name: 'Problem call-out', template: 'Tired of [specific pain]? Here\'s what works:', why: 'Direct-response classic' },
-    { name: 'Social proof open', template: '"[Quoted customer line]" — [specific outcome metric]', why: 'Quote opener earns the read' },
-    { name: 'Curiosity gap', template: '"The [unexpected reason] [target audience] [outcome]"', why: 'Forces the "see more" tap' },
+    {
+      name: 'Problem call-out',
+      template: "Tired of [specific pain]? Here's what works:",
+      why: 'Direct-response classic',
+    },
+    {
+      name: 'Social proof open',
+      template: '"[Quoted customer line]" — [specific outcome metric]',
+      why: 'Quote opener earns the read',
+    },
+    {
+      name: 'Curiosity gap',
+      template: '"The [unexpected reason] [target audience] [outcome]"',
+      why: 'Forces the "see more" tap',
+    },
   ],
   anti_patterns: [
-    { pattern: 'you\'re overweight', why: 'Meta personal attributes policy — auto-reject' },
+    { pattern: "you're overweight", why: 'Meta personal attributes policy — auto-reject' },
     { pattern: 'lose 20 lbs', why: 'Health-outcome absolute — auto-reject' },
     { pattern: 'guaranteed results', why: 'Auto-flagged for review' },
     { pattern: 'click here', why: 'Generic CTA — use the button instead' },

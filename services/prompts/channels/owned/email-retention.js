@@ -37,14 +37,26 @@ module.exports = buildChannelModule({
     tone: 'appreciative',
   },
   hook_patterns: [
-    { name: 'Anniversary', template: '"It\'s been [N] months — thanks for being with us"', why: 'Specific relationship marker' },
-    { name: 'Milestone callback', template: 'Reference their specific usage ("you\'ve [done X] this year")', why: 'Personalized retention beats discount' },
-    { name: 'Insider preview', template: '"You\'re getting [thing] first because you\'re a customer"', why: 'Status reward — Cialdini reciprocity' },
+    {
+      name: 'Anniversary',
+      template: '"It\'s been [N] months — thanks for being with us"',
+      why: 'Specific relationship marker',
+    },
+    {
+      name: 'Milestone callback',
+      template: 'Reference their specific usage ("you\'ve [done X] this year")',
+      why: 'Personalized retention beats discount',
+    },
+    {
+      name: 'Insider preview',
+      template: '"You\'re getting [thing] first because you\'re a customer"',
+      why: 'Status reward — Cialdini reciprocity',
+    },
   ],
   anti_patterns: [
     { pattern: 'save 20% on your first', why: 'Treats existing customer as prospect — damaging' },
     { pattern: 'sign up today', why: 'They already signed up' },
-    { pattern: 'don\'t miss out', why: 'Wrong tone for retention' },
+    { pattern: "don't miss out", why: 'Wrong tone for retention' },
   ],
   retention_mechanics: [
     'appreciative, not salesy',

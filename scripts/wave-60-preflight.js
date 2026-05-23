@@ -175,7 +175,10 @@ async function checkMigration() {
     if (result.status === 200 && Array.isArray(result.body) && result.body.length > 0) {
       ok('migration 064 applied', result.body[0].filename);
     } else {
-      fail('migration 064 NOT in _migrations ledger', `apply migrations/064_agency_pipeline_runs.sql in Supabase SQL editor`);
+      fail(
+        'migration 064 NOT in _migrations ledger',
+        `apply migrations/064_agency_pipeline_runs.sql in Supabase SQL editor`
+      );
       failures++;
     }
   } catch (e) {
@@ -263,7 +266,9 @@ async function smokeRun() {
 
   console.log();
   console.log(`${BOLD}Summary${RESET}`);
-  console.log(`  ${failures === 0 ? GREEN + 'PASS' + RESET : RED + 'FAIL' + RESET}  ${failures} failure(s), ${warnings} warning(s)`);
+  console.log(
+    `  ${failures === 0 ? GREEN + 'PASS' + RESET : RED + 'FAIL' + RESET}  ${failures} failure(s), ${warnings} warning(s)`
+  );
   if (failures === 0 && warnings === 0) {
     console.log(`\n  ${GREEN}Safe to flip AGENCY_PIPELINE_ENABLED=1${RESET}\n`);
   } else if (failures === 0) {

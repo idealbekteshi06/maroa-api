@@ -67,10 +67,7 @@ for (const field of REQUIRED_EXPORTS) {
 test('compliance: every module has valid category', () => {
   for (const id of registry.listAllIds()) {
     const mod = registry.getRuleset(id);
-    assert.ok(
-      VALID_CATEGORIES.includes(mod.category),
-      `${id} has invalid category "${mod.category}"`
-    );
+    assert.ok(VALID_CATEGORIES.includes(mod.category), `${id} has invalid category "${mod.category}"`);
   }
 });
 
@@ -85,10 +82,7 @@ test('compliance: every module ID matches its filename / kebab-case', () => {
 test('compliance: every module has at least one banned claim', () => {
   for (const id of registry.listAllIds()) {
     const mod = registry.getRuleset(id);
-    assert.ok(
-      Array.isArray(mod.banned_claims) && mod.banned_claims.length > 0,
-      `${id} has no banned_claims`
-    );
+    assert.ok(Array.isArray(mod.banned_claims) && mod.banned_claims.length > 0, `${id} has no banned_claims`);
   }
 });
 
@@ -106,10 +100,7 @@ test('compliance: every module has examples_blocked that actually trigger refusa
     const mod = registry.getRuleset(id);
     for (const example of mod.examples_blocked) {
       const r = mod.applyToDraft(example, { industry: mod.industries[0] || '*' });
-      assert.ok(
-        !r.ok || r.violations.length > 0,
-        `${id}: example "${example}" should trigger refusal but did not`
-      );
+      assert.ok(!r.ok || r.violations.length > 0, `${id}: example "${example}" should trigger refusal but did not`);
     }
   }
 });

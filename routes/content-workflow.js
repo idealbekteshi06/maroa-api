@@ -37,10 +37,10 @@ function register({
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
     if (!['blog', 'landing_page', 'video_script', 'email_template'].includes(type))
       return res.status(400).json({ error: 'type must be blog|landing_page|video_script|email_template' });
-  
+
     // Return immediately — generation happens in background
     res.json({ received: true, message: `${type} generation started — check email in ~2 minutes` });
-  
+
     setImmediate(async () => {
       try {
         const bizArr = await sbGet(
@@ -49,7 +49,7 @@ function register({
         );
         const biz = bizArr[0];
         if (!biz) return;
-  
+
         let keyword = target_keyword;
         // Auto-discover keyword via SerpAPI if not provided (blog only)
         if (type === 'blog' && !keyword && SERPAPI_KEY) {
@@ -65,11 +65,11 @@ function register({
           }
         }
         keyword = keyword || topic || `${biz.industry} guide`;
-  
+
         let prompt = '';
         let claudeTask = 'strategy';
         let maxTok = 3000;
-  
+
         if (type === 'blog') {
           prompt = `Write a complete SEO blog post for ${biz.business_name} (${biz.industry}).
   Target keyword: "${keyword}"
@@ -129,9 +129,9 @@ function register({
     "word_count": 350
   }`;
         }
-  
+
         const content = await callClaude(prompt, claudeTask, maxTok);
-  
+
         // Generate featured image for blog posts → save to Supabase Storage
         let featured_image_url = null;
         if (type === 'blog' && content.title) {
@@ -147,7 +147,7 @@ function register({
             /* soft-fail */
           }
         }
-  
+
         // Save to content_pieces
         const piece = await sbPost('content_pieces', {
           business_id,
@@ -161,7 +161,7 @@ function register({
           word_count: content.word_count || 0,
           seo_score: content.seo_score || 0,
         });
-  
+
         // Send notification email
         if (biz.email) {
           const typeLabel = type.replace('_', ' ');
@@ -173,7 +173,7 @@ function register({
   <p><a href="https://maroa.ai/content" style="background:#667eea;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Review & Approve</a></p>`;
           await sendEmail(biz.email, `New ${typeLabel} ready: ${content.title || keyword}`, html).catch(() => {});
         }
-  
+
         log('/webhook/content-generate', `✅ ${type} created | id: ${piece?.id} | words: ${content.word_count}`);
       } catch (err) {
         console.error('[content-generate ERROR]', err.message);
@@ -181,7 +181,7 @@ function register({
       }
     });
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // GET /webhook/content-pieces-get?business_id=X[&type=X][&status=X]
   // ─────────────────────────────────────────────────────────────────────────────
@@ -203,7 +203,9 @@ function register({
           a[p.status] = (a[p.status] || 0) + 1;
           return a;
         }, {}),
-        avg_seo_score: pieces.length ? Math.round(pieces.reduce((s, p) => s + (p.seo_score || 0), 0) / pieces.length) : 0,
+        avg_seo_score: pieces.length
+          ? Math.round(pieces.reduce((s, p) => s + (p.seo_score || 0), 0) / pieces.length)
+          : 0,
         avg_word_count: pieces.length
           ? Math.round(pieces.reduce((s, p) => s + (p.word_count || 0), 0) / pieces.length)
           : 0,
@@ -213,7 +215,7 @@ function register({
       res.status(500).json({ error: err.message });
     }
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // POST /webhook/content-approve
   // Approve a content piece and optionally mark it published.

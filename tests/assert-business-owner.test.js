@@ -23,7 +23,12 @@ test('assertBusinessOwner allows webhook auth without DB', async () => {
     { authSource: 'webhook', user: null },
     res,
     '11111111-1111-4111-8111-111111111111',
-    { sbGet: async () => { throw new Error('should not call'); }, apiError: (r, s, c, m) => r.status(s).json({ error: c, message: m }) }
+    {
+      sbGet: async () => {
+        throw new Error('should not call');
+      },
+      apiError: (r, s, c, m) => r.status(s).json({ error: c, message: m }),
+    }
   );
   assert.equal(ok, true);
 });

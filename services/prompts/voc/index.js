@@ -191,9 +191,7 @@ function validateOutput(raw) {
         ? raw.recommendations_for_marketing
         : [],
       trigger_events: Array.isArray(raw.trigger_events) ? raw.trigger_events : [],
-      positioning_implications: Array.isArray(raw.positioning_implications)
-        ? raw.positioning_implications
-        : [],
+      positioning_implications: Array.isArray(raw.positioning_implications) ? raw.positioning_implications : [],
       caveats: Array.isArray(raw.caveats) ? raw.caveats : [],
     },
   };

@@ -3,8 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { ensureCompliant, evaluateOnly, ComplianceBlocked, _resetForTest } =
-  require('../lib/complianceGate');
+const { ensureCompliant, evaluateOnly, ComplianceBlocked, _resetForTest } = require('../lib/complianceGate');
 
 test('ensureCompliant passes clean content', async () => {
   _resetForTest();
@@ -32,7 +31,7 @@ test('ensureCompliant throws ComplianceBlocked on hard violation', async () => {
       assert.equal(e.severity, 'hard');
       assert.ok(e.violations.length > 0, 'expected violations');
       return true;
-    },
+    }
   );
 });
 

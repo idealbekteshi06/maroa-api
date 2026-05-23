@@ -35,11 +35,15 @@ module.exports = buildChannelModule({
     emoji_use: 'none',
   },
   hook_patterns: [
-    { name: 'Single benefit', template: 'One specific outcome on screen', why: 'Display has lower intent — keep simple' },
+    {
+      name: 'Single benefit',
+      template: 'One specific outcome on screen',
+      why: 'Display has lower intent — keep simple',
+    },
     { name: 'Recall ad', template: 'Brand + product, simple visual', why: 'For retargeting / brand awareness' },
   ],
   anti_patterns: [
-    { pattern: 'you\'ve won', why: 'Trick copy — auto-disapproved' },
+    { pattern: "you've won", why: 'Trick copy — auto-disapproved' },
     { pattern: 'system alert', why: 'Misleading creative — disapproved' },
     { pattern: 'one weird trick', why: 'Spam pattern — disapproved' },
   ],
@@ -48,8 +52,6 @@ module.exports = buildChannelModule({
     'one benefit + one CTA',
     'avoid animated flash / rapid GIFs',
   ],
-  invariants: [
-    { id: 'no-trick-copy', rule: 'No fake-system / fake-prize copy', kind: 'must_avoid' },
-  ],
+  invariants: [{ id: 'no-trick-copy', rule: 'No fake-system / fake-prize copy', kind: 'must_avoid' }],
   manipulation_risk: 1,
 });

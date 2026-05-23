@@ -37,7 +37,11 @@ module.exports = buildChannelModule({
   hook_patterns: [
     { name: 'Behind-the-scenes', template: 'Showing process, not just outcome', why: 'BTS earns DM replies' },
     { name: 'Poll', template: 'Two-option poll on a real opinion', why: 'Polls outperform static frames 4-7×' },
-    { name: 'Question sticker', template: 'Ask audience for input on a real decision', why: 'Drives DMs + future content' },
+    {
+      name: 'Question sticker',
+      template: 'Ask audience for input on a real decision',
+      why: 'Drives DMs + future content',
+    },
     { name: 'Quiz/slider', template: 'Interactive sticker per frame', why: 'Stories rank by reply + interaction rate' },
   ],
   anti_patterns: [

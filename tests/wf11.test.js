@@ -6,7 +6,16 @@ const createWf11 = require('../services/wf11');
 
 function mockSb() {
   const store = {
-    inbox_threads: [{ id: 't1', business_id: 'b1', channel: 'email', body: 'I need a refund', classification: 'complaint', status: 'new' }],
+    inbox_threads: [
+      {
+        id: 't1',
+        business_id: 'b1',
+        channel: 'email',
+        body: 'I need a refund',
+        classification: 'complaint',
+        status: 'new',
+      },
+    ],
     inbox_routing_settings: [],
     inbox_escalations: [],
     events: [],

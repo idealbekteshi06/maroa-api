@@ -42,14 +42,7 @@ function clean(value, max = 200) {
 // `marketing_goal` (not goal). Score against the actual schema so that
 // `GET /api/onboarding/score/:userId` reflects what's stored.
 const REQUIRED_FIELDS = ['business_name', 'industry', 'location'];
-const SCORED_FIELDS = [
-  'business_name',
-  'industry',
-  'location',
-  'target_audience',
-  'marketing_goal',
-  'brand_tone',
-];
+const SCORED_FIELDS = ['business_name', 'industry', 'location', 'target_audience', 'marketing_goal', 'brand_tone'];
 
 function completenessScore(profile) {
   if (!profile) return { score: 0, missing_fields: [...REQUIRED_FIELDS], recommendations: [] };
@@ -88,7 +81,7 @@ function register({
     try {
       const rows = await sbGet(
         'businesses',
-        `user_id=eq.${encodeURIComponent(userId)}&select=*&order=created_at.asc&limit=1`,
+        `user_id=eq.${encodeURIComponent(userId)}&select=*&order=created_at.asc&limit=1`
       );
       return rows?.[0] || null;
     } catch {
@@ -154,7 +147,7 @@ function register({
         log?.('/api/onboarding/save', null, 'failed', { error: err.message });
         return apiError(res, 500, 'INTERNAL_ERROR', safePublicError ? safePublicError(err) : 'save failed');
       }
-    },
+    }
   );
 
   // ─── GET /api/onboarding/profile/:userId ────────────────────────────────
@@ -225,7 +218,7 @@ function register({
         log?.('/api/onboarding/profile', null, 'patch failed', { error: err.message });
         return apiError(res, 500, 'INTERNAL_ERROR', safePublicError ? safePublicError(err) : 'profile update failed');
       }
-    },
+    }
   );
 
   // ─── GET /api/onboarding/score/:userId ──────────────────────────────────
@@ -299,7 +292,7 @@ function register({
         log?.('/api/onboarding/spark', null, 'failed', { error: err.message });
         return apiError(res, 500, 'INTERNAL_ERROR', safePublicError ? safePublicError(err) : 'spark failed');
       }
-    },
+    }
   );
 
   log?.('/api/onboarding', null, 'onboarding routes registered');

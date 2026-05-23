@@ -405,15 +405,12 @@ function createEngine({
       }
     }
 
-    const defaultPostTime =
-      groundingSchedule?.best_times?.length
-        ? groundingSchedule.best_times[concept.id.charCodeAt(0) % groundingSchedule.best_times.length]
-        : null;
+    const defaultPostTime = groundingSchedule?.best_times?.length
+      ? groundingSchedule.best_times[concept.id.charCodeAt(0) % groundingSchedule.best_times.length]
+      : null;
     const postRationale =
       parsed.postingTime?.rationale ||
-      (defaultPostTime
-        ? `Industry benchmark best time (${defaultPostTime} local)`
-        : null);
+      (defaultPostTime ? `Industry benchmark best time (${defaultPostTime} local)` : null);
 
     const raw = await callClaude(user, 'claude-sonnet-4-5', 3000, {
       system,

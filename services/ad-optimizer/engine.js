@@ -112,9 +112,7 @@ function createEngine(deps) {
       //  - 'keep'/'refresh_creative' → green (informational)
       const decision = String(audit.decision || 'keep').toLowerCase();
       const auto_safe_band =
-        decision === 'pause' ? 'red'
-        : decision === 'scale' || decision === 'optimize' ? 'yellow'
-        : 'green';
+        decision === 'pause' ? 'red' : decision === 'scale' || decision === 'optimize' ? 'yellow' : 'green';
 
       await decisionLog.proposeDecision({
         agentName: 'ad-optimizer',
@@ -128,9 +126,10 @@ function createEngine(deps) {
         executed: !dryRun && action_taken !== 'noop' && action_taken !== 'kept',
         refused: false,
         targetEntity: { type: 'campaign', id: campaign?.id || null, name: campaign?.name || null },
-        budgetImpactUsd: typeof audit.new_daily_budget === 'number' && typeof campaign?.daily_budget === 'number'
-          ? Number((audit.new_daily_budget - campaign.daily_budget).toFixed(2))
-          : 0,
+        budgetImpactUsd:
+          typeof audit.new_daily_budget === 'number' && typeof campaign?.daily_budget === 'number'
+            ? Number((audit.new_daily_budget - campaign.daily_budget).toFixed(2))
+            : 0,
         metadata: {
           market_tier: audit.market_tier || null,
           budget_tier: audit.budget_tier || null,
@@ -173,8 +172,7 @@ function createEngine(deps) {
         businessId,
         type: 'decision',
         subtype: 'ad_audit',
-        title:
-          (audit.decision_reason || `Ad optimizer: ${audit.decision}`).slice(0, 200),
+        title: (audit.decision_reason || `Ad optimizer: ${audit.decision}`).slice(0, 200),
         source: 'agent:ad-optimizer',
         attrs: {
           decision: audit.decision,
@@ -190,12 +188,7 @@ function createEngine(deps) {
           sourceId: decisionEntity.id,
           targetId: campaignEntity.id,
           type: 'acted_on',
-          weight:
-            audit.decision === 'pause'
-              ? -1.0
-              : audit.decision === 'scale'
-                ? 1.0
-                : 0.5,
+          weight: audit.decision === 'pause' ? -1.0 : audit.decision === 'scale' ? 1.0 : 0.5,
           attrs: { audited_at: new Date().toISOString() },
         });
       }

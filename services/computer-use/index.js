@@ -90,8 +90,7 @@ function createComputerUseService({ apiKey, logger, sbPost, sbPatch } = {}) {
     const flow = FLOWS[flowName];
     if (!flow) throw new Error(`unknown flow: ${flowName}`);
 
-    const effectiveDryRun =
-      dryRun === false && operatorOptIn === true && ENABLED ? false : true;
+    const effectiveDryRun = dryRun === false && operatorOptIn === true && ENABLED ? false : true;
 
     if (!effectiveDryRun) {
       logger?.warn?.('computer-use', businessId, 'LIVE run — actions WILL fire on Meta', {
@@ -133,17 +132,13 @@ function createComputerUseService({ apiKey, logger, sbPost, sbPatch } = {}) {
   async function logRunEnd(runId, ctx, outcome) {
     if (!runId || typeof sbPatch !== 'function') return;
     try {
-      await sbPatch(
-        'computer_use_runs',
-        `id=eq.${encodeURIComponent(runId)}`,
-        {
-          status: outcome.status,
-          actions_taken: outcome.actionsTaken,
-          ended_at: new Date().toISOString(),
-          summary: outcome.summary || null,
-          error: outcome.error || null,
-        },
-      );
+      await sbPatch('computer_use_runs', `id=eq.${encodeURIComponent(runId)}`, {
+        status: outcome.status,
+        actions_taken: outcome.actionsTaken,
+        ended_at: new Date().toISOString(),
+        summary: outcome.summary || null,
+        error: outcome.error || null,
+      });
     } catch (e) {
       logger?.warn?.('computer-use', ctx.businessId, 'run-log patch failed', { error: e.message });
     }

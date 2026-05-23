@@ -457,7 +457,7 @@ async function generateConcepts({ businessId, run, deps }) {
         concept: c.concept,
         status: 'proposed',
       }).catch((e) =>
-        logger?.warn?.('cold-start.generate_concepts', businessId, 'persist failed', { error: e.message }),
+        logger?.warn?.('cold-start.generate_concepts', businessId, 'persist failed', { error: e.message })
       );
     }
   }

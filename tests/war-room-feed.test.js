@@ -88,10 +88,7 @@ test('classifyCreativeDecay: custom halfLifeDays', () => {
 
 test('warRoomFeed: requires sbGet + workspaces', () => {
   assert.throws(() => makeWarRoomFeed({}), /sbGet required/);
-  assert.throws(
-    () => makeWarRoomFeed({ sbGet: async () => [] }),
-    /workspaces service required/
-  );
+  assert.throws(() => makeWarRoomFeed({ sbGet: async () => [] }), /workspaces service required/);
 });
 
 // ─── getWorkspaceFeed ─────────────────────────────────────────────────────
@@ -138,7 +135,7 @@ test('getWorkspaceFeed: aggregates per-client data', async () => {
       id: 'c-2',
       business_id: 'b-1',
       performance_score: 0.15,
-      created_at: new Date(Date.now() - 90 * 86400000).toISOString(),  // → dead
+      created_at: new Date(Date.now() - 90 * 86400000).toISOString(), // → dead
     },
   ];
   const decisions = [{ id: 'd-1', business_id: 'b-1', agent_name: 'ad-optimizer' }];
@@ -245,9 +242,9 @@ test('summarizeForDashboard: zero-state for empty workspace', async () => {
 
 test('summarizeForDashboard: aggregates spend + outcome scores', async () => {
   const decisions = [
-    { id: 'd-1', business_id: 'b-1', cost_usd: 0.30, outcome_score: 0.75, created_at: new Date().toISOString() },
-    { id: 'd-2', business_id: 'b-1', cost_usd: 0.50, outcome_score: 0.95, created_at: new Date().toISOString() },
-    { id: 'd-3', business_id: 'b-2', cost_usd: 0.20, outcome_score: 0.4, created_at: new Date().toISOString() },
+    { id: 'd-1', business_id: 'b-1', cost_usd: 0.3, outcome_score: 0.75, created_at: new Date().toISOString() },
+    { id: 'd-2', business_id: 'b-1', cost_usd: 0.5, outcome_score: 0.95, created_at: new Date().toISOString() },
+    { id: 'd-3', business_id: 'b-2', cost_usd: 0.2, outcome_score: 0.4, created_at: new Date().toISOString() },
   ];
   const pending = [{ id: 'a-1', workspace_id: 'w-1', status: 'pending' }];
 
@@ -258,17 +255,14 @@ test('summarizeForDashboard: aggregates spend + outcome scores', async () => {
       return [];
     },
     workspaces: makeStubWorkspaces({
-      clients: [
-        { business_id: 'b-1' },
-        { business_id: 'b-2' },
-      ],
+      clients: [{ business_id: 'b-1' }, { business_id: 'b-2' }],
     }),
   });
   const r = await f.summarizeForDashboard('w-1');
   assert.strictEqual(r.clients_active, 2);
   assert.strictEqual(r.pending_approvals, 1);
   assert.strictEqual(r.decisions_last_7d, 3);
-  assert.strictEqual(r.total_spend_30d, 1.00);
+  assert.strictEqual(r.total_spend_30d, 1.0);
   assert.strictEqual(r.top_outcome_score, 0.95);
 });
 
@@ -283,7 +277,7 @@ test('summarizeForDashboard: soft-fails on missing workspaceId', async () => {
 
 // ─── Fail-safe ────────────────────────────────────────────────────────────
 
-test('getWorkspaceFeed: gather error on one client doesn\'t crash whole feed', async () => {
+test("getWorkspaceFeed: gather error on one client doesn't crash whole feed", async () => {
   const f = makeWarRoomFeed({
     sbGet: async (table) => {
       if (table === 'creative_assets') throw new Error('table missing');

@@ -37,15 +37,31 @@ module.exports = buildChannelModule({
     emoji_use: 'none',
   },
   hook_patterns: [
-    { name: 'Listicle title', template: '"[N] [things] for [outcome] in [year]"', why: 'Listicles rank for "best X" queries' },
-    { name: 'How-to title', template: '"How to [outcome] (Step-by-Step)"', why: 'How-to queries are the largest search type' },
-    { name: 'Comparison title', template: '"[Tool A] vs [Tool B]: [Specific Use Case]"', why: 'High-intent commercial queries' },
-    { name: 'Definition title', template: '"What is [thing]? Definition + Examples"', why: 'Featured-snippet eligible' },
+    {
+      name: 'Listicle title',
+      template: '"[N] [things] for [outcome] in [year]"',
+      why: 'Listicles rank for "best X" queries',
+    },
+    {
+      name: 'How-to title',
+      template: '"How to [outcome] (Step-by-Step)"',
+      why: 'How-to queries are the largest search type',
+    },
+    {
+      name: 'Comparison title',
+      template: '"[Tool A] vs [Tool B]: [Specific Use Case]"',
+      why: 'High-intent commercial queries',
+    },
+    {
+      name: 'Definition title',
+      template: '"What is [thing]? Definition + Examples"',
+      why: 'Featured-snippet eligible',
+    },
   ],
   anti_patterns: [
     { pattern: 'in conclusion', why: 'Filler — cut it' },
-    { pattern: 'in this article', why: 'Filler — show, don\'t announce' },
-    { pattern: 'in today\'s digital landscape', why: 'AI-tell phrase — Critic flag' },
+    { pattern: 'in this article', why: "Filler — show, don't announce" },
+    { pattern: "in today's digital landscape", why: 'AI-tell phrase — Critic flag' },
     { pattern: 'unleash the power of', why: 'AI-tell phrase — Critic flag' },
   ],
   retention_mechanics: [

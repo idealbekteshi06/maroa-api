@@ -21,11 +21,7 @@
  * ----------------------------------------------------------------------------
  */
 
-const ALLOWED_ORIGINS = [
-  'facebook.com',
-  'business.facebook.com',
-  'adsmanager.facebook.com',
-];
+const ALLOWED_ORIGINS = ['facebook.com', 'business.facebook.com', 'adsmanager.facebook.com'];
 
 const MAX_ACTIONS = 40;
 

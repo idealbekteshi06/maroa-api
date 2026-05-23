@@ -60,9 +60,7 @@ function applyCameraPresetToPayload(payload, presetId) {
   const preset = getCameraPreset(presetId);
   const out = { ...payload };
   if (preset.aspect_ratio && !out.aspect_ratio) out.aspect_ratio = preset.aspect_ratio;
-  const hints = [preset.camera, preset.lighting, preset.style, preset.pacing, preset.audio]
-    .filter(Boolean)
-    .join('. ');
+  const hints = [preset.camera, preset.lighting, preset.style, preset.pacing, preset.audio].filter(Boolean).join('. ');
   if (hints) {
     out.prompt = out.prompt ? `${out.prompt} ${hints}` : hints;
   }

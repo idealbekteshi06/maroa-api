@@ -3,11 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const {
-  retryWithJitter,
-  defaultIsRetryable,
-  computeDelayMs,
-} = require('../lib/retryWithJitter');
+const { retryWithJitter, defaultIsRetryable, computeDelayMs } = require('../lib/retryWithJitter');
 
 test('returns immediately on first success', async () => {
   let calls = 0;

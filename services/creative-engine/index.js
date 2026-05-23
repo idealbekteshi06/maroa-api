@@ -246,12 +246,7 @@ async function generateDailyVariants({ businessId, deps }) {
           },
         });
       } catch (e) {
-        logger?.warn?.(
-          'creative-engine.generate',
-          businessId,
-          'graph upsert failed',
-          { error: e.message },
-        );
+        logger?.warn?.('creative-engine.generate', businessId, 'graph upsert failed', { error: e.message });
       }
     }
   }

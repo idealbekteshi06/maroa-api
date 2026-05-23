@@ -39,10 +39,22 @@ module.exports = buildChannelModule({
     external_links: 'reply_only',
   },
   hook_patterns: [
-    { name: 'Thesis statement', template: 'One declarative sentence + colon + 2-3 supporting fragments', why: 'Best replied/re-posted shape' },
+    {
+      name: 'Thesis statement',
+      template: 'One declarative sentence + colon + 2-3 supporting fragments',
+      why: 'Best replied/re-posted shape',
+    },
     { name: 'Hot take', template: 'Specific contrarian claim, no hedging', why: 'X rewards conviction over nuance' },
-    { name: 'Numbered list (max 5)', template: 'Heading line + 1-5 numbered items, one line each', why: 'High save rate' },
-    { name: 'Build-in-public', template: 'Specific metric + specific decision = relatable signal', why: 'Founder audience loves specificity' },
+    {
+      name: 'Numbered list (max 5)',
+      template: 'Heading line + 1-5 numbered items, one line each',
+      why: 'High save rate',
+    },
+    {
+      name: 'Build-in-public',
+      template: 'Specific metric + specific decision = relatable signal',
+      why: 'Founder audience loves specificity',
+    },
   ],
   anti_patterns: [
     { pattern: 'retweet if', why: 'engagement bait' },

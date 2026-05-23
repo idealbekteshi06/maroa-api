@@ -97,7 +97,12 @@ test('idor: valid Bearer + matching userId in body → next() called, user injec
     body: { userId: USER_A },
   });
   const res = makeRes();
-  await new Promise((resolve) => mw(req, res, () => { called = true; resolve(); }));
+  await new Promise((resolve) =>
+    mw(req, res, () => {
+      called = true;
+      resolve();
+    })
+  );
   assert.strictEqual(called, true);
   assert.strictEqual(req.user.id, USER_A);
   assert.strictEqual(metrics.calls.length, 0, 'no metrics should fire on happy path');
@@ -116,7 +121,12 @@ test('idor: valid Bearer + matching user_id (snake_case) in body → next()', as
     body: { user_id: USER_A },
   });
   const res = makeRes();
-  await new Promise((resolve) => mw(req, res, () => { called = true; resolve(); }));
+  await new Promise((resolve) =>
+    mw(req, res, () => {
+      called = true;
+      resolve();
+    })
+  );
   assert.strictEqual(called, true);
 });
 
@@ -130,7 +140,12 @@ test('idor: valid Bearer + no userId in body → injects authenticated id', asyn
   const req = makeReq({ headers: { authorization: 'Bearer tok-A' }, body: {} });
   const res = makeRes();
   let called = false;
-  await new Promise((resolve) => mw(req, res, () => { called = true; resolve(); }));
+  await new Promise((resolve) =>
+    mw(req, res, () => {
+      called = true;
+      resolve();
+    })
+  );
   assert.strictEqual(called, true);
   assert.strictEqual(req.body.userId, USER_A);
   assert.strictEqual(req.body.user_id, USER_A);
@@ -150,7 +165,12 @@ test('idor: valid Bearer + matching userId in params → next()', async () => {
   });
   const res = makeRes();
   let called = false;
-  await new Promise((resolve) => mw(req, res, () => { called = true; resolve(); }));
+  await new Promise((resolve) =>
+    mw(req, res, () => {
+      called = true;
+      resolve();
+    })
+  );
   assert.strictEqual(called, true);
 });
 
@@ -172,7 +192,9 @@ test('idor: valid Bearer + DIFFERENT userId in body → 403 + auth_idor_blocked_
   });
   const res = makeRes();
   await new Promise((resolve) => {
-    mw(req, res, () => { called = true; });
+    mw(req, res, () => {
+      called = true;
+    });
     setTimeout(resolve, 20);
   });
   assert.strictEqual(called, false, 'next should NOT be called on IDOR');
@@ -400,7 +422,12 @@ test('idor: case-insensitive Bearer parsing', async () => {
   });
   const res = makeRes();
   let called = false;
-  await new Promise((resolve) => mw(req, res, () => { called = true; resolve(); }));
+  await new Promise((resolve) =>
+    mw(req, res, () => {
+      called = true;
+      resolve();
+    })
+  );
   assert.strictEqual(called, true);
 });
 
@@ -447,9 +474,7 @@ test('idor: metrics labels include route path for blast-radius visibility', asyn
     setTimeout(resolve, 20);
   });
   assert.ok(
-    metrics.calls.some(
-      (c) => c.name === 'auth_idor_blocked_total' && c.labels && c.labels.route === '/api/strategy'
-    )
+    metrics.calls.some((c) => c.name === 'auth_idor_blocked_total' && c.labels && c.labels.route === '/api/strategy')
   );
 });
 

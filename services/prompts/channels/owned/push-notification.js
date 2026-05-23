@@ -36,14 +36,22 @@ module.exports = buildChannelModule({
     deep_link: 'required',
   },
   hook_patterns: [
-    { name: 'Specific event', template: '"[Friend] just [did action]"', why: 'Social/specific events outperform generic' },
-    { name: 'Resume hook', template: '"Your [item] is still in your cart — [discount?]"', why: 'Personalized resume = highest CTR' },
+    {
+      name: 'Specific event',
+      template: '"[Friend] just [did action]"',
+      why: 'Social/specific events outperform generic',
+    },
+    {
+      name: 'Resume hook',
+      template: '"Your [item] is still in your cart — [discount?]"',
+      why: 'Personalized resume = highest CTR',
+    },
     { name: 'Real-time', template: '"[Event] just happened near you"', why: 'Real-time relevance' },
   ],
   anti_patterns: [
     { pattern: 'we miss you', why: 'Generic — triggers notification fatigue' },
     { pattern: 'check it out', why: 'Vague — no reason to tap' },
-    { pattern: 'don\'t forget', why: 'Reminder fatigue' },
+    { pattern: "don't forget", why: 'Reminder fatigue' },
   ],
   retention_mechanics: [
     'title 5-7 words, body 1-2 sentences',

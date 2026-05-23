@@ -16,8 +16,8 @@ The monolith takes **1–3 minutes** after the process starts before `app.listen
 
 Railway documents `healthcheckTimeout` in config-as-code **and** this variable:
 
-| Variable | Value | Purpose |
-|----------|-------|---------|
+| Variable                          | Value | Purpose                             |
+| --------------------------------- | ----- | ----------------------------------- |
 | `RAILWAY_HEALTHCHECK_TIMEOUT_SEC` | `600` | Platform healthcheck wait (seconds) |
 
 Add it under **Railway → Variables** for `maroa-api-production`. This works even when TOML is ignored.
@@ -32,12 +32,12 @@ Probes use host **`healthcheck.railway.app`**. Do not add middleware that reject
 
 ## Startup timing (local measurements)
 
-| Step | Time |
-|------|------|
-| `node scripts/sync_foundation.mjs` | **~0.3s** (no-op on Railway when frontend sibling repo absent) |
-| `npm start` prestart on Railway | **skipped** when `startCommand = node server.js` |
-| `/healthz` live (early listen) | **&lt;1s** after process start |
-| Deferred route table (`setImmediate`) | **~0.2–0.6s** on dev hardware |
+| Step                                  | Time                                                           |
+| ------------------------------------- | -------------------------------------------------------------- |
+| `node scripts/sync_foundation.mjs`    | **~0.3s** (no-op on Railway when frontend sibling repo absent) |
+| `npm start` prestart on Railway       | **skipped** when `startCommand = node server.js`               |
+| `/healthz` live (early listen)        | **&lt;1s** after process start                                 |
+| Deferred route table (`setImmediate`) | **~0.2–0.6s** on dev hardware                                  |
 
 The 9+ minute Railway failures were **not** prestart or Railway routing. Root cause: **`deprecatedWebhooksMiddleware` was mounted without calling the factory** (`app.use(fn)` instead of `app.use(fn())`), so every request (including `/healthz`) hung forever and the HTTP healthcheck timed out.
 
@@ -47,11 +47,11 @@ Also fixed: `Config` + `sbGet` moved before early `listen()` so boot does not th
 
 Optional model overrides for `services/higgsfield/modelRouter.js`:
 
-| Variable | Example | Purpose |
-|----------|---------|---------|
-| `HIGGSFIELD_DEFAULT_MODEL` | `nano-banana-pro` | Default when `content_type` is unknown |
-| `HIGGSFIELD_CINEMATIC_MODEL` | `kling-3.0` | Override for `content_type=cinematic` |
-| `HIGGSFIELD_UGC_MODEL` | `wan-2.5` | Override for UGC content types |
+| Variable                     | Example           | Purpose                                |
+| ---------------------------- | ----------------- | -------------------------------------- |
+| `HIGGSFIELD_DEFAULT_MODEL`   | `nano-banana-pro` | Default when `content_type` is unknown |
+| `HIGGSFIELD_CINEMATIC_MODEL` | `kling-3.0`       | Override for `content_type=cinematic`  |
+| `HIGGSFIELD_UGC_MODEL`       | `wan-2.5`         | Override for UGC content types         |
 
 Requires `HIGGSFIELD_API_KEY_ID` + `HIGGSFIELD_API_KEY_SECRET` (official `@higgsfield/client` SDK).
 

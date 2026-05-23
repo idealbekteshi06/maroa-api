@@ -35,8 +35,7 @@ function firstEnv(...keys) {
 }
 
 const API_URL = (
-  firstEnv('MAROA_API_URL', 'CANARY_URL', 'PRODUCTION_URL') ||
-  'https://maroa-api-production.up.railway.app'
+  firstEnv('MAROA_API_URL', 'CANARY_URL', 'PRODUCTION_URL') || 'https://maroa-api-production.up.railway.app'
 ).replace(/\/$/, '');
 const SLACK_WEBHOOK = (process.env.SLACK_ALERT_WEBHOOK_URL || '').trim();
 const LABEL = (process.env.MAROA_CANARY_LABEL || 'prod').trim();
@@ -80,7 +79,7 @@ function req(method, urlStr, headers = {}, body = null, timeoutMs = STEP_TIMEOUT
             body: parsed,
           });
         });
-      },
+      }
     );
     r.setTimeout(timeoutMs, () => {
       r.destroy(new Error(`timeout after ${timeoutMs}ms`));
@@ -133,7 +132,7 @@ async function run() {
     'healthz',
     healthz.ok && healthz.status === 200,
     healthz,
-    healthz.body?.status ? { body_status: healthz.body.status } : null,
+    healthz.body?.status ? { body_status: healthz.body.status } : null
   );
 
   // 2. Readiness — must be HTTP 200 and status: ready (not 401, not 503)
@@ -169,20 +168,17 @@ async function run() {
   if (failures.length > 0) {
     const lines = failures
       .slice(0, 6)
-      .map(
-        (f) =>
-          `• \`${f.step}\` HTTP ${f.status || 'err'}${f.error ? ` (${f.error})` : ''} — ${f.duration_ms}ms`,
-      )
+      .map((f) => `• \`${f.step}\` HTTP ${f.status || 'err'}${f.error ? ` (${f.error})` : ''} — ${f.duration_ms}ms`)
       .join('\n');
     await postSlack(
-      `:rotating_light: Maroa canary FAILED (${LABEL})\n${lines}\n\nTotal: ${totalDuration}ms · ${API_URL}`,
+      `:rotating_light: Maroa canary FAILED (${LABEL})\n${lines}\n\nTotal: ${totalDuration}ms · ${API_URL}`
     );
     process.exit(1);
   }
 
   if (totalDuration > CANARY_TIMEOUT_MS) {
     await postSlack(
-      `:warning: Maroa canary slow (${LABEL}) — ${totalDuration}ms exceeded soft budget of ${CANARY_TIMEOUT_MS}ms`,
+      `:warning: Maroa canary slow (${LABEL}) — ${totalDuration}ms exceeded soft budget of ${CANARY_TIMEOUT_MS}ms`
     );
   }
   process.exit(0);

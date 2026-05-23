@@ -73,9 +73,7 @@ function collectSignalsFromBundle(bundle) {
 function appendTrendingHooksToUserMessage(user, brandContext, bundle) {
   const signals = collectSignalsFromBundle(bundle);
   if (!signals.length) return user;
-  const topic = [brandContext?.industry, brandContext?.businessName, brandContext?.country]
-    .filter(Boolean)
-    .join(' — ');
+  const topic = [brandContext?.industry, brandContext?.businessName, brandContext?.country].filter(Boolean).join(' — ');
   const { user: signalBlock } = buildTrendingHooksPrompt({
     topic: topic || 'local business',
     signals,

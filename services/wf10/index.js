@@ -96,8 +96,7 @@ function createWf10(deps) {
           request.content_type ||
           (brief.asset_type === 'reel' ? 'social_reel' : null) ||
           (brief.asset_type === 'video' ? 'product_video' : null);
-        const cameraPreset =
-          brief.camera_preset || request.preset || request.camera_preset || 'ugc';
+        const cameraPreset = brief.camera_preset || request.preset || request.camera_preset || 'ugc';
 
         const isVideo = brief.asset_type === 'video' || brief.asset_type === 'reel';
         let soulId = null;
@@ -181,9 +180,7 @@ function createWf10(deps) {
         }
 
         const costUsd =
-          genMeta.credits_used != null
-            ? estimateModelCost(genMeta.model_slug || genMeta.model_version).cost_usd
-            : null;
+          genMeta.credits_used != null ? estimateModelCost(genMeta.model_slug || genMeta.model_version).cost_usd : null;
 
         await sbPatch('studio_jobs', `id=eq.${job.id}`, {
           status: resultUrl ? 'completed' : 'failed',

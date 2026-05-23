@@ -40,9 +40,21 @@ module.exports = buildChannelModule({
     emoji_use: 'minimal',
   },
   hook_patterns: [
-    { name: 'Brand + product + spec', template: '"[Brand] [Product] — [Color/Size/Spec]"', why: 'Matches buyer search behavior' },
-    { name: 'Outcome summary', template: '2-3 sentences: who it\'s for, what it solves, why it\'s different', why: 'Above-the-fold summary drives scroll' },
-    { name: 'Benefit bullets', template: '4-7 bullets, each a specific benefit + supporting detail', why: 'Scannable spec read' },
+    {
+      name: 'Brand + product + spec',
+      template: '"[Brand] [Product] — [Color/Size/Spec]"',
+      why: 'Matches buyer search behavior',
+    },
+    {
+      name: 'Outcome summary',
+      template: "2-3 sentences: who it's for, what it solves, why it's different",
+      why: 'Above-the-fold summary drives scroll',
+    },
+    {
+      name: 'Benefit bullets',
+      template: '4-7 bullets, each a specific benefit + supporting detail',
+      why: 'Scannable spec read',
+    },
   ],
   anti_patterns: [
     { pattern: 'world-class', why: 'Vague — say what it specifically does' },

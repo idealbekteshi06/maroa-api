@@ -129,7 +129,7 @@ paths:
       tags:
         - health
       summary: "GET /health"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Minimal public health status; pass x-orchestrator-secret for operator integration summary."
       responses:
         200:
           description: "Successful response"
@@ -168,7 +168,7 @@ paths:
       tags:
         - root
       summary: "GET /"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Minimal public health status; pass x-orchestrator-secret for operator integration summary."
       responses:
         200:
           description: "Successful response"
@@ -207,7 +207,7 @@ paths:
       tags:
         - debug
       summary: "GET /debug"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa API endpoint (GET /debug)."
       responses:
         200:
           description: "Successful response"
@@ -246,7 +246,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/new-user-signup"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/new-user-signup). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -338,7 +338,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/account-connected"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/account-connected). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -384,7 +384,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/create-campaigns"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/create-campaigns). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -476,7 +476,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/budget-updated"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/budget-updated). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -522,7 +522,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/competitor-check"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/competitor-check). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -568,7 +568,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/generate-landing-page"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/generate-landing-page). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -614,7 +614,7 @@ paths:
       tags:
         - test-email
       summary: "POST /test-email"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa API endpoint (POST /test-email)."
       responses:
         200:
           description: "Successful response"
@@ -660,7 +660,7 @@ paths:
       tags:
         - meta-oauth-exchange
       summary: "POST /meta-oauth-exchange"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa API endpoint (POST /meta-oauth-exchange)."
       responses:
         200:
           description: "Successful response"
@@ -745,7 +745,7 @@ paths:
       tags:
         - api
       summary: "POST /api/content/generate"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/content/generate). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -791,7 +791,7 @@ paths:
       tags:
         - api
       summary: "GET /api/cron-health/:businessId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/content/generate). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -830,7 +830,7 @@ paths:
       tags:
         - api
       summary: "GET /api/business/:businessId/brand-voice"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/content/generate). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -869,7 +869,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/build-brand-voice"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/build-brand-voice). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -961,7 +961,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/create-checkout"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/create-checkout). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1007,7 +1007,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/org-create"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/org-create). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1053,7 +1053,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/org-get"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/org-get). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1092,7 +1092,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/org-add-workspace"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/org-add-workspace). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1138,7 +1138,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/org-invite-member"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/org-invite-member). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1184,7 +1184,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/org-white-label-update"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/org-white-label-update). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1230,7 +1230,7 @@ paths:
       tags:
         - linkedin-oauth-start
       summary: "GET /linkedin-oauth-start"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa API endpoint (GET /linkedin-oauth-start)."
       responses:
         200:
           description: "Successful response"
@@ -1269,7 +1269,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/linkedin-oauth-exchange"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/linkedin-oauth-exchange). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1315,7 +1315,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/linkedin-publish"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/linkedin-publish). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1361,7 +1361,7 @@ paths:
       tags:
         - twitter-oauth-start
       summary: "GET /twitter-oauth-start"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa API endpoint (GET /twitter-oauth-start)."
       responses:
         200:
           description: "Successful response"
@@ -1400,7 +1400,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/twitter-oauth-exchange"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/twitter-oauth-exchange). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1446,7 +1446,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/twitter-publish"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/twitter-publish). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1492,7 +1492,7 @@ paths:
       tags:
         - tiktok-oauth-start
       summary: "GET /tiktok-oauth-start"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa API endpoint (GET /tiktok-oauth-start)."
       responses:
         200:
           description: "Successful response"
@@ -1531,7 +1531,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/tiktok-oauth-exchange"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/tiktok-oauth-exchange). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1577,7 +1577,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/tiktok-publish"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/tiktok-publish). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1623,7 +1623,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/analytics-snapshot"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/analytics-snapshot). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1669,7 +1669,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/analytics-report"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/analytics-report). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1715,7 +1715,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/analytics-get"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/analytics-get). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1754,7 +1754,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/email-sequence-create"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/email-sequence-create). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1800,7 +1800,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/email-enroll"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/email-enroll). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1846,7 +1846,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/email-trigger"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/email-trigger). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1892,7 +1892,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/email-sequence-process"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/email-sequence-process). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1938,7 +1938,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/no-open-candidates"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/no-open-candidates). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -1977,7 +1977,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/meta-campaign-create"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/meta-campaign-create). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2023,7 +2023,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/meta-campaign-activate"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/meta-campaign-activate). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2069,7 +2069,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/meta-campaign-optimize"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/meta-campaign-optimize). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2115,7 +2115,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/meta-campaigns-get"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/meta-campaigns-get). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2154,7 +2154,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/google-campaign-create"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/google-campaign-create). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2200,7 +2200,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/google-campaign-activate"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/google-campaign-activate). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2246,7 +2246,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/google-campaign-optimize"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/google-campaign-optimize). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2292,7 +2292,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/google-campaigns-get"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/google-campaigns-get). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2331,7 +2331,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/contact-create"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/contact-create). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2377,7 +2377,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/contact-update"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/contact-update). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2423,7 +2423,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/contact-import"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/contact-import). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2469,7 +2469,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/contacts-get"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/contacts-get). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2508,7 +2508,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/contact-activity-log"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/contact-activity-log). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2554,7 +2554,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/pipeline-get"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/pipeline-get). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2593,7 +2593,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/deal-create"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/deal-create). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2639,7 +2639,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/deal-stage-update"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/deal-stage-update). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2685,7 +2685,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/competitor-analyze"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/competitor-analyze). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2731,7 +2731,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/competitor-report-get"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/competitor-report-get). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2816,7 +2816,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/content-pieces-get"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/content-pieces-get). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2855,7 +2855,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/content-approve"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/content-approve). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2901,7 +2901,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/seo-audit"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/seo-audit). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2947,7 +2947,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/seo-recommendations-get"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/seo-recommendations-get). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -2986,7 +2986,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/seo-recommendation-apply"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/seo-recommendation-apply). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3032,7 +3032,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/cro-analyze"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/cro-analyze). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3078,7 +3078,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/cro-generate-copy"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/cro-generate-copy). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3124,7 +3124,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/video-script-generate"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/video-script-generate). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3170,7 +3170,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/video-generate-runway"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/video-generate-runway). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3216,7 +3216,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/video-status"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/video-status). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3255,7 +3255,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/videos-get"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/videos-get). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3294,7 +3294,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/brand-memory-store"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/brand-memory-store). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3340,7 +3340,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/brand-memory-retrieve"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/brand-memory-retrieve). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3386,7 +3386,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/brand-memory-train"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/brand-memory-train). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3432,7 +3432,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/white-label-update"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/white-label-update). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3478,7 +3478,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/white-label-get"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/white-label-get). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3517,7 +3517,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/review-request-send"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/review-request-send). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3563,7 +3563,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/review-response-generate"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/review-response-generate). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3609,7 +3609,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/review-response-publish"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/review-response-publish). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3655,7 +3655,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/reviews-get"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/reviews-get). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3694,7 +3694,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/ad-creatives-get"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/ad-creatives-get). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3733,7 +3733,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/ad-creative-update"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/ad-creative-update). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3779,7 +3779,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/ad-creative-generate"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/ad-creative-generate). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3825,7 +3825,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/ab-tests-get"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/ab-tests-get). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3864,7 +3864,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/ai-brain-run"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/ai-brain-run). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3910,7 +3910,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/log-error"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/log-error). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -3956,7 +3956,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/agent-run"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/agent-run). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4002,7 +4002,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/optimize-posting-times"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/optimize-posting-times). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4048,7 +4048,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/competitor-alert-check"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/competitor-alert-check). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4094,7 +4094,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/weekly-strategy-update"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/weekly-strategy-update). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4140,7 +4140,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/attribute-revenue"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/attribute-revenue). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4186,7 +4186,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/master-agent"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/master-agent). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4232,7 +4232,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/master-agent-all"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/master-agent-all). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4278,7 +4278,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/measure-content-performance"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/measure-content-performance). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4324,7 +4324,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/score-content-before-posting"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/score-content-before-posting). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4370,7 +4370,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/analyze-audience"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/analyze-audience). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4416,7 +4416,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/build-competitive-moat"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/build-competitive-moat). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4462,7 +4462,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/orchestrate-campaign"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/orchestrate-campaign). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4508,7 +4508,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/crisis-check"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/crisis-check). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4554,7 +4554,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/growth-engine"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/growth-engine). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4600,7 +4600,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/auto-approve-content"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/auto-approve-content). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4646,7 +4646,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/publish-approved-content"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/publish-approved-content). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4692,7 +4692,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/generate-image"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/generate-image). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4738,7 +4738,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/score-image"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/score-image). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4784,7 +4784,7 @@ paths:
       tags:
         - api
       summary: "POST /api/inject-marketing-skills"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/inject-marketing-skills). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -4830,7 +4830,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/score-content"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/score-content). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4876,7 +4876,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/errors-get"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/errors-get). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4915,7 +4915,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/whatsapp-send"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/whatsapp-send). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -4961,7 +4961,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/whatsapp-test"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/whatsapp-test). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5007,7 +5007,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/whatsapp-weekly-digest"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/whatsapp-weekly-digest). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5053,7 +5053,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/email-approve"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/email-approve). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5092,7 +5092,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/dashboard-events"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/dashboard-events). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5131,7 +5131,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/gmb-post"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/gmb-post). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5177,7 +5177,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/video-generate"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/video-generate). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5223,7 +5223,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/referral-create"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/referral-create). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5269,7 +5269,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/referral-convert"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/referral-convert). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5315,7 +5315,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/referral-stats"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/referral-stats). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5354,7 +5354,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/revenue-forecast"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/revenue-forecast). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5400,7 +5400,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/spy-competitor-ads"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/spy-competitor-ads). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5446,7 +5446,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/webhook-subscribe"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/webhook-subscribe). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5492,7 +5492,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/webhook-list"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/webhook-list). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5531,7 +5531,7 @@ paths:
       tags:
         - webhook
       summary: "DELETE /webhook/webhook-delete"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (DELETE /webhook/webhook-delete). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5577,7 +5577,7 @@ paths:
       tags:
         - api
       summary: "GET /api/intelligence/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/webhook-delete). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5616,7 +5616,7 @@ paths:
       tags:
         - api
       summary: "GET /api/debug/profile/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/webhook-delete). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5655,7 +5655,7 @@ paths:
       tags:
         - api
       summary: "GET /api/opportunities/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/webhook-delete). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5694,7 +5694,7 @@ paths:
       tags:
         - api
       summary: "GET /api/metrics/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/webhook-delete). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -5733,7 +5733,7 @@ paths:
       tags:
         - api
       summary: "POST /api/calendar/generate"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/calendar/generate). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -5779,7 +5779,7 @@ paths:
       tags:
         - api
       summary: "POST /api/content/feedback"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/content/feedback). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -5825,7 +5825,7 @@ paths:
       tags:
         - api
       summary: "POST /api/performance/update"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/performance/update). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -5871,7 +5871,7 @@ paths:
       tags:
         - api
       summary: "GET /api/performance/summary/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/performance/update). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -5910,7 +5910,7 @@ paths:
       tags:
         - api
       summary: "GET /api/health/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/performance/update). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -5949,7 +5949,7 @@ paths:
       tags:
         - api
       summary: "POST /api/campaigns/instant"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/campaigns/instant). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -5995,7 +5995,7 @@ paths:
       tags:
         - api
       summary: "POST /api/content/repurpose"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/content/repurpose). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6041,7 +6041,7 @@ paths:
       tags:
         - api
       summary: "POST /api/compete/counter"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/compete/counter). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6087,7 +6087,7 @@ paths:
       tags:
         - api
       summary: "GET /api/strategy/weekly/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/compete/counter). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6126,7 +6126,7 @@ paths:
       tags:
         - api
       summary: "POST /api/reviews/auto-respond"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/reviews/auto-respond). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6172,7 +6172,7 @@ paths:
       tags:
         - api
       summary: "POST /api/referral/setup"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/referral/setup). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6218,7 +6218,7 @@ paths:
       tags:
         - api
       summary: "GET /api/referral/status/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/referral/setup). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6257,7 +6257,7 @@ paths:
       tags:
         - api
       summary: "POST /api/referral/track"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/referral/track). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6303,7 +6303,7 @@ paths:
       tags:
         - api
       summary: "POST /api/lead-magnets/generate"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/lead-magnets/generate). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6349,7 +6349,7 @@ paths:
       tags:
         - api
       summary: "GET /api/lead-magnets/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/lead-magnets/generate). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6388,7 +6388,7 @@ paths:
       tags:
         - api
       summary: "POST /api/launch/create"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/launch/create). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6434,7 +6434,7 @@ paths:
       tags:
         - api
       summary: "GET /api/launch/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/launch/create). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6473,7 +6473,7 @@ paths:
       tags:
         - api
       summary: "POST /api/research/analyze"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/research/analyze). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6519,7 +6519,7 @@ paths:
       tags:
         - api
       summary: "POST /api/ideas/generate"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/ideas/generate). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6565,7 +6565,7 @@ paths:
       tags:
         - api
       summary: "GET /api/ideas/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/ideas/generate). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6604,7 +6604,7 @@ paths:
       tags:
         - api
       summary: "PATCH /api/ideas/:ideaId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (PATCH /api/ideas/generate). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6650,7 +6650,7 @@ paths:
       tags:
         - api
       summary: "POST /api/ai-seo/optimize"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/ai-seo/optimize). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6696,7 +6696,7 @@ paths:
       tags:
         - api
       summary: "POST /api/schema/generate"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/schema/generate). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6742,7 +6742,7 @@ paths:
       tags:
         - api
       summary: "GET /api/schema/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/schema/generate). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6781,7 +6781,7 @@ paths:
       tags:
         - api
       summary: "POST /api/seo-pages/generate"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/seo-pages/generate). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6827,7 +6827,7 @@ paths:
       tags:
         - api
       summary: "GET /api/seo-pages/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/seo-pages/generate). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6866,7 +6866,7 @@ paths:
       tags:
         - api
       summary: "POST /api/pricing/analyze"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/pricing/analyze). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6912,7 +6912,7 @@ paths:
       tags:
         - api
       summary: "GET /api/pricing/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/pricing/analyze). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6951,7 +6951,7 @@ paths:
       tags:
         - api
       summary: "POST /api/community/generate-posts"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/community/generate-posts). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -6997,7 +6997,7 @@ paths:
       tags:
         - api
       summary: "POST /api/sales/generate-pitch"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/sales/generate-pitch). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7043,7 +7043,7 @@ paths:
       tags:
         - api
       summary: "POST /api/sales/objection-handler"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/sales/objection-handler). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7089,7 +7089,7 @@ paths:
       tags:
         - api
       summary: "POST /api/revops/score-lead"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/revops/score-lead). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7135,7 +7135,7 @@ paths:
       tags:
         - api
       summary: "GET /api/revops/scores/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/revops/score-lead). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7174,7 +7174,7 @@ paths:
       tags:
         - api
       summary: "POST /api/ab-tests/create"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/ab-tests/create). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7220,7 +7220,7 @@ paths:
       tags:
         - api
       summary: "GET /api/ab-tests/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/ab-tests/create). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7259,7 +7259,7 @@ paths:
       tags:
         - api
       summary: "POST /api/tools/suggest"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/tools/suggest). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7305,7 +7305,7 @@ paths:
       tags:
         - api
       summary: "GET /api/tools/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/tools/suggest). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7344,7 +7344,7 @@ paths:
       tags:
         - api
       summary: "POST /api/popup/generate"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/popup/generate). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7390,7 +7390,7 @@ paths:
       tags:
         - api
       summary: "POST /api/onboarding-cro/generate"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/onboarding-cro/generate). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7436,7 +7436,7 @@ paths:
       tags:
         - api
       summary: "POST /api/upgrade/generate-prompts"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/upgrade/generate-prompts). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7482,7 +7482,7 @@ paths:
       tags:
         - api
       summary: "POST /api/signup-cro/analyze"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/signup-cro/analyze). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7528,7 +7528,7 @@ paths:
       tags:
         - api
       summary: "POST /api/orchestrator/run/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/signup-cro/analyze). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7574,7 +7574,7 @@ paths:
       tags:
         - api
       summary: "POST /api/orchestrator/run-all"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/orchestrator/run-all). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7620,7 +7620,7 @@ paths:
       tags:
         - api
       summary: "GET /api/orchestrator/log/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/orchestrator/run-all). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7659,7 +7659,7 @@ paths:
       tags:
         - api
       summary: "POST /api/social/linkedin/publish"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/social/linkedin/publish). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7705,7 +7705,7 @@ paths:
       tags:
         - api
       summary: "POST /api/social/twitter/tweet"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/social/twitter/tweet). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7751,7 +7751,7 @@ paths:
       tags:
         - api
       summary: "POST /api/social/twitter/thread"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/social/twitter/thread). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7797,7 +7797,7 @@ paths:
       tags:
         - onboarding
       summary: "Save onboarding profile"
-      description: "Customer fills the onboarding form → this endpoint upserts business_profiles, syncs core fields to businesses, computes profile_score (0-100), stashes the profile in Pinecone for retrieval. Returns profile_score + missing_fields list."
+      description: "Customer fills the onboarding form → this endpoint upserts business_profiles, syncs core fields to businesses, computes profile_score (0-100), stashes the profile in Postgres (pgvector) for retrieval. Returns profile_score + missing_fields list."
       responses:
         200:
           description: "Successful response"
@@ -7881,7 +7881,7 @@ paths:
       tags:
         - api
       summary: "PATCH /api/onboarding/profile/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (PATCH /api/onboarding/save). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7927,7 +7927,7 @@ paths:
       tags:
         - api
       summary: "GET /api/context/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/onboarding/save). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -7966,7 +7966,7 @@ paths:
       tags:
         - api
       summary: "GET /api/onboarding/score/:userId"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/onboarding/save). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -8005,7 +8005,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/ai-chat"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/ai-chat). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -8051,7 +8051,7 @@ paths:
       tags:
         - api
       summary: "POST /api/waitlist/register"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/waitlist/register). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -8097,7 +8097,7 @@ paths:
       tags:
         - api
       summary: "GET /api/waitlist/count"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (GET /api/waitlist/count). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -8136,7 +8136,7 @@ paths:
       tags:
         - api
       summary: "POST /api/generate"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/generate). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -8182,7 +8182,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/social-post-now"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/social-post-now). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -8228,7 +8228,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/social-post-schedule"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/social-post-schedule). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -8274,7 +8274,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/email-lifecycle-process-due"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/email-lifecycle-process-due). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -8320,7 +8320,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/email-lifecycle-enroll"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/email-lifecycle-enroll). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -8366,7 +8366,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/email-lifecycle-bootstrap"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/email-lifecycle-bootstrap). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -8412,7 +8412,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/autopilot-brain-run-all"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/autopilot-brain-run-all). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -8458,7 +8458,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/autopilot-brain-run"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/autopilot-brain-run). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -8504,7 +8504,7 @@ paths:
       tags:
         - webhook
       summary: "POST /webhook/higgsfield-self-test"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (POST /webhook/higgsfield-self-test). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -8550,7 +8550,7 @@ paths:
       tags:
         - webhook
       summary: "GET /webhook/social-platforms"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Maroa automation webhook (GET /webhook/social-platforms). Typically requires x-webhook-secret and business ownership when business_id is present."
       responses:
         200:
           description: "Successful response"
@@ -8635,7 +8635,7 @@ paths:
       tags:
         - api
       summary: "POST /api/delete-account"
-      description: "Auto-generated from server.js. Hand-edit this entry for accuracy."
+      description: "Authenticated dashboard API (POST /api/delete-account). Requires Supabase JWT unless documented as public."
       responses:
         200:
           description: "Successful response"
@@ -8812,7 +8812,7 @@ paths:
       tags:
         - content
       summary: "24h-after-publish performance scorer"
-      description: "Inngest target — fired 24h after publish by contentPublishFeedback24h. Pulls live Meta post insights, scores the content, and stashes high-performing captions in Pinecone for retrieval. See services/inngest/."
+      description: "Inngest target — fired 24h after publish by contentPublishFeedback24h. Pulls live Meta post insights, scores the content, and stashes high-performing captions in Postgres (pgvector) for retrieval. See services/inngest/."
       responses:
         200:
           description: "Successful response"

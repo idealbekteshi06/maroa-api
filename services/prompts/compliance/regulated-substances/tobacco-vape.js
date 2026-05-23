@@ -34,7 +34,8 @@ module.exports = buildComplianceModule({
   industries: [],
   regions: ['*'],
   regulators: ['FDA', 'WHO FCTC', 'Tobacco Control Act'],
-  source_citation: 'Family Smoking Prevention and Tobacco Control Act (2009), FDA Deeming Rule (2016), WHO FCTC Art. 13',
+  source_citation:
+    'Family Smoking Prevention and Tobacco Control Act (2009), FDA Deeming Rule (2016), WHO FCTC Art. 13',
   banned_claims: [
     {
       patterns: ['safer than smoking', 'healthier than cigarettes', 'safe alternative'],

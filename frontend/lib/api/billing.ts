@@ -39,7 +39,7 @@ export async function fetchPlans(): Promise<PlanCatalog | null> {
 
 export async function startCheckout(
   userId: string,
-  plan: 'growth' | 'agency',
+  plan: 'starter' | 'growth' | 'agency',
   successUrl?: string,
 ): Promise<CheckoutResponse | null> {
   try {

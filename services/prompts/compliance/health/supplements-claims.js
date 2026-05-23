@@ -86,7 +86,7 @@ module.exports = buildComplianceModule({
   },
   examples_blocked: [
     'This supplement cures diabetes.',
-    'Clinically proven to prevent Alzheimer\'s.',
+    "Clinically proven to prevent Alzheimer's.",
     'Take this miracle pill to lose 20 lbs in 30 days.',
   ],
 });

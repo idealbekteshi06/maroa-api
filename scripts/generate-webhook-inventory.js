@@ -12,10 +12,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'docs', 'WEBHOOK_INVENTORY.md');
 
-const RETIRED = new Set([
-  'POST /webhook/master-agent',
-  'POST /webhook/master-agent-all',
-]);
+const RETIRED = new Set(['POST /webhook/master-agent', 'POST /webhook/master-agent-all']);
 
 const INNGEST_ONLY = new Set([
   'POST /webhook/ad-optimizer-daily-audit',

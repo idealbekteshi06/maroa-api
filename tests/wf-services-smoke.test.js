@@ -81,11 +81,7 @@ for (const folder of _serviceFolders()) {
         // mean the factory ran far enough to declare its needs. Real bugs
         // throw ReferenceError on uninitialized identifiers or fail before
         // user-facing validation.
-        if (
-          e instanceof ReferenceError ||
-          /Cannot find module/.test(e.message) ||
-          /is not defined/.test(e.message)
-        ) {
+        if (e instanceof ReferenceError || /Cannot find module/.test(e.message) || /is not defined/.test(e.message)) {
           throw e;
         }
       }

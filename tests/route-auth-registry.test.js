@@ -17,13 +17,25 @@ const PUBLIC_ROUTES = new Set([
   '/healthz',
   '/readyz',
   '/health',
+  '/status',
   '/docs/openapi.yml',
   '/debug',
   '/api/billing/plans',
   '/api/waitlist/register',
   '/api/waitlist/count',
   '/api/data-deletion-status',
+  '/linkedin-oauth-start',
+  '/tiktok-oauth-start',
+  '/twitter-oauth-start',
 ]);
+
+/** Magic-link flows — token in path, no JWT (see routes/workspaces.js). */
+function isTokenPublicApi(p) {
+  if (/^\/api\/invites\/[^/]+\/accept$/.test(p)) return true;
+  if (/^\/api\/approvals\/[^/]+$/.test(p)) return true;
+  if (/^\/api\/approvals\/[^/]+\/(approve|reject)$/.test(p)) return true;
+  return false;
+}
 
 const SIGNED_WEBHOOK_ROUTES = new Set([
   '/webhook/paddle-webhook',
@@ -58,7 +70,7 @@ function extractRoutesFromFile(filePath, src) {
   const rel = path.relative(ROOT, filePath);
   const routes = [];
   const lines = src.split('\n');
-  const re = /^app\.(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]+)['"`]/;
+  const re = /^\s*app\.(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]+)['"`]/;
   lines.forEach((line, i) => {
     const m = re.exec(line);
     if (m) {
@@ -78,6 +90,7 @@ function classify(route, serverSrc) {
   const { path: p, full } = route;
 
   if (PUBLIC_ROUTES.has(p)) return 'public';
+  if (isTokenPublicApi(p)) return 'public';
   if (SIGNED_WEBHOOK_ROUTES.has(p)) return 'signed-webhook';
   if (ADMIN_ROUTES_RE.test(full)) return 'admin';
   if (METRICS_AUTH_RE.test(full)) return 'metrics-auth';

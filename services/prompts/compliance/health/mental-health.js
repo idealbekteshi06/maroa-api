@@ -31,7 +31,8 @@ module.exports = buildComplianceModule({
   industries: ['mental_health'],
   regions: ['*'],
   regulators: ['FDA', 'FTC', 'State Mental Health Boards', 'WHO Suicide Prevention Guidelines'],
-  source_citation: 'WHO Preventing Suicide: A Resource for Media Professionals (2017), FTC Health Products Compliance Guide',
+  source_citation:
+    'WHO Preventing Suicide: A Resource for Media Professionals (2017), FTC Health Products Compliance Guide',
   banned_claims: [
     {
       patterns: [

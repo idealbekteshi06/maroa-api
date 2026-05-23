@@ -14,8 +14,7 @@ const CONTENT_TYPE_MODEL = {
   ugc_audio_ambient: 'wan-2.5',
 };
 
-const DEFAULT_MODEL =
-  (process.env.HIGGSFIELD_DEFAULT_MODEL || 'nano-banana-pro').trim() || 'nano-banana-pro';
+const DEFAULT_MODEL = (process.env.HIGGSFIELD_DEFAULT_MODEL || 'nano-banana-pro').trim() || 'nano-banana-pro';
 
 const ENV_OVERRIDES = {
   cinematic: process.env.HIGGSFIELD_CINEMATIC_MODEL,

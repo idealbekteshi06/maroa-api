@@ -95,18 +95,14 @@ function createBatchOrchestrator(deps) {
         const split = new Date(Date.now() - 7 * 86400000).toISOString();
         const [bizRows, profileRows, allLogs, campaigns] = await Promise.all([
           sbGet('businesses', `id=eq.${encodeURIComponent(businessId)}&select=*`).catch(() => []),
-          sbGet(
-            'business_profiles',
-            `user_id=eq.${encodeURIComponent(businessId)}&select=*`,
-          ).catch(() => []),
+          sbGet('business_profiles', `user_id=eq.${encodeURIComponent(businessId)}&select=*`).catch(() => []),
           sbGet(
             'ad_performance_logs',
-            `business_id=eq.${encodeURIComponent(businessId)}&logged_at=gte.${since}&order=logged_at.asc&select=*`,
+            `business_id=eq.${encodeURIComponent(businessId)}&logged_at=gte.${since}&order=logged_at.asc&select=*`
           ).catch(() => []),
-          sbGet(
-            'ad_campaigns',
-            `business_id=eq.${encodeURIComponent(businessId)}&select=id,business_name`,
-          ).catch(() => []),
+          sbGet('ad_campaigns', `business_id=eq.${encodeURIComponent(businessId)}&select=id,business_name`).catch(
+            () => []
+          ),
         ]);
         const business = { ...(bizRows[0] || {}), ...(profileRows[0] || {}) };
         if (!business?.id && !business?.user_id) {
@@ -167,7 +163,7 @@ function createBatchOrchestrator(deps) {
       logger?.info?.(
         'weekly-scorecard-batch',
         null,
-        `submitted ${requests.length} requests as batch ${submitted.anthropicId}`,
+        `submitted ${requests.length} requests as batch ${submitted.anthropicId}`
       );
 
       // Poll
@@ -182,7 +178,7 @@ function createBatchOrchestrator(deps) {
         logger?.warn?.(
           'weekly-scorecard-batch',
           null,
-          `batch ${submitted.anthropicId} did not finish within ${Math.round(maxWaitMs / 60000)}min`,
+          `batch ${submitted.anthropicId} did not finish within ${Math.round(maxWaitMs / 60000)}min`
         );
         return {
           batchId: submitted.anthropicId,
@@ -203,11 +199,7 @@ function createBatchOrchestrator(deps) {
         try {
           if (r.result?.type !== 'succeeded') {
             failed += 1;
-            logger?.warn?.(
-              'weekly-scorecard-batch',
-              ctx.businessId,
-              `batch entry failed: ${r.result?.type}`,
-            );
+            logger?.warn?.('weekly-scorecard-batch', ctx.businessId, `batch entry failed: ${r.result?.type}`);
             continue;
           }
           const text = r.message?.content?.[0]?.text || '';
@@ -226,12 +218,7 @@ function createBatchOrchestrator(deps) {
           shipped += 1;
         } catch (e) {
           failed += 1;
-          logger?.error?.(
-            'weekly-scorecard-batch',
-            ctx.businessId,
-            'post-process failed',
-            { error: e.message },
-          );
+          logger?.error?.('weekly-scorecard-batch', ctx.businessId, 'post-process failed', { error: e.message });
         }
       }
 
@@ -267,8 +254,7 @@ function createBatchOrchestrator(deps) {
 
     if (sendEmail && business?.email) {
       try {
-        const subject =
-          commentary?.headline?.slice(0, 80) || 'Your week with Maroa';
+        const subject = commentary?.headline?.slice(0, 80) || 'Your week with Maroa';
         const body =
           [commentary?.summary, commentary?.recommendation].filter(Boolean).join('\n\n') ||
           'Your weekly summary is ready.';

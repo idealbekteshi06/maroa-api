@@ -137,8 +137,8 @@ function register({
       ? result.refusal_reason && /compliance/i.test(result.refusal_reason)
         ? 'refused_compliance'
         : result.refusal_reason && /ethics/i.test(result.refusal_reason)
-        ? 'refused_ethics'
-        : 'refused'
+          ? 'refused_ethics'
+          : 'refused'
       : 'ok';
 
     if (metrics?.increment) {

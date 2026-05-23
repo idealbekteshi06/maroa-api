@@ -25,11 +25,13 @@ function runSevenSweepsHeuristics(text) {
   const issues = [];
   const t = String(text || '');
 
-  if ((t.match(/\b\w+\b/g) || []).some((w, i, arr) => {
-    const start = arr.slice(0, i).join(' ').length;
-    const sentence = t.slice(start, start + 200);
-    return sentence.split(/\s+/).length > 35;
-  })) {
+  if (
+    (t.match(/\b\w+\b/g) || []).some((w, i, arr) => {
+      const start = arr.slice(0, i).join(' ').length;
+      const sentence = t.slice(start, start + 200);
+      return sentence.split(/\s+/).length > 35;
+    })
+  ) {
     issues.push({ sweep: 'clarity', issue: 'sentence_too_long' });
   }
 
@@ -43,9 +45,7 @@ function runSevenSweepsHeuristics(text) {
 }
 
 function buildCopyEditingPromptSection() {
-  return SEVEN_SWEEPS.map(
-    (s, i) => `Sweep ${i + 1} — ${s.name}: ${s.focus}`
-  ).join('\n');
+  return SEVEN_SWEEPS.map((s, i) => `Sweep ${i + 1} — ${s.name}: ${s.focus}`).join('\n');
 }
 
 function buildCopyEditingRepairInstruction(issues) {

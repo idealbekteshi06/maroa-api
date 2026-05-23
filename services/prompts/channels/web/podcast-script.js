@@ -34,9 +34,21 @@ module.exports = buildChannelModule({
     hook_window_sec: 60,
   },
   hook_patterns: [
-    { name: 'Tease payoff', template: 'In first 30s, name the most surprising thing the episode covers', why: 'Beats drop-off' },
-    { name: 'Cold open quote', template: 'Strong quote from guest before intro music', why: 'Pulls listeners through the intro' },
-    { name: 'Question hook', template: '"In this episode, you\'ll learn the answer to [specific question]"', why: 'Anchors value' },
+    {
+      name: 'Tease payoff',
+      template: 'In first 30s, name the most surprising thing the episode covers',
+      why: 'Beats drop-off',
+    },
+    {
+      name: 'Cold open quote',
+      template: 'Strong quote from guest before intro music',
+      why: 'Pulls listeners through the intro',
+    },
+    {
+      name: 'Question hook',
+      template: '"In this episode, you\'ll learn the answer to [specific question]"',
+      why: 'Anchors value',
+    },
   ],
   anti_patterns: [
     { pattern: 'welcome to the show', why: 'Skip the welcome — start with value' },
@@ -48,8 +60,6 @@ module.exports = buildChannelModule({
     'one key takeaway repeated',
     'chapters/timestamps in show notes',
   ],
-  invariants: [
-    { id: 'hook-window', rule: 'First 60s hooks the listener', kind: 'must_have' },
-  ],
+  invariants: [{ id: 'hook-window', rule: 'First 60s hooks the listener', kind: 'must_have' }],
   manipulation_risk: 0,
 });

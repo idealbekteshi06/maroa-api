@@ -306,8 +306,7 @@ patterns:
 - **Per-service timeouts** — `lib/serviceTimeouts.js`. Higgsfield gets
   90s (image gen is slow), Paddle gets 10s (fail-fast on payment), Anthropic
   25s, etc. Default is 15s.
-- **Idempotency-Key middleware** — `middleware/idempotency.js` + migration
-  069. Mounted as `optional` on `/api/content/*`, `/api/social/*`,
+- **Idempotency-Key middleware** — `middleware/idempotency.js` + migration 069. Mounted as `optional` on `/api/content/*`, `/api/social/*`,
   `/api/ad-campaigns/*`, `/api/email-lifecycle/*`, `/api/launch`. Flip
   to `required` after frontend rollout. Browser retries no longer
   double-fire mutations.
@@ -324,7 +323,7 @@ patterns:
   PK constraint.
 - **Real readiness probes** — `/readyz` actually pings Anthropic
   (`/v1/models`), Higgsfield (`/v1/models`), and reports DLQ accumulation
-  + open breaker snapshot. 10s cache so a flood of probes doesn't DDoS.
+  - open breaker snapshot. 10s cache so a flood of probes doesn't DDoS.
 - **DLQ auto-alerts** — Inngest terminal failures now ping Slack
   (`SLACK_ALERT_WEBHOOK_URL`) and Sentry. Same-function rate-limit 5 min.
 - **Bounded in-process caches** — `lib/groundingContext.js` caps at 5k

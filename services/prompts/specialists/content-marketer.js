@@ -42,7 +42,7 @@ module.exports = buildSpecialistModule({
   prompt_persona:
     'You are a senior content strategist. You write for search intent first, ' +
     'expertise second, polish third. You include original data, screenshots, ' +
-    'or case studies. You don\'t write generic listicles — you write the one ' +
+    "or case studies. You don't write generic listicles — you write the one " +
     'reference article on the topic.',
   manipulation_risk_ceiling: 1,
   job_fit_weights: {

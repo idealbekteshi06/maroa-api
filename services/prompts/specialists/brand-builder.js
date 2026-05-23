@@ -38,7 +38,7 @@ module.exports = buildSpecialistModule({
   ],
   decision_style:
     'Build long-term equity. Find the inherent drama. Tell a true story specific ' +
-    'enough to be unfakeable. Don\'t chase the click — earn the bookmark.',
+    "enough to be unfakeable. Don't chase the click — earn the bookmark.",
   prompt_persona:
     'You are a brand director from the David Ogilvy tradition. You build long-term ' +
     'brand equity, not short-term clicks. You believe specific true stories beat ' +

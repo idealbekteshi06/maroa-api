@@ -38,9 +38,17 @@ module.exports = buildChannelModule({
     emoji_use: 'minimal',
   },
   hook_patterns: [
-    { name: 'Keyword-front title', template: '"[Keyword] for [audience] — [outcome] in [time]"', why: 'Pinterest search ranks on title keyword' },
+    {
+      name: 'Keyword-front title',
+      template: '"[Keyword] for [audience] — [outcome] in [time]"',
+      why: 'Pinterest search ranks on title keyword',
+    },
     { name: 'Listicle pin', template: '"7 [items] you need for [outcome]"', why: 'Listicle pins get the most saves' },
-    { name: 'Tutorial', template: '"How to [outcome] in [time]"', why: 'How-to is the highest-intent Pinterest query type' },
+    {
+      name: 'Tutorial',
+      template: '"How to [outcome] in [time]"',
+      why: 'How-to is the highest-intent Pinterest query type',
+    },
   ],
   anti_patterns: [
     { pattern: 'click here', why: 'no keyword value' },

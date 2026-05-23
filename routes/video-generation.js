@@ -39,10 +39,10 @@ function register({
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
     if (!['tiktok', 'instagram_reel', 'youtube_short'].includes(platform))
       return res.status(400).json({ error: 'platform must be tiktok|instagram_reel|youtube_short' });
-  
+
     // Return 200 immediately — generation (~15s) in background
     res.json({ received: true, message: 'Video script generation started — check email in ~30 seconds' });
-  
+
     setImmediate(async () => {
       try {
         const bizArr = await sbGet(
@@ -51,7 +51,7 @@ function register({
         );
         const biz = bizArr[0];
         if (!biz) return;
-  
+
         // Find topic from best performing content if not provided
         let useTopic = topic;
         if (!useTopic) {
@@ -65,14 +65,18 @@ function register({
             useTopic = `${biz.industry} tips`;
           }
         }
-  
+
         // Brand voice context
-        const brandContext = await getBrandExamples(business_id, 'social_post', `${biz.business_name} ${useTopic} video`);
-  
+        const brandContext = await getBrandExamples(
+          business_id,
+          'social_post',
+          `${biz.business_name} ${useTopic} video`
+        );
+
         const platformLabel = { tiktok: 'TikTok', instagram_reel: 'Instagram Reel', youtube_short: 'YouTube Short' }[
           platform
         ];
-  
+
         const prompt = `${brandContext}Write a ${platformLabel} video script for ${biz.business_name} (${biz.industry}).
   Topic: "${useTopic}"
   Tone: ${biz.brand_tone || 'energetic and authentic'} | Audience: ${biz.target_audience || 'general consumers'}
@@ -90,9 +94,9 @@ function register({
     "hashtags": ["#tag1","#tag2","#tag3","#tag4","#tag5","#tag6","#tag7"],
     "thumbnail_text": "5 words max for overlay"
   }`;
-  
+
         const script = await callClaude(prompt, 'strategy', 1000);
-  
+
         // Generate thumbnail via Flux → save to Supabase Storage
         let thumbnail_url = null;
         const thumbPrompt = `${script.thumbnail_text || useTopic} — ${biz.business_name}, vibrant ${platform} thumbnail, bold text overlay, 9:16 vertical`;
@@ -102,7 +106,7 @@ function register({
         } catch {
           /* soft-fail */
         }
-  
+
         // Save to video_generations
         const row = await sbPost('video_generations', {
           business_id,
@@ -113,7 +117,7 @@ function register({
           thumbnail_url,
           status: 'script_ready',
         });
-  
+
         // Send email notification
         if (biz.email) {
           const html = `<h2>Your ${platformLabel} script is ready!</h2>
@@ -128,7 +132,7 @@ function register({
             html
           ).catch(() => {});
         }
-  
+
         log('/webhook/video-script-generate', `✅ ${platform} script saved | id: ${row?.id} | topic: ${useTopic}`);
       } catch (err) {
         console.error('[video-script-generate ERROR]', err.message);
@@ -136,7 +140,7 @@ function register({
       }
     });
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // POST /webhook/video-generate-runway
   // Submit scenes to Runway Gen-3 Alpha for video generation.
@@ -145,18 +149,18 @@ function register({
   app.post('/webhook/video-generate-runway', async (req, res) => {
     const { business_id, video_id } = req.body;
     if (!video_id) return res.status(400).json({ error: 'video_id required' });
-  
+
     if (!RUNWAY_API_KEY)
       return res.json({ skipped: true, reason: 'RUNWAY_API_KEY not set — set it in Railway environment variables' });
-  
+
     try {
       const rows = await sbGet('video_generations', `id=eq.${video_id}&select=*`);
       const vid = rows[0];
       if (!vid) return res.status(404).json({ error: 'video not found' });
-  
+
       const scenes = (vid.script?.scenes || []).slice(0, 5);
       const taskIds = [];
-  
+
       for (const scene of scenes) {
         try {
           const r = await apiRequest(
@@ -179,12 +183,12 @@ function register({
           log('/webhook/video-generate-runway', `scene "${scene.name}" error: ${e.message}`);
         }
       }
-  
+
       await sbPatch('video_generations', `id=eq.${video_id}`, {
         runway_task_id: JSON.stringify(taskIds),
         status: taskIds.length ? 'generating' : 'failed',
       });
-  
+
       res.json({
         task_ids: taskIds,
         status: taskIds.length ? 'generating' : 'failed',
@@ -195,7 +199,7 @@ function register({
       res.status(500).json({ error: err.message });
     }
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // GET /webhook/video-status?video_id=X
   // Poll Runway task status; update DB when complete.
@@ -207,14 +211,14 @@ function register({
       const rows = await sbGet('video_generations', `id=eq.${video_id}&select=*`);
       const vid = rows[0];
       if (!vid) return res.status(404).json({ error: 'video not found' });
-  
+
       // If no runway task or already done, return current state
       if (!vid.runway_task_id || vid.status === 'ready' || vid.status === 'published') {
         return res.json({ video_id, status: vid.status, video_url: vid.video_url, thumbnail_url: vid.thumbnail_url });
       }
-  
+
       if (!RUNWAY_API_KEY) return res.json({ video_id, status: vid.status, note: 'RUNWAY_API_KEY not configured' });
-  
+
       // Poll each task (handle single string or JSON array)
       let taskIds = [];
       try {
@@ -224,7 +228,7 @@ function register({
       }
       if (!Array.isArray(taskIds)) taskIds = [taskIds];
       const completedUrls = [];
-  
+
       for (const t of taskIds) {
         try {
           const r = await apiRequest('GET', `https://api.dev.runwayml.com/v1/tasks/${t.task_id}`, {
@@ -238,7 +242,7 @@ function register({
           /* soft-fail */
         }
       }
-  
+
       const allDone = completedUrls.length === taskIds.length && taskIds.length > 0;
       if (allDone) {
         const videoUrl = completedUrls[0]?.url || null;
@@ -251,7 +255,7 @@ function register({
           scenes_ready: completedUrls,
         });
       }
-  
+
       res.json({
         video_id,
         status: vid.status,
@@ -263,7 +267,7 @@ function register({
       res.status(500).json({ error: err.message });
     }
   });
-  
+
   // ─────────────────────────────────────────────────────────────────────────────
   // GET /webhook/videos-get?business_id=X
   // ─────────────────────────────────────────────────────────────────────────────
@@ -272,14 +276,14 @@ function register({
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
     try {
       const videos = await sbGet('video_generations', `business_id=eq.${business_id}&order=created_at.desc&limit=20`);
-  
+
       // Add hook preview to each video
       const enriched = videos.map((v) => ({
         ...v,
         hook_preview: v.script?.scenes?.[0]?.text || '',
         scene_count: (v.script?.scenes || []).length,
       }));
-  
+
       const summary = {
         total: videos.length,
         script_ready: videos.filter((v) => v.status === 'script_ready').length,
@@ -291,7 +295,7 @@ function register({
           return acc;
         }, {}),
       };
-  
+
       res.json({ videos: enriched, summary });
     } catch (err) {
       res.status(500).json({ error: err.message });

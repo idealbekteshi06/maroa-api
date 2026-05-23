@@ -151,9 +151,7 @@ function makeIdempotency({ sbGet, sbPost, sbPatch, logger } = {}) {
       if (method !== 'POST' && method !== 'PUT' && method !== 'PATCH') return next();
 
       const headerKey =
-        req.get?.('Idempotency-Key') ||
-        req.headers?.['idempotency-key'] ||
-        req.headers?.['x-idempotency-key'];
+        req.get?.('Idempotency-Key') || req.headers?.['idempotency-key'] || req.headers?.['x-idempotency-key'];
 
       if (!headerKey) {
         if (enforceRequired) {
@@ -187,8 +185,7 @@ function makeIdempotency({ sbGet, sbPost, sbPatch, logger } = {}) {
           return res.status(409).json({
             error: {
               code: 'IDEMPOTENCY_KEY_CONFLICT',
-              message:
-                'Idempotency-Key was used with a different request body. Use a new key for a new request.',
+              message: 'Idempotency-Key was used with a different request body. Use a new key for a new request.',
             },
           });
         }
@@ -198,14 +195,12 @@ function makeIdempotency({ sbGet, sbPost, sbPatch, logger } = {}) {
         }
         if (persisted.status === 'pending') {
           // Another worker is currently processing the SAME key. Tell client to retry.
-          return res
-            .status(409)
-            .json({
-              error: {
-                code: 'IDEMPOTENCY_KEY_IN_FLIGHT',
-                message: 'Request with this key is still processing. Retry in a moment.',
-              },
-            });
+          return res.status(409).json({
+            error: {
+              code: 'IDEMPOTENCY_KEY_IN_FLIGHT',
+              message: 'Request with this key is still processing. Retry in a moment.',
+            },
+          });
         }
       }
 

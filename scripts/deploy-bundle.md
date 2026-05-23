@@ -31,6 +31,7 @@ paste into the Supabase SQL Editor:
 ### If migration 073 raises
 
 You'll see:
+
 ```
 Refusing to drop plaintext OAuth columns: N businesses still have unencrypted tokens.
 Run scripts/encrypt-oauth-tokens.js first.
@@ -173,6 +174,7 @@ If something goes wrong:
 ## What to tell me
 
 When you're done, paste back any of:
+
 - The full response from `/readyz` if it's not 200
 - Any Supabase SQL Editor error
 - A screenshot of the dashboard if it looks wrong

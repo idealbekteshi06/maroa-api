@@ -12,14 +12,7 @@ function buildDataBundle({ snapshots = [], campaigns = [], perfLogs = [] }) {
   const lines = ['date,reach,viewers,impressions,engagement,clicks'];
   for (const s of snapshots) {
     lines.push(
-      [
-        s.snapshot_date,
-        s.reach || 0,
-        s.viewers || '',
-        s.impressions || 0,
-        s.engagement || 0,
-        s.clicks || 0,
-      ].join(',')
+      [s.snapshot_date, s.reach || 0, s.viewers || '', s.impressions || 0, s.engagement || 0, s.clicks || 0].join(',')
     );
   }
   return {

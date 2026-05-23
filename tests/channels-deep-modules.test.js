@@ -37,7 +37,8 @@ test('x-post: clean short post scores well', () => {
 // ─── Instagram Reels ──────────────────────────────────────────────────────
 
 test('instagram-reels: catches long opening line', () => {
-  const draft = 'In this video I am going to walk you through everything you need to know about this topic step by step';
+  const draft =
+    'In this video I am going to walk you through everything you need to know about this topic step by step';
   const r = registry.applyChannel({ channelId: 'instagram-reels', draft });
   assert.ok(r.fixes.some((f) => f.severity === 'block' && /hook/i.test(f.issue)));
 });
@@ -137,7 +138,8 @@ test('push-notification: catches over-140-char message', () => {
 // ─── Blog SEO ─────────────────────────────────────────────────────────────
 
 test('blog-seo: catches AI-tell phrases', () => {
-  const draft = Array(1300).fill('word').join(' ') + ' In today\'s digital landscape, you can unleash the power of marketing.';
+  const draft =
+    Array(1300).fill('word').join(' ') + " In today's digital landscape, you can unleash the power of marketing.";
   const r = registry.applyChannel({ channelId: 'blog-seo', draft });
   assert.ok(r.fixes.some((f) => /anti-pattern/i.test(f.issue)));
 });
@@ -164,6 +166,9 @@ test('generateFromSpec: every channel produces hook + format prompt segments', (
   for (const id of registry.listAllIds()) {
     const segs = registry.getChannelPromptSegments(id);
     assert.ok(segs.length >= 2, `${id} returned too few segments: ${segs.length}`);
-    assert.ok(segs.some((s) => /SURFACE:/.test(s)), `${id} missing SURFACE: segment`);
+    assert.ok(
+      segs.some((s) => /SURFACE:/.test(s)),
+      `${id} missing SURFACE: segment`
+    );
   }
 });

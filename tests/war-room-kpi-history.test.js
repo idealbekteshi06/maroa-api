@@ -80,7 +80,7 @@ test('cumulative: items created across the window accrete day-by-day', () => {
   const cum = _internals.cumulativeFromCreatedAt(
     startEachDay.map((t) => ({ t })),
     (r) => r.t,
-    ends,
+    ends
   );
   assert.deepEqual(cum, [1, 2, 3, 4, 5, 6, 7]);
   // Suppress unused var lint
@@ -90,11 +90,7 @@ test('cumulative: items created across the window accrete day-by-day', () => {
 test('cumulative: rows outside window do not leak in', () => {
   const ends = _internals.dayEnds(FIXED_NOW);
   const ancient = ends[0] - 30 * DAY_MS; // a month before the window
-  const cum = _internals.cumulativeFromCreatedAt(
-    [{ t: ancient }],
-    (r) => r.t,
-    ends,
-  );
+  const cum = _internals.cumulativeFromCreatedAt([{ t: ancient }], (r) => r.t, ends);
   // Row predates window so it counts for every bucket
   assert.deepEqual(cum, [1, 1, 1, 1, 1, 1, 1]);
 });

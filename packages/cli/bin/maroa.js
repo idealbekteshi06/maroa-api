@@ -82,8 +82,7 @@ function api(method, pathSuffix, body) {
           'Content-Type': 'application/json',
           Accept: 'application/json',
           'User-Agent': '@maroa/cli',
-          'Idempotency-Key':
-            `cli-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+          'Idempotency-Key': `cli-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
         },
       },
       (res) => {
@@ -105,7 +104,7 @@ function api(method, pathSuffix, body) {
           err.status = res.statusCode;
           reject(err);
         });
-      },
+      }
     );
     req.setTimeout(20_000, () => req.destroy(new Error('timeout')));
     req.on('error', reject);
@@ -194,7 +193,7 @@ async function cmdStatus() {
   if (pending > 0) {
     console.log(
       color('yellow', `${pending} ${pending === 1 ? 'thing needs' : 'things need'} your eyes`) +
-        color('dim', `  ·  ${live} live  ·  ${decaying} fading`),
+        color('dim', `  ·  ${live} live  ·  ${decaying} fading`)
     );
     console.log(color('dim', `Run \`maroa pending\` to triage.`));
   } else {
@@ -233,11 +232,7 @@ async function cmdApprove(args) {
     process.exit(2);
   }
   const wsId = await pickWorkspaceId();
-  await api(
-    'POST',
-    `/api/war-room/${encodeURIComponent(wsId)}/decisions/${encodeURIComponent(id)}/approve`,
-    {},
-  );
+  await api('POST', `/api/war-room/${encodeURIComponent(wsId)}/decisions/${encodeURIComponent(id)}/approve`, {});
   console.log(color('green', '✓ Approved. Maroa is shipping it now.'));
 }
 
@@ -249,11 +244,7 @@ async function cmdReject(args) {
   }
   const reason = args.slice(1).join(' ').trim() || null;
   const wsId = await pickWorkspaceId();
-  await api(
-    'POST',
-    `/api/war-room/${encodeURIComponent(wsId)}/decisions/${encodeURIComponent(id)}/reject`,
-    { reason },
-  );
+  await api('POST', `/api/war-room/${encodeURIComponent(wsId)}/decisions/${encodeURIComponent(id)}/reject`, { reason });
   console.log(color('yellow', '✗ Rejected.'));
 }
 

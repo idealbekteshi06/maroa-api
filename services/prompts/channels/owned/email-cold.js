@@ -38,8 +38,16 @@ module.exports = buildChannelModule({
     html: 'plain_text_preferred',
   },
   hook_patterns: [
-    { name: 'Specific reference', template: 'Reference a specific thing they shipped/wrote/said', why: 'Proves the email is for them' },
-    { name: 'Mutual connection', template: '"[Name] mentioned you\'re working on [thing]"', why: 'Highest open rate (referred)' },
+    {
+      name: 'Specific reference',
+      template: 'Reference a specific thing they shipped/wrote/said',
+      why: 'Proves the email is for them',
+    },
+    {
+      name: 'Mutual connection',
+      template: '"[Name] mentioned you\'re working on [thing]"',
+      why: 'Highest open rate (referred)',
+    },
     { name: 'Relevant compliment', template: 'One sentence about their work, then transition', why: 'Genuine + brief' },
   ],
   anti_patterns: [
@@ -69,7 +77,7 @@ module.exports = buildChannelModule({
       fixes.push({
         severity: 'block',
         issue: `Cold email: ${_wordCount(draft)} words — over 110 ceiling`,
-        suggestion: 'Cut to 50-90 words. Open + value + ask. That\'s it.',
+        suggestion: "Cut to 50-90 words. Open + value + ask. That's it.",
         span: null,
       });
     }

@@ -138,8 +138,7 @@ test('agency-pipeline: ethics block stops publish even when copy is compliant', 
   // Simulate: the pipeline returns clean copy from a brand-builder job but
   // the methodology score reports high manip_risk_total. We test ethics
   // refusal via the configuration of specialists module ceilings.
-  const fakeClaude = async () =>
-    'Our brand stands for craft and conviction. We make products that last.';
+  const fakeClaude = async () => 'Our brand stands for craft and conviction. We make products that last.';
   const r = await runAgencyPipeline(
     {
       businessId: 'b1',

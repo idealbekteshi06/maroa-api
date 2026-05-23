@@ -43,7 +43,7 @@ function register({
       // Prefer the user's own business if they own one directly.
       const own = await sbGet(
         'businesses',
-        `user_id=eq.${encodeURIComponent(userId)}&select=id&order=created_at.asc&limit=1`,
+        `user_id=eq.${encodeURIComponent(userId)}&select=id&order=created_at.asc&limit=1`
       );
       if (own && own[0]?.id) return own[0].id;
       // Otherwise fall back to the first workspace the user is in + that
@@ -53,9 +53,7 @@ function register({
         const first = memberships?.[0];
         if (first?.workspace_id || first?.id) {
           const wsId = first.workspace_id || first.id;
-          const clients = await workspaces
-            .listClients(wsId, { limit: 1 })
-            .catch(() => []);
+          const clients = await workspaces.listClients(wsId, { limit: 1 }).catch(() => []);
           return clients?.[0]?.business_id || null;
         }
       }
@@ -73,29 +71,18 @@ function register({
       try {
         const body = req.body || {};
         const businessId =
-          (body.businessId && typeof body.businessId === 'string'
-            ? body.businessId
-            : null) ||
+          (body.businessId && typeof body.businessId === 'string' ? body.businessId : null) ||
           (await _ownedBusinessForUser(req.user?.id));
 
         if (!businessId) {
-          return apiError(
-            res,
-            400,
-            'NO_BUSINESS',
-            'No business to save inspiration into. Finish onboarding first.',
-          );
+          return apiError(res, 400, 'NO_BUSINESS', 'No business to save inspiration into. Finish onboarding first.');
         }
 
         const isClaim = body.hint === 'claim' || (body.claim_text && body.claim_text.trim());
-        const sourceUrl =
-          typeof body.source_url === 'string' ? body.source_url.slice(0, 1024) : null;
-        const imageUrl =
-          typeof body.image_url === 'string' ? body.image_url.slice(0, 1024) : null;
-        const excerpt =
-          typeof body.excerpt === 'string' ? body.excerpt.slice(0, 4000) : null;
-        const tabTitle =
-          typeof body.tab_title === 'string' ? body.tab_title.slice(0, 240) : null;
+        const sourceUrl = typeof body.source_url === 'string' ? body.source_url.slice(0, 1024) : null;
+        const imageUrl = typeof body.image_url === 'string' ? body.image_url.slice(0, 1024) : null;
+        const excerpt = typeof body.excerpt === 'string' ? body.excerpt.slice(0, 4000) : null;
+        const tabTitle = typeof body.tab_title === 'string' ? body.tab_title.slice(0, 240) : null;
 
         // Build a stable external_id so the same browser tab pinged twice
         // (extension retries) dedups in the graph.
@@ -105,12 +92,10 @@ function register({
         if (!marketingGraph || typeof marketingGraph.upsertEntity !== 'function') {
           // Migration 065 not applied. Log + soft-accept so the UX
           // (saved toast in extension) doesn't lie about success.
-          log?.(
-            '/api/inspiration/save',
-            null,
-            'graph unavailable — accepting but discarding',
-            { hasSource: !!sourceUrl, isClaim: !!isClaim },
-          );
+          log?.('/api/inspiration/save', null, 'graph unavailable — accepting but discarding', {
+            hasSource: !!sourceUrl,
+            isClaim: !!isClaim,
+          });
           return res.json({ ok: true, persisted: false, reason: 'graph_unavailable' });
         }
 
@@ -118,8 +103,7 @@ function register({
           businessId,
           type: isClaim ? 'claim' : 'inspiration',
           subtype: body.source || 'browser_extension',
-          title:
-            (tabTitle || excerpt || sourceUrl || 'Saved inspiration').slice(0, 200),
+          title: (tabTitle || excerpt || sourceUrl || 'Saved inspiration').slice(0, 200),
           description: excerpt || null,
           externalId,
           source:
@@ -140,7 +124,7 @@ function register({
         log?.('/api/inspiration/save', null, 'save failed', { error: err.message });
         return apiError(res, 500, 'INTERNAL_ERROR', safePublicError(err));
       }
-    },
+    }
   );
 
   app.get('/api/inspiration/list', requireAnyUserId, async (req, res) => {

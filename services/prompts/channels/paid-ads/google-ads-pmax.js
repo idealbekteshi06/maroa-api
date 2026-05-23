@@ -45,8 +45,16 @@ module.exports = buildChannelModule({
     emoji_use: 'none',
   },
   hook_patterns: [
-    { name: 'Multi-angle asset set', template: '5 short headlines, each a different benefit/angle', why: 'PMax needs combinations to test' },
-    { name: 'Brand + product mix', template: 'Some assets brand-led, some product-led', why: 'PMax serves multiple intents' },
+    {
+      name: 'Multi-angle asset set',
+      template: '5 short headlines, each a different benefit/angle',
+      why: 'PMax needs combinations to test',
+    },
+    {
+      name: 'Brand + product mix',
+      template: 'Some assets brand-led, some product-led',
+      why: 'PMax serves multiple intents',
+    },
   ],
   anti_patterns: [
     { pattern: 'all caps', why: 'Google disapproves ALL-CAPS words' },
