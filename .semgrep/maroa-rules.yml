@@ -104,8 +104,9 @@ rules:
     severity: ERROR
     patterns:
       - pattern-either:
-          - pattern-regex: 'fetch\([^)]*api\.anthropic\.com'
-          - pattern-regex: 'apiRequest\([^)]*anthropic\.com'
+          # /v1/models probes (healthCheck) are intentional; gate /v1/messages only.
+          - pattern-regex: 'fetch\([^)]*api\.anthropic\.com/v1/messages'
+          - pattern-regex: 'apiRequest\([^)]*anthropic\.com/v1/messages'
     paths:
       exclude:
         - server.js

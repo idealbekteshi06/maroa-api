@@ -1,6 +1,10 @@
 # Test fixtures use fake vendor tokens (sk-ant-*, etc.) — not real secrets.
 tests/
 
+# Manual dev script + punchlist may mention revoked key prefixes (not live secrets).
+test_everything.js
+PUNCHLIST.md
+
 # Generated / vendor trees
 node_modules/
 frontend/.next/
