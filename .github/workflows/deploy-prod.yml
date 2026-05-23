@@ -45,9 +45,12 @@ jobs:
       - name: Re-verify migrations
         run: npm run check-migrations
       - name: Record deploy reason
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+          DEPLOY_REASON: ${{ inputs.reason }}
         run: |
-          echo "Deploying ${{ github.sha }} to production"
-          echo "Reason: ${{ inputs.reason }}"
+          echo "Deploying ${DEPLOY_SHA} to production"
+          echo "Reason: ${DEPLOY_REASON}"
       - name: Notify Railway to deploy
         run: |
           echo "Railway will pull the main branch HEAD into production."

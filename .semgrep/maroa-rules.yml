@@ -9,15 +9,8 @@ rules:
       See lib/oauthCrypto.js readToken() for the correct pattern.
     languages: [javascript]
     severity: ERROR
-    patterns:
-      - pattern-either:
-          - pattern: |
-              try { ... $X.decrypt(...); ... } catch { return $LEGACY; }
-          - pattern: |
-              try { ... decrypt(...); ... } catch (...) { return $LEGACY; }
-      - metavariable-regex:
-          metavariable: $LEGACY
-          regex: '.*(plaintext|legacy|raw|original).*'
+    pattern-regex: >-
+      decrypt\s*\([^)]+\)[\s\S]{0,300}catch\s*(\([^)]*\))?\s*\{[^}]{0,120}return\s+[^;]*(plaintext|legacy|raw|original)
 
   # ─── PostgREST filter injection: any user-controlled value flowing into
   # a `?col=eq.${value}` filter MUST be UUID-validated + encoded first.
