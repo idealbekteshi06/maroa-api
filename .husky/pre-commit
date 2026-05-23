@@ -1,0 +1,29 @@
+#!/usr/bin/env sh
+# Maroa.ai pre-commit — installed by scripts/install-husky.js.
+# Runs eslint + prettier on staged files via lint-staged, then verifies
+# OpenAPI is regenerated when route files changed. Bypass with --no-verify
+# only if you really know what you're doing.
+
+set -e
+
+# 1. Lint + format on staged files
+if [ -x "./node_modules/.bin/lint-staged" ]; then
+  ./node_modules/.bin/lint-staged
+else
+  npx --no-install lint-staged 2>/dev/null || npx --yes lint-staged
+fi
+
+# 2. OpenAPI drift check — only when server.js or routes/ changed (L9)
+if git diff --cached --name-only | grep -qE '^(server\.js|routes/)'; then
+  if [ -f docs/openapi.yml ]; then
+    npm run generate-openapi >/dev/null 2>&1 || true
+    if ! git diff --quiet docs/openapi.yml; then
+      echo ""
+      echo "WARN: docs/openapi.yml is stale after route changes."
+      echo "      Run: npm run generate-openapi && git add docs/openapi.yml"
+      echo ""
+      # Don't block the commit — soft warning. CI's existing check is the
+      # hard gate. We only warn here so devs hear about it early.
+    fi
+  fi
+fi

@@ -1,0 +1,6 @@
+# Test fixtures use fake vendor tokens (sk-ant-*, etc.) — not real secrets.
+tests/
+
+# Generated / vendor trees
+node_modules/
+frontend/.next/

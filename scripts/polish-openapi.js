@@ -12,8 +12,7 @@ const path = require('path');
 
 const OPENAPI_PATH = path.join(__dirname, '..', 'docs', 'openapi.yml');
 
-const PLACEHOLDER_RE =
-  /Auto-generated from [\w./-]+\. Hand-edit this entry for accuracy\./g;
+const PLACEHOLDER_RE = /Auto-generated from [\w./-]+\. Hand-edit this entry for accuracy\./g;
 
 function describeRoute(method, routePath) {
   const m = method.toLowerCase();
@@ -21,7 +20,8 @@ function describeRoute(method, routePath) {
 
   if (p === '/healthz') return 'Liveness probe — returns 200 when the Node process is up.';
   if (p === '/readyz') return 'Readiness probe — checks Supabase and soft dependencies before routing traffic.';
-  if (p === '/health') return 'Minimal public health status; pass x-orchestrator-secret for operator integration summary.';
+  if (p === '/health')
+    return 'Minimal public health status; pass x-orchestrator-secret for operator integration summary.';
   if (p === '/') return 'API root metadata (service name, version, doc links).';
   if (p === '/metrics') {
     return 'Prometheus metrics scrape endpoint. Requires METRICS_SCRAPE_TOKEN (x-metrics-token or Bearer).';
@@ -40,10 +40,7 @@ function describeRoute(method, routePath) {
 }
 
 function polishDescriptions(yaml) {
-  let out = yaml.replace(PLACEHOLDER_RE, '').replace(
-    /description: ""/g,
-    'description: "See summary."'
-  );
+  let out = yaml.replace(PLACEHOLDER_RE, '').replace(/description: ""/g, 'description: "See summary."');
 
   out = out.replace(/Pinecone/gi, (match) => {
     if (match === 'Pinecone') return 'Postgres (pgvector)';
@@ -93,9 +90,7 @@ function main() {
   }
   const polished = polishDescriptions(raw);
   const remainingPlaceholder = (
-    polished.match(
-      /Auto-generated from [\w./-]+\. Hand-edit this entry for accuracy\./g
-    ) || []
+    polished.match(/Auto-generated from [\w./-]+\. Hand-edit this entry for accuracy\./g) || []
   ).length;
   const remainingPinecone = (polished.match(/Pinecone/gi) || []).length;
   fs.writeFileSync(OPENAPI_PATH, polished);

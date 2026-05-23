@@ -101,9 +101,7 @@ function classify(route, serverSrc) {
     for (let depth = segments.length; depth >= 2; depth--) {
       const prefix = '/' + segments.slice(0, depth).join('/');
       const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const re = new RegExp(
-        `app\\.use\\(\\s*['"\`]${escaped}['"\`]\\s*,\\s*require(?:Any|Valid)UserId`
-      );
+      const re = new RegExp(`app\\.use\\(\\s*['"\`]${escaped}['"\`]\\s*,\\s*require(?:Any|Valid)UserId`);
       if (re.test(serverSrc)) return 'jwt';
     }
     if (p.startsWith('/api/waitlist/')) return 'public';

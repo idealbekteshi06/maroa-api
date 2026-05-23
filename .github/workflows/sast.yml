@@ -36,9 +36,11 @@ jobs:
       # + JWT/JS gotchas. Custom rules in .semgrep/ catch Maroa-specific
       # anti-patterns (PostgREST filter injection, swallowed crypto errors,
       # missing webhook idempotency).
+      # Use `semgrep scan` (not `semgrep ci`) — ci requires Semgrep Cloud token.
+      # Fail only on ERROR-severity findings; WARNINGs are advisory.
       - name: Semgrep scan
         run: |
-          semgrep ci \
+          semgrep scan \
             --config "p/security-audit" \
             --config "p/owasp-top-ten" \
             --config "p/javascript" \
@@ -48,5 +50,3 @@ jobs:
             --config "./.semgrep/" \
             --error \
             --severity ERROR
-        env:
-          SEMGREP_RULES: ''
