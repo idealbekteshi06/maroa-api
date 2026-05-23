@@ -13,6 +13,6 @@ test('buildPlansCatalog returns expected monthly prices', () => {
   assert.strictEqual(plans.starter.price, 25);
   assert.strictEqual(plans.growth.price, 59);
   assert.strictEqual(plans.agency.price, 99);
-  assert.strictEqual(plans.free.price, 25);
+  assert.strictEqual(Object.keys(plans).sort().join(','), 'agency,growth,starter');
   assert.strictEqual(plans.starter.priceId, 'pri_starter');
 });
