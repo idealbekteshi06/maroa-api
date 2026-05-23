@@ -19,9 +19,23 @@ import { startCheckout } from '@/lib/api/billing';
 
 const TIERS = [
   {
+    key: 'starter' as const,
+    name: 'Starter',
+    price: '$25',
+    cadence: '/ month',
+    audience: 'Solo SMB getting started',
+    features: [
+      '1 platform connected',
+      '20 AI images per month',
+      'AI brain once per day',
+      'Content calendar',
+      'Email support',
+    ],
+  },
+  {
     key: 'growth' as const,
     name: 'Growth',
-    price: '$149',
+    price: '$59',
     cadence: '/ month',
     audience: 'Solo business · Freelancer with up to 5 clients',
     features: [
@@ -36,7 +50,7 @@ const TIERS = [
   {
     key: 'agency' as const,
     name: 'Agency',
-    price: '$599',
+    price: '$99',
     cadence: '/ month',
     audience: 'Agency · 5–50 clients',
     highlighted: true,
@@ -57,7 +71,7 @@ export function PlanPanel({ currentPlan }: { currentPlan: string }) {
   return (
     <div className="space-y-4">
       <CurrentBanner plan={currentPlan} />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {TIERS.map((t) => (
           <TierCard
             key={t.key}
@@ -83,10 +97,12 @@ export function PlanPanel({ currentPlan }: { currentPlan: string }) {
 function CurrentBanner({ plan }: { plan: string }) {
   const label =
     plan === 'agency'
-      ? 'Agency · $599/mo'
+      ? 'Agency · $99/mo'
       : plan === 'growth' || plan === 'solo'
-        ? 'Growth · $149/mo'
-        : plan;
+        ? 'Growth · $59/mo'
+        : plan === 'starter' || plan === 'free'
+          ? 'Starter · $25/mo'
+          : plan;
   return (
     <div className="rounded-xl border border-ink-200/60 dark:border-ink-800 bg-ink-50/60 dark:bg-ink-900/40 px-5 py-4 flex items-center justify-between">
       <div>

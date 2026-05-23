@@ -85,7 +85,7 @@ export default function ForAgenciesPage() {
               </Button>
             </div>
             <p className="mt-6 text-sm text-ink-400">
-              Agency plan · $599/month · Monthly billing, USD · Cancel anytime
+              Agency plan · $99/month · Monthly billing, USD · Cancel anytime
             </p>
           </div>
         </div>

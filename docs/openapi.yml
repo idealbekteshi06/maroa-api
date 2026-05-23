@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: "Maroa.ai API"
-  version: 2.2.0
+  version: 2.3.0
   description: "AI marketing automation SaaS — Inngest + Express backend. See CLAUDE.md for architecture."
 servers:
   - url: https://maroa-api-production.up.railway.app
@@ -8858,7 +8858,9 @@ paths:
       tags:
         - health
       summary: "Prometheus metrics"
-      description: "Returns the current process metrics in Prometheus text format (version 0.0.4). Scraped by Datadog / Grafana / Prometheus. No auth — mount behind reverse-proxy auth if exposing publicly."
+      description: "Returns process metrics in Prometheus text format (0.0.4). Requires METRICS_SCRAPE_TOKEN (x-metrics-token header or Authorization Bearer). 401 without valid token; 503 if scrape token unset."
+      security:
+        - MetricsToken: []
       responses:
         200:
           description: "Successful response"
@@ -8948,6 +8950,11 @@ components:
       type: apiKey
       in: header
       name: x-webhook-secret
+    MetricsToken:
+      type: apiKey
+      in: header
+      name: x-metrics-token
+      description: "METRICS_SCRAPE_TOKEN or ORCHESTRATOR_SECRET; Bearer auth also accepted"
   schemas:
     ErrorEnvelope:
       type: object

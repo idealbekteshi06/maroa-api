@@ -28,7 +28,7 @@ SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/seed-all.js
 
 ## Billing
 
-Confirm Paddle dashboard SKUs match live prices: **Starter $29**, **Growth $59**, **Agency $99**.
+Confirm Paddle dashboard SKUs match live prices: **Starter $25**, **Growth $59**, **Agency $99**.
 
 Verify `PADDLE_*_PRICE_ID` env vars match the Paddle dashboard.
 

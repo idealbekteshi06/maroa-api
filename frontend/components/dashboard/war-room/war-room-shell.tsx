@@ -423,7 +423,7 @@ function PlanCard({ plan }: { plan: string }) {
     plan === 'freelancer'
       ? '20 client cap · $199/mo'
       : plan === 'agency'
-      ? '50 client cap · $499/mo'
+      ? 'Agency · $99/mo'
       : plan === 'enterprise'
       ? 'Custom'
       : 'See /pricing';

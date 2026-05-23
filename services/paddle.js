@@ -1,5 +1,5 @@
 'use strict';
-// Live catalog (GET /api/billing/plans): starter $29 · growth $59 · agency $99.
+// Live catalog (GET /api/billing/plans): starter $25 · growth $59 · agency $99.
 // Keep PADDLE_*_PRICE_ID env vars in sync with Paddle dashboard SKUs.
 // TODO (manual): confirm Paddle product IDs match these tiers before go-live.
 const crypto = require('crypto');

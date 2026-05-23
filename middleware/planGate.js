@@ -1,5 +1,5 @@
 // middleware/planGate.js — Feature access gates by plan
-// Plans (live /api/billing/plans): starter($29) · growth($59) · agency($99)
+// Plans (live /api/billing/plans): starter($25) · growth($59) · agency($99)
 // Usage: app.post('/webhook/org-create', planGate('multi_workspace'), handler)
 
 'use strict';

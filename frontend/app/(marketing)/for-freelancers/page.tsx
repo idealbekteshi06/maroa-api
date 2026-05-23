@@ -51,7 +51,7 @@ const REASONS = [
 
 const MATH = [
   { metric: 'Average freelancer revenue per client', value: '$800–1,500/mo', sub: '20 clients = $16k–30k MRR' },
-  { metric: 'Maroa Agency cost', value: '$599/mo flat', sub: 'No per-client fees, up to 50 clients' },
+  { metric: 'Maroa Agency cost', value: '$99/mo flat', sub: 'Multi-brand workspace, no per-seat fees' },
   { metric: 'Time saved per client per week', value: '4–6 hours', sub: 'Content + reporting + approvals' },
   { metric: 'Time saved across 20 clients', value: '80–120 hours/month', sub: 'A second full-time you' },
 ];
@@ -83,7 +83,7 @@ export default function ForFreelancersPage() {
               </Button>
             </div>
             <p className="mt-6 text-sm text-ink-400">
-              Agency plan · $599/month · Monthly billing, USD · Cancel anytime
+              Agency plan · $99/month · Monthly billing, USD · Cancel anytime
             </p>
           </div>
         </div>
@@ -173,7 +173,7 @@ export default function ForFreelancersPage() {
               <ArrowRight className="h-4 w-4" />
             </Button>
             <span className="text-sm text-ink-400">
-              $599/month · Monthly billing, USD · Cancel anytime
+              $99/month · Monthly billing, USD · Cancel anytime
             </span>
           </div>
         </div>

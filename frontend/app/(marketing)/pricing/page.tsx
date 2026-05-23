@@ -10,54 +10,62 @@ import {
   SITE_URL,
 } from '@/lib/schema-org';
 
-// Audit 2026-05-19 F20: title was "Pricing — Maroa" (14 chars). Now sized
-// for SERP intent — 56 chars including the $ figures.
 export const metadata: Metadata = {
-  title: 'Pricing — $149/mo Growth · $599/mo Agency · cancel anytime',
+  title: 'Pricing — $25 Starter · $59 Growth · $99 Agency',
   description:
-    'Two plans. Growth at $149/mo for solo SMBs and small teams. Agency at $599/mo for freelancers and agencies running up to 50 clients. Monthly billing in USD. Cancel anytime.',
+    'Starter at $25/mo, Growth at $59/mo for growing SMBs, Agency at $99/mo for teams managing multiple clients. Monthly billing in USD. Cancel anytime.',
   alternates: { canonical: '/pricing' },
 };
 
 const PLANS = [
   {
-    name: 'Growth',
-    audience: 'Solo SMB · Freelancer with 1–5 clients',
-    tagline: 'One operating system for the marketing you keep meaning to do.',
-    price: '$149',
+    name: 'Starter',
+    audience: 'Solo SMB · First connected channel',
+    tagline: 'Essential AI marketing for one business.',
+    price: '$25',
     cadence: '/ month',
-    cta: { label: 'Get started', href: '/signup?plan=growth' },
+    cta: { label: 'Get started', href: '/signup?plan=starter' },
     highlight: false,
     features: [
-      'Up to 5 businesses or clients',
-      'All channels — Meta, Google, TikTok, LinkedIn, Pinterest, YouTube, email',
-      'Daily ad audits + pacing alerts (every 4 hours)',
+      '1 platform',
+      '20 AI images per month',
+      'AI brain once per day',
+      'Content calendar',
+      'Email support',
+    ],
+  },
+  {
+    name: 'Growth',
+    audience: 'Growing SMB · Up to 3 platforms',
+    tagline: 'Daily content, ads, and competitor intel.',
+    price: '$59',
+    cadence: '/ month',
+    cta: { label: 'Get started', href: '/signup?plan=growth' },
+    highlight: true,
+    features: [
+      '3 platforms — Meta, Google, social, email',
+      '60 AI images per month',
+      'Paid ads + daily audits',
+      'Competitor tracking',
       'Weekly performance scorecard',
-      'Brand voice + visual DNA per client',
-      'Compliance gates for 20 regulated industries',
-      'Cold-start corpus grounding (2 examples per draft)',
-      'Reasoning trace on every output',
+      'Brand voice per business',
     ],
   },
   {
     name: 'Agency',
-    audience: 'Freelancer · Agency · 5–50 clients',
-    tagline: 'Scale without hiring. Every client gets a team of agents.',
-    price: '$599',
+    audience: 'Agency · Multi-client workspace',
+    tagline: 'White-label reports and team workflows.',
+    price: '$99',
     cadence: '/ month',
     cta: { label: 'Get started', href: '/signup?plan=agency' },
-    highlight: true,
+    highlight: false,
     features: [
-      'Up to 50 clients in one workspace',
-      'Team roles (owner / strategist / designer / viewer)',
-      'White-label PDF + magic-link client reports',
-      'Custom domain — clients see your brand',
-      'Magic-link client approval inbox',
-      'Multi-client calendar + content pipeline',
-      'Higgsfield image + video on every draft',
-      'Cold-start corpus grounding (5 examples per draft)',
-      'A/B testing on every campaign',
-      'Audit log export · API access · Priority support',
+      '3 brands in workspace',
+      '120 AI images per month',
+      'White-label client reports',
+      'Team roles + approval inbox',
+      'API access',
+      'Priority support',
     ],
   },
 ];
@@ -65,32 +73,22 @@ const PLANS = [
 const FAQ = [
   {
     q: 'Is there a free trial or money-back guarantee?',
-    a: 'No. We don\'t do trials or refunds — every account is monthly and you can cancel any time before your next renewal. Cancellation stops the next charge; access continues to the end of the current period. The /features page and the public dashboard demo show exactly what you\'re getting before you commit.',
+    a: "No. We don't do trials or refunds — every account is monthly and you can cancel any time before your next renewal.",
   },
   {
-    q: 'How is "client" defined?',
-    a: 'One client = one business with its own brand voice, social accounts, ad accounts, and approval inbox. You can pause or off-board a client at any time to free the seat. There are no per-client overage fees inside your plan tier.',
-  },
-  {
-    q: 'Can I switch between Growth and Agency?',
-    a: 'Yes, in either direction, any time. Up-grades pro-rate to the day. Down-grades take effect at the next billing cycle. Your data, content history, and brand voices are preserved across switches.',
+    q: 'Can I switch plans?',
+    a: 'Yes, in either direction, any time. Upgrades pro-rate to the day. Downgrades take effect at the next billing cycle.',
   },
   {
     q: 'Do I keep the content if I cancel?',
-    a: 'Yes. Everything Maroa produces is yours. You can export your full content library, audit log, and reasoning traces as a .zip from Settings → Data at any point — before or after cancellation.',
+    a: 'Yes. Export your library from Settings → Data before or after cancellation.',
   },
   {
-    q: 'What if I have more than 50 clients?',
-    a: 'Talk to us about Enterprise. Single-tenant deployment, custom data residency (EU / US / sovereign), SOC 2 audit support, dedicated CSM, custom integrations. Annual contracts.',
-  },
-  {
-    q: 'How do you handle data?',
-    a: 'We never sell or share. OAuth tokens are encrypted at rest (AES-256-GCM). All data is processed in the EU or US (your choice). See our DPA for the full controls list.',
+    q: 'What if I need more than 3 agency brands?',
+    a: 'Talk to us about Enterprise — custom limits, data residency, and dedicated support.',
   },
 ];
 
-// Audit 2026-05-19 F18 + F19: ship structured data so Google can render
-// the price rich snippet and AI search can extract individual FAQ Q&As.
 const PRICING_SCHEMAS = [
   softwareApplicationSchema({ url: `${SITE_URL}/pricing` }),
   faqPageSchema(FAQ.map((f) => ({ question: f.q, answer: f.a }))),
@@ -115,19 +113,18 @@ export default function PricingPage() {
         <div className="max-w-3xl mx-auto text-center">
           <p className="text-eyebrow uppercase text-ink-400 mb-4">Pricing</p>
           <h1 className="text-display-lg text-ink-700 dark:text-ink-50">
-            Two plans.
+            Three plans.
             <br />
-            <span className="text-ink-400">Priced to replace a marketing hire.</span>
+            <span className="text-ink-400">Priced for SMB marketing teams.</span>
           </h1>
           <p className="mt-6 text-xl text-ink-400 max-w-xl mx-auto leading-relaxed">
-            Monthly billing in USD. Cancel anytime from Settings → Billing — no negotiation,
-            no retention call.
+            Monthly billing in USD. Cancel anytime from Settings → Billing.
           </p>
         </div>
       </section>
 
       <section className="container mt-20">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl mx-auto">
           {PLANS.map((plan) => (
             <div
               key={plan.name}
@@ -222,7 +219,7 @@ export default function PricingPage() {
           ))}
         </div>
 
-        <div className="mt-8 max-w-4xl mx-auto rounded-xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 p-8 flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-10">
+        <div className="mt-8 max-w-6xl mx-auto rounded-xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 p-8 flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-10">
           <div className="h-12 w-12 rounded-xl bg-ink-100 dark:bg-ink-800 flex items-center justify-center flex-shrink-0">
             <Users className="h-6 w-6 text-ink-700 dark:text-ink-100" aria-hidden="true" />
           </div>
@@ -231,22 +228,14 @@ export default function PricingPage() {
               Enterprise
             </p>
             <h3 className="text-xl font-semibold text-ink-700 dark:text-ink-50">
-              50+ clients, dedicated SLA, custom retention.
+              Custom limits, dedicated SLA, annual contracts.
             </h3>
-            <p className="mt-1 text-sm text-ink-400 leading-snug max-w-2xl">
-              Single-tenant deployment, custom data residency (EU / US / sovereign), SOC 2 audit
-              support, custom integrations, dedicated CSM. Annual contract.
-            </p>
           </div>
           <Button href="/contact" variant="primary" size="lg" className="flex-shrink-0">
             Talk to sales
             <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
-
-        <p className="mt-10 text-center text-sm text-ink-400">
-          Prices in USD. Monthly billing only. Cancel any time.
-        </p>
       </section>
 
       <section className="container mt-32">

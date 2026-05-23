@@ -45,7 +45,7 @@ export default async function OgImageAgencies() {
             color: '#9499F8',
           }}
         >
-          <div>$599/month flat · cancel anytime</div>
+          <div>$99/month Agency · cancel anytime</div>
           <div>maroa.ai/for-agencies</div>
         </div>
       </div>

@@ -17,7 +17,7 @@ accounts; the system writes content, runs ads, scores creatives, tracks
 competitors, fires lifecycle emails, generates CRO audits, and reports
 weekly — without daily human input.
 
-**Pricing tiers:** `growth ($149/mo)` · `agency ($599/mo)` ·
+**Pricing tiers:** `starter ($25/mo)` · `growth ($59/mo)` · `agency ($99/mo)` ·
 `enterprise (custom)` — enforced by `middleware/planGate.js` +
 `middleware/planLimits.js` + `lib/costGuard.js`. Cancel-anytime
 monthly billing. No free tier, no trial, no money-back guarantee.

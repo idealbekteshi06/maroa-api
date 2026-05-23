@@ -64,7 +64,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         </ul>
 
         <div className="text-xs text-ink-100/50">
-          From $149/month · Monthly billing, USD · Cancel anytime
+          From $25/month · Monthly billing, USD · Cancel anytime
         </div>
       </div>
     </div>

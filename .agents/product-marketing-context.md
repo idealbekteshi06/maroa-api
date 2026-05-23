@@ -16,7 +16,8 @@ _Status: V1 auto-drafted from codebase + landing page copy. Sections marked **[T
 **Business model:** Subscription with free tier.
 
 - **Free** — $0
-- **Growth** — $49/mo
+- **Starter** — $25/mo
+- **Growth** — $59/mo
 - **Agency** — $99/mo (multi-workspace, for agencies managing multiple clients)
 - 14-day free trial on paid tiers, no credit card required
 
@@ -99,7 +100,7 @@ Secondary audience: small marketing agencies (Agency tier) managing 5-20 client 
 
 **How we do it differently:** A central "AI Brain" agent (Claude Opus) sets the strategy weekly. Specialist agents (content, ads, social, email, competitor) execute on a daily/weekly cadence via 47 n8n workflows orchestrated against the owner's business profile.
 
-**Why that's better:** The owner gets the output of a 4-person marketing team for $49/mo, with one daily summary instead of a meeting.
+**Why that's better:** The owner gets the output of a 4-person marketing team for $59/mo (Growth), with one daily summary instead of a meeting.
 
 **Why customers choose us:**
 
@@ -113,7 +114,7 @@ Secondary audience: small marketing agencies (Agency tier) managing 5-20 client 
 | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | "AI content sounds generic"                    | Agents are trained on your brand voice, products, and past posts. You can review the first week before going autopilot. Quality bar is "would you have approved this anyway?" |
 | "I don't want to lose control of my brand"     | Two modes — Approval (review before publish) or Autopilot (publish, you can edit/delete after). Start with Approval, switch when you trust it.                                |
-| "$49/mo is a lot for a small business"         | One agency hour costs more. The free tier covers content generation only — paid tiers add ads + social + email automation.                                                    |
+| "$59/mo is a lot for a small business"         | One agency hour costs more. Starter ($25) covers essentials; Growth adds ads + social + email automation.                                                    |
 | "I've been burned by AI tools that don't work" | 14-day trial, no credit card. If the first week of content doesn't sound like you, it's free.                                                                                 |
 | "How is this different from ChatGPT?"          | ChatGPT writes when you ask. Maroa writes, posts, runs the ads, measures the result, and adjusts — without being asked.                                                       |
 

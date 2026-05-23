@@ -37,7 +37,7 @@ function register({ app, validate, sbGet, sbPost, sendEmail, apiError, safePubli
 <p>You're officially on the maroa.ai early access list!</p>
 <p><strong>Your pre-launch price is locked:</strong></p>
 <table style="border-collapse:collapse;margin:12px 0;font-size:14px">
-<tr><td style="padding:6px 16px 6px 0">Starter</td><td style="padding:6px 0"><strong>€19/mo</strong> <span style="text-decoration:line-through;color:#94a3b8">€29</span></td></tr>
+<tr><td style="padding:6px 16px 6px 0">Starter</td><td style="padding:6px 0"><strong>$25/mo</strong></td></tr>
 <tr><td style="padding:6px 16px 6px 0">Growth</td><td style="padding:6px 0"><strong>€39/mo</strong> <span style="text-decoration:line-through;color:#94a3b8">€69</span></td></tr>
 <tr><td style="padding:6px 16px 6px 0">Agency</td><td style="padding:6px 0"><strong>€79/mo</strong> <span style="text-decoration:line-through;color:#94a3b8">€149</span></td></tr>
 </table>

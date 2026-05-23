@@ -187,7 +187,7 @@ export default function FeaturesPage() {
         <div className="rounded-xl bg-ink-700 dark:bg-ink-800 text-white px-8 py-16 sm:px-16 sm:py-24 text-center">
           <h2 className="text-display-md text-white">See it work for your business.</h2>
           <p className="mt-6 text-xl text-ink-100/80 max-w-2xl mx-auto leading-relaxed">
-            From $149/month. Monthly billing in USD. Cancel anytime.
+            From $25/month. Monthly billing in USD. Cancel anytime.
           </p>
           <Button href="/signup" variant="accent" size="xl" className="mt-10">
             Get started

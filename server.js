@@ -182,27 +182,19 @@ const app = express();
 app.set('trust proxy', 1);
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
+const { isCorsOriginAllowed } = require('./lib/corsAllow');
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && !isCorsOriginAllowed(origin)) {
+    logger.warn('cors', null, 'origin rejected', { origin });
+    return apiError(res, 403, 'CORS_FORBIDDEN', 'Origin not allowed');
+  }
+  return next();
+});
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (curl, server-to-server, mobile apps, n8n)
-    if (!origin) return callback(null, true);
-    const allowed = [
-      'https://maroa-ai-marketing-automator.lovable.app',
-      'https://maroa-ai-marketing-automator.vercel.app',
-      'https://maroa.ai',
-      'https://www.maroa.ai',
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'http://localhost:5173',
-      'http://localhost:8080',
-    ];
-    if (allowed.includes(origin)) return callback(null, true);
-    // Allow all *.vercel.app preview deployments
-    if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/.test(origin)) return callback(null, true);
-    // Allow all *.lovable.app preview deployments
-    if (/^https:\/\/[a-z0-9-]+\.lovable\.app$/.test(origin)) return callback(null, true);
-    logger.warn('cors', null, 'origin rejected', { origin });
-    return callback(new Error('Not allowed by CORS'));
+    if (!origin || isCorsOriginAllowed(origin)) return callback(null, true);
+    return callback(null, false);
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
@@ -3024,112 +3016,52 @@ function isUUID(v) {
 // ROUTES
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// ─── GET /health — detailed environment check ───────────────────────────────
+// ─── GET /health — public liveness; admin detail with x-orchestrator-secret ───
 app.get('/health', (req, res) => {
-  logger.info('/health', null, 'health check', { request_id: req.requestId });
-  const vars = {
-    anthropic: !!ANTHROPIC_KEY || !!process.env.ANTHROPIC_API_KEY,
+  const provided = clean(
+    req.headers['x-orchestrator-secret'] || (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
+  );
+  let adminOk = false;
+  if (ORCHESTRATOR_SECRET && provided) {
+    const a = Buffer.from(provided);
+    const b = Buffer.from(ORCHESTRATOR_SECRET);
+    adminOk = a.length === b.length && crypto.timingSafeEqual(a, b);
+  }
+
+  if (!adminOk) {
+    return res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      hint: 'Use /readyz for dependency readiness. Pass x-orchestrator-secret for operator detail.',
+    });
+  }
+
+  const integrations = {
+    anthropic: !!(ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY),
     supabase: !!SUPABASE_KEY,
     meta: !!(process.env.META_APP_ID || process.env.META_APP_SECRET),
     resend: !!RESEND_API_KEY,
     serpapi: !!SERPAPI_KEY,
-    pinecone: !!(PINECONE_API_KEY && PINECONE_HOST) || !!(process.env.PINECONE_API_KEY && process.env.PINECONE_HOST),
-    replicate: !!REPLICATE_API_KEY,
-    openai: !!OPENAI_API_KEY || !!process.env.OPENAI_API_KEY,
-    linkedin: !!process.env.LINKEDIN_CLIENT_ID,
-    tiktok: !!process.env.TIKTOK_CLIENT_KEY || !!process.env.TIKTOK_CLIENT_SECRET,
-    twitter: !!process.env.TWITTER_CLIENT_ID || !!process.env.TWITTER_CLIENT_SECRET,
-    paddle: !!process.env.PADDLE_API_KEY,
-    runway: !!RUNWAY_API_KEY || !!process.env.RUNWAY_API_KEY,
-    google_ai: !!GOOGLE_AI_API_KEY,
-    twilio: !!TWILIO_ACCOUNT_SID,
-    paddle_billing: !!paddle.PADDLE_API_KEY,
+    paddle: !!paddle.PADDLE_API_KEY,
+    inngest: !!(process.env.INNGEST_EVENT_KEY || process.env.INNGEST_SIGNING_KEY),
   };
-  const missing = Object.entries(vars)
+  const missing = Object.entries(integrations)
     .filter(([, v]) => !v)
     .map(([k]) => k);
-  // Diagnostic: show raw env var presence for the missing ones
-  const raw_check = {
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY ? 'SET' : 'NOT SET',
-    PINECONE_API_KEY: process.env.PINECONE_API_KEY ? 'SET' : 'NOT SET',
-    PINECONE_HOST: process.env.PINECONE_HOST ? 'SET' : 'NOT SET',
-    PADDLE_API_KEY: process.env.PADDLE_API_KEY ? 'SET' : 'NOT SET',
-    RUNWAY_API_KEY: process.env.RUNWAY_API_KEY ? 'SET' : 'NOT SET',
-    TIKTOK_CLIENT_KEY: process.env.TIKTOK_CLIENT_KEY ? 'set' : 'NOT SET',
-    TIKTOK_CLIENT_SECRET: process.env.TIKTOK_CLIENT_SECRET ? 'set' : 'NOT SET',
-    TWITTER_CLIENT_ID: process.env.TWITTER_CLIENT_ID ? 'set' : 'NOT SET',
-    GOOGLE_AI_API_KEY: process.env.GOOGLE_AI_API_KEY ? 'SET' : 'NOT SET',
-  };
-  res.json({
-    status: missing.length <= 3 ? 'ok' : 'degraded',
+  return res.json({
+    status: missing.length <= 2 ? 'ok' : 'degraded',
     timestamp: new Date().toISOString(),
-    env_vars: vars,
-    missing_vars: missing,
+    integrations,
     missing_count: missing.length,
-    raw_check,
   });
 });
 
-// Health check
 app.get('/', (req, res) =>
   res.json({
     status: 'ok',
     service: 'maroa-api',
     version: '2.3.0',
-    env: {
-      SUPABASE_KEY: SUPABASE_KEY ? 'SET' : 'MISSING',
-      ANTHROPIC_KEY: ANTHROPIC_KEY ? 'SET' : 'MISSING',
-      SERPAPI_KEY: SERPAPI_KEY ? 'set' : 'MISSING',
-      REPLICATE: REPLICATE_API_KEY ? 'set' : 'MISSING',
-      RESEND: clean(process.env.RESEND_API_KEY) || RESEND_API_KEY ? 'set' : 'MISSING — emails queued',
-    },
-    docs: 'Full surface: docs/openapi.yml · health: /readyz · Inngest crons in services/inngest/functions.js',
-    workflows: ['wf1-content', 'wf2-leads', 'wf3-ads', 'wf4-reviews', 'wf5-competitors', 'wf6-presence', 'wf7-email', 'wf8-insights', 'wf9-inbox', 'wf10-studio', 'wf11-routing', 'wf12-launch', 'wf13-brief', 'wf14-budget', 'wf15-brain'],
-    skills: 19,
-    sample_routes: [
-      // ── Core webhooks ──────────────────────────────────────────────────
-      'POST /webhook/new-user-signup',
-      'POST /webhook/instant-content',
-      'POST /webhook/account-connected',
-      'POST /webhook/create-campaigns',
-      'POST /webhook/content-approved',
-      'POST /webhook/budget-updated',
-      'POST /webhook/competitor-check',
-      'POST /webhook/generate-landing-page',
-      // ── Billing ────────────────────────────────────────────────────────
-      'GET  /api/billing/plans',
-      'POST /webhook/create-checkout',
-      // ── Agency / Multi-workspace ───────────────────────────────────────
-      'POST /webhook/org-create',
-      'GET  /webhook/org-get',
-      'POST /webhook/org-add-workspace',
-      'POST /webhook/org-invite-member',
-      'POST /webhook/org-white-label-update',
-      // ── LinkedIn ───────────────────────────────────────────────────────
-      'POST /webhook/linkedin-oauth-exchange',
-      'POST /webhook/linkedin-publish',
-      // ── Twitter / X ───────────────────────────────────────────────────
-      'POST /webhook/twitter-oauth-exchange',
-      'POST /webhook/twitter-publish',
-      // ── TikTok ────────────────────────────────────────────────────────
-      'POST /webhook/tiktok-oauth-exchange',
-      'POST /webhook/tiktok-publish',
-      // ── Analytics (Sprint 2.1) ─────────────────────────────────────────
-      'POST /webhook/analytics-snapshot',
-      'POST /webhook/analytics-report',
-      'GET  /webhook/analytics-get',
-      // ── Email Sequences (Sprint 2.2) ───────────────────────────────────
-      'POST /webhook/email-sequence-create',
-      'POST /webhook/email-enroll',
-      'POST /webhook/email-trigger',
-      'POST /webhook/email-sequence-process',
-      'GET  /webhook/no-open-candidates',
-      // ── Meta OAuth ────────────────────────────────────────────────────
-      'POST /meta-oauth-exchange',
-      // ── Utilities ─────────────────────────────────────────────────────
-      'POST /test-email',
-      'GET  /debug',
-    ],
+    docs: 'docs/openapi.yml · /readyz · /api/billing/plans',
   })
 );
 
@@ -4575,102 +4507,15 @@ app.post('/meta-oauth-exchange', requireAnyUserId, async (req, res) => {
 
 // ═════════════════════════════════════════════════════════════════════════════
 // BUILD 1 — BILLING + PLAN GATES
-// Plans: starter(€29) · growth(€59) · agency(€99)
+// Plans: starter($25) · growth($59) · agency($99)
 // ═════════════════════════════════════════════════════════════════════════════
 
-const PLANS = {
-  starter: {
-    name: 'Starter',
-    price: 29,
-    annual: 290,
-    maxRuns: 1,
-    runHours: [6],
-    priceId: PADDLE_STARTER_PRICE,
-    images: 20,
-    kling: 0,
-    sora: 0,
-    platforms: 1,
-    brands: 1,
-    video: false,
-    analytics: false,
-    white_label: false,
-    api: false,
-    features: ['1 platform', '20 AI images/mo', 'AI brain 1×/day', 'Content calendar', 'Email support'],
-  },
-  growth: {
-    name: 'Growth',
-    price: 59,
-    annual: 590,
-    maxRuns: 3,
-    runHours: [6, 12, 18],
-    priceId: PADDLE_GROWTH_PRICE,
-    images: 60,
-    kling: 25,
-    sora: 5,
-    platforms: 3,
-    brands: 1,
-    video: true,
-    analytics: true,
-    white_label: false,
-    api: false,
-    features: [
-      '3 platforms',
-      '60 AI images/mo',
-      '25 Kling videos',
-      '5 Sora videos',
-      'AI brain 3×/day',
-      'Paid ads',
-      'Competitor tracking',
-      'Analytics',
-    ],
-  },
-  agency: {
-    name: 'Agency',
-    price: 99,
-    annual: 990,
-    maxRuns: 5,
-    runHours: [6, 9, 12, 15, 18],
-    priceId: PADDLE_AGENCY_PRICE,
-    images: 120,
-    kling: 50,
-    sora: 15,
-    platforms: 99,
-    brands: 3,
-    video: true,
-    analytics: true,
-    white_label: true,
-    api: true,
-    features: [
-      'Unlimited platforms',
-      '120 AI images/mo',
-      '50 Kling videos',
-      '15 Sora videos',
-      'AI brain 5×/day',
-      '3 brands',
-      'White-label',
-      'API access',
-    ],
-  },
-  // Legacy alias
-  free: {
-    name: 'Starter',
-    price: 29,
-    annual: 290,
-    maxRuns: 1,
-    runHours: [6],
-    priceId: PADDLE_STARTER_PRICE,
-    images: 20,
-    kling: 0,
-    sora: 0,
-    platforms: 1,
-    brands: 1,
-    video: false,
-    analytics: false,
-    white_label: false,
-    api: false,
-    features: ['1 platform', '20 AI images/mo'],
-  },
-};
+const { buildPlansCatalog } = require('./lib/planCatalog');
+const PLANS = buildPlansCatalog({
+  starterPriceId: PADDLE_STARTER_PRICE,
+  growthPriceId: PADDLE_GROWTH_PRICE,
+  agencyPriceId: PADDLE_AGENCY_PRICE,
+});
 
 // GET /api/billing/plans — public, no auth needed
 app.get('/api/billing/plans', (req, res) => {
@@ -10906,6 +10751,9 @@ app.post('/webhook/weekly-scorecard-batch', requireAuthOrWebhookSecret, async (r
 app.use((req, res) => apiError(res, 404, 'NOT_FOUND', `Route ${req.method} ${req.path} not found`));
 
 app.use((err, req, res, next) => {
+  if (err && String(err.message || '').includes('CORS')) {
+    return apiError(res, 403, 'CORS_FORBIDDEN', 'Origin not allowed');
+  }
   logger.error(req.path || 'unknown', null, 'Unhandled error', err, { request_id: req.requestId });
   if (res.headersSent) return next(err);
   const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;

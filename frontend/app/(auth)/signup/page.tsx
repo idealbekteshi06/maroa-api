@@ -78,7 +78,13 @@ function SignUpInner() {
       <p className="text-ink-400 leading-relaxed mb-8">
         Monthly billing in USD. Cancel anytime. You&apos;ll be on the{' '}
         <strong className="text-ink-700 capitalize">{plan}</strong> plan
-        {plan === 'growth' ? ' ($149/month).' : plan === 'agency' ? ' ($599/month).' : '.'}
+        {plan === 'starter'
+          ? ' ($25/month).'
+          : plan === 'growth'
+            ? ' ($59/month).'
+            : plan === 'agency'
+              ? ' ($99/month).'
+              : '.'}
       </p>
 
       <form onSubmit={onSubmit} className="space-y-5">

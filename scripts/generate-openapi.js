@@ -119,7 +119,7 @@ function buildOpenApi(routes) {
     openapi: '3.1.0',
     info: {
       title: 'Maroa.ai API',
-      version: '2.2.0',
+      version: '2.3.0',
       description: 'AI marketing automation SaaS — Inngest + Express backend. See CLAUDE.md for architecture.',
     },
     servers: [

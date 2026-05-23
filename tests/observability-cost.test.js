@@ -159,17 +159,14 @@ test('health: probeSupabase returns not-ok on hung query', async () => {
 
 // ─── Cost guard ───────────────────────────────────────────────────────────
 
-// CLAUDE.md current pricing: growth $149/mo → cost cap $80, agency $599/mo
-// → cost cap $250. No free/starter tier (removed when free-trial was killed).
-// Unknown plans fall back to growth's cap (lib/costGuard.js:51-55) so legacy
-// rows with stale plan values don't crash callClaude.
+// List pricing: starter $25 → cap $30, growth $59 → $80, agency $99 → $250.
 test('costGuard: effectiveCapForPlan honors plan tiers', () => {
-  assert.strictEqual(costGuard.effectiveCapForPlan('starter'), 35);
+  assert.strictEqual(costGuard.effectiveCapForPlan('starter'), 30);
   assert.strictEqual(costGuard.effectiveCapForPlan('growth'), 80);
   assert.strictEqual(costGuard.effectiveCapForPlan('agency'), 250);
   // Unknown / legacy plans → growth fallback
   assert.strictEqual(costGuard.effectiveCapForPlan('unknown'), 80);
-  assert.strictEqual(costGuard.effectiveCapForPlan('free'), 35);
+  assert.strictEqual(costGuard.effectiveCapForPlan('free'), 30);
 });
 
 test('costGuard: env override hatch wins', () => {

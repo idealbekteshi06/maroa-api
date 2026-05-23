@@ -345,7 +345,7 @@ THREE-TIER STRUCTURE:
 - Tier 3 (Agency): power users, highest margin
 
 TACTICS:
-- €29 not €30 (charm pricing)
+- $25 not $30 (charm pricing)
 - Show monthly even if annual
 - "Less than €1/day"
 - ROI: "Pays for itself with one new client"

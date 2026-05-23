@@ -2,15 +2,14 @@ import { ImageResponse } from 'next/og';
 
 /**
  * Page-specific OG card for /pricing. Audit 2026-05-19 F16: the generic
- * site-wide OG was shown on every share — pricing-specific copy ("$149 /
- * $599 — cancel anytime") boosts CTR on social.
+ * site-wide OG was shown on every share — pricing-specific copy boosts CTR on social.
  *
  * Reuses the brand palette (ink-700 background, accent indigo pop).
  * 1200×630 — canonical OG / Twitter card size.
  */
 
 export const runtime = 'edge';
-export const alt = 'Maroa pricing — $149/mo Growth and $599/mo Agency';
+export const alt = 'Maroa pricing — $25 Starter, $59 Growth, $99 Agency';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
@@ -53,25 +52,20 @@ export default async function OgImagePricing() {
               maxWidth: 980,
             }}
           >
-            Two plans. Priced to replace a marketing hire.
+            Three plans. Starter · Growth · Agency.
           </div>
-          <div style={{ display: 'flex', gap: 40, marginTop: 12 }}>
+          <div style={{ display: 'flex', gap: 32, marginTop: 12 }}>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <div style={{ fontSize: 22, color: '#86868b' }}>Growth</div>
-              <div style={{ fontSize: 56, fontWeight: 700 }}>$149/mo</div>
-              <div style={{ fontSize: 18, color: '#9499F8' }}>up to 5 clients</div>
+              <div style={{ fontSize: 20, color: '#86868b' }}>Starter</div>
+              <div style={{ fontSize: 48, fontWeight: 700 }}>$25/mo</div>
             </div>
-            <div
-              style={{
-                width: 2,
-                background: '#424245',
-                alignSelf: 'stretch',
-              }}
-            />
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <div style={{ fontSize: 22, color: '#86868b' }}>Agency</div>
-              <div style={{ fontSize: 56, fontWeight: 700 }}>$599/mo</div>
-              <div style={{ fontSize: 18, color: '#9499F8' }}>up to 50 clients</div>
+              <div style={{ fontSize: 20, color: '#86868b' }}>Growth</div>
+              <div style={{ fontSize: 48, fontWeight: 700 }}>$59/mo</div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <div style={{ fontSize: 20, color: '#86868b' }}>Agency</div>
+              <div style={{ fontSize: 48, fontWeight: 700 }}>$99/mo</div>
             </div>
           </div>
         </div>

@@ -31,9 +31,10 @@ public, monthly, and cancel-anytime. There is no free tier and no trial.
 
 ## Pricing
 
-- **Growth ($149/month):** up to 5 clients per workspace. Best for
+- **Starter ($25/month):** one business, one platform, essential AI content.
+- **Growth ($59/month):** paid ads, competitor intel, multi-platform. Best for
   freelancers managing several clients or a single SMB.
-- **Agency ($599/month):** up to 50 clients per workspace. White-label
+- **Agency ($99/month):** multi-brand workspace. White-label
   reports. Approval flows. Team roles. Best for marketing agencies.
 - **Enterprise:** custom — talk to us at hello@maroa.ai.
 
@@ -67,7 +68,7 @@ public, monthly, and cancel-anytime. There is no free tier and no trial.
 
 **Q: Is there a free trial?**
 A: No. Maroa is a senior-marketer-replacement product. Pricing is
-$149/month for Growth and $599/month for Agency, cancel anytime.
+$25/month Starter, $59/month Growth, and $99/month Agency, cancel anytime.
 
 **Q: What is a "client"?**
 A: A distinct brand/business with its own brand voice, audience, ad
