@@ -33,9 +33,10 @@ Rotate in order of blast radius:
 - [ ] **Replicate** — `r8_Jet7AKlTlr6…`. Revoke at https://replicate.com/account/api-tokens, mint new, update `REPLICATE_API_KEY`.
 - [ ] **SerpAPI** — revoke + remint. Update `SERPAPI_KEY`.
 - [ ] **Pexels** — revoke + remint. Update `PEXELS_API_KEY`.
-- [ ] **Meta app secret** — `21a29db7504ebfa9740d247c8c8fd056`. Meta
-      Developer console → App Dashboard → Settings → Basic → Reset App
-      Secret. Update `META_APP_SECRET`.
+- [ ] **Meta app secret** — `21a29db7…` (rotate it; the full value was
+      previously committed here and remains in git history, so rotation at
+      Meta is the real fix). Meta Developer console → App Dashboard →
+      Settings → Basic → Reset App Secret. Update `META_APP_SECRET`.
 - [ ] **n8n Cloud JWT** — kill the n8n Cloud account entirely if you're
       fully off n8n (which we are; nothing imports those workflows now).
 - [ ] **`setup.sh`** — delete from local disk and from any backups
