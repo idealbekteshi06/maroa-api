@@ -14,9 +14,10 @@
 
 const crypto = require('crypto');
 const oauthCrypto = require('../lib/oauthCrypto');
+const { signOAuthState, verifyOAuthState, isUuid } = require('../lib/oauthState');
 const { ensureCompliant, ComplianceBlocked } = require('../lib/complianceGate');
 
-function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getBrandExamples, env }) {
+function register({ app, sbGet, sbPost, sbPatch, sbDelete, callClaude, log, logError, getBrandExamples, env }) {
   const TIKTOK_CLIENT_KEY = (env?.TIKTOK_CLIENT_KEY || process.env.TIKTOK_CLIENT_KEY || '')
     .replace(/[^\x20-\x7E]/g, '')
     .trim();
@@ -24,13 +25,20 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getB
     .replace(/[^\x20-\x7E]/g, '')
     .trim();
   const TIKTOK_REDIRECT_URI = 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
+  const STATE_SECRET = (env?.N8N_WEBHOOK_SECRET || process.env.N8N_WEBHOOK_SECRET || '').trim();
 
   app.get('/tiktok-oauth-start', async (req, res) => {
     const { business_id } = req.query;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
+    if (!isUuid(String(business_id))) return res.status(400).json({ error: 'business_id must be a valid UUID' });
     if (!TIKTOK_CLIENT_KEY) return res.status(500).json({ error: 'TIKTOK_CLIENT_KEY not configured' });
 
-    const state = `${business_id}:tiktok`;
+    // Signed, single-use state (nonce+ts+HMAC) replaces the old predictable
+    // `${business_id}:tiktok`. Verified in the exchange to defeat CSRF /
+    // state-forgery. Falls back to opaque random state if no signing secret.
+    const state = STATE_SECRET
+      ? signOAuthState({ businessId: String(business_id), platform: 'tiktok', secret: STATE_SECRET })
+      : crypto.randomBytes(24).toString('base64url');
     const codeVerifier = crypto.randomBytes(32).toString('base64url');
     const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
 
@@ -47,16 +55,41 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getB
   });
 
   app.post('/webhook/tiktok-oauth-exchange', async (req, res) => {
-    const { code, business_id, code_verifier, redirect_uri } = req.body;
+    const { code, business_id, code_verifier, redirect_uri, state } = req.body;
     if (!code || !business_id || !code_verifier) {
       return res.status(400).json({ error: 'code, business_id, and code_verifier required' });
     }
+    if (!isUuid(String(business_id))) return res.status(400).json({ error: 'business_id must be a valid UUID' });
 
     if (!TIKTOK_CLIENT_KEY || !TIKTOK_CLIENT_SECRET) {
       return res.status(500).json({
         error: 'TIKTOK_CLIENT_KEY or TIKTOK_CLIENT_SECRET not set in Railway',
         fix: 'Add TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET to Railway environment variables',
       });
+    }
+
+    // The token is written to business_id, which the /webhook owner gate has
+    // already verified the JWT caller owns. When a signed `state` is supplied
+    // we additionally verify it, require it to match business_id, recover the
+    // server-generated PKCE verifier, and consume the state row (single-use).
+    let verifier = code_verifier;
+    if (state) {
+      const verified = STATE_SECRET ? verifyOAuthState(state, STATE_SECRET, { platform: 'tiktok' }) : null;
+      if (!verified) return res.status(400).json({ error: 'state token invalid or expired' });
+      if (String(verified.businessId) !== String(business_id)) {
+        return res.status(403).json({ error: 'state does not match business_id' });
+      }
+      try {
+        const row = (
+          await sbGet('oauth_states', `state=eq.${encodeURIComponent(state)}&platform=eq.tiktok&limit=1`)
+        )[0];
+        if (row?.code_verifier) verifier = row.code_verifier;
+      } catch (e) {
+        log?.('/webhook/tiktok-oauth-exchange', `oauth_states lookup failed: ${e.message}`);
+      }
+      if (sbDelete) {
+        await sbDelete('oauth_states', `state=eq.${encodeURIComponent(state)}`).catch(() => {});
+      }
     }
 
     const REDIRECT = redirect_uri || TIKTOK_REDIRECT_URI;
@@ -72,7 +105,7 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getB
           grant_type: 'authorization_code',
           code,
           redirect_uri: REDIRECT,
-          code_verifier,
+          code_verifier: verifier,
         }).toString(),
       });
       const tokenData = await tokenResp.json();

@@ -8,9 +8,13 @@ const { once } = require('node:events');
 const cors = require('cors');
 const { isCorsOriginAllowed } = require('../lib/corsAllow');
 
-test('isCorsOriginAllowed allows maroa.ai and preview hosts', () => {
+test('isCorsOriginAllowed allows maroa.ai and project preview hosts', () => {
   assert.strictEqual(isCorsOriginAllowed('https://maroa.ai'), true);
-  assert.strictEqual(isCorsOriginAllowed('https://app-abc.vercel.app'), true);
+  // Project preview deploys (Vercel/Lovable) carry the "maroa" project token.
+  assert.strictEqual(isCorsOriginAllowed('https://maroa-ai-marketing-automator-git-main.vercel.app'), true);
+  assert.strictEqual(isCorsOriginAllowed('https://maroa-preview.lovable.app'), true);
+  // Arbitrary third-party preview hosts must NOT be reflected with credentials.
+  assert.strictEqual(isCorsOriginAllowed('https://app-abc.vercel.app'), false);
   assert.strictEqual(isCorsOriginAllowed('https://evil.example.com'), false);
 });
 

@@ -108,6 +108,7 @@ const { fire: fireBreaker, CircuitOpenError } = require('./lib/breakers');
 const { retryWithJitter } = require('./lib/retryWithJitter');
 const SERVICE_TIMEOUTS_MS = require('./lib/serviceTimeouts');
 const externalHttp = require('./lib/externalHttp');
+const { assertPublicHttpUrl } = require('./lib/ssrfGuard');
 const planGate = require('./middleware/planGate');
 const { checkPlanLimit } = require('./middleware/planLimits');
 const paddle = require('./services/paddle');
@@ -159,6 +160,26 @@ let memoryService = null;
 
 function log(route, msg) {
   console.log(`[${new Date().toISOString()}] ${route} — ${msg}`);
+}
+
+// Module-level PII scrubber for anything we persist (e.g. errors.retry_payload).
+// Mirrors the Sentry beforeSend scrubber so request bodies stored for retry
+// don't leak OAuth tokens / emails into the DB error sink.
+const _PII_KEY_PATTERN =
+  /(authorization|auth_token|api_key|apikey|secret|token|password|email|access_token|refresh_token|jwt|bearer)/i;
+function scrubPII(obj, depth = 0) {
+  if (!obj || depth > 6) return obj;
+  if (Array.isArray(obj)) return obj.map((v) => scrubPII(v, depth + 1));
+  if (typeof obj === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (_PII_KEY_PATTERN.test(k)) out[k] = '[redacted]';
+      else if (typeof v === 'string' && /sk-ant-|sb_secret_|r8_|Bearer\s/i.test(v)) out[k] = '[redacted]';
+      else out[k] = scrubPII(v, depth + 1);
+    }
+    return out;
+  }
+  return obj;
 }
 
 function apiError(res, status, code, message, details = null) {
@@ -332,6 +353,29 @@ app.use(securityHeaders({ env: process.env.NODE_ENV }));
 const observability = require('./services/observability');
 app.use(observability.metricsMiddleware());
 
+// ─── Global baseline rate limit (DoS guard) ──────────────────────────────
+// Permissive per-IP ceiling so a flood against any single route can't exhaust
+// the process. Expensive AI/spend endpoints keep their own tighter limiter
+// (aiRateLimit). Exempt: health/readiness/metrics probes, CORS preflight, and
+// signature-verified payment webhooks (provider retry storms are legitimate).
+const globalRateLimit = expressRateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.GLOBAL_RATE_LIMIT_PER_MIN || 300),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: { code: 'RATE_LIMITED', message: 'Too many requests — please slow down' } },
+  skip: (req) =>
+    req.method === 'OPTIONS' ||
+    req.path === '/' ||
+    req.path === '/healthz' ||
+    req.path === '/readyz' ||
+    req.path === '/health' ||
+    req.path === '/metrics' ||
+    req.path === '/webhook/paddle-webhook' ||
+    req.path === '/webhook/stripe-webhook',
+});
+app.use(globalRateLimit);
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 // All values come from the validated `env` object (see lib/env.js). No prod-URL
 // defaults — boot fails in lib/env.js if a required var is missing.
@@ -382,13 +426,20 @@ function isInternalMaroaWebhookUrl(urlString) {
 // worker hostage for two minutes — under load that turns into request
 // starvation. Callers that legitimately need longer (Anthropic Opus streams,
 // Higgsfield polls) pass an explicit override.
-function apiRequest(method, url, headers = {}, body = null, timeoutMs = EXTERNAL_HTTP_TIMEOUT_MS) {
+function apiRequest(method, url, headers = {}, body = null, timeoutMs = EXTERNAL_HTTP_TIMEOUT_MS, opts = {}) {
+  const { allowInternalSecret = true } = opts;
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const bodyStr = body ? JSON.stringify(body) : null;
     const proto = u.protocol === 'https:' ? https : http;
+    // Only attach the internal webhook secret to genuine loopback/self calls,
+    // and never when the caller is fanning out to a customer-supplied URL — an
+    // attacker could otherwise register the prod host as their webhook_url and
+    // have the server call its own internal endpoints authenticated.
     const extra =
-      N8N_WEBHOOK_SECRET && isInternalMaroaWebhookUrl(url) ? { 'x-webhook-secret': N8N_WEBHOOK_SECRET } : {};
+      allowInternalSecret && N8N_WEBHOOK_SECRET && isInternalMaroaWebhookUrl(url)
+        ? { 'x-webhook-secret': N8N_WEBHOOK_SECRET }
+        : {};
     const opts = {
       hostname: u.hostname,
       port: u.port || (u.protocol === 'https:' ? 443 : 80),
@@ -600,8 +651,15 @@ setImmediate(() => {
           next();
         })
         .catch((e) => {
-          logger.warn(req.path, null, 'Redis rate limit check failed', { request_id: req.requestId, error: e.message });
-          next();
+          // Fail closed onto the in-process limiter instead of allowing the
+          // request through — an Upstash blip must not uncap the expensive
+          // (LLM/image/video) endpoints, especially since costGuard also
+          // soft-fails open during a correlated outage.
+          logger.warn(req.path, null, 'Redis rate limit check failed — falling back to in-process limiter', {
+            request_id: req.requestId,
+            error: e.message,
+          });
+          return aiLimitExpress(req, res, next);
         });
     }
     return aiLimitExpress(req, res, next);
@@ -747,6 +805,20 @@ setImmediate(() => {
   app.use('/api/schema', requireAnyUserId); // /api/schema/:userId (READ side of schema)
   app.use('/api/pricing', requireAnyUserId); // /api/pricing/:userId (READ side of pricing)
   app.use('/api/sales', requireAnyUserId); // /api/sales/objection-handler + future siblings
+
+  // ─── Tenant isolation on /api/* routes that act on a business_id ──────────
+  // requireAnyUserId proves the JWT matches the supplied userId, but NOT that
+  // the user may act on the business_id in the request body. Without this gate
+  // any authenticated user could generate content / spend budget against another
+  // tenant by passing a victim's business_id (IDOR). Mounted after the auth
+  // middleware above so req.user is populated. The gate is a no-op when no
+  // business_id is present, and is workspace-aware so agency members keep access
+  // to their client businesses (see lib/assertBusinessOwner.js).
+  const _ownerGate = assertBusinessOwnerMiddleware({ sbGet, apiError, logger });
+  app.use('/api/content', _ownerGate);
+  app.use('/api/generate', _ownerGate);
+  app.use('/api/social', _ownerGate);
+  app.use('/api/seo-pages', _ownerGate);
 
   // ─── Idempotency-Key middleware on mutating customer-facing routes ────────
   // Browser retries on a transient blip can double-fire mutations: content
@@ -2529,16 +2601,26 @@ setImmediate(() => {
   // ─── Webhook dispatcher (fires external webhook subscriptions) ──────────────
   async function fireWebhooks(businessId, eventType, data) {
     try {
+      if (!isUUID(String(businessId))) return;
       const subs = await sbGet(
         'webhook_subscriptions',
-        `business_id=eq.${businessId}&event_type=eq.${eventType}&active=eq.true`
+        `business_id=eq.${encodeURIComponent(businessId)}&event_type=eq.${encodeURIComponent(String(eventType))}&active=eq.true`
       );
       for (const sub of subs) {
+        // Re-validate the stored URL at fire time — defeats DNS rebinding and
+        // any subscription that slipped in before this guard existed.
+        try {
+          await assertPublicHttpUrl(sub.webhook_url);
+        } catch {
+          continue;
+        }
         apiRequest(
           'POST',
           sub.webhook_url,
           { 'Content-Type': 'application/json', 'X-Maroa-Secret': sub.secret || '' },
-          { event: eventType, business_id: businessId, timestamp: new Date().toISOString(), data }
+          { event: eventType, business_id: businessId, timestamp: new Date().toISOString(), data },
+          EXTERNAL_HTTP_TIMEOUT_MS,
+          { allowInternalSecret: false }
         ).catch(() => {});
       }
     } catch {
@@ -2944,7 +3026,8 @@ setImmediate(() => {
     const provided = clean(
       req.headers['x-orchestrator-secret'] || (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
     );
-    if (provided !== ORCHESTRATOR_SECRET) return apiError(res, 401, 'UNAUTHORIZED', 'Invalid secret');
+    if (!timingSafeStringEqual(provided, ORCHESTRATOR_SECRET))
+      return apiError(res, 401, 'UNAUTHORIZED', 'Invalid secret');
     next();
   }
 
@@ -2989,7 +3072,7 @@ setImmediate(() => {
         business_id: businessId,
         workflow_name: workflowName,
         error_message: errorMessage,
-        retry_payload: retryPayload ? JSON.stringify(retryPayload) : null,
+        retry_payload: retryPayload ? JSON.stringify(scrubPII(retryPayload)) : null,
       });
       if (businessId) setImmediate(() => alertOnRepeatedFailure(businessId, workflowName).catch(() => {}));
     } catch {
@@ -3948,6 +4031,9 @@ setImmediate(() => {
     });
 
     if (!content_id) return apiError(res, 400, 'VALIDATION_ERROR', 'content_id required');
+    if (!isUUID(String(content_id))) return apiError(res, 400, 'VALIDATION_ERROR', 'content_id must be a valid UUID');
+    if (business_id && !isUUID(String(business_id)))
+      return apiError(res, 400, 'VALIDATION_ERROR', 'business_id must be a valid UUID');
 
     // Return immediately — DB update + publishing happen in background
     res.json({ received: true, message: 'Approved — autopublish in progress' });
@@ -4216,6 +4302,9 @@ setImmediate(() => {
     log('/webhook/generate-landing-page', `business_id=${business_id}`);
 
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
+    if (!isUUID(String(business_id))) return res.status(400).json({ error: 'business_id must be a valid UUID' });
+    if (campaign_id && !isUUID(String(campaign_id)))
+      return res.status(400).json({ error: 'campaign_id must be a valid UUID' });
 
     try {
       const [bizArr, campArr] = await Promise.all([
@@ -4979,6 +5068,7 @@ setImmediate(() => {
     sbGet,
     sbPost,
     sbPatch,
+    sbDelete,
     callClaude,
     log,
     logError,
@@ -4994,6 +5084,7 @@ setImmediate(() => {
     sbGet,
     sbPost,
     sbPatch,
+    sbDelete,
     callClaude,
     log,
     logError,
@@ -5447,6 +5538,31 @@ setImmediate(() => {
   app.post('/webhook/white-label-update', planGate('white_label'), async (req, res) => {
     const { organization_id, company_name, primary_color, logo_url, domain, support_email } = req.body;
     if (!organization_id) return res.status(400).json({ error: 'organization_id required' });
+    if (!isUUID(String(organization_id)))
+      return res.status(400).json({ error: 'organization_id must be a valid UUID' });
+
+    // Ownership: a JWT caller must own or admin this organization. Internal
+    // webhook-secret callers (authSource==='webhook') are trusted. Without
+    // this, any agency-plan user could rewrite another org's white-label.
+    if (req.authSource !== 'webhook') {
+      const uid = req.user?.id;
+      const owns =
+        uid &&
+        isUUID(String(uid)) &&
+        ((
+          await sbGet(
+            'organizations',
+            `id=eq.${encodeURIComponent(organization_id)}&owner_user_id=eq.${encodeURIComponent(uid)}&select=id&limit=1`
+          ).catch(() => [])
+        ).length ||
+          (
+            await sbGet(
+              'organization_members',
+              `organization_id=eq.${encodeURIComponent(organization_id)}&user_id=eq.${encodeURIComponent(uid)}&role=in.(owner,admin)&select=id&limit=1`
+            ).catch(() => [])
+          ).length);
+      if (!owns) return apiError(res, 403, 'FORBIDDEN', 'You do not have access to this organization');
+    }
 
     try {
       const updates = {};
@@ -5484,10 +5600,12 @@ setImmediate(() => {
   app.get('/webhook/white-label-get', async (req, res) => {
     const { organization_id } = req.query;
     if (!organization_id) return res.status(400).json({ error: 'organization_id required' });
+    if (!isUUID(String(organization_id)))
+      return res.status(400).json({ error: 'organization_id must be a valid UUID' });
     try {
       const orgs = await sbGet(
         'organizations',
-        `id=eq.${organization_id}&select=white_label_company_name,white_label_primary_color,white_label_logo_url,white_label_domain,white_label_support_email,name`
+        `id=eq.${encodeURIComponent(organization_id)}&select=white_label_company_name,white_label_primary_color,white_label_logo_url,white_label_domain,white_label_support_email,name`
       );
       const o = orgs[0];
       if (!o) return res.status(404).json({ error: 'organization not found' });
@@ -7899,8 +8017,17 @@ Return ONLY valid JSON:
   app.get('/webhook/email-approve', async (req, res) => {
     const { token, action } = req.query;
     if (!token || !action) return res.status(400).send('<h1>Invalid link</h1>');
+    // token is interpolated into a PostgREST filter and this route is
+    // unauthenticated (OPEN_PATHS) — constrain to an opaque-token charset so an
+    // attacker can't inject extra `&`-delimited filters, and gate the action.
+    if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{1,256}$/.test(token)) {
+      return res.status(400).send('<h1>Invalid link</h1>');
+    }
+    if (!['approve', 'reject', 'regenerate'].includes(action)) {
+      return res.status(400).send('<h1>Invalid link</h1>');
+    }
     try {
-      const rows = await sbGet('content_approvals', `token=eq.${token}&used_at=is.null&select=*`);
+      const rows = await sbGet('content_approvals', `token=eq.${encodeURIComponent(token)}&used_at=is.null&select=*`);
       const approval = rows[0];
       if (!approval)
         return res.send(
@@ -7946,7 +8073,12 @@ Return ONLY valid JSON:
       }
       res.send('<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h1>Done</h1></body></html>');
     } catch (err) {
-      res.status(500).send(`<h1>Error: ${err.message}</h1>`);
+      log?.('/webhook/email-approve', `error: ${err.message}`);
+      res
+        .status(500)
+        .send(
+          '<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h1>Something went wrong</h1><p>Please try again from your dashboard.</p></body></html>'
+        );
     }
   });
 
@@ -8602,6 +8734,17 @@ Return ONLY valid JSON:
     const { business_id, event_type, webhook_url } = req.body;
     if (!business_id || !event_type || !webhook_url)
       return res.status(400).json({ error: 'business_id, event_type, webhook_url required' });
+    if (!isUUID(String(business_id))) return res.status(400).json({ error: 'business_id must be a valid UUID' });
+    if (typeof event_type !== 'string' || !/^[A-Za-z0-9_.:-]{1,100}$/.test(event_type))
+      return res.status(400).json({ error: 'event_type is invalid' });
+    // SSRF: a customer-supplied URL is fetched server-side and re-fetched on
+    // every matching event. Reject non-https and anything resolving to a
+    // private/loopback/link-local address (incl. cloud metadata).
+    try {
+      await assertPublicHttpUrl(webhook_url);
+    } catch (e) {
+      return res.status(400).json({ error: e.message || 'webhook_url is not allowed' });
+    }
     try {
       const secret = crypto.randomBytes(16).toString('hex');
       const sub = await sbPost('webhook_subscriptions', { business_id, event_type, webhook_url, secret, active: true });
@@ -8610,7 +8753,9 @@ Return ONLY valid JSON:
         'POST',
         webhook_url,
         { 'Content-Type': 'application/json', 'X-Maroa-Secret': secret },
-        { event: 'test', business_id, message: 'Webhook connected successfully' }
+        { event: 'test', business_id, message: 'Webhook connected successfully' },
+        EXTERNAL_HTTP_TIMEOUT_MS,
+        { allowInternalSecret: false }
       ).catch(() => {});
       res.json({ subscription_id: sub?.id, event_type, webhook_url, secret });
     } catch (err) {
@@ -8621,10 +8766,11 @@ Return ONLY valid JSON:
   app.get('/webhook/webhook-list', async (req, res) => {
     const { business_id } = req.query;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
+    if (!isUUID(String(business_id))) return res.status(400).json({ error: 'business_id must be a valid UUID' });
     try {
       const subs = await sbGet(
         'webhook_subscriptions',
-        `business_id=eq.${business_id}&active=eq.true&select=id,event_type,webhook_url,created_at`
+        `business_id=eq.${encodeURIComponent(business_id)}&active=eq.true&select=id,event_type,webhook_url,created_at`
       );
       res.json({ subscriptions: subs, count: subs.length });
     } catch (err) {
@@ -8635,8 +8781,10 @@ Return ONLY valid JSON:
   app.delete('/webhook/webhook-delete', async (req, res) => {
     const { subscription_id } = req.body;
     if (!subscription_id) return res.status(400).json({ error: 'subscription_id required' });
+    if (!isUUID(String(subscription_id)))
+      return res.status(400).json({ error: 'subscription_id must be a valid UUID' });
     try {
-      await sbPatch('webhook_subscriptions', `id=eq.${subscription_id}`, { active: false });
+      await sbPatch('webhook_subscriptions', `id=eq.${encodeURIComponent(subscription_id)}`, { active: false });
       res.json({ deleted: true });
     } catch (err) {
       res.status(500).json({ error: err.message });

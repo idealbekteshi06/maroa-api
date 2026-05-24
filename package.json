@@ -74,7 +74,8 @@
     "@opentelemetry/exporter-logs-otlp-grpc": "^0.218.0",
     "@opentelemetry/exporter-logs-otlp-proto": "^0.218.0",
     "protobufjs": "^7.5.4",
-    "ip-address": "^10.1.1"
+    "ip-address": "^10.1.1",
+    "qs": "^6.15.2"
   },
   "keywords": [
     "maroa",

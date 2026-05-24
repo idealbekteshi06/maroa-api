@@ -79,7 +79,6 @@ function requireAuthOrWebhookSecret(req, res, next) {
           });
         }
         req.user = data.user;
-        req.businessId = data.user.id;
         req.authSource = 'jwt';
         return next();
       })
