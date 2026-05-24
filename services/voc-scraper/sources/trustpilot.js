@@ -26,6 +26,7 @@ const TRUSTPILOT_BASE = 'https://api.trustpilot.com/v1';
 
 async function _httpGetJSON(url, apiKey) {
   const res = await fetch(url, {
+    signal: AbortSignal.timeout(30000),
     headers: { apikey: apiKey },
   });
   const text = await res.text();

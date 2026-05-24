@@ -102,6 +102,7 @@ async function exchangeCode({ code, clientId, clientSecret, redirectUri }) {
     redirect_uri: redirectUri,
   });
   const res = await fetch(`https://${GOOGLE_TOKEN_HOST}/token`, {
+    signal: AbortSignal.timeout(30000),
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
@@ -120,6 +121,7 @@ async function exchangeCode({ code, clientId, clientSecret, redirectUri }) {
 
 async function fetchUserInfo({ accessToken }) {
   const res = await fetch(`https://${GOOGLE_USERINFO_HOST}/oauth2/v3/userinfo`, {
+    signal: AbortSignal.timeout(30000),
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) return null;
@@ -137,6 +139,7 @@ async function listAccessibleAdsCustomers({ accessToken }) {
   }
   try {
     const res = await fetch(`https://${GOOGLE_ADS_HOST}/${GOOGLE_ADS_VERSION}/customers:listAccessibleCustomers`, {
+      signal: AbortSignal.timeout(30000),
       method: 'GET',
       headers,
     });

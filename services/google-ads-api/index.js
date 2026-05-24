@@ -51,6 +51,7 @@ async function exchangeRefreshTokenForAccessToken(refreshToken) {
       grant_type: 'refresh_token',
     });
     const res = await fetch('https://oauth2.googleapis.com/token', {
+      signal: AbortSignal.timeout(30000),
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
@@ -83,6 +84,7 @@ async function adsCall({ method, path, business, body, query }) {
 
   try {
     const res = await fetch(url, {
+      signal: AbortSignal.timeout(30000),
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,

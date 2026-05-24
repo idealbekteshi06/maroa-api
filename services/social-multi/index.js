@@ -85,6 +85,7 @@ async function ayrsharePost({ apiKey, profileKey, platforms, post, mediaUrls, sc
 
   try {
     const res = await fetch('https://api.ayrshare.com/api/post', {
+      signal: AbortSignal.timeout(30000),
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -222,6 +223,7 @@ async function metaGraph({ method, path, accessToken, query = {}, body }) {
     if (v != null) url.searchParams.set(k, String(v));
   }
   const res = await fetch(url.toString(), {
+    signal: AbortSignal.timeout(30000),
     method,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,

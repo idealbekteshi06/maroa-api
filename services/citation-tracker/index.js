@@ -207,6 +207,7 @@ async function queryPerplexity({ prompt, deps }) {
   };
   try {
     const res = await fetch(url, {
+      signal: AbortSignal.timeout(30000),
       method: 'POST',
       headers: {
         Authorization: `Bearer ${process.env.PERPLEXITY_API_KEY}`,

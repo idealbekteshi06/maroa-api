@@ -40,6 +40,7 @@ async function tiktokCall({ method, path, business, body, query }) {
   const url = `https://${HOST}/open_api/${VERSION}${path}${params}`;
   try {
     const res = await fetch(url, {
+      signal: AbortSignal.timeout(30000),
       method,
       headers: {
         'Access-Token': business.tiktok_access_token,

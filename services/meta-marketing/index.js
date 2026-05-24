@@ -43,6 +43,7 @@ async function graphCall({ method, path, accessToken, body, query }) {
   const url = `https://${GRAPH_HOST}/${GRAPH_VERSION}${path}?${params.toString()}`;
   try {
     const res = await fetch(url, {
+      signal: AbortSignal.timeout(30000),
       method,
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,

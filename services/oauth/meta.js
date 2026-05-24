@@ -122,6 +122,7 @@ async function graphCall({ method = 'GET', path, accessToken, query, body }) {
   const params = new URLSearchParams({ access_token: accessToken, ...(query || {}) });
   const url = `https://${META_GRAPH_HOST}/${META_GRAPH_VERSION}${path}?${params.toString()}`;
   const res = await fetch(url, {
+    signal: AbortSignal.timeout(30000),
     method,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
@@ -143,7 +144,7 @@ async function exchangeCodeForToken({ code, appId, appSecret, redirectUri }) {
     code,
   });
   const url = `https://${META_GRAPH_HOST}/${META_GRAPH_VERSION}/oauth/access_token?${params.toString()}`;
-  const res = await fetch(url, { method: 'GET' });
+  const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(30000) });
   const json = await res.json().catch(() => ({}));
   if (!res.ok || !json.access_token) {
     return { ok: false, reason: json?.error?.message || `HTTP ${res.status}` };
@@ -159,7 +160,7 @@ async function exchangeShortForLong({ shortToken, appId, appSecret }) {
     fb_exchange_token: shortToken,
   });
   const url = `https://${META_GRAPH_HOST}/${META_GRAPH_VERSION}/oauth/access_token?${params.toString()}`;
-  const res = await fetch(url, { method: 'GET' });
+  const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(30000) });
   const json = await res.json().catch(() => ({}));
   if (!res.ok || !json.access_token) {
     return { ok: false, reason: json?.error?.message || `HTTP ${res.status}` };

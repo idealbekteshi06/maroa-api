@@ -91,10 +91,18 @@ test('breakers: snapshot() reports state of all instantiated breakers', () => {
   assert.strictEqual(snap.higgsfield.state, 'closed');
 });
 
-test('breakers: configureBreakers wires alert router (state-change emits warn alert)', async () => {
+test('breakers: configureBreakers wires alert router (state-change emits a valid alert)', async () => {
   breakers._resetAll();
-  const published = [];
-  const fakeRouter = { publish: (a) => published.push(a) };
+  const alerts = [];
+  // The router exposes alert() with severities info|warning|error|critical.
+  // Previously breakers called a non-existent publish() with severity 'warn',
+  // so circuit-open alerts silently never fired.
+  const fakeRouter = {
+    alert: (a) => {
+      alerts.push(a);
+      return Promise.resolve();
+    },
+  };
   breakers.configureBreakers({ alertRouter: fakeRouter, logger: null });
 
   // Force a trip
@@ -107,10 +115,9 @@ test('breakers: configureBreakers wires alert router (state-change emits warn al
       /* expected */
     }
   }
-  assert.ok(
-    published.some((a) => a.key === 'circuit-open:paddle'),
-    'alertRouter.publish should fire on circuit OPEN'
-  );
+  const openAlert = alerts.find((a) => a.key === 'circuit-open:paddle');
+  assert.ok(openAlert, 'alertRouter.alert should fire on circuit OPEN');
+  assert.strictEqual(openAlert.severity, 'warning', 'severity must be a valid enum value');
   // Clean up so it doesn't leak into other tests
   breakers.configureBreakers({ alertRouter: null, logger: null });
 });

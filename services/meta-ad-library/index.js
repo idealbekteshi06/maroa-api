@@ -64,7 +64,7 @@ async function search({ search_terms, country = 'US', limit = 50 }) {
 
   const url = `https://graph.facebook.com/${GRAPH_VERSION}/ads_archive?${params.toString()}`;
   try {
-    const res = await fetch(url, { method: 'GET' });
+    const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(30000) });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || json?.error) return [];
 

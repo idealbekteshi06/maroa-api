@@ -24,7 +24,7 @@
 const PLACES_BASE = 'https://maps.googleapis.com/maps/api/place';
 
 async function _httpGetJSON(url) {
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
   const text = await res.text();
   let json;
   try {

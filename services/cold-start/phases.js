@@ -147,7 +147,7 @@ async function detectCompetitors({ businessId, deps, prevPhaseData }) {
     url.searchParams.set('num', '10');
     url.searchParams.set('api_key', process.env.SERPAPI_KEY);
 
-    const res = await fetch(url.toString(), { method: 'GET' });
+    const res = await fetch(url.toString(), { method: 'GET', signal: AbortSignal.timeout(30000) });
     if (!res.ok) throw new Error(`SerpAPI HTTP ${res.status}`);
     const j = await res.json();
 

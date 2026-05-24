@@ -41,6 +41,7 @@ async function postJson(path, body) {
 
   try {
     const res = await fetch(`https://${HOST}${path}`, {
+      signal: AbortSignal.timeout(30000),
       method: 'POST',
       headers: {
         Authorization: auth,

@@ -45,7 +45,7 @@ const META_GRAPH = 'https://graph.facebook.com/v21.0';
 const META_AGGREGATE_REGIONS = new Set(['EU', 'GLOBAL', 'NA', 'APAC', 'LATAM', 'MENA']);
 
 async function _httpGetJSON(url) {
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
   const text = await res.text();
   let json;
   try {

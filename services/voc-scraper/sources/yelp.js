@@ -31,6 +31,7 @@ const YELP_BASE = 'https://api.yelp.com/v3';
 
 async function _httpGetJSON(url, apiKey) {
   const res = await fetch(url, {
+    signal: AbortSignal.timeout(30000),
     headers: { Authorization: `Bearer ${apiKey}` },
   });
   const text = await res.text();
