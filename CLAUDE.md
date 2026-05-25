@@ -124,42 +124,107 @@ event/audit space — payloads are stored as `jsonb` and queried with
 
 ## 5. Workflow inventory (current vs. original n8n)
 
-The 28 original n8n workflows are now implemented as a mix of HTTP
-endpoints and Inngest functions. Each `services/wf*` folder contains the
-engine. The schedule lives in `services/inngest/functions.js`.
+The original n8n workflows are now implemented as a mix of Inngest
+functions (scheduled + event-driven) and Express HTTP routes. This table
+is reverse-engineered from the live code (`services/inngest/functions.js`
++ `server.js` route registrations + `tests/`), **not** from the old n8n
+exports — those JSON files were deleted from the repo, so no byte-diff is
+possible. Verified 2026-05-25.
 
-| #   | Service                       | Trigger                           | Status                    |
-| --- | ----------------------------- | --------------------------------- | ------------------------- |
-| 01  | `services/wf1/`               | Inngest daily 09:00 UTC           | live                      |
-| 02  | `services/ad-optimizer/`      | Inngest daily 08:00 UTC           | live                      |
-| 03  | `services/wf3/`               | webhook `/new-user-signup`        | live                      |
-| 04  | retention                     | inlined in scorecard              | merged                    |
-| 05  | `services/wf5/`               | Inngest Mon 10:00 UTC             | live                      |
-| 06  | `services/wf6/`               | Inngest Sun 22:00 UTC             | live (weekly-scorecard)   |
-| 07  | `services/wf7/`               | every 6h                          | live                      |
-| 08  | `services/wf8/`               | daily 08:00 UTC                   | live                      |
-| 09  | `services/higgsfield.js`      | on-demand (Soul ID, image, video) | live                      |
-| 10  | `services/wf10/`              | webhook on account-connected      | live                      |
-| 12  | `services/wf12/`              | weekly                            | live                      |
-| 13  | `services/wf13/`              | weekly synthesis                  | live                      |
-| 14  | `services/wf14/`              | Fri 14:00 UTC                     | live (competitor)         |
-| 15  | `services/wf15/`              | webhook `/instant-content`        | live (AI Brain)           |
-| 22  | `services/voc/`               | weekly                            | live                      |
-| 26  | `services/creative-engine/`   | event-driven (refresh on low CTR) | live                      |
-| 28  | ~~Google My Business poster~~ | **REMOVED**                       | Google API killed in 2024 |
+**Status legend**
 
-Plus new capabilities born after the migration:
+- ✅ **firing** — registered in the Inngest `functions` array (verified by
+  `tests/inngest-functions.test.js`) and runs on its cron, OR fires on a
+  named event. These run unattended in production.
+- 🟙 **mounted** — a reachable HTTP route, but only runs when something
+  calls it. Per the `services/wf_batch_routes.js` header these have **no
+  frontend `api.ts` contract yet**, so they are NOT confirmed firing in
+  prod — they're callable, not driven.
+- 🔴 **no test** — zero behavioural test coverage. Treat as unverified.
+- 🟡 **shallow test** — only a factory-shape/contract or prompt-level
+  smoke test; engine logic is not exercised.
 
-- `services/cro/` — landing-page CRO audit + rewrites
-- `services/ai-seo/` — AI-search citability + llms.txt + JSON-LD
-- `services/forecasting/` — ROAS + spend forecast 30/60/90
-- `services/cold-start/` — onboarding orchestrator
-- `services/social-multi/` — Ayrshare + Meta Graph publish
-- `services/pacing-alerts/` — every-4h ad-spend pacing
-- `services/competitor-watch/` — competitor intelligence
-- `services/citation-tracker/` — AI-citation tracking
-- `services/email-lifecycle/` — day 1/3/7/14/30 emails
-- `services/autopilot-brain/` — top-level orchestrator (Week 12)
+### A. Scheduled + event-driven (Inngest) — ✅ firing
+
+| Workflow | What it does | File | Trigger | Tests |
+| --- | --- | --- | --- | --- |
+| Ad optimizer | Daily audit of every active campaign → scale/keep/refresh decision | `services/ad-optimizer/` | cron `0 8 * * *` | ✅ `ad-optimizer*.test.js` |
+| Pacing alerts | Flags ad-spend over/under-pacing | `services/pacing-alerts/` | cron `0 */4 * * *` | ✅ `pacing-alerts.test.js` |
+| Weekly scorecard | Generates + emails the weekly performance recap (absorbs old WF04 retention) | `services/weekly-scorecard/` | cron `0 22 * * 0` | ✅ `weekly-scorecard.test.js` |
+| WF1 content sweep | Hourly sweep; generates each business's daily content at its local 06:00 | `services/wf1/` | cron `0 * * * *` | ✅ `wf1-engine-tdz.test.js` |
+| WF1 measure fallbacks | Re-measures posts whose metrics were pending | `services/wf1/` | cron `30 * * * *` | 🟡 (shared with WF1) |
+| WF1 overnight batch submit | Submits the nightly Anthropic batch job | `services/wf1/` | cron `0 23 * * *` | 🟡 (shared with WF1) |
+| WF1 overnight batch apply | Polls + applies completed batch results | `services/wf1/` | cron `*/10 * * * *` | 🟡 (shared with WF1) |
+| Anthropic batch reconcile | Reconciles non-WF1 Anthropic batches | `services/anthropic-batch.js` | cron `*/5 * * * *` | 🟡 `anthropic-2026.test.js` |
+| Creative engine daily | Generates fresh creative variants | `services/creative-engine/` | cron `0 9 * * *` | ✅ `creative-engine-*.test.js` |
+| Creative engine evaluate | Refreshes creatives on low CTR / decay | `services/creative-engine/` | cron `0 */6 * * *` | ✅ (shared) |
+| Measurement health | Daily probe of metric-ingestion health | `services/measurement-health/` | cron `0 7 * * *` | 🟡 `multi-platform-ads.test.js` |
+| Citation tracker | Checks AI-search (ChatGPT/Perplexity/etc.) citability daily | `services/citation-tracker/` | cron `0 6 * * *` | ✅ `citation-tracker.test.js` |
+| Competitor watch | Competitor intelligence sweep | `services/competitor-watch/` | cron `0 */4 * * *` | ✅ `competitor-incrementality.test.js` |
+| Email lifecycle | Dispatches day 1/3/7/14/30 lifecycle emails | `services/email-lifecycle/` | cron `*/15 * * * *` | 🟡 `email-and-pages.test.js` |
+| WF11 inbox SLA | Sweeps inbox threads breaching SLA | `services/wf11/` | cron `*/15 * * * *` | ✅ `wf11.test.js` |
+| WF2 calibration | Weekly recalibration of lead-scoring weights | `services/wf2/` | cron `0 3 * * 0` | 🔴 none |
+| WF13 weekly synthesis | Synthesizes the weekly strategy brief | `services/wf13/` | cron `0 7 * * 0` | 🟡 `anthropic-2026.test.js` |
+| Autopilot brain | Top-level daily orchestrator (Week 12) | `services/autopilot-brain/` | cron `0 8 * * *` | ✅ `autopilot-brain.test.js` |
+| Ops analytics snapshots | Daily analytics rollups | `services/ops-maintenance/` | cron `0 6 * * *` | 🔴 none |
+| Ops daily health bundle | Daily ops health digest | `services/ops-maintenance/` | cron `30 7 * * *` | 🔴 none |
+| Ops weekly maintenance | Weekly DB/ops housekeeping | `services/ops-maintenance/` | cron `30 5 * * 0` | 🔴 none |
+| Ops growth engine | Monday growth-metrics job | `services/ops-maintenance/` | cron `0 9 * * 1` | 🔴 none |
+| Ops monthly reports | Month-start customer reports | `services/monthly-report/` | cron `0 8 1 * *` | 🔴 none |
+| Taxonomy refresh | Quarterly AI-proposed taxonomy adds (Slack-only, never auto-merge) | `services/taxonomy-refresh/` | cron `0 9 1-7 1,4,7,10 1` | ✅ `taxonomy*.test.js` |
+| Content 24h feedback | Durable 24h-after-publish performance score | `services/inngest/functions.js` | event `content.publish.feedback-24h` | ✅ `e2e-publish-pipeline.test.js` |
+| Cold-start run/resume | Onboarding orchestrator state machine | `services/cold-start/` | events `cold-start.run` / `.resume` | ✅ `cold-start.test.js` |
+| Manual ad-audit / pacing / scorecard | Dashboard-triggered manual reruns of the three crons above | `services/inngest/functions.js` | events `manual.*` | 🟡 (cover target engines) |
+
+### B. HTTP-route / on-demand — 🟙 mounted (fire only when called)
+
+| Workflow | What it does | File | Trigger | Tests |
+| --- | --- | --- | --- | --- |
+| WF15 — AI Brain | Conversational command center; instant content generation | `services/wf15/` | route `POST /webhook/instant-content` | 🟡 `anthropic-2026.test.js` |
+| WF12 — Launch orchestrator | Plans + tracks a product launch | `services/wf12/` | routes `/webhook/wf12-*`, `/api/launch` | 🟡 `wf-batch-contract.test.js` |
+| WF10 — Higgsfield Studio | Image/video studio jobs, Soul ID (agency) | `services/wf10/` | routes `/webhook/wf10-*` | 🔴 none |
+| WF9 — Unified inbox | Intake/triage/draft-reply for inbound messages | `services/wf9/` | routes `/webhook/wf9-*` | 🔴 none |
+| WF8 — Customer insights | Generates customer-insight reports | `services/wf8/` | routes `/webhook/wf8-*` | 🟡 `wf-batch-contract.test.js` |
+| WF7 — Email lifecycle engine | Segment/sequence/enroll primitives (the cron above drives dispatch) | `services/wf7/` | routes `/webhook/wf7-*` | 🔴 none |
+| WF6 — Local + digital presence | GBP/SEO presence audit + JSON-LD schema gen | `services/wf6/` | routes `/webhook/wf6-*` | 🟡 `wf-batch-contract.test.js` |
+| WF5 — Competitor intel engine | On-demand competitor analysis (cron `competitor-watch` is the scheduled path) | `services/wf5/` | routes `/webhook/wf5-*` | 🟡 `anthropic-2026.test.js` |
+| WF4 — Reviews & reputation | Review monitoring + response drafting | `services/wf4/` | routes `/webhook/wf4-*` | 🔴 none |
+| WF3 — Ad optimization (legacy) | Older ad-loop engine; `ad-optimizer` cron is the active path | `services/wf3/` | mounted in `server.js` | 🟡 `anthropic-2026.test.js` |
+| WF2 — Lead scoring & routing | Scores + routes inbound leads (cron above only recalibrates) | `services/wf2/` | routes `/webhook/wf2-*` | 🔴 none |
+| WF14 — Budget & ROI optimizer | Reallocates budget across campaigns | `services/wf14/` | routes `/webhook/wf14-*` | 🔴 none |
+| WF13 — Weekly brief (routes) | Read/trigger surface for the synthesis cron above | `services/wf13/` | routes (`registerWf13Routes`) | 🟡 `anthropic-2026.test.js` |
+| Higgsfield (media) | Soul ID / image / video generation primitives | `services/higgsfield.js` | on-demand (called by WF10/WF1) | ✅ `higgsfield-*.test.js` |
+
+### C. Post-migration named capabilities (HTTP routes, customer-facing)
+
+- `services/cro/` — landing-page CRO audit + rewrites — ✅ `cro.test.js`
+- `services/ai-seo/` — AI-search citability + llms.txt + JSON-LD — ✅ `ai-seo.test.js`
+- `services/forecasting/` — ROAS + spend forecast 30/60/90 — ✅ `forecasting.test.js`
+- `services/voc/` — voice-of-customer mining — ✅ `voc*.test.js`
+- `services/social-multi/` — Ayrshare + Meta Graph publish — (covered via Meta publish tests)
+
+### Removed / merged
+
+- **WF28 — Google My Business poster: REMOVED.** Google killed the API in 2024.
+- **WF04 — retention: MERGED** into the weekly scorecard.
+
+### ⚠️ Test-coverage gaps (mounted but unverified)
+
+These run customer-facing logic with **zero behavioural tests** — fix
+before relying on them: **WF2** (lead scoring), **WF4** (reviews),
+**WF7** (email lifecycle engine), **WF9** (inbox), **WF10** (studio),
+and the **ops/monthly-report** crons. The 🟡 "shallow" rows
+(`anthropic-2026` / `wf-batch-contract`) only assert factory shape or
+prompt wiring, not engine behaviour.
+
+### ⚠️ Duplication to resolve
+
+Three capabilities exist as **both** a legacy route-engine and a newer
+scheduled service doing similar work — pick one per capability and delete
+the other: ad optimization (`wf3` vs `ad-optimizer`), competitor intel
+(`wf5` vs `competitor-watch`), email (`wf7` vs `email-lifecycle`). Also,
+`autopilot-brain` and `ad-optimizer` both fire at `0 8 * * *` — confirm
+the brain orchestrates rather than races the optimizer.
 
 ---
 
