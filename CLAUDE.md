@@ -148,7 +148,7 @@ possible. Verified 2026-05-25.
 
 | Workflow | What it does | File | Trigger | Tests |
 | --- | --- | --- | --- | --- |
-| Ad optimizer | Daily audit of every active campaign → scale/keep/refresh decision | `services/ad-optimizer/` | cron `0 8 * * *` | ✅ `ad-optimizer*.test.js` |
+| Ad optimizer | Daily audit of every active campaign → pulls FRESH Meta insights, decides scale/pause/resume/budget/refresh, then **executes the decision on Meta** (actuator, dry-run gated by `META_AD_LAUNCH_LIVE`) | `services/ad-optimizer/` | cron `0 8 * * *` | ✅ `ad-optimizer*.test.js`, `meta-ads-actuator.test.js` |
 | Pacing alerts | Flags ad-spend over/under-pacing | `services/pacing-alerts/` | cron `0 */4 * * *` | ✅ `pacing-alerts.test.js` |
 | Weekly scorecard | Generates + emails the weekly performance recap (absorbs old WF04 retention) | `services/weekly-scorecard/` | cron `0 22 * * 0` | ✅ `weekly-scorecard.test.js` |
 | WF1 content sweep | Hourly sweep; generates each business's daily content at its local 06:00 | `services/wf1/` | cron `0 * * * *` | ✅ `wf1-engine-tdz.test.js` |
