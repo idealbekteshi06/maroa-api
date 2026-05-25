@@ -333,7 +333,18 @@ function createEngine(deps) {
           });
           const live = ci?.windows?.last_7d;
           if (live && !live.error) {
-            for (const k of ['spend', 'clicks', 'impressions', 'ctr', 'cpm', 'frequency', 'reach', 'conversions', 'roas', 'cpa']) {
+            for (const k of [
+              'spend',
+              'clicks',
+              'impressions',
+              'ctr',
+              'cpm',
+              'frequency',
+              'reach',
+              'conversions',
+              'roas',
+              'cpa',
+            ]) {
               if (live[k] != null) m[k] = live[k];
             }
           }
