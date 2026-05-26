@@ -1579,6 +1579,9 @@ module.exports = function createHiggsfieldService(deps) {
       preset.id
     );
     if (args.image_url) payload.image_url = args.image_url;
+    // Soul ID for brand-consistent identity across every generated image.
+    // No-op when the business hasn't trained a character yet (args.soul_id falsy).
+    attachSoulIdToPayload(payload, args.soul_id || args.higgsfield_soul_id);
     const url = await submitSoulAndWait(payload, path);
     const est = await recordGenerationCost(args.businessId, routed.model_slug, { skill: 'wf10_image' });
     return {
@@ -1836,7 +1839,22 @@ module.exports = function createHiggsfieldService(deps) {
     };
   }
 
+  // ─── Credit balance ─────────────────────────────────────────────────────
+  // Returns { ok, credits, raw } when the Higgsfield balance endpoint is
+  // wired; otherwise { ok: false, reason } so callers (the daily cron in
+  // services/inngest/functions.js + the pre-generation guard in wf1) can
+  // soft-fall back to the last-known businesses.higgsfield_credits column.
+  //
+  // TODO: replace the placeholder with the real REST call once the
+  // Higgsfield balance endpoint URL is confirmed (Integration #2). All the
+  // surrounding plumbing (column, cron, alert email) is already in place
+  // and will start exercising this function as soon as it returns numbers.
+  async function getBalance(_args = {}) {
+    return { ok: false, credits: null, reason: 'higgsfield_balance_endpoint_pending' };
+  }
+
   return {
+    getBalance,
     generateProductImage,
     generateProductVideo,
     generateHeroAd,

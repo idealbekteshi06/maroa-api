@@ -41,6 +41,22 @@ function visualBriefToPrompt(vb, concept = {}) {
   return parts.filter(Boolean).join('. ') || concept.core_idea || concept.hook || '';
 }
 
+// Platforms that take video — these route through Higgsfield generateVideo
+// (seedance / kling / wan) instead of generateImage.
+const VIDEO_PLATFORMS = new Set(['instagram_reel', 'instagram_story', 'tiktok', 'youtube_shorts', 'social_reel']);
+
+// Pick the right Higgsfield video model from concept signal. Mirrors the
+// content_type intent: UGC → wan, cinematic/product → kling, social reel
+// default → seedance. Explicit override beats routing so WF1 isn't at the
+// mercy of modelRouter changes.
+function videoModelForConcept(concept = {}) {
+  const fmt = String(concept.format || '').toLowerCase();
+  const pillar = String(concept.pillar || '').toLowerCase();
+  if (/ugc|testimonial|lipsync/.test(fmt) || /ugc/.test(pillar)) return 'wan-2.5';
+  if (/cinematic|hero/.test(fmt) || /cinematic|hero/.test(pillar)) return 'kling-3.0';
+  return 'seedance-2.0';
+}
+
 // Pure helper: portrait for feeds, vertical for reels/stories.
 function aspectRatioForPlatform(platform) {
   switch (String(platform || '').toLowerCase()) {
@@ -520,28 +536,79 @@ function createEngine({
 
     // ─── Phase 4.5: render the visual via Higgsfield ───────────────────────
     // The visual_brief is the art-direction; Higgsfield turns it into a real
-    // image so the asset carries a media_url to publish. Higgsfield is the
-    // ONLY provider — no fallback. On failure we still persist the asset
-    // (caption work is salvaged) but leave media_url null so publish queues/
-    // skips rather than shipping a post with no creative.
+    // image OR video so the asset carries a media_url to publish. Higgsfield
+    // is the ONLY provider — no Replicate, no Flux, no fallback. Behavior:
+    //   • Reels / TikTok / Story / Shorts → generateVideo (9:16, 6s default)
+    //   • Feeds / Facebook / LinkedIn / GBP → generateImage
+    //   • Email concepts → skip (no visual asset needed)
+    //   • Soul ID (businesses.higgsfield_soul_id) is attached when present so
+    //     every generation carries a consistent brand identity.
+    //   • Credit guard: if businesses.higgsfield_credits is known and <100,
+    //     skip generation (low-balance email is sent by the daily cron).
     let mediaUrl = null;
     let imageModelUsed = null;
     const visualPrompt = visualBriefToPrompt(parsed.visualBrief, concept);
-    const isImagePlatform = String(concept.platform || '').toLowerCase() !== 'email';
-    if (isImagePlatform && higgsfield && typeof higgsfield.generateImage === 'function' && visualPrompt) {
-      try {
-        const img = await higgsfield.generateImage({
-          prompt: visualPrompt,
-          aspect_ratio: aspectRatioForPlatform(concept.platform),
-          businessId,
-        });
-        mediaUrl = img?.url || img?.imageUrl || null;
-        imageModelUsed = img?.model_used || img?.model_slug || null;
-      } catch (e) {
-        logger?.error?.('/wf1/engine.image', businessId, 'higgsfield image generation failed', {
-          conceptId,
-          error: e.message,
-        });
+    const platformLower = String(concept.platform || '').toLowerCase();
+    const isVideoPlatform = VIDEO_PLATFORMS.has(platformLower);
+    const isImagePlatform = !isVideoPlatform && platformLower !== 'email';
+
+    const bizCfgRows = await sbGet(
+      'businesses',
+      `id=eq.${businessId}&select=higgsfield_soul_id,higgsfield_credits`
+    ).catch(() => []);
+    const bizCfg = bizCfgRows[0] || {};
+    const soulId = bizCfg.higgsfield_soul_id || null;
+    const credits = typeof bizCfg.higgsfield_credits === 'number' ? bizCfg.higgsfield_credits : null;
+    const creditsBlocked = credits != null && credits < 100;
+
+    if (creditsBlocked) {
+      await sbPost('events', {
+        business_id: businessId,
+        kind: 'higgsfield.credits.low.blocked',
+        workflow: '1_daily_content',
+        payload: { concept_id: conceptId, credits, threshold: 100 },
+        severity: 'warning',
+      }).catch(() => {});
+      logger?.warn?.('/wf1/engine.image', businessId, 'higgsfield generation blocked — low credits', {
+        credits,
+        threshold: 100,
+      });
+    } else if (higgsfield && visualPrompt) {
+      if (isVideoPlatform && typeof higgsfield.generateVideo === 'function') {
+        try {
+          const vid = await higgsfield.generateVideo({
+            prompt: visualPrompt,
+            aspect_ratio: '9:16',
+            resolution: '720p',
+            durationSeconds: 6,
+            model: videoModelForConcept(concept),
+            soul_id: soulId,
+            businessId,
+          });
+          mediaUrl = vid?.url || vid?.videoUrl || null;
+          imageModelUsed = vid?.model_used || vid?.model_slug || null;
+        } catch (e) {
+          logger?.error?.('/wf1/engine.video', businessId, 'higgsfield video generation failed', {
+            conceptId,
+            error: e.message,
+          });
+        }
+      } else if (isImagePlatform && typeof higgsfield.generateImage === 'function') {
+        try {
+          const img = await higgsfield.generateImage({
+            prompt: visualPrompt,
+            aspect_ratio: aspectRatioForPlatform(concept.platform),
+            soul_id: soulId,
+            businessId,
+          });
+          mediaUrl = img?.url || img?.imageUrl || null;
+          imageModelUsed = img?.model_used || img?.model_slug || null;
+        } catch (e) {
+          logger?.error?.('/wf1/engine.image', businessId, 'higgsfield image generation failed', {
+            conceptId,
+            error: e.message,
+          });
+        }
       }
     }
 

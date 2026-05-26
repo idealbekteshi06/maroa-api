@@ -770,6 +770,49 @@ const wf13WeeklySynthesis = inngest.createFunction(
 //
 // We don't have a `/webhook/taxonomy-refresh-run` endpoint yet because this
 // service is server-side-only. Future webhook route can wire it for manual
+// ─── Higgsfield · daily credit check ──────────────────────────────────────
+// Tries to refresh each business's Higgsfield balance (via the soon-to-be-
+// wired getBalance() helper) and emails the owner when credits drop under
+// the 200-credit floor — a 100-credit *hard* floor in the WF1 engine blocks
+// generation outright. Cron at 07:00 UTC so the alert lands before WF1's
+// per-business local-06:00 sweep starts firing in the Americas.
+const checkHiggsfieldCredits = inngest.createFunction(
+  withDLQ({
+    id: 'higgsfield-credits-daily-7utc',
+    name: 'Higgsfield · daily credit check',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 7 * * *' }],
+  }),
+  async ({ step }) => {
+    const result = await step.run('check-all', async () => callInternal('/webhook/check-higgsfield-credits', {}));
+    return { ok: true, scanned: result?.scanned ?? 0, alerted: result?.alerted ?? 0 };
+  }
+);
+
+// ─── Higgsfield · Soul ID training poll ───────────────────────────────────
+// Event-driven (fired by POST /api/higgsfield/train-soul). The finalize
+// endpoint blocks on the existing waitForSoulIdTraining poller and then
+// stamps businesses.higgsfield_soul_id. Inngest retries handle transient
+// failures; the step-runtime budget covers the typical few-minute training.
+const higgsfieldSoulTrainPoll = inngest.createFunction(
+  withDLQ({
+    id: 'higgsfield-soul-train-poll',
+    name: 'Higgsfield · Soul ID training poll',
+    retries: 3,
+    concurrency: { limit: 5 },
+    triggers: [{ event: 'higgsfield/soul-train.poll' }],
+  }),
+  async ({ event, step }) => {
+    const { businessId, characterId } = event.data || {};
+    if (!businessId || !characterId) return { ok: false, reason: 'missing args' };
+    const r = await step.run('wait-and-persist', async () =>
+      callInternal('/webhook/higgsfield-soul-train-finalize', { businessId, characterId })
+    );
+    return r;
+  }
+);
+
 // trigger. For now the Inngest step calls into the service directly via
 // the internal dispatcher (Wave 56 pattern).
 const taxonomyRefreshQuarterly = inngest.createFunction(
@@ -859,6 +902,10 @@ const functions = [
 
   // Wave 59 S5: quarterly AI-assisted taxonomy refresh (proposes via Slack only)
   taxonomyRefreshQuarterly,
+
+  // Higgsfield expansion — credit guard + Soul ID training poll
+  checkHiggsfieldCredits,
+  higgsfieldSoulTrainPoll,
 ];
 
 module.exports = { functions, callInternal };
