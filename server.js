@@ -734,6 +734,7 @@ setImmediate(() => {
   app.use('/api/reviews/auto-respond', requireValidUserId);
   app.use('/api/referral/setup', requireValidUserId);
   app.use('/api/signup-cro/analyze', requireValidUserId);
+  app.use('/api/higgsfield/train-soul', requireValidUserId);
 
   // Auth guard for routes that use user_id/userId.
   // Closes the IDOR risk surfaced in the 2026-05-13 audit: previously the
@@ -9951,6 +9952,139 @@ Return ONLY valid JSON:
       res.json(r);
     } catch (e) {
       apiError(res, 500, 'EMAIL_LIFECYCLE_BOOTSTRAP_FAILED', e.message);
+    }
+  });
+
+  // ─── Higgsfield: Soul ID training + daily credit check ──────────────────
+  // POST /api/higgsfield/train-soul — kicks off Soul ID training, then fires
+  // higgsfield/soul-train.poll so a durable Inngest function waits for the
+  // training to complete and stamps businesses.higgsfield_soul_id.
+  app.post('/api/higgsfield/train-soul', async (req, res) => {
+    const businessId = String((req.body && (req.body.business_id || req.body.businessId)) || '').trim();
+    const photoUrls = Array.isArray(req.body?.photoUrls || req.body?.photo_urls)
+      ? req.body.photoUrls || req.body.photo_urls
+      : null;
+    const name = req.body?.name || null;
+    const model = req.body?.model || 'soul_2';
+    if (!businessId) return apiError(res, 400, 'VALIDATION_ERROR', 'business_id required');
+    if (!photoUrls || photoUrls.length === 0) {
+      return apiError(res, 400, 'VALIDATION_ERROR', 'photoUrls[] (1-20) required');
+    }
+    if (photoUrls.length > 20) {
+      return apiError(res, 400, 'VALIDATION_ERROR', 'photoUrls capped at 20');
+    }
+    try {
+      const trained = await higgsfieldAI.trainSoulCharacter({
+        characterId: `${businessId}-soul-${Date.now()}`,
+        sourceImageUrls: photoUrls,
+        name: name || `business-${businessId}`,
+        model,
+      });
+      const higgsfieldCharacterId = trained?.higgsfield_character_id;
+      if (!higgsfieldCharacterId) {
+        return apiError(res, 502, 'SOUL_TRAIN_FAILED', 'no character_id returned from Higgsfield');
+      }
+      // Durable poll → finalize (writes businesses.higgsfield_soul_id when done).
+      await inngest.send({
+        name: 'higgsfield/soul-train.poll',
+        data: { businessId, characterId: higgsfieldCharacterId },
+      });
+      res.json({
+        ok: true,
+        business_id: businessId,
+        character_id: higgsfieldCharacterId,
+        status: 'training_started',
+        model_used: trained.model_used,
+        image_count: trained.image_count,
+      });
+    } catch (e) {
+      apiError(res, 500, 'SOUL_TRAIN_FAILED', e.message);
+    }
+  });
+
+  // POST /webhook/higgsfield-soul-train-finalize — invoked by the Inngest
+  // higgsfieldSoulTrainPoll function. Waits for training to complete (uses
+  // the existing internal poller), then stamps businesses.higgsfield_soul_id.
+  async function runHiggsfieldSoulTrainFinalize({ businessId, characterId }) {
+    if (!businessId || !characterId) {
+      throw new Error('businessId + characterId required');
+    }
+    const status = await higgsfieldAI.waitForSoulIdTraining(characterId);
+    const soulId = status?.higgsfield_character_id || characterId;
+    await sbPatch('businesses', `id=eq.${encodeURIComponent(businessId)}`, {
+      higgsfield_soul_id: soulId,
+    }).catch(() => {});
+    return { ok: true, business_id: businessId, soul_id: soulId, status: status?.status || 'completed' };
+  }
+  internalDispatcher.register('/webhook/higgsfield-soul-train-finalize', (body) =>
+    runHiggsfieldSoulTrainFinalize({
+      businessId: body?.businessId || body?.business_id,
+      characterId: body?.characterId,
+    })
+  );
+  app.post('/webhook/higgsfield-soul-train-finalize', async (req, res) => {
+    try {
+      res.json(
+        await runHiggsfieldSoulTrainFinalize({
+          businessId: String(req.body?.businessId || req.body?.business_id || '').trim(),
+          characterId: String(req.body?.characterId || '').trim(),
+        })
+      );
+    } catch (e) {
+      apiError(res, 500, 'SOUL_TRAIN_WAIT_FAILED', e.message);
+    }
+  });
+
+  // POST /webhook/check-higgsfield-credits — invoked by the daily 07:00 UTC
+  // Inngest cron. Tries to refresh each business's Higgsfield balance (no-op
+  // until the REST balance endpoint is wired — Integration #2), then emails
+  // a low-balance alert to any business with credits < 200.
+  async function runCheckHiggsfieldCredits() {
+    const businesses = await sbGet(
+      'businesses',
+      `higgsfield_credits=not.is.null&select=id,business_name,email,higgsfield_credits`
+    ).catch(() => []);
+    let refreshed = 0;
+    let alerted = 0;
+    for (const biz of businesses) {
+      try {
+        const bal = await higgsfieldAI.getBalance({ business: biz });
+        if (bal?.ok && typeof bal.credits === 'number') {
+          await sbPatch('businesses', `id=eq.${encodeURIComponent(biz.id)}`, {
+            higgsfield_credits: bal.credits,
+            higgsfield_credits_checked_at: new Date().toISOString(),
+          }).catch(() => {});
+          biz.higgsfield_credits = bal.credits;
+          refreshed++;
+        }
+      } catch {
+        /* soft-fail refresh */
+      }
+      const credits = Number(biz.higgsfield_credits);
+      if (Number.isFinite(credits) && credits < 200 && biz.email) {
+        try {
+          await sendEmail(
+            biz.email,
+            `Maroa.ai — Higgsfield image credits running low (${credits} left)`,
+            `<p>Hi ${biz.business_name || 'there'},</p>` +
+              `<p>Your Higgsfield image-generation balance is at <b>${credits}</b> credits — below our 200-credit safety floor.</p>` +
+              `<p>Generation will pause automatically once you drop under 100 credits, to avoid mid-post failures. Top up to keep your daily content flowing.</p>` +
+              `<p>— Maroa.ai</p>`
+          );
+          alerted++;
+        } catch (e) {
+          logger?.warn?.('check-higgsfield-credits', biz.id, 'alert email failed', { error: e.message });
+        }
+      }
+    }
+    return { ok: true, scanned: businesses.length, refreshed, alerted };
+  }
+  internalDispatcher.register('/webhook/check-higgsfield-credits', () => runCheckHiggsfieldCredits());
+  app.post('/webhook/check-higgsfield-credits', async (_req, res) => {
+    try {
+      res.json(await runCheckHiggsfieldCredits());
+    } catch (e) {
+      apiError(res, 500, 'HF_CREDITS_CHECK_FAILED', e.message);
     }
   });
 
