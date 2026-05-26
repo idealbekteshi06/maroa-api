@@ -9985,6 +9985,7 @@ Return ONLY valid JSON:
         return apiError(res, 502, 'SOUL_TRAIN_FAILED', 'no character_id returned from Higgsfield');
       }
       // Durable poll → finalize (writes businesses.higgsfield_soul_id when done).
+      const { inngest } = require('./services/inngest/client');
       await inngest.send({
         name: 'higgsfield/soul-train.poll',
         data: { businessId, characterId: higgsfieldCharacterId },
