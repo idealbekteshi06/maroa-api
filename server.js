@@ -1786,6 +1786,7 @@ setImmediate(() => {
     checkOrchestrationIdempotency,
     recordOrchestrationTaskRun,
     batchService: _batchServiceForWf1,
+    higgsfield: higgsfieldAI,
     logger,
   });
   const { registerWf1Routes } = require('./services/wf1/registerRoutes');

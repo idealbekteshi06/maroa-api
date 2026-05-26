@@ -11,11 +11,17 @@
  *   3. Pull last 7 decisions for the campaign (anti-thrashing)
  *   4. Pull business profile (location, language, plan, tier)
  *   5. Run auditCampaign() (deterministic checks → LLM synthesis)
- *   6. Apply decision: scale|pause|keep|optimize|refresh_creative
- *      - scale/optimize → PATCH ad_campaigns + insert ad_audit_results row
- *      - pause          → PATCH ad_campaigns.status='PAUSED' (Meta API call deferred to actuator)
+ *   6. Apply decision: scale|pause|resume|optimize|budget_update|keep|refresh_creative
+ *      - scale/optimize/budget_update → PATCH ad_campaigns + insert audit row,
+ *        then _executeOnMeta() pushes the new daily_budget to Meta
+ *      - pause/resume   → PATCH ad_campaigns.status, then _executeOnMeta()
+ *        sets the campaign status on Meta (PAUSED/ACTIVE)
  *      - keep           → log only
  *      - refresh_creative → fire event for WF26
+ *
+ *   Step 0 (PART 3): before deciding, pull FRESH last_7d insights from Meta
+ *   and overlay them onto the newest stored log. Step 6 actuator and the
+ *   live Meta writes are dry-run gated by META_AD_LAUNCH_LIVE.
  * ----------------------------------------------------------------------------
  */
 
@@ -200,6 +206,82 @@ function createEngine(deps) {
     }
   }
 
+  // Resolve the Meta client once. Tests inject deps.metaMarketingClient;
+  // production lazy-requires the real module (mirrors launcher.js).
+  function _getMetaClient() {
+    if (deps.metaMarketingClient) return deps.metaMarketingClient;
+    try {
+      return require('../meta-marketing');
+    } catch {
+      return null;
+    }
+  }
+
+  // ── PART 4: Actuator — actually execute the decision on Meta ───────────
+  // The engine historically only patched the DB ("Meta API call deferred to
+  // actuator"). This closes that gap. Safety:
+  //   - updateCampaign() is itself dry-run gated by META_AD_LAUNCH_LIVE, so
+  //     when the flag is off we record intent and never touch Meta.
+  //   - any failure is saved to the errors table and swallowed (never throws).
+  //   - executed_at is stamped ONLY on a real (non-dry-run) success.
+  async function _executeOnMeta({ businessId, campaignId, campaign, business, audit, patchBudget, patchStatus }) {
+    const decision = String(audit.decision || '').toLowerCase();
+    const EXECUTABLE = new Set(['scale', 'optimize', 'budget_update', 'pause', 'resume']);
+    if (!EXECUTABLE.has(decision)) return;
+
+    let fields = null;
+    if (patchStatus === 'PAUSED') fields = { status: 'PAUSED' };
+    else if (patchStatus === 'ACTIVE') fields = { status: 'ACTIVE' };
+    else if (patchBudget != null) fields = { daily_budget: Math.round(Number(patchBudget) * 100) }; // dollars → cents
+    if (!fields) return;
+
+    const metaCampaignId = campaign?.meta_campaign_id;
+    const metaClient = _getMetaClient();
+
+    if (!metaClient?.updateCampaign || !metaCampaignId) {
+      await sbPatch('ad_campaigns', `id=eq.${campaignId}`, {
+        execution_response: {
+          ok: false,
+          decision,
+          fields,
+          reason: metaCampaignId ? 'meta client unavailable' : 'no meta_campaign_id',
+        },
+      }).catch(() => {});
+      return;
+    }
+
+    try {
+      const r = await metaClient.updateCampaign({ business, campaignId: metaCampaignId, fields });
+      if (!r.ok) throw new Error(r.reason || 'meta updateCampaign failed');
+      if (r.dry_run) {
+        logger?.info?.('ad-optimizer.actuator', businessId, 'dry-run intended action', {
+          campaign: metaCampaignId,
+          decision,
+          fields,
+        });
+        await sbPatch('ad_campaigns', `id=eq.${campaignId}`, {
+          execution_response: { ok: true, dry_run: true, decision, fields },
+        }).catch(() => {});
+        return;
+      }
+      await sbPatch('ad_campaigns', `id=eq.${campaignId}`, {
+        executed_at: new Date().toISOString(),
+        execution_response: { ok: true, decision, fields, meta: r.raw || null },
+      }).catch(() => {});
+    } catch (e) {
+      await sbPost('errors', {
+        business_id: businessId,
+        workflow_name: 'ad-optimizer-actuator',
+        error_message: e.message,
+        retry_payload: JSON.stringify({ campaign_id: metaCampaignId, decision, fields }),
+      }).catch(() => {});
+      await sbPatch('ad_campaigns', `id=eq.${campaignId}`, {
+        execution_response: { ok: false, decision, fields, error: e.message },
+      }).catch(() => {});
+      logger?.warn?.('ad-optimizer.actuator', businessId, 'meta execution failed', { error: e.message });
+    }
+  }
+
   /**
    * Audit a single campaign end-to-end.
    * Returns the audit result + the action that was taken.
@@ -230,19 +312,60 @@ function createEngine(deps) {
       const orderedHistory = [...history].reverse();
       const latest = orderedHistory[orderedHistory.length - 1] || {};
 
+      // ─── PART 3: pull FRESH insights from Meta before deciding ─────────
+      // Read-only (not gated by META_AD_LAUNCH_LIVE). Overlays the live
+      // last_7d numbers onto the newest stored log so scale/pause decisions
+      // act on today's reality, not yesterday's snapshot. Soft-falls back to
+      // ad_performance_logs when Meta is unreachable or unlinked.
+      const m = { ...latest };
+      try {
+        const metaClient = _getMetaClient();
+        if (
+          metaClient?.fetchCampaignInsights &&
+          campaign?.meta_campaign_id &&
+          business?.meta_access_token &&
+          business?.ad_account_id
+        ) {
+          const ci = await metaClient.fetchCampaignInsights({
+            business,
+            campaignId: campaign.meta_campaign_id,
+            withBreakdowns: false,
+          });
+          const live = ci?.windows?.last_7d;
+          if (live && !live.error) {
+            for (const k of [
+              'spend',
+              'clicks',
+              'impressions',
+              'ctr',
+              'cpm',
+              'frequency',
+              'reach',
+              'conversions',
+              'roas',
+              'cpa',
+            ]) {
+              if (live[k] != null) m[k] = live[k];
+            }
+          }
+        }
+      } catch (e) {
+        logger?.warn?.('wf2.engine', businessId, 'live insight fetch failed', { error: e.message });
+      }
+
       // ─── Build metrics for audit ───────────────────────────────────────
       const metrics = {
-        spend: Number(latest.spend || 0),
-        clicks: Number(latest.clicks || 0),
-        impressions: Number(latest.impressions || 0),
-        ctr: Number(latest.ctr || 0),
-        roas: Number(latest.roas || 0),
-        cpc: Number(latest.cpc || 0),
-        cpm: Number(latest.cpm || 0),
-        cpa: Number(latest.cpa || 0),
-        frequency: Number(latest.frequency || 0),
-        reach: Number(latest.reach || 0),
-        conversions: Number(latest.conversions || 0),
+        spend: Number(m.spend || 0),
+        clicks: Number(m.clicks || 0),
+        impressions: Number(m.impressions || 0),
+        ctr: Number(m.ctr || 0),
+        roas: Number(m.roas || 0),
+        cpc: Number(m.cpc || 0),
+        cpm: Number(m.cpm || 0),
+        cpa: Number(m.cpa || 0),
+        frequency: Number(m.frequency || 0),
+        reach: Number(m.reach || 0),
+        conversions: Number(m.conversions || 0),
         daily_budget: Number(campaign.daily_budget || 0),
         status: campaign.status,
         ad_status: campaign.ad_status,
@@ -355,6 +478,12 @@ function createEngine(deps) {
         } else if (audit.decision === 'pause') {
           patchStatus = 'PAUSED';
           action_taken = 'paused';
+        } else if (audit.decision === 'resume') {
+          patchStatus = 'ACTIVE';
+          action_taken = 'resumed';
+        } else if (audit.decision === 'budget_update' && audit.new_daily_budget != null) {
+          patchBudget = audit.new_daily_budget;
+          action_taken = 'budget_updated';
         } else if (audit.decision === 'refresh_creative') {
           action_taken = 'refresh_creative_event';
           await sbPost('events', {
@@ -400,6 +529,9 @@ function createEngine(deps) {
             logger?.warn?.('wf2.engine', businessId, 'campaign patch failed', e);
           });
         }
+
+        // ── PART 4: now actually execute the decision on Meta ──────────────
+        await _executeOnMeta({ businessId, campaignId, campaign, business, audit, patchBudget, patchStatus });
       }
 
       // Mirror to universal decision_logs (fail-safe; never throws)

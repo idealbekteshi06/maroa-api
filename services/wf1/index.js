@@ -43,6 +43,7 @@ function createWf1(deps) {
     checkOrchestrationIdempotency,
     recordOrchestrationTaskRun,
     batchService,
+    higgsfield,
     logger,
   } = deps;
 
@@ -62,6 +63,7 @@ function createWf1(deps) {
     contextBundleBuilder,
     guardrails,
     buildBrandContext,
+    higgsfield,
   });
   const publisher = createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger });
   const learningLoop = createLearningLoop({ sbGet, sbPost, sbPatch, apiRequest, logger });

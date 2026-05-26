@@ -240,6 +240,126 @@ async function fetchInsights({ businessId, business, since, until }) {
   return { ok: true, campaigns };
 }
 
+// ─── Rich per-campaign insights (PART 3) ────────────────────────────────
+// NOTE: Meta has no `roas` field — the real field is `purchase_roas` (an
+// array of {action_type, value}). Requesting `roas` raw returns an API error.
+
+const INSIGHT_FIELDS =
+  'campaign_id,campaign_name,impressions,reach,clicks,spend,ctr,cpm,cpp,purchase_roas,actions,action_values,frequency';
+
+function _num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function _roasFromRow(row) {
+  const direct = (row.purchase_roas || []).reduce((s, a) => s + Number(a.value || 0), 0);
+  if (direct > 0) return direct;
+  const rev = Number(
+    (row.action_values || []).find((a) => /purchase|offsite_conversion/.test(a.action_type))?.value || 0
+  );
+  const spend = Number(row.spend || 0);
+  return spend > 0 ? rev / spend : 0;
+}
+
+function _normalizeInsightRow(row = {}) {
+  const conversions = Number(
+    (row.actions || []).find((a) => /purchase|offsite_conversion|lead/.test(a.action_type))?.value || 0
+  );
+  const spend = _num(row.spend);
+  return {
+    campaign_id: row.campaign_id || null,
+    campaign_name: row.campaign_name || null,
+    impressions: _num(row.impressions),
+    reach: _num(row.reach),
+    clicks: _num(row.clicks),
+    spend,
+    ctr: row.ctr != null ? _num(row.ctr) : null,
+    cpm: row.cpm != null ? _num(row.cpm) : null,
+    cpp: row.cpp != null ? _num(row.cpp) : null,
+    frequency: row.frequency != null ? _num(row.frequency) : null,
+    conversions,
+    roas: _roasFromRow(row),
+    cpa: conversions > 0 ? spend / conversions : null,
+    actions: row.actions || [],
+    action_values: row.action_values || [],
+  };
+}
+
+async function _insightsCall({ business, campaignId, datePreset, breakdowns }) {
+  const query = {
+    level: 'campaign',
+    date_preset: datePreset,
+    fields: INSIGHT_FIELDS,
+    filtering: JSON.stringify([{ field: 'campaign.id', operator: 'IN', value: [String(campaignId)] }]),
+    limit: '200',
+  };
+  if (breakdowns) query.breakdowns = breakdowns;
+  return graphCall({
+    method: 'GET',
+    path: `/act_${business.ad_account_id}/insights`,
+    accessToken: business.meta_access_token,
+    query,
+  });
+}
+
+/**
+ * Fresh per-campaign performance, pulled live from Meta. Used by the
+ * ad-optimizer (last_7d window) and the weekly report (breakdowns).
+ * Read-only — not gated by META_AD_LAUNCH_LIVE (reading data never spends).
+ */
+async function fetchCampaignInsights({
+  business,
+  campaignId,
+  datePresets = ['last_7d', 'last_30d'],
+  withBreakdowns = true,
+}) {
+  if (!business?.meta_access_token || !business?.ad_account_id) {
+    return { ok: true, campaign_id: campaignId, windows: {}, breakdowns: {}, reason: 'meta token missing' };
+  }
+  if (!campaignId) return { ok: false, reason: 'campaignId required', windows: {}, breakdowns: {} };
+
+  const windows = {};
+  for (const dp of datePresets) {
+    const r = await _insightsCall({ business, campaignId, datePreset: dp });
+    windows[dp] = r.ok ? _normalizeInsightRow(r.raw?.data?.[0] || {}) : { error: r.reason };
+  }
+
+  const breakdowns = {};
+  if (withBreakdowns) {
+    const groups = { age: 'age', gender: 'gender', placement: 'publisher_platform' };
+    for (const [key, bd] of Object.entries(groups)) {
+      const r = await _insightsCall({ business, campaignId, datePreset: 'last_7d', breakdowns: bd });
+      breakdowns[key] = r.ok
+        ? (r.raw?.data || []).map((row) => ({ segment: row[bd] ?? null, ..._normalizeInsightRow(row) }))
+        : [];
+    }
+  }
+
+  return { ok: true, campaign_id: campaignId, windows, breakdowns };
+}
+
+// ─── Campaign actuator (PART 4) ─────────────────────────────────────────
+// Low-level write to a campaign node. Dry-run gated like every other
+// write in this module: when META_AD_LAUNCH_LIVE is not 'true' it returns
+// the intended fields WITHOUT touching Meta.
+//   fields examples: { status: 'PAUSED' } | { status: 'ACTIVE' }
+//                    | { daily_budget: 1500 }  (cents) | { lifetime_budget: 30000 }
+async function updateCampaign({ business, campaignId, fields }) {
+  if (!fields || Object.keys(fields).length === 0) return { ok: false, reason: 'no fields to update' };
+  if (!META_LAUNCH_LIVE()) {
+    return { ok: true, dry_run: true, campaign_id: campaignId, intended: fields, reason: 'META_AD_LAUNCH_LIVE=false' };
+  }
+  if (!business?.meta_access_token) return { ok: false, reason: 'meta token missing' };
+  if (!campaignId) return { ok: false, reason: 'campaignId required' };
+  return graphCall({
+    method: 'POST',
+    path: `/${campaignId}`,
+    accessToken: business.meta_access_token,
+    body: fields,
+  });
+}
+
 // ─── Measurement health (EMQ + dedup) ───────────────────────────────────
 
 async function fetchMeasurementHealth({ business }) {
@@ -326,6 +446,8 @@ module.exports = {
   createAd,
   createCampaignWithAdSetsAndAds,
   fetchInsights,
+  fetchCampaignInsights,
+  updateCampaign,
   fetchMeasurementHealth,
   sendConversionEvent,
   META_OBJECTIVE_MAP,

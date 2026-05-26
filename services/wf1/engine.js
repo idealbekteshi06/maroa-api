@@ -27,6 +27,38 @@ const creativeDirector = require('../prompts/creative-director');
 const trendingHooks = require('../prompts/trending-hooks');
 const { callMarketingClaude } = require('../../lib/marketingClaude');
 
+// Higgsfield is the ONLY image provider for maroa.ai — no Replicate, no Flux,
+// no fallback. Builds the image prompt from the structured visualBrief the
+// generation prompt returns ({ style, shots[], thumbnailGuidance, brandAssets[] }).
+function visualBriefToPrompt(vb, concept = {}) {
+  if (!vb) return concept.core_idea || concept.hook || '';
+  if (typeof vb === 'string') return vb;
+  const parts = [];
+  if (vb.style) parts.push(vb.style);
+  if (Array.isArray(vb.shots) && vb.shots.length) parts.push(vb.shots.join('. '));
+  if (vb.thumbnailGuidance) parts.push(vb.thumbnailGuidance);
+  if (Array.isArray(vb.brandAssets) && vb.brandAssets.length) parts.push(`Brand assets: ${vb.brandAssets.join(', ')}`);
+  return parts.filter(Boolean).join('. ') || concept.core_idea || concept.hook || '';
+}
+
+// Pure helper: portrait for feeds, vertical for reels/stories.
+function aspectRatioForPlatform(platform) {
+  switch (String(platform || '').toLowerCase()) {
+    case 'instagram_reel':
+    case 'instagram_story':
+    case 'youtube_shorts':
+    case 'tiktok':
+      return '9:16';
+    case 'instagram_feed':
+      return '4:5';
+    case 'facebook':
+    case 'linkedin':
+    case 'gbp_post':
+    default:
+      return '1:1';
+  }
+}
+
 function createEngine({
   sbGet,
   sbPost,
@@ -37,6 +69,9 @@ function createEngine({
   contextBundleBuilder,
   guardrails,
   buildBrandContext,
+  // Higgsfield image/video service (services/higgsfield). Optional in unit
+  // tests; required in production so generated assets get a real media_url.
+  higgsfield,
   // Closed-loop creative system libraries — injected for testability.
   // See ADR-0005. Fall back to require() so production wiring just works.
   groundingContext,
@@ -483,6 +518,33 @@ function createEngine({
       asset: parsed,
     });
 
+    // ─── Phase 4.5: render the visual via Higgsfield ───────────────────────
+    // The visual_brief is the art-direction; Higgsfield turns it into a real
+    // image so the asset carries a media_url to publish. Higgsfield is the
+    // ONLY provider — no fallback. On failure we still persist the asset
+    // (caption work is salvaged) but leave media_url null so publish queues/
+    // skips rather than shipping a post with no creative.
+    let mediaUrl = null;
+    let imageModelUsed = null;
+    const visualPrompt = visualBriefToPrompt(parsed.visualBrief, concept);
+    const isImagePlatform = String(concept.platform || '').toLowerCase() !== 'email';
+    if (isImagePlatform && higgsfield && typeof higgsfield.generateImage === 'function' && visualPrompt) {
+      try {
+        const img = await higgsfield.generateImage({
+          prompt: visualPrompt,
+          aspect_ratio: aspectRatioForPlatform(concept.platform),
+          businessId,
+        });
+        mediaUrl = img?.url || img?.imageUrl || null;
+        imageModelUsed = img?.model_used || img?.model_slug || null;
+      } catch (e) {
+        logger?.error?.('/wf1/engine.image', businessId, 'higgsfield image generation failed', {
+          conceptId,
+          error: e.message,
+        });
+      }
+    }
+
     const assetRow = await sbPost('content_assets', {
       business_id: businessId,
       concept_id: conceptId,
@@ -493,6 +555,7 @@ function createEngine({
       hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : [],
       cta: parsed.cta || concept.cta,
       visual_brief: parsed.visualBrief || null,
+      media_url: mediaUrl,
       accessibility_alt_text: parsed.accessibilityAltText || null,
       burned_in_captions: parsed.burnedInCaptions || null,
       posting_time_local: parsed.postingTime?.localTime || defaultPostTime || null,
@@ -502,7 +565,7 @@ function createEngine({
       confidence: Number(parsed.confidence || 0),
       quality_score: qualityResult.score,
       quality_breakdown: qualityResult.breakdown,
-      model_used: 'claude-sonnet-4-5',
+      model_used: imageModelUsed ? `claude-sonnet-4-5+${imageModelUsed}` : 'claude-sonnet-4-5',
       status: qualityResult.score >= 80 ? 'awaiting_approval' : 'generated',
     });
 
