@@ -444,7 +444,7 @@ test('Generation-history mirror: NOT written when generation is credit-blocked',
   assert.ok(!gen, 'no generation row when credits blocked generation');
 });
 
-test('Virality prediction: WF1 writes a content_performance row keyed to the asset', async () => {
+test('Virality prediction: WF1 writes a content_virality_predictions row keyed to the asset', async () => {
   const biz = {
     id: '99999999-9999-4999-8999-999999999999',
     business_name: 'Cafe Test',
@@ -460,8 +460,8 @@ test('Virality prediction: WF1 writes a content_performance row keyed to the ass
     },
   });
   await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
-  const perf = posts.find((p) => p.table === 'content_performance');
-  assert.ok(perf, 'content_performance row written');
+  const perf = posts.find((p) => p.table === 'content_virality_predictions');
+  assert.ok(perf, 'content_virality_predictions row written');
   assert.equal(perf.row.business_id, biz.id);
   assert.equal(perf.row.content_id, 'asset-x', 'keyed to the created asset id');
   assert.equal(typeof perf.row.virality_score, 'number');
