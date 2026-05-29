@@ -547,6 +547,7 @@ function createEngine({
     //     skip generation (low-balance email is sent by the daily cron).
     let mediaUrl = null;
     let imageModelUsed = null;
+    let generationType = null;
     const visualPrompt = visualBriefToPrompt(parsed.visualBrief, concept);
     const platformLower = String(concept.platform || '').toLowerCase();
     const isVideoPlatform = VIDEO_PLATFORMS.has(platformLower);
@@ -587,6 +588,7 @@ function createEngine({
           });
           mediaUrl = vid?.url || vid?.videoUrl || null;
           imageModelUsed = vid?.model_used || vid?.model_slug || null;
+          if (mediaUrl) generationType = 'video';
         } catch (e) {
           logger?.error?.('/wf1/engine.video', businessId, 'higgsfield video generation failed', {
             conceptId,
@@ -603,6 +605,7 @@ function createEngine({
           });
           mediaUrl = img?.url || img?.imageUrl || null;
           imageModelUsed = img?.model_used || img?.model_slug || null;
+          if (mediaUrl) generationType = 'image';
         } catch (e) {
           logger?.error?.('/wf1/engine.image', businessId, 'higgsfield image generation failed', {
             conceptId,
@@ -610,6 +613,28 @@ function createEngine({
           });
         }
       }
+    }
+
+    // ─── Generation-history mirror (migration 087) ─────────────────────────
+    // Record every successful Higgsfield generation so cost attribution +
+    // analytics have a per-asset ledger independent of content_assets. This
+    // is a pure internal write on a call we already made — no external API.
+    // Soft-fails: a mirror miss must never sink the content pipeline.
+    if (mediaUrl && generationType) {
+      await sbPost('higgsfield_generations', {
+        business_id: businessId,
+        job_id: null,
+        model: imageModelUsed || null,
+        prompt: visualPrompt ? visualPrompt.slice(0, 2000) : null,
+        media_url: mediaUrl,
+        generation_type: generationType,
+        cost_credits: null,
+      }).catch((e) =>
+        logger?.warn?.('/wf1/engine', businessId, 'higgsfield_generations mirror failed', {
+          conceptId,
+          error: e.message,
+        })
+      );
     }
 
     const assetRow = await sbPost('content_assets', {
