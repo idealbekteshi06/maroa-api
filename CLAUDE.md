@@ -205,6 +205,10 @@ is reverse-engineered from the live code (`services/inngest/functions.js`
 - `services/forecasting/` — ROAS + spend forecast 30/60/90 — ✅ `forecasting.test.js`
 - `services/voc/` — voice-of-customer mining — ✅ `voc*.test.js`
 - `services/social-multi/` — Ayrshare + Meta Graph publish — (covered via Meta publish tests)
+- `lib/viralityPredictor.js` — internal Claude virality scorer; WF1 writes a
+  `content_performance` row (virality_score / engagement / hook_strength /
+  retention_risk) per generated asset — ✅ `virality-predictor.test.js`. NOT
+  the Higgsfield first-party predictor; swappable behind `predictVirality()`.
 
 ### Removed / merged
 

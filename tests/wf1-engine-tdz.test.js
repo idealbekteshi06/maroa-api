@@ -443,3 +443,28 @@ test('Generation-history mirror: NOT written when generation is credit-blocked',
   const gen = posts.find((p) => p.table === 'higgsfield_generations');
   assert.ok(!gen, 'no generation row when credits blocked generation');
 });
+
+test('Virality prediction: WF1 writes a content_performance row keyed to the asset', async () => {
+  const biz = {
+    id: '99999999-9999-4999-8999-999999999999',
+    business_name: 'Cafe Test',
+    industry: 'cafe',
+    plan: 'free',
+    higgsfield_credits: 900,
+  };
+  const { engine, concept, posts } = buildEngineHarness({
+    platform: 'instagram_feed',
+    biz,
+    higgsfieldStub: {
+      generateImage: async () => ({ url: 'https://cdn.higgsfield.ai/img/v.png', model_used: 'nano-banana-pro' }),
+    },
+  });
+  await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
+  const perf = posts.find((p) => p.table === 'content_performance');
+  assert.ok(perf, 'content_performance row written');
+  assert.equal(perf.row.business_id, biz.id);
+  assert.equal(perf.row.content_id, 'asset-x', 'keyed to the created asset id');
+  assert.equal(typeof perf.row.virality_score, 'number');
+  assert.ok(perf.row.virality_score >= 0 && perf.row.virality_score <= 100, 'score within 0..100');
+  assert.ok(['low', 'medium', 'high'].includes(perf.row.predicted_engagement));
+});
