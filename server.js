@@ -10280,7 +10280,22 @@ Return ONLY valid JSON:
     return opsMaintenance.runDailyHealthAll(opsDeps());
   }
   async function runOpsWeeklyMaintenanceAll() {
-    return opsMaintenance.runWeeklyMaintenanceAll(opsDeps());
+    const result = await opsMaintenance.runWeeklyMaintenanceAll(opsDeps());
+    // Refresh the cached Higgsfield preset catalog (migration 087) from the
+    // in-code source of truth. Soft-fails so a preset-sync hiccup never fails
+    // the weekly maintenance bundle.
+    let presets = null;
+    try {
+      presets = await require('./services/higgsfield/cameraPresets').syncPresetCatalog({
+        sbGet,
+        sbPost,
+        sbPatch,
+        logger,
+      });
+    } catch (e) {
+      logger?.warn?.('ops-weekly-maintenance', null, 'preset catalog sync failed', { error: e.message });
+    }
+    return { ...result, preset_catalog: presets };
   }
   async function runOpsGrowthEngineAll() {
     return opsMaintenance.runGrowthEngineAll(opsDeps());
