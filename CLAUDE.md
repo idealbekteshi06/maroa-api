@@ -120,6 +120,15 @@ Note: there are **138 tables** total. The schema is JSONB-heavy in the
 event/audit space — payloads are stored as `jsonb` and queried with
 `->>` operators. Add GIN indexes if you filter by a JSONB key in a hot path.
 
+**Reserved / NOT-WIRED schema (audit 2026-05 — do not assume these work):**
+`video_clips` (Personal Clipper — no writer/reader), `businesses.higgsfield_element_ids`
+(Reference Elements — never written/read), `businesses.higgsfield_product_id`
+(Marketing Studio — never written/read). Marked with `COMMENT ON` in migration 089. `higgsfield_generations` + `higgsfield_presets` are write-only today (no
+consumer yet). Gen-time virality predictions persist to
+`content_virality_predictions` (migration 089) — the migration-087
+`content_performance` redefinition was a silent no-op (it collided with
+migration 024's measurement table), so the writer was repointed.
+
 ---
 
 ## 5. Workflow inventory (current vs. original n8n)

@@ -714,11 +714,14 @@ function createEngine({
       status: qualityResult.score >= 80 ? 'awaiting_approval' : 'generated',
     });
 
-    // ─── Virality prediction (migration 087 content_performance) ───────────
+    // ─── Virality prediction (migration 089 content_virality_predictions) ──
     // Internal Claude-based predictor (lib/viralityPredictor) — scores the
-    // finished asset for predicted organic performance and records a
-    // content_performance row keyed to the asset. Soft-fails: a prediction
-    // miss returns a neutral band and never blocks the pipeline.
+    // finished asset for predicted organic performance and records a row in
+    // content_virality_predictions keyed to the asset. NOTE: this used to
+    // write `content_performance`, but that name collides with migration 024's
+    // post-publish measurement table (post_id/asset_id NOT NULL), so every
+    // insert silently failed. Migration 089 gives predictions their own table.
+    // Soft-fails: a prediction miss returns a neutral band and never blocks.
     try {
       const prediction = await _virality.predictVirality({
         content: {
@@ -731,7 +734,7 @@ function createEngine({
         deps: { callClaude, extractJSON, logger },
         businessId,
       });
-      await sbPost('content_performance', {
+      await sbPost('content_virality_predictions', {
         business_id: businessId,
         content_id: assetRow.id,
         virality_score: prediction.virality_score,
@@ -740,7 +743,7 @@ function createEngine({
         retention_risk: prediction.retention_risk,
         raw: prediction.raw,
       }).catch((e) =>
-        logger?.warn?.('/wf1/engine', businessId, 'content_performance insert failed', {
+        logger?.warn?.('/wf1/engine', businessId, 'content_virality_predictions insert failed', {
           conceptId,
           error: e.message,
         })

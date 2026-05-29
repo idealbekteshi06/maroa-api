@@ -554,6 +554,13 @@ server.on('listening', () => {
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   console.log(`  Maroa.ai API v2.0 — port :${PORT}`);
   console.log(`  Layer 1: Execution ✓  Layer 2: Intelligence ✓  Layer 3: Learning ✓`);
+  // External-write gating visibility (audit fix): show whether the system will
+  // actuate ads / publish for real, or run dry. Never block boot on a log line.
+  try {
+    console.log(`  ${require('./lib/env').liveFlagsLogLine(env)}`);
+  } catch {
+    /* diagnostic only */
+  }
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   console.log('[boot] listening — loading routes (/healthz ready)');
 
@@ -10085,11 +10092,19 @@ Return ONLY valid JSON:
   // until the REST balance endpoint is wired — Integration #2), then emails
   // a low-balance alert to any business with credits < 200.
   async function runCheckHiggsfieldCredits() {
-    const businesses = await sbGet(
-      'businesses',
-      `higgsfield_credits=not.is.null&select=id,business_name,email,higgsfield_credits`
-    ).catch(() => []);
+    // HONEST STATE: getBalance() is a stub (no Higgsfield balance REST endpoint
+    // yet), so higgsfield_credits is only ever populated by (a) that future
+    // endpoint or (b) an operator-set HIGGSFIELD_DEFAULT_CREDITS starting grant
+    // that we seed here. The previous version filtered `higgsfield_credits=
+    // not.is.null`, which silently scanned ZERO rows forever (the column was
+    // never written) — so the guard + alerts never fired. We now scan all
+    // businesses, optionally seed, and report whether monitoring is actually
+    // active instead of pretending.
+    const defaultGrant = parseInt(env.HIGGSFIELD_DEFAULT_CREDITS, 10);
+    const seedEnabled = Number.isFinite(defaultGrant) && defaultGrant > 0;
+    const businesses = await sbGet('businesses', `select=id,business_name,email,higgsfield_credits`).catch(() => []);
     let refreshed = 0;
+    let seeded = 0;
     let alerted = 0;
     for (const biz of businesses) {
       try {
@@ -10104,6 +10119,16 @@ Return ONLY valid JSON:
         }
       } catch {
         /* soft-fail refresh */
+      }
+      // Seed an operator-configured starting grant for businesses with no known
+      // balance, so the guard + alert path can actually fire. Opt-in only.
+      if (seedEnabled && biz.higgsfield_credits == null) {
+        await sbPatch('businesses', `id=eq.${encodeURIComponent(biz.id)}`, {
+          higgsfield_credits: defaultGrant,
+          higgsfield_credits_checked_at: new Date().toISOString(),
+        }).catch(() => {});
+        biz.higgsfield_credits = defaultGrant;
+        seeded++;
       }
       const credits = Number(biz.higgsfield_credits);
       if (Number.isFinite(credits) && credits < 200 && biz.email) {
@@ -10122,7 +10147,17 @@ Return ONLY valid JSON:
         }
       }
     }
-    return { ok: true, scanned: businesses.length, refreshed, alerted };
+    const monitoringActive = seedEnabled || refreshed > 0;
+    if (!monitoringActive) {
+      logger?.warn?.(
+        'check-higgsfield-credits',
+        null,
+        'credit monitoring INACTIVE — getBalance() is a stub and HIGGSFIELD_DEFAULT_CREDITS is unset; ' +
+          'no balances are known so the <100 generation guard and <200 alerts cannot fire',
+        { scanned: businesses.length }
+      );
+    }
+    return { ok: true, monitoring_active: monitoringActive, scanned: businesses.length, seeded, refreshed, alerted };
   }
   internalDispatcher.register('/webhook/check-higgsfield-credits', () => runCheckHiggsfieldCredits());
   app.post('/webhook/check-higgsfield-credits', async (_req, res) => {
