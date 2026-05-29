@@ -225,6 +225,28 @@ module.exports = function createHiggsfieldService(deps) {
     throw new Error(`Upload failed: ${uploadResp.status} ${(uploadResp.body || '').slice(0, 200)}`);
   }
 
+  /**
+   * Composite the business logo onto a generated image (pixel-accurate, not a
+   * prompt hint) and re-upload to storage. Returns the new public URL on
+   * success, or the original imageUrl on any failure (soft-fail — never blocks
+   * the content pipeline). Image-only; video logo-burn is a separate concern.
+   */
+  async function applyLogoOverlay({ imageUrl, logoUrl, businessId, opts }) {
+    if (!imageUrl || !logoUrl) return imageUrl;
+    try {
+      const { buildOverlayedImage } = require('../../lib/logoOverlay');
+      const r = await buildOverlayedImage({ baseImageUrl: imageUrl, logoUrl, deps: { logger, opts } });
+      if (!r.ok || !r.buffer) return imageUrl;
+      const newUrl = await uploadBufferToContentImages(r.buffer, businessId || 'logo', `logo-${Date.now()}`);
+      return newUrl || imageUrl;
+    } catch (e) {
+      logger?.warn?.('higgsfield.applyLogoOverlay', businessId, 'overlay failed — using original', {
+        error: e.message,
+      });
+      return imageUrl;
+    }
+  }
+
   /** Download Higgsfield CDN image and persist to Supabase Storage (public URL). */
   async function mirrorHiggsfieldImageToSupabase(hfUrl, userId, index) {
     const buf = await downloadImageBuffer(hfUrl);
@@ -1855,6 +1877,7 @@ module.exports = function createHiggsfieldService(deps) {
 
   return {
     getBalance,
+    applyLogoOverlay,
     generateProductImage,
     generateProductVideo,
     generateHeroAd,

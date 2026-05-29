@@ -32,6 +32,7 @@ function renderPremiumBrandContext(ctx) {
     wrap('description', safe(ctx.businessDescription)?.slice(0, 500)),
     wrap('tagline', safe(ctx.tagline)),
     wrap('website', safe(ctx.websiteUrl)),
+    wrap('website_analysis', safe(ctx.websiteSummary)?.slice(0, 500)),
     wrap('marketing_stage', safe(ctx.marketingStage)),
     wrap('narrative_arc', safe(ctx.narrativeArc)),
   ]

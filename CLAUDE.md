@@ -209,6 +209,13 @@ is reverse-engineered from the live code (`services/inngest/functions.js`
   `content_performance` row (virality_score / engagement / hook_strength /
   retention_risk) per generated asset — ✅ `virality-predictor.test.js`. NOT
   the Higgsfield first-party predictor; swappable behind `predictVirality()`.
+- **Signup → brain wiring (migration 088):** `lib/websiteEnricher.js` fetches +
+  Claude-summarizes the customer's site on signup into `businesses.website_summary`
+  (rendered as `<website_analysis>`); `POST /api/business/:id/brand-assets` sets
+  `logo_url` + `product_image_urls`, which WF1 passes as the Higgsfield reference
+  image (`image_url`/`sourceImageUrl`) + a logo prompt cue. Tests:
+  `website-enricher.test.js`, `wf1-engine-tdz.test.js`. Logo is a soft reference,
+  not a pixel overlay (see migration 088).
 
 ### Removed / merged
 

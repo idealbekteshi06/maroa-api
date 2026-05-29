@@ -57,6 +57,31 @@ function videoModelForConcept(concept = {}) {
   return 'seedance-2.0';
 }
 
+// Normalize businesses.product_image_urls (JSONB array, possibly a JSON
+// string or null) into a clean list of http(s) URLs.
+function referenceImageList(raw) {
+  let arr = raw;
+  if (typeof raw === 'string') {
+    try {
+      arr = JSON.parse(raw);
+    } catch {
+      arr = [raw];
+    }
+  }
+  if (!Array.isArray(arr)) return [];
+  return arr.filter((u) => typeof u === 'string' && /^https?:\/\//i.test(u));
+}
+
+// Deterministic per-concept rotation so multiple concepts in one day don't
+// all reference the same product photo.
+function rotationIndex(seed, length) {
+  if (length <= 1) return 0;
+  const s = String(seed || '');
+  let sum = 0;
+  for (let i = 0; i < s.length; i += 1) sum = (sum + s.charCodeAt(i)) % length;
+  return sum;
+}
+
 // Pure helper: portrait for feeds, vertical for reels/stories.
 function aspectRatioForPlatform(platform) {
   switch (String(platform || '').toLowerCase()) {
@@ -557,12 +582,28 @@ function createEngine({
 
     const bizCfgRows = await sbGet(
       'businesses',
-      `id=eq.${businessId}&select=higgsfield_soul_id,higgsfield_credits`
+      `id=eq.${businessId}&select=higgsfield_soul_id,higgsfield_credits,product_image_urls,logo_url`
     ).catch(() => []);
     const bizCfg = bizCfgRows[0] || {};
     const soulId = bizCfg.higgsfield_soul_id || null;
     const credits = typeof bizCfg.higgsfield_credits === 'number' ? bizCfg.higgsfield_credits : null;
     const creditsBlocked = credits != null && credits < 100;
+
+    // Customer-supplied product/shop photos → Higgsfield reference image, so
+    // generated visuals riff on their REAL products instead of generic stock.
+    // Rotate across the day's concepts (deterministic per-concept) for variety.
+    const productImages = referenceImageList(bizCfg.product_image_urls);
+    const referenceImageUrl = productImages.length
+      ? productImages[rotationIndex(conceptId, productImages.length)]
+      : null;
+
+    // Logo is folded into the prompt as a brand-asset cue. NOTE: this is a
+    // soft reference, NOT a pixel-accurate overlay — true logo placement needs
+    // a compositing step (documented in migration 088).
+    const logoUrl = bizCfg.logo_url || null;
+    const promptWithBrand = logoUrl
+      ? `${visualPrompt}. Tastefully incorporate the brand's logo/identity where natural.`
+      : visualPrompt;
 
     if (creditsBlocked) {
       await sbPost('events', {
@@ -580,12 +621,13 @@ function createEngine({
       if (isVideoPlatform && typeof higgsfield.generateVideo === 'function') {
         try {
           const vid = await higgsfield.generateVideo({
-            prompt: visualPrompt,
+            prompt: promptWithBrand,
             aspect_ratio: '9:16',
             resolution: '720p',
             durationSeconds: 6,
             model: videoModelForConcept(concept),
             soul_id: soulId,
+            sourceImageUrl: referenceImageUrl || undefined,
             businessId,
           });
           mediaUrl = vid?.url || vid?.videoUrl || null;
@@ -600,14 +642,23 @@ function createEngine({
       } else if (isImagePlatform && typeof higgsfield.generateImage === 'function') {
         try {
           const img = await higgsfield.generateImage({
-            prompt: visualPrompt,
+            prompt: promptWithBrand,
             aspect_ratio: aspectRatioForPlatform(concept.platform),
             soul_id: soulId,
+            image_url: referenceImageUrl || undefined,
             businessId,
           });
           mediaUrl = img?.url || img?.imageUrl || null;
           imageModelUsed = img?.model_used || img?.model_slug || null;
           if (mediaUrl) generationType = 'image';
+          // Pixel-accurate logo placement: overlay the logo PNG onto the
+          // finished image (Higgsfield's reference is only a style hint).
+          // Soft-fails to the un-overlaid image. Image-only. Runs before the
+          // generation-history mirror so the recorded media_url is the final
+          // (composited) URL.
+          if (mediaUrl && logoUrl && typeof higgsfield.applyLogoOverlay === 'function') {
+            mediaUrl = await higgsfield.applyLogoOverlay({ imageUrl: mediaUrl, logoUrl, businessId });
+          }
         } catch (e) {
           logger?.error?.('/wf1/engine.image', businessId, 'higgsfield image generation failed', {
             conceptId,

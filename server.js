@@ -4841,6 +4841,50 @@ setImmediate(() => {
     }
   });
 
+  // POST /api/business/:businessId/brand-assets — set the customer's logo +
+  // product/shop reference photos (migration 088). Accepts already-hosted
+  // URLs (the frontend uploads the file to storage, then sends the URL here).
+  // These are consumed by WF1: product images become the Higgsfield reference
+  // image, the logo a brand cue. JWT + business-owner gated by the /api/business
+  // app.use prefixes above.
+  app.post('/api/business/:businessId/brand-assets', async (req, res) => {
+    const businessId = String(req.params.businessId || '').trim();
+    if (!businessId) return apiError(res, 400, 'VALIDATION_ERROR', 'businessId required');
+    const body = req.body || {};
+    const patch = {};
+
+    if (body.logo_url !== undefined) {
+      const logo = body.logo_url === null ? null : String(body.logo_url).trim();
+      if (logo && !/^https?:\/\//i.test(logo)) {
+        return apiError(res, 400, 'VALIDATION_ERROR', 'logo_url must be an http(s) URL');
+      }
+      patch.logo_url = logo || null;
+    }
+
+    if (body.product_image_urls !== undefined) {
+      const raw = Array.isArray(body.product_image_urls) ? body.product_image_urls : [];
+      const urls = raw
+        .map((u) => String(u || '').trim())
+        .filter((u) => /^https?:\/\//i.test(u))
+        .slice(0, 20); // cap — matches Higgsfield reference ceiling
+      if (raw.length && !urls.length) {
+        return apiError(res, 400, 'VALIDATION_ERROR', 'product_image_urls must be http(s) URLs');
+      }
+      patch.product_image_urls = urls;
+    }
+
+    if (!Object.keys(patch).length) {
+      return apiError(res, 400, 'VALIDATION_ERROR', 'provide logo_url and/or product_image_urls');
+    }
+
+    try {
+      await sbPatch('businesses', `id=eq.${encodeURIComponent(businessId)}`, patch);
+      return res.json({ ok: true, business_id: businessId, updated: Object.keys(patch) });
+    } catch (e) {
+      return apiError(res, 500, 'BRAND_ASSETS_UPDATE_FAILED', e.message);
+    }
+  });
+
   // GET /api/business/:businessId/llm-spend — monthly LLM cost vs plan cap
   app.get('/api/business/:businessId/llm-spend', async (req, res) => {
     const businessId = String(req.params.businessId || '').trim();
@@ -10999,6 +11043,24 @@ Return ONLY valid JSON:
       safePublicError,
       log,
       express,
+      // Fetch + Claude-summarize the customer's website on signup, then stamp
+      // businesses.website_summary so the brand context can read it (migration
+      // 088). Fire-and-forget from the route; soft-fails on any error.
+      enrichWebsite: async ({ businessId, url }) => {
+        const { enrichFromWebsite } = require('./lib/websiteEnricher');
+        const r = await enrichFromWebsite({
+          url,
+          businessId,
+          deps: { callClaude, extractJSON, logger },
+        });
+        if (r.ok && r.summary) {
+          await sbPatch('businesses', `id=eq.${encodeURIComponent(businessId)}`, {
+            website_summary: r.summary,
+            website_enriched_at: new Date().toISOString(),
+          }).catch(() => {});
+        }
+        return r;
+      },
       // callContentGenerate is plumbed via a loopback HTTP call to
       // /api/content/generate so the route reuses the existing creative
       // pipeline (grounding + critic + cost tracking). 30s budget — past

@@ -468,3 +468,163 @@ test('Virality prediction: WF1 writes a content_performance row keyed to the ass
   assert.ok(perf.row.virality_score >= 0 && perf.row.virality_score <= 100, 'score within 0..100');
   assert.ok(['low', 'medium', 'high'].includes(perf.row.predicted_engagement));
 });
+
+test('Product images: WF1 passes a product photo as the generateImage reference', async () => {
+  const biz = {
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    business_name: 'Cafe Test',
+    industry: 'cafe',
+    plan: 'free',
+    higgsfield_credits: 900,
+    product_image_urls: ['https://cdn.shop/latte.jpg', 'https://cdn.shop/beans.jpg'],
+    logo_url: null,
+  };
+  const imageCalls = [];
+  const { engine, concept } = buildEngineHarness({
+    platform: 'instagram_feed',
+    biz,
+    higgsfieldStub: {
+      generateImage: async (a) => {
+        imageCalls.push(a);
+        return { url: 'https://cdn.higgsfield.ai/img/p.png', model_used: 'nano-banana-pro' };
+      },
+    },
+  });
+  await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
+  assert.equal(imageCalls.length, 1);
+  assert.ok(
+    /^https:\/\/cdn\.shop\//.test(imageCalls[0].image_url),
+    'a product image was passed as the Higgsfield reference'
+  );
+});
+
+test('Product images: video platform passes a product photo as sourceImageUrl', async () => {
+  const biz = {
+    id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    business_name: 'Cafe Test',
+    industry: 'cafe',
+    plan: 'free',
+    higgsfield_credits: 700,
+    product_image_urls: ['https://cdn.shop/reel-bg.jpg'],
+  };
+  const videoCalls = [];
+  const { engine, concept } = buildEngineHarness({
+    platform: 'tiktok',
+    biz,
+    higgsfieldStub: {
+      generateImage: async () => ({ url: 'X' }),
+      generateVideo: async (a) => {
+        videoCalls.push(a);
+        return { url: 'https://cdn.higgsfield.ai/v/p.mp4', model_used: 'seedance-2.0' };
+      },
+    },
+  });
+  await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
+  assert.equal(videoCalls.length, 1);
+  assert.equal(videoCalls[0].sourceImageUrl, 'https://cdn.shop/reel-bg.jpg');
+});
+
+test('Product images: no reference passed when business has none', async () => {
+  const biz = {
+    id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    business_name: 'Cafe Test',
+    industry: 'cafe',
+    plan: 'free',
+    higgsfield_credits: 900,
+    product_image_urls: [],
+  };
+  const imageCalls = [];
+  const { engine, concept } = buildEngineHarness({
+    platform: 'instagram_feed',
+    biz,
+    higgsfieldStub: {
+      generateImage: async (a) => {
+        imageCalls.push(a);
+        return { url: 'https://cdn.higgsfield.ai/img/x.png' };
+      },
+    },
+  });
+  await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
+  assert.equal(imageCalls[0].image_url, undefined, 'no reference image when none provided');
+});
+
+test('Logo: presence adds a brand-asset cue to the generation prompt', async () => {
+  const biz = {
+    id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    business_name: 'Cafe Test',
+    industry: 'cafe',
+    plan: 'free',
+    higgsfield_credits: 900,
+    logo_url: 'https://cdn.shop/logo.png',
+  };
+  const imageCalls = [];
+  const { engine, concept } = buildEngineHarness({
+    platform: 'instagram_feed',
+    biz,
+    higgsfieldStub: {
+      generateImage: async (a) => {
+        imageCalls.push(a);
+        return { url: 'https://cdn.higgsfield.ai/img/l.png' };
+      },
+    },
+  });
+  await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
+  assert.match(imageCalls[0].prompt, /logo|brand/i, 'logo cue folded into prompt');
+});
+
+test('Logo overlay: WF1 replaces media_url with the logo-composited image', async () => {
+  const biz = {
+    id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    business_name: 'Cafe Test',
+    industry: 'cafe',
+    plan: 'free',
+    higgsfield_credits: 900,
+    logo_url: 'https://cdn.shop/logo.png',
+  };
+  const overlayCalls = [];
+  const { engine, concept, posts } = buildEngineHarness({
+    platform: 'instagram_feed',
+    biz,
+    higgsfieldStub: {
+      generateImage: async () => ({ url: 'https://cdn.higgsfield.ai/img/raw.png', model_used: 'nano-banana-pro' }),
+      applyLogoOverlay: async (a) => {
+        overlayCalls.push(a);
+        return 'https://cdn.supabase/content-images/overlayed.png';
+      },
+    },
+  });
+  await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
+  assert.equal(overlayCalls.length, 1, 'applyLogoOverlay invoked once');
+  assert.equal(overlayCalls[0].logoUrl, 'https://cdn.shop/logo.png');
+  assert.equal(overlayCalls[0].imageUrl, 'https://cdn.higgsfield.ai/img/raw.png');
+  const assetInsert = posts.find((p) => p.table === 'content_assets');
+  assert.equal(
+    assetInsert.row.media_url,
+    'https://cdn.supabase/content-images/overlayed.png',
+    'media_url is the logo-composited image'
+  );
+});
+
+test('Logo overlay: skipped when business has no logo', async () => {
+  const biz = {
+    id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+    business_name: 'Cafe Test',
+    industry: 'cafe',
+    plan: 'free',
+    higgsfield_credits: 900,
+  };
+  const overlayCalls = [];
+  const { engine, concept } = buildEngineHarness({
+    platform: 'instagram_feed',
+    biz,
+    higgsfieldStub: {
+      generateImage: async () => ({ url: 'https://cdn.higgsfield.ai/img/raw.png' }),
+      applyLogoOverlay: async (a) => {
+        overlayCalls.push(a);
+        return 'should-not-happen';
+      },
+    },
+  });
+  await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
+  assert.equal(overlayCalls.length, 0, 'no overlay when logo absent');
+});
