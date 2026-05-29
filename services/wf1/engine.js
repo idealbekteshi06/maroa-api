@@ -92,11 +92,13 @@ function createEngine({
   // See ADR-0005. Fall back to require() so production wiring just works.
   groundingContext,
   adversarialCritic,
+  viralityPredictor,
   metrics,
 }) {
   const _grounding = groundingContext || require('../../lib/groundingContext');
   const _critic = adversarialCritic || require('../../lib/adversarialCritic');
   const _strategicThinking = require('../../lib/strategicThinking');
+  const _virality = viralityPredictor || require('../../lib/viralityPredictor');
   // ── Resolve brand context for a given business_id ─────────────────────
   async function resolveBrandContext(businessId) {
     const [bizRows, profileRows] = await Promise.all([
@@ -547,6 +549,7 @@ function createEngine({
     //     skip generation (low-balance email is sent by the daily cron).
     let mediaUrl = null;
     let imageModelUsed = null;
+    let generationType = null;
     const visualPrompt = visualBriefToPrompt(parsed.visualBrief, concept);
     const platformLower = String(concept.platform || '').toLowerCase();
     const isVideoPlatform = VIDEO_PLATFORMS.has(platformLower);
@@ -587,6 +590,7 @@ function createEngine({
           });
           mediaUrl = vid?.url || vid?.videoUrl || null;
           imageModelUsed = vid?.model_used || vid?.model_slug || null;
+          if (mediaUrl) generationType = 'video';
         } catch (e) {
           logger?.error?.('/wf1/engine.video', businessId, 'higgsfield video generation failed', {
             conceptId,
@@ -603,6 +607,7 @@ function createEngine({
           });
           mediaUrl = img?.url || img?.imageUrl || null;
           imageModelUsed = img?.model_used || img?.model_slug || null;
+          if (mediaUrl) generationType = 'image';
         } catch (e) {
           logger?.error?.('/wf1/engine.image', businessId, 'higgsfield image generation failed', {
             conceptId,
@@ -610,6 +615,28 @@ function createEngine({
           });
         }
       }
+    }
+
+    // ─── Generation-history mirror (migration 087) ─────────────────────────
+    // Record every successful Higgsfield generation so cost attribution +
+    // analytics have a per-asset ledger independent of content_assets. This
+    // is a pure internal write on a call we already made — no external API.
+    // Soft-fails: a mirror miss must never sink the content pipeline.
+    if (mediaUrl && generationType) {
+      await sbPost('higgsfield_generations', {
+        business_id: businessId,
+        job_id: null,
+        model: imageModelUsed || null,
+        prompt: visualPrompt ? visualPrompt.slice(0, 2000) : null,
+        media_url: mediaUrl,
+        generation_type: generationType,
+        cost_credits: null,
+      }).catch((e) =>
+        logger?.warn?.('/wf1/engine', businessId, 'higgsfield_generations mirror failed', {
+          conceptId,
+          error: e.message,
+        })
+      );
     }
 
     const assetRow = await sbPost('content_assets', {
@@ -635,6 +662,41 @@ function createEngine({
       model_used: imageModelUsed ? `claude-sonnet-4-5+${imageModelUsed}` : 'claude-sonnet-4-5',
       status: qualityResult.score >= 80 ? 'awaiting_approval' : 'generated',
     });
+
+    // ─── Virality prediction (migration 087 content_performance) ───────────
+    // Internal Claude-based predictor (lib/viralityPredictor) — scores the
+    // finished asset for predicted organic performance and records a
+    // content_performance row keyed to the asset. Soft-fails: a prediction
+    // miss returns a neutral band and never blocks the pipeline.
+    try {
+      const prediction = await _virality.predictVirality({
+        content: {
+          platform: concept.platform,
+          hook: parsed.hook || concept.hook,
+          caption: parsed.caption || '',
+          media_url: mediaUrl,
+          format: concept.format,
+        },
+        deps: { callClaude, extractJSON, logger },
+        businessId,
+      });
+      await sbPost('content_performance', {
+        business_id: businessId,
+        content_id: assetRow.id,
+        virality_score: prediction.virality_score,
+        predicted_engagement: prediction.predicted_engagement,
+        hook_strength: prediction.hook_strength,
+        retention_risk: prediction.retention_risk,
+        raw: prediction.raw,
+      }).catch((e) =>
+        logger?.warn?.('/wf1/engine', businessId, 'content_performance insert failed', {
+          conceptId,
+          error: e.message,
+        })
+      );
+    } catch (e) {
+      logger?.warn?.('/wf1/engine', businessId, 'virality prediction failed', { conceptId, error: e.message });
+    }
 
     // Update concept with latest quality score
     await sbPatch('content_concepts', `id=eq.${conceptId}`, {

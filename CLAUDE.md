@@ -185,7 +185,7 @@ is reverse-engineered from the live code (`services/inngest/functions.js`
 | ------------------------------ | ----------------------------------------------------------------------------- | ------------------------ | --------------------------------------- | ------------------------------ |
 | WF15 — AI Brain                | Conversational command center; instant content generation                     | `services/wf15/`         | route `POST /webhook/instant-content`   | 🟡 `anthropic-2026.test.js`    |
 | WF12 — Launch orchestrator     | Plans + tracks a product launch                                               | `services/wf12/`         | routes `/webhook/wf12-*`, `/api/launch` | 🟡 `wf-batch-contract.test.js` |
-| WF10 — Higgsfield Studio       | Image/video studio jobs, Soul ID (agency)                                     | `services/wf10/`         | routes `/webhook/wf10-*`                | 🔴 none                        |
+| WF10 — Higgsfield Studio       | Image/video studio jobs, Soul ID (agency)                                     | `services/wf10/`         | routes `/webhook/wf10-*`                | ✅ `wf10-studio.test.js`       |
 | WF9 — Unified inbox            | Intake/triage/draft-reply for inbound messages                                | `services/wf9/`          | routes `/webhook/wf9-*`                 | 🔴 none                        |
 | WF8 — Customer insights        | Generates customer-insight reports                                            | `services/wf8/`          | routes `/webhook/wf8-*`                 | 🟡 `wf-batch-contract.test.js` |
 | WF7 — Email lifecycle engine   | Segment/sequence/enroll primitives (the cron above drives dispatch)           | `services/wf7/`          | routes `/webhook/wf7-*`                 | 🔴 none                        |
@@ -205,6 +205,10 @@ is reverse-engineered from the live code (`services/inngest/functions.js`
 - `services/forecasting/` — ROAS + spend forecast 30/60/90 — ✅ `forecasting.test.js`
 - `services/voc/` — voice-of-customer mining — ✅ `voc*.test.js`
 - `services/social-multi/` — Ayrshare + Meta Graph publish — (covered via Meta publish tests)
+- `lib/viralityPredictor.js` — internal Claude virality scorer; WF1 writes a
+  `content_performance` row (virality_score / engagement / hook_strength /
+  retention_risk) per generated asset — ✅ `virality-predictor.test.js`. NOT
+  the Higgsfield first-party predictor; swappable behind `predictVirality()`.
 
 ### Removed / merged
 
@@ -215,8 +219,9 @@ is reverse-engineered from the live code (`services/inngest/functions.js`
 
 These run customer-facing logic with **zero behavioural tests** — fix
 before relying on them: **WF2** (lead scoring), **WF4** (reviews),
-**WF7** (email lifecycle engine), **WF9** (inbox), **WF10** (studio),
-and the **ops/monthly-report** crons. The 🟡 "shallow" rows
+**WF7** (email lifecycle engine), **WF9** (inbox), and the
+**ops/monthly-report** crons. (**WF10** studio is now covered by
+`wf10-studio.test.js`.) The 🟡 "shallow" rows
 (`anthropic-2026` / `wf-batch-contract`) only assert factory shape or
 prompt wiring, not engine behaviour.
 

@@ -48,6 +48,75 @@ const PRESETS = {
 
 const DEFAULT_PRESET = 'ugc';
 
+// Human-facing labels for the in-code presets. Used when mirroring the
+// catalog into the higgsfield_presets table (migration 087) so a frontend
+// preset picker can read them without hard-coding this list.
+const PRESET_LABELS = {
+  social: 'Social Reel',
+  cinematic: 'Cinematic Commercial',
+  product: 'Product Hero',
+  ugc: 'Authentic UGC',
+  talking_head: 'Talking Head',
+};
+
+/**
+ * The preset catalog in `higgsfield_presets` row shape. This mirrors the
+ * presets WE define in code — it is NOT a fetch of Higgsfield's hosted
+ * preset list (that endpoint still needs REST docs). When that lands it can
+ * augment/refresh these rows behind the same table.
+ */
+function listPresetCatalog() {
+  return Object.values(PRESETS).map((p) => ({
+    preset_id: p.id,
+    name: PRESET_LABELS[p.id] || p.id,
+    description: [p.style, p.camera, p.lighting].filter(Boolean).join('. '),
+    preview_url: null,
+    supported_industries: [], // [] = applies to all industries
+  }));
+}
+
+/**
+ * Idempotently mirror the in-code preset catalog into higgsfield_presets.
+ * Inserts rows that don't exist yet and patches description/name drift on
+ * ones that do. Soft-fails per row so a single bad write never aborts the
+ * weekly sync. Returns { inserted, updated, total }.
+ */
+async function syncPresetCatalog({ sbGet, sbPost, sbPatch, logger } = {}) {
+  if (typeof sbGet !== 'function' || typeof sbPost !== 'function') {
+    return { inserted: 0, updated: 0, total: 0, skipped: 'sb helpers unavailable' };
+  }
+  const catalog = listPresetCatalog();
+  const existing = await sbGet('higgsfield_presets', 'select=preset_id,name,description').catch(() => []);
+  const byId = new Map((existing || []).map((r) => [r.preset_id, r]));
+
+  let inserted = 0;
+  let updated = 0;
+  for (const row of catalog) {
+    const prev = byId.get(row.preset_id);
+    try {
+      if (!prev) {
+        await sbPost('higgsfield_presets', { ...row, updated_at: new Date().toISOString() });
+        inserted += 1;
+      } else if (prev.name !== row.name || prev.description !== row.description) {
+        if (typeof sbPatch === 'function') {
+          await sbPatch('higgsfield_presets', `preset_id=eq.${encodeURIComponent(row.preset_id)}`, {
+            name: row.name,
+            description: row.description,
+            updated_at: new Date().toISOString(),
+          });
+          updated += 1;
+        }
+      }
+    } catch (e) {
+      logger?.warn?.('higgsfield.syncPresetCatalog', null, 'preset upsert failed', {
+        preset_id: row.preset_id,
+        error: e.message,
+      });
+    }
+  }
+  return { inserted, updated, total: catalog.length };
+}
+
 function getCameraPreset(presetId) {
   const key = String(presetId || DEFAULT_PRESET)
     .trim()
@@ -80,4 +149,6 @@ module.exports = {
   getCameraPreset,
   applyCameraPresetToPayload,
   motionPromptFromPreset,
+  listPresetCatalog,
+  syncPresetCatalog,
 };

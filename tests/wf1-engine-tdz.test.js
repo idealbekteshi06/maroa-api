@@ -375,3 +375,96 @@ test('Credit guard blocks generation when higgsfield_credits < 100', async () =>
   assert.ok(blockEvent, 'low-credits block event written');
   assert.equal(blockEvent.row.payload.credits, 42);
 });
+
+test('Generation-history mirror: image gen writes a higgsfield_generations row', async () => {
+  const biz = {
+    id: '66666666-6666-4666-8666-666666666666',
+    business_name: 'Cafe Test',
+    industry: 'cafe',
+    plan: 'free',
+    higgsfield_soul_id: 'soul-mirror',
+    higgsfield_credits: 900,
+  };
+  const { engine, concept, posts } = buildEngineHarness({
+    platform: 'instagram_feed',
+    biz,
+    higgsfieldStub: {
+      generateImage: async () => ({ url: 'https://cdn.higgsfield.ai/img/mirror.png', model_used: 'nano-banana-pro' }),
+    },
+  });
+  await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
+  const gen = posts.find((p) => p.table === 'higgsfield_generations');
+  assert.ok(gen, 'higgsfield_generations row written for successful image gen');
+  assert.equal(gen.row.business_id, biz.id);
+  assert.equal(gen.row.generation_type, 'image');
+  assert.equal(gen.row.media_url, 'https://cdn.higgsfield.ai/img/mirror.png');
+  assert.equal(gen.row.model, 'nano-banana-pro');
+});
+
+test('Generation-history mirror: video gen records generation_type=video', async () => {
+  const biz = {
+    id: '77777777-7777-4777-8777-777777777777',
+    business_name: 'Cafe Test',
+    industry: 'cafe',
+    plan: 'free',
+    higgsfield_credits: 600,
+  };
+  const { engine, concept, posts } = buildEngineHarness({
+    platform: 'tiktok',
+    biz,
+    higgsfieldStub: {
+      generateImage: async () => ({ url: 'X' }),
+      generateVideo: async () => ({ url: 'https://cdn.higgsfield.ai/v/mirror.mp4', model_used: 'seedance-2.0' }),
+    },
+  });
+  await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
+  const gen = posts.find((p) => p.table === 'higgsfield_generations');
+  assert.ok(gen, 'higgsfield_generations row written for successful video gen');
+  assert.equal(gen.row.generation_type, 'video');
+  assert.equal(gen.row.media_url, 'https://cdn.higgsfield.ai/v/mirror.mp4');
+});
+
+test('Generation-history mirror: NOT written when generation is credit-blocked', async () => {
+  const biz = {
+    id: '88888888-8888-4888-8888-888888888888',
+    business_name: 'Cafe Test',
+    industry: 'cafe',
+    plan: 'free',
+    higgsfield_credits: 10,
+  };
+  const { engine, concept, posts } = buildEngineHarness({
+    platform: 'instagram_feed',
+    biz,
+    higgsfieldStub: {
+      generateImage: async () => ({ url: 'should-not-happen' }),
+    },
+  });
+  await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
+  const gen = posts.find((p) => p.table === 'higgsfield_generations');
+  assert.ok(!gen, 'no generation row when credits blocked generation');
+});
+
+test('Virality prediction: WF1 writes a content_performance row keyed to the asset', async () => {
+  const biz = {
+    id: '99999999-9999-4999-8999-999999999999',
+    business_name: 'Cafe Test',
+    industry: 'cafe',
+    plan: 'free',
+    higgsfield_credits: 900,
+  };
+  const { engine, concept, posts } = buildEngineHarness({
+    platform: 'instagram_feed',
+    biz,
+    higgsfieldStub: {
+      generateImage: async () => ({ url: 'https://cdn.higgsfield.ai/img/v.png', model_used: 'nano-banana-pro' }),
+    },
+  });
+  await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
+  const perf = posts.find((p) => p.table === 'content_performance');
+  assert.ok(perf, 'content_performance row written');
+  assert.equal(perf.row.business_id, biz.id);
+  assert.equal(perf.row.content_id, 'asset-x', 'keyed to the created asset id');
+  assert.equal(typeof perf.row.virality_score, 'number');
+  assert.ok(perf.row.virality_score >= 0 && perf.row.virality_score <= 100, 'score within 0..100');
+  assert.ok(['low', 'medium', 'high'].includes(perf.row.predicted_engagement));
+});
