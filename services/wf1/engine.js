@@ -651,6 +651,14 @@ function createEngine({
           mediaUrl = img?.url || img?.imageUrl || null;
           imageModelUsed = img?.model_used || img?.model_slug || null;
           if (mediaUrl) generationType = 'image';
+          // Pixel-accurate logo placement: overlay the logo PNG onto the
+          // finished image (Higgsfield's reference is only a style hint).
+          // Soft-fails to the un-overlaid image. Image-only. Runs before the
+          // generation-history mirror so the recorded media_url is the final
+          // (composited) URL.
+          if (mediaUrl && logoUrl && typeof higgsfield.applyLogoOverlay === 'function') {
+            mediaUrl = await higgsfield.applyLogoOverlay({ imageUrl: mediaUrl, logoUrl, businessId });
+          }
         } catch (e) {
           logger?.error?.('/wf1/engine.image', businessId, 'higgsfield image generation failed', {
             conceptId,

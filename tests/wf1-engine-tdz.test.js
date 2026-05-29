@@ -571,3 +571,60 @@ test('Logo: presence adds a brand-asset cue to the generation prompt', async () 
   await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
   assert.match(imageCalls[0].prompt, /logo|brand/i, 'logo cue folded into prompt');
 });
+
+test('Logo overlay: WF1 replaces media_url with the logo-composited image', async () => {
+  const biz = {
+    id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    business_name: 'Cafe Test',
+    industry: 'cafe',
+    plan: 'free',
+    higgsfield_credits: 900,
+    logo_url: 'https://cdn.shop/logo.png',
+  };
+  const overlayCalls = [];
+  const { engine, concept, posts } = buildEngineHarness({
+    platform: 'instagram_feed',
+    biz,
+    higgsfieldStub: {
+      generateImage: async () => ({ url: 'https://cdn.higgsfield.ai/img/raw.png', model_used: 'nano-banana-pro' }),
+      applyLogoOverlay: async (a) => {
+        overlayCalls.push(a);
+        return 'https://cdn.supabase/content-images/overlayed.png';
+      },
+    },
+  });
+  await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
+  assert.equal(overlayCalls.length, 1, 'applyLogoOverlay invoked once');
+  assert.equal(overlayCalls[0].logoUrl, 'https://cdn.shop/logo.png');
+  assert.equal(overlayCalls[0].imageUrl, 'https://cdn.higgsfield.ai/img/raw.png');
+  const assetInsert = posts.find((p) => p.table === 'content_assets');
+  assert.equal(
+    assetInsert.row.media_url,
+    'https://cdn.supabase/content-images/overlayed.png',
+    'media_url is the logo-composited image'
+  );
+});
+
+test('Logo overlay: skipped when business has no logo', async () => {
+  const biz = {
+    id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+    business_name: 'Cafe Test',
+    industry: 'cafe',
+    plan: 'free',
+    higgsfield_credits: 900,
+  };
+  const overlayCalls = [];
+  const { engine, concept } = buildEngineHarness({
+    platform: 'instagram_feed',
+    biz,
+    higgsfieldStub: {
+      generateImage: async () => ({ url: 'https://cdn.higgsfield.ai/img/raw.png' }),
+      applyLogoOverlay: async (a) => {
+        overlayCalls.push(a);
+        return 'should-not-happen';
+      },
+    },
+  });
+  await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
+  assert.equal(overlayCalls.length, 0, 'no overlay when logo absent');
+});
