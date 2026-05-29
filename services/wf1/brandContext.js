@@ -217,6 +217,9 @@ function buildBrandContext({ business = {}, profile = {} }) {
     businessType: profile.business_type || business.business_type || form.business_type || '',
     tagline: profile.tagline || '',
     websiteUrl: business.website_url || form.website_url || '',
+    // Claude's read of the customer's homepage (lib/websiteEnricher, migration
+    // 088). Empty until enrichment runs; rendered as <website_analysis>.
+    websiteSummary: business.website_summary || '',
 
     // Budget & economics
     monthlyBudget:

@@ -10999,6 +10999,24 @@ Return ONLY valid JSON:
       safePublicError,
       log,
       express,
+      // Fetch + Claude-summarize the customer's website on signup, then stamp
+      // businesses.website_summary so the brand context can read it (migration
+      // 088). Fire-and-forget from the route; soft-fails on any error.
+      enrichWebsite: async ({ businessId, url }) => {
+        const { enrichFromWebsite } = require('./lib/websiteEnricher');
+        const r = await enrichFromWebsite({
+          url,
+          businessId,
+          deps: { callClaude, extractJSON, logger },
+        });
+        if (r.ok && r.summary) {
+          await sbPatch('businesses', `id=eq.${encodeURIComponent(businessId)}`, {
+            website_summary: r.summary,
+            website_enriched_at: new Date().toISOString(),
+          }).catch(() => {});
+        }
+        return r;
+      },
       // callContentGenerate is plumbed via a loopback HTTP call to
       // /api/content/generate so the route reuses the existing creative
       // pipeline (grounding + critic + cost tracking). 30s budget — past
