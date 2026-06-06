@@ -67,12 +67,38 @@ const TIERS = [
   },
 ];
 
-export function PlanPanel({ currentPlan }: { currentPlan: string }) {
+export interface PlanCatalogTier {
+  price?: number;
+  features?: string[];
+}
+export interface PlanCatalog {
+  starter?: PlanCatalogTier;
+  growth?: PlanCatalogTier;
+  agency?: PlanCatalogTier;
+}
+
+export function PlanPanel({
+  currentPlan,
+  catalog,
+}: {
+  currentPlan: string;
+  // Live price + features from GET /api/billing/plans. When absent (fetch
+  // failed) we fall back to the static scaffold so the page never breaks.
+  catalog?: PlanCatalog | null;
+}) {
+  const tiers = TIERS.map((t) => {
+    const live = catalog?.[t.key];
+    return {
+      ...t,
+      price: typeof live?.price === 'number' ? `$${live.price}` : t.price,
+      features: live?.features?.length ? live.features : t.features,
+    };
+  });
   return (
     <div className="space-y-4">
       <CurrentBanner plan={currentPlan} />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {TIERS.map((t) => (
+        {tiers.map((t) => (
           <TierCard
             key={t.key}
             tier={t}

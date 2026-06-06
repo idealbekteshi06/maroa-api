@@ -222,7 +222,7 @@ function registerGoogleOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logg
     const { code, state, error: oauthError } = req.query;
     if (oauthError) {
       logger?.warn?.('/webhook/oauth/google/callback', null, 'user denied', { oauthError });
-      return res.redirect(302, `${FRONTEND_URL}/integrations?google=cancelled`);
+      return res.redirect(302, `${FRONTEND_URL}/settings/connections?google=cancelled`);
     }
     if (!code) return apiError(res, 400, 'INVALID_REQUEST', 'code required');
 
@@ -240,7 +240,7 @@ function registerGoogleOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logg
       if (!tokenRes.ok) {
         return res.redirect(
           302,
-          `${FRONTEND_URL}/integrations?google=error&reason=${encodeURIComponent(tokenRes.reason)}`
+          `${FRONTEND_URL}/settings/connections?google=error&reason=${encodeURIComponent(tokenRes.reason)}`
         );
       }
       if (!tokenRes.refresh_token) {
@@ -248,7 +248,7 @@ function registerGoogleOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logg
         // (we do pass it, but defensive — could fail if user revoked at Google side first)
         return res.redirect(
           302,
-          `${FRONTEND_URL}/integrations?google=error&reason=${encodeURIComponent('No refresh_token returned. Please disconnect at myaccount.google.com/permissions and retry.')}`
+          `${FRONTEND_URL}/settings/connections?google=error&reason=${encodeURIComponent('No refresh_token returned. Please disconnect at myaccount.google.com/permissions and retry.')}`
         );
       }
 
@@ -282,10 +282,10 @@ function registerGoogleOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logg
         },
       }).catch(() => {});
 
-      return res.redirect(302, `${FRONTEND_URL}/integrations?google=connected`);
+      return res.redirect(302, `${FRONTEND_URL}/settings/connections?google=connected`);
     } catch (e) {
       logger?.error?.('/webhook/oauth/google/callback', businessId, 'callback crashed', { error: e.message });
-      return res.redirect(302, `${FRONTEND_URL}/integrations?google=error&reason=${encodeURIComponent(e.message)}`);
+      return res.redirect(302, `${FRONTEND_URL}/settings/connections?google=error&reason=${encodeURIComponent(e.message)}`);
     }
   });
 

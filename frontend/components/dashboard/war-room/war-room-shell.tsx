@@ -169,7 +169,7 @@ export function WarRoomShell({
             </p>
           </div>
           <Link
-            href="/settings/workspace"
+            href="/settings"
             className="text-xs font-medium text-amber-900 dark:text-amber-200 hover:underline whitespace-nowrap"
           >
             Set up workspace →
@@ -342,7 +342,7 @@ function ApprovalInboxList({
             return (
               <li key={a.id}>
                 <Link
-                  href={`/dashboard/approvals/${a.id}`}
+                  href="/dashboard/approvals"
                   className="brand-edge block rounded-lg border border-amber-200/60 dark:border-amber-500/20 hover:border-amber-300 dark:hover:border-amber-500/40 p-2.5 transition-colors"
                 >
                   <p className="text-[10px] uppercase tracking-wider text-ink-400">
