@@ -285,7 +285,10 @@ function registerGoogleOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logg
       return res.redirect(302, `${FRONTEND_URL}/settings/connections?google=connected`);
     } catch (e) {
       logger?.error?.('/webhook/oauth/google/callback', businessId, 'callback crashed', { error: e.message });
-      return res.redirect(302, `${FRONTEND_URL}/settings/connections?google=error&reason=${encodeURIComponent(e.message)}`);
+      return res.redirect(
+        302,
+        `${FRONTEND_URL}/settings/connections?google=error&reason=${encodeURIComponent(e.message)}`
+      );
     }
   });
 

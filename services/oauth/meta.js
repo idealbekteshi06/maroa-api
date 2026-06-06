@@ -362,7 +362,10 @@ function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger
       return res.redirect(302, `${FRONTEND_URL}/settings/connections?meta=connected`);
     } catch (e) {
       logger?.error?.('/webhook/oauth/meta/callback', businessId, 'callback handler crashed', { error: e.message });
-      return res.redirect(302, `${FRONTEND_URL}/settings/connections?meta=error&reason=${encodeURIComponent(e.message)}`);
+      return res.redirect(
+        302,
+        `${FRONTEND_URL}/settings/connections?meta=error&reason=${encodeURIComponent(e.message)}`
+      );
     }
   });
 
