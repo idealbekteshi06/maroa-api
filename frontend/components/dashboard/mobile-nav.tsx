@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
+  Sparkles,
   Users,
   Inbox,
   PenSquare,
@@ -41,6 +42,7 @@ const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: t
     label: 'Command',
     items: [
       { href: '/dashboard', label: 'Home', icon: LayoutDashboard },
+      { href: '/dashboard/brain', label: 'AI Brain', icon: Sparkles },
       { href: '/dashboard/approvals', label: 'Approvals', icon: Inbox },
       { href: '/dashboard/clients', label: 'Clients', icon: Users },
     ],
