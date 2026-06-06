@@ -209,16 +209,15 @@ async function buildBrandVoiceAnchor({ businessId, deps }) {
   return { ok: true, data: { anchor_summary: { tone: anchor.tone_descriptors, audience: anchor.audience_summary } } };
 }
 
-// ─── Phase 4: train Soul ID (gated on 3-angle photos uploaded) ───────────
+// ─── Phase 4: train Soul ID (gated on 3+ photos uploaded) ────────────────
 
 /**
- * Soul ID character training phase — graceful Cloud-only fallback.
+ * Soul ID character training phase — fire-and-forget, never blocks onboarding.
  *
  * Verified empirically (2026-05-10): Higgsfield CLOUD API
  * (platform.higgsfield.ai with Key auth) does NOT expose Soul ID
  * character training endpoints. Those live only on the consumer FNF API
- * (fnf.higgsfield.ai with Bearer token). Most Maroa deployments have
- * Cloud credentials only — that's where the credits live.
+ * (fnf.higgsfield.ai with Bearer token).
  *
  * Decision tree:
  *
@@ -226,12 +225,23 @@ async function buildBrandVoiceAnchor({ businessId, deps }) {
  *     ├─ NO (Cloud-only account)         → SKIP gracefully, set
  *     │                                    generation_mode=prompt_driven.
  *     │                                    Cold-start completes normally.
- *     ├─ YES + customer has 5+ photos    → train (full character-lock)
- *     └─ YES but customer has 0–4 photos → awaitingInput (collect more)
+ *     ├─ YES + customer has 3+ photos    → KICK OFF training, fire the
+ *     │                                    higgsfield/soul-train.poll Inngest
+ *     │                                    event, and immediately continue.
+ *     │                                    The durable higgsfieldSoulTrainPoll
+ *     │                                    function (services/inngest/
+ *     │                                    functions.js) waits for training
+ *     │                                    to finish and stamps
+ *     │                                    businesses.higgsfield_soul_id —
+ *     │                                    which the WF1 engine then attaches
+ *     │                                    to every Higgsfield generation
+ *     │                                    automatically.
+ *     └─ YES but customer has 0–2 photos → awaitingInput (collect more)
  *
- * Skipping is the A+++ default — it never blocks onboarding. Brand
- * consistency is maintained downstream via the brand voice anchor's
- * visual descriptors (palette, mood, style) baked into every prompt.
+ * Skipping the wait is the A+++ default — onboarding never blocks on
+ * training latency (~minutes). The first piece of content may ship before
+ * training completes; if so, it uses prompt-driven generation and every
+ * subsequent piece picks up the locked Soul ID automatically.
  */
 async function trainSoulId({ businessId, deps }) {
   const { sbGet, sbPatch, higgsfield, logger } = deps;
@@ -269,7 +279,7 @@ async function trainSoulId({ businessId, deps }) {
     `business_id=eq.${businessId}&photo_type=eq.character_sheet&is_active=eq.true&select=id,photo_url`
   ).catch(() => []);
 
-  const minImages = Number(process.env.HIGGSFIELD_SOUL_ID_MIN_IMAGES) || 5;
+  const minImages = Number(process.env.HIGGSFIELD_SOUL_ID_MIN_IMAGES) || 3;
   if (!photoRows || photoRows.length < minImages) {
     return {
       ok: true,
@@ -288,23 +298,38 @@ async function trainSoulId({ businessId, deps }) {
     return { ok: true, data: { soul_id: null, source: 'higgsfield_unavailable' } };
   }
 
-  let soulId;
+  // Inngest is resolved either from the injected deps (tests) or from the
+  // shared client (production). Soft-fall to a logged warning if absent so
+  // we still kick off training — the customer just won't get auto-persist.
+  let inngest = deps?.inngest || null;
+  if (!inngest) {
+    try {
+      inngest = require('../inngest/client').inngest;
+    } catch {
+      inngest = null;
+    }
+  }
+
+  let characterId;
   let modelUsed;
   let apiUsed;
+  let photosUsed = 0;
   try {
+    const photoUrls = photoRows.slice(0, 20).map((p) => p.photo_url);
+    photosUsed = photoUrls.length;
     const r = await higgsfield.trainSoulCharacter({
       characterId: `biz_${businessId}`,
-      sourceImageUrls: photoRows.slice(0, 10).map((p) => p.photo_url),
+      sourceImageUrls: photoUrls,
       name: `business_${businessId}`,
       model: 'soul_2',
     });
-    soulId = r?.higgsfield_character_id || r?.soul_id || r?.id || null;
+    characterId = r?.higgsfield_character_id || r?.soul_id || r?.id || null;
     modelUsed = r?.model_used || 'soul_2';
     apiUsed = r?.api_used || 'fnf';
   } catch (e) {
     // A+++ rule: training failure NEVER kills onboarding. Log + fall back
     // to prompt-driven generation. Customer's first content still ships.
-    logger?.error?.('cold-start.train_soul_id', businessId, 'training failed — falling back to prompt-driven', {
+    logger?.error?.('cold-start.train_soul_id', businessId, 'training kickoff failed — falling back to prompt-driven', {
       error: e.message,
     });
     return {
@@ -320,7 +345,7 @@ async function trainSoulId({ businessId, deps }) {
     };
   }
 
-  if (!soulId) {
+  if (!characterId) {
     return {
       ok: true,
       data: {
@@ -332,18 +357,48 @@ async function trainSoulId({ businessId, deps }) {
     };
   }
 
-  await sbPatch?.('businesses', `id=eq.${businessId}`, {
-    soul_id: soulId,
-    soul_id_trained_at: new Date().toISOString(),
-  }).catch(() => {});
+  // Hand off to the durable Inngest poller. It calls
+  // /webhook/higgsfield-soul-train-finalize, which waits for training to
+  // complete and stamps businesses.higgsfield_soul_id. If the send fails
+  // we don't roll back the training — the Inngest event can be re-fired
+  // manually, and onboarding still continues.
+  let pollScheduled = false;
+  if (inngest?.send) {
+    try {
+      await inngest.send({
+        name: 'higgsfield/soul-train.poll',
+        data: { businessId, characterId },
+      });
+      pollScheduled = true;
+    } catch (sendErr) {
+      logger?.warn?.('cold-start.train_soul_id', businessId, 'inngest send failed — soul_id will not auto-persist', {
+        error: sendErr.message,
+        characterId,
+      });
+    }
+  } else {
+    logger?.warn?.(
+      'cold-start.train_soul_id',
+      businessId,
+      'inngest client unavailable — soul_id will not auto-persist',
+      { characterId }
+    );
+  }
 
   return {
     ok: true,
     data: {
-      soul_id: soulId,
+      soul_id: null,
+      soul_id_pending: true,
+      character_id: characterId,
+      training_started: true,
+      poll_scheduled: pollScheduled,
+      photos_used: photosUsed,
       model_used: modelUsed,
       api_used: apiUsed,
-      generation_mode: 'character_locked',
+      generation_mode: 'character_locked_pending',
+      message:
+        'Soul ID training started in the background — your daily content will lock to your brand character once training completes (usually within a few minutes).',
     },
   };
 }

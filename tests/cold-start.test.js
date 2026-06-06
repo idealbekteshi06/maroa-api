@@ -123,55 +123,98 @@ test(
 );
 
 test(
-  'trainSoulId: FNF path + <5 photos → awaitingInput',
+  'trainSoulId: FNF path + <3 photos → awaitingInput (gate lowered to 3 for auto-training)',
   withFnfToken('hf_test_bearer', async () => {
     const deps = {
       sbGet: async () => [
         { id: 'p1', photo_url: 'https://1' },
         { id: 'p2', photo_url: 'https://2' },
-        { id: 'p3', photo_url: 'https://3' },
       ],
       sbPatch: async () => {},
       higgsfield: { trainSoulCharacter: async () => ({}) },
       logger: { warn: () => {}, error: () => {} },
     };
-    const r = await phases.trainSoulId({ businessId: 'biz-3', deps });
+    const r = await phases.trainSoulId({ businessId: 'biz-2', deps });
     assert.strictEqual(r.ok, true);
     assert.strictEqual(r.awaitingInput, true);
-    assert.strictEqual(r.data.uploaded, 3);
-    assert.strictEqual(r.data.required, 5);
+    assert.strictEqual(r.data.uploaded, 2);
+    assert.strictEqual(r.data.required, 3);
   })
 );
 
 test(
-  'trainSoulId: FNF path + 5+ photos → trains, returns character_locked mode',
+  'trainSoulId: FNF path + 3+ photos → fires inngest poll, returns character_locked_pending immediately',
   withFnfToken('hf_test_bearer', async () => {
     let capturedArgs = null;
+    const inngestSends = [];
     const deps = {
       sbGet: async () => [
         { id: 'p1', photo_url: 'https://1' },
         { id: 'p2', photo_url: 'https://2' },
         { id: 'p3', photo_url: 'https://3' },
-        { id: 'p4', photo_url: 'https://4' },
-        { id: 'p5', photo_url: 'https://5' },
       ],
-      sbPatch: async () => {},
+      sbPatch: async () => {
+        throw new Error('sbPatch must NOT be called — soul_id persistence is deferred to the Inngest poller');
+      },
       higgsfield: {
         trainSoulCharacter: async (args) => {
           capturedArgs = args;
           return { higgsfield_character_id: 'soul_abc123', model_used: 'soul_2', api_used: 'fnf' };
         },
       },
-      logger: { warn: () => {}, error: () => {} },
+      inngest: {
+        send: async (evt) => {
+          inngestSends.push(evt);
+        },
+      },
+      logger: { warn: () => {}, error: () => {}, info: () => {} },
     };
-    const r = await phases.trainSoulId({ businessId: 'biz-4', deps });
+    const r = await phases.trainSoulId({ businessId: 'biz-auto', deps });
     assert.strictEqual(r.ok, true);
-    assert.strictEqual(r.awaitingInput, undefined);
-    assert.strictEqual(r.data.soul_id, 'soul_abc123');
-    assert.strictEqual(r.data.generation_mode, 'character_locked');
-    assert.strictEqual(r.data.api_used, 'fnf');
+    assert.strictEqual(r.awaitingInput, undefined, 'must continue onboarding without waiting');
+    assert.strictEqual(
+      r.data.soul_id,
+      null,
+      'persistence is deferred until the Inngest poller writes higgsfield_soul_id'
+    );
+    assert.strictEqual(r.data.soul_id_pending, true);
+    assert.strictEqual(r.data.training_started, true);
+    assert.strictEqual(r.data.character_id, 'soul_abc123');
+    assert.strictEqual(r.data.poll_scheduled, true);
+    assert.strictEqual(r.data.generation_mode, 'character_locked_pending');
+    assert.strictEqual(r.data.photos_used, 3);
     assert.strictEqual(capturedArgs.model, 'soul_2');
-    assert.strictEqual(capturedArgs.sourceImageUrls.length, 5);
+    assert.strictEqual(capturedArgs.sourceImageUrls.length, 3);
+    assert.strictEqual(inngestSends.length, 1, 'exactly one inngest event fired');
+    assert.strictEqual(inngestSends[0].name, 'higgsfield/soul-train.poll');
+    assert.deepStrictEqual(inngestSends[0].data, { businessId: 'biz-auto', characterId: 'soul_abc123' });
+  })
+);
+
+test(
+  'trainSoulId: FNF path + 3+ photos but inngest send fails → still returns ok, marks poll_scheduled=false',
+  withFnfToken('hf_test_bearer', async () => {
+    const deps = {
+      sbGet: async () => [
+        { id: 'p1', photo_url: 'https://1' },
+        { id: 'p2', photo_url: 'https://2' },
+        { id: 'p3', photo_url: 'https://3' },
+      ],
+      sbPatch: async () => {},
+      higgsfield: {
+        trainSoulCharacter: async () => ({ higgsfield_character_id: 'soul_xyz', api_used: 'fnf' }),
+      },
+      inngest: {
+        send: async () => {
+          throw new Error('inngest down');
+        },
+      },
+      logger: { warn: () => {}, error: () => {}, info: () => {} },
+    };
+    const r = await phases.trainSoulId({ businessId: 'biz-down', deps });
+    assert.strictEqual(r.ok, true, 'onboarding must continue even if inngest is down');
+    assert.strictEqual(r.data.poll_scheduled, false);
+    assert.strictEqual(r.data.character_id, 'soul_xyz');
   })
 );
 
@@ -203,11 +246,11 @@ test(
 );
 
 test(
-  'trainSoulId: FNF path passes up to 10 photos (better identity lock)',
+  'trainSoulId: FNF path passes up to 20 photos (Higgsfield max for best identity lock)',
   withFnfToken('hf_test_bearer', async () => {
     let capturedArgs = null;
     const photoRows = [];
-    for (let i = 1; i <= 15; i += 1) photoRows.push({ id: `p${i}`, photo_url: `https://${i}` });
+    for (let i = 1; i <= 25; i += 1) photoRows.push({ id: `p${i}`, photo_url: `https://${i}` });
     const deps = {
       sbGet: async () => photoRows,
       sbPatch: async () => {},
@@ -217,10 +260,11 @@ test(
           return { higgsfield_character_id: 'soul_xyz', model_used: 'soul_2', api_used: 'fnf' };
         },
       },
-      logger: { warn: () => {}, error: () => {} },
+      inngest: { send: async () => {} },
+      logger: { warn: () => {}, error: () => {}, info: () => {} },
     };
     await phases.trainSoulId({ businessId: 'biz-5', deps });
-    assert.strictEqual(capturedArgs.sourceImageUrls.length, 10);
+    assert.strictEqual(capturedArgs.sourceImageUrls.length, 20);
   })
 );
 
