@@ -127,8 +127,11 @@ jobs:
           NEXT_PUBLIC_API_URL: https://maroa-api-production.up.railway.app
           NEXT_PUBLIC_SITE_URL: https://maroa.ai
 
-      - name: Frontend npm audit (high+)
-        run: npm audit --audit-level=high
+      - name: Frontend npm audit (high+, prod deps only)
+        # Scope to production deps: dev-only tool CVEs (vitest/esbuild/vite)
+        # have no production/runtime surface and shouldn't block feature
+        # merges. Real production advisories still fail the build.
+        run: npm audit --audit-level=high --omit=dev
         continue-on-error: false
 
   secret-scan:
