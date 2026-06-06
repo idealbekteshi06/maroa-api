@@ -9,6 +9,7 @@ import {
   ldJson,
   SITE_URL,
 } from '@/lib/schema-org';
+import { fetchPlansSSR } from '@/lib/api/plans.server';
 
 export const metadata: Metadata = {
   title: 'Pricing — $25 Starter · $59 Growth · $99 Agency',
@@ -98,7 +99,20 @@ const PRICING_SCHEMAS = [
   ]),
 ];
 
-export default function PricingPage() {
+export default async function PricingPage() {
+  // Price + features come from GET /api/billing/plans (single source of
+  // truth). Presentational copy (audience, tagline, CTA) stays local. If the
+  // catalog fetch fails we fall back entirely to the static scaffold.
+  const catalog = await fetchPlansSSR();
+  const plans = PLANS.map((plan) => {
+    const key = plan.name.toLowerCase() as 'starter' | 'growth' | 'agency';
+    const live = catalog?.[key];
+    return {
+      ...plan,
+      price: typeof live?.price === 'number' ? `$${live.price}` : plan.price,
+      features: live?.features?.length ? live.features : plan.features,
+    };
+  });
   return (
     <>
       {PRICING_SCHEMAS.map((schema, i) => (
@@ -125,7 +139,7 @@ export default function PricingPage() {
 
       <section className="container mt-20">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl mx-auto">
-          {PLANS.map((plan) => (
+          {plans.map((plan) => (
             <div
               key={plan.name}
               className={cn(

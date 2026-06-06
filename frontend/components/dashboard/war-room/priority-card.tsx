@@ -219,7 +219,7 @@ export function PriorityCard({
                     key={actionsKey}
                     workspaceId={workspaceId}
                     decisionId={decision.id}
-                    detailHref={`/dashboard/decisions/${decision.id}`}
+                    detailHref="/dashboard/approvals"
                     onActionChange={setAction}
                   />
                 ) : decision.executed ? (
@@ -229,7 +229,7 @@ export function PriorityCard({
                   </span>
                 ) : (
                   <Link
-                    href={`/dashboard/decisions/${decision.id}`}
+                    href="/dashboard/approvals"
                     className="inline-flex items-center gap-1.5 text-xs font-medium text-accent-500 hover:text-accent-600 dark:text-accent-400"
                   >
                     See details
