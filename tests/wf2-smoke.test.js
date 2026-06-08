@@ -45,7 +45,8 @@ test('wf2: getIcp returns normalized defaults when no row exists', async () => {
 test('wf2: rescoreLead scores a contact and upserts lead_scores', async () => {
   const posted = [];
   const wf2 = makeWf2({
-    sbGet: async (table) => (table === 'contacts' ? [{ id: 'lead1', email: 'cfo@acme.com', company_name: 'Acme' }] : []),
+    sbGet: async (table) =>
+      table === 'contacts' ? [{ id: 'lead1', email: 'cfo@acme.com', company_name: 'Acme' }] : [],
     sbPost: async (table, row) => (posted.push({ table, row }), { id: 'ls1' }),
   });
   const r = await wf2.rescoreLead({ businessId: 'b1', leadId: 'lead1' });

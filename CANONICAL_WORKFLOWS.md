@@ -15,10 +15,10 @@
 
 1. **Firing** — is it registered in the Inngest `functions` array
    (`services/inngest/functions.js`) so it runs unattended in production?
-2. **Tested** — does it have *behavioural* tests in `tests/` (not just a
+2. **Tested** — does it have _behavioural_ tests in `tests/` (not just a
    factory-shape / contract smoke test)?
 3. **Wired** — does it expose a mounted HTTP surface for on-demand calls + reads?
-4. **Data model** — which tables does it write? (The UI reads *these*, so the
+4. **Data model** — which tables does it write? (The UI reads _these_, so the
    canonical pick also picks the data model the screens render.)
 
 A capability is canonical when it wins on (1)+(2). Where the firing engine
@@ -29,14 +29,14 @@ Phase 2 — it does **not** justify binding the UI to the deprecated twin.
 
 ## Decision summary (the cheat-sheet Phase 3 binds to)
 
-| Capability | ✅ Canonical | ⛔ Deprecated twin | UI binds to (routes + tables) | Firing? | Tests |
-|---|---|---|---|---|---|
-| **Ad optimization** | `services/ad-optimizer` | `services/wf3` | ad-optimizer's own routes + `manual.ad-audit` event; read `ad_audit_results`, `ad_campaigns`, `ad_performance_logs` | cron `0 8 * * *` ✅ | `ad-optimizer*.test.js`, `meta-ads-actuator.test.js` ✅ |
-| **Competitor intel** | `services/competitor-watch` | `services/wf5` | ⚠️ **no route yet** — read `competitor_signals` (+ `compileWarRoomBriefing`); **not** wf5's `competitor_briefs` | cron `0 */4 * * *` ✅ | `competitor-incrementality.test.js` ✅ |
-| **Email lifecycle** | `services/email-lifecycle` | `services/wf7` | ⚠️ **no route yet** — read `email_sequences`, `email_sequence_runs`; **not** wf7's `email_enrollments`/`email_segments` | cron `*/15 * * * *` ✅ | `email-and-pages.test.js` 🟡 (shallow) |
-| **CRO** (conversion) | `services/cro` | *(none — distinct concern)* | `croService` routes; read `cro_audits` | on-demand | `cro.test.js` ✅ |
-| **AI-SEO** (citability + schema + llms.txt) | `services/ai-seo` | `services/wf6` *(schema / AI-readiness overlap)* | `/api/ai-seo`; read `ai_seo_audits`, `ai_seo_artifacts` | on-demand | `ai-seo.test.js`, `routes-launch-research-ai-seo.test.js` ✅ |
-| **AI-search citation monitoring** | `services/citation-tracker` | *(none — complements ai-seo, not a twin)* | ⚠️ **no read route yet** — read `ai_citations`, `ai_citation_prompts` | cron `0 6 * * *` ✅ | `citation-tracker.test.js` ✅ |
+| Capability                                  | ✅ Canonical                | ⛔ Deprecated twin                               | UI binds to (routes + tables)                                                                                           | Firing?                | Tests                                                        |
+| ------------------------------------------- | --------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------ |
+| **Ad optimization**                         | `services/ad-optimizer`     | `services/wf3`                                   | ad-optimizer's own routes + `manual.ad-audit` event; read `ad_audit_results`, `ad_campaigns`, `ad_performance_logs`     | cron `0 8 * * *` ✅    | `ad-optimizer*.test.js`, `meta-ads-actuator.test.js` ✅      |
+| **Competitor intel**                        | `services/competitor-watch` | `services/wf5`                                   | ⚠️ **no route yet** — read `competitor_signals` (+ `compileWarRoomBriefing`); **not** wf5's `competitor_briefs`         | cron `0 */4 * * *` ✅  | `competitor-incrementality.test.js` ✅                       |
+| **Email lifecycle**                         | `services/email-lifecycle`  | `services/wf7`                                   | ⚠️ **no route yet** — read `email_sequences`, `email_sequence_runs`; **not** wf7's `email_enrollments`/`email_segments` | cron `*/15 * * * *` ✅ | `email-and-pages.test.js` 🟡 (shallow)                       |
+| **CRO** (conversion)                        | `services/cro`              | _(none — distinct concern)_                      | `croService` routes; read `cro_audits`                                                                                  | on-demand              | `cro.test.js` ✅                                             |
+| **AI-SEO** (citability + schema + llms.txt) | `services/ai-seo`           | `services/wf6` _(schema / AI-readiness overlap)_ | `/api/ai-seo`; read `ai_seo_audits`, `ai_seo_artifacts`                                                                 | on-demand              | `ai-seo.test.js`, `routes-launch-research-ai-seo.test.js` ✅ |
+| **AI-search citation monitoring**           | `services/citation-tracker` | _(none — complements ai-seo, not a twin)_        | ⚠️ **no read route yet** — read `ai_citations`, `ai_citation_prompts`                                                   | cron `0 6 * * *` ✅    | `citation-tracker.test.js` ✅                                |
 
 Legend: ✅ firing + tested · 🟡 shallow test only · ⚠️ wiring gap to close in Phase 2.
 
@@ -93,14 +93,14 @@ Legend: ✅ firing + tested · 🟡 shallow test only · ⚠️ wiring gap to cl
   `-dispatch-due` — `services/wf_batch_routes.js:80`,`:89`,`:98`,`:107`,
   zero tests) and uses a **different run model**: `email_segments` (`:23`),
   `email_sequences` (`:46`), `email_enrollments` (`:57`).
-- **⚠️ Latent double-writer:** *both* engines write **`email_sequences`**
+- **⚠️ Latent double-writer:** _both_ engines write **`email_sequences`**
   (email-lifecycle `:75`, wf7 `:46`). Deprecating wf7 also removes the second
   writer to a shared table — do this before the UI relies on that table.
 - **Binding rule:** Email screen reads `email_sequences` + `email_sequence_runs`
   (canonical). Do **not** read `email_enrollments`/`email_segments` or call
   `wf7-*` routes.
 - **Wiring gap (Phase 2):** add a canonical read/enroll/trigger route on
-  `email-lifecycle` (the cron only *dispatches due* runs).
+  `email-lifecycle` (the cron only _dispatches due_ runs).
 
 ### 4. The "CRO / SEO trio" → `cro` + `ai-seo` canonical; `wf6` deprecated
 
@@ -112,11 +112,11 @@ These three customer-facing audit services collide in the UI as overlapping
   (`croService.registerRoutes`, `server.js:9659`), tested (`cro.test.js`),
   writes `cro_audits` (`services/cro/engine.js:38`). Its own screen.
 - **AI-SEO → `services/ai-seo` (canonical).** AI-search citability + `llms.txt`
-  + JSON-LD `schema_blocks` + page rewrites. Mounted at `/api/ai-seo` with
-  rate-limit + cost-guard + `requireValidUserId` (`server.js:682`/`:715`/`:735`,
-  `aiSeo.registerRoutes` `:9656`), tested (`ai-seo.test.js`,
-  `routes-launch-research-ai-seo.test.js`), writes `ai_seo_audits` +
-  `ai_seo_artifacts` (`services/ai-seo/engine.js:50`, `:96`).
+  - JSON-LD `schema_blocks` + page rewrites. Mounted at `/api/ai-seo` with
+    rate-limit + cost-guard + `requireValidUserId` (`server.js:682`/`:715`/`:735`,
+    `aiSeo.registerRoutes` `:9656`), tested (`ai-seo.test.js`,
+    `routes-launch-research-ai-seo.test.js`), writes `ai_seo_audits` +
+    `ai_seo_artifacts` (`services/ai-seo/engine.js:50`, `:96`).
 - **`services/wf6` (Local + Digital Presence) → DEPRECATED as the SEO twin.**
   It generates JSON-LD/`schema_markup_generated` (`services/wf6/index.js:64`)
   and an AI-search-readiness/`presence_audits` audit (`:45`) — **the same
@@ -126,7 +126,7 @@ These three customer-facing audit services collide in the UI as overlapping
   (`wf-batch-contract.test.js`).
 - **Binding rule:** the SEO screen binds to **`ai-seo`** (`/api/ai-seo`).
   Never expose a second SEO screen on `wf6-*`.
-- **🚩 Product decision for you (not a UI duplication):** wf6 has a *unique*
+- **🚩 Product decision for you (not a UI duplication):** wf6 has a _unique_
   capability ai-seo lacks — **Google Business Profile / local-presence** (live
   GBP snapshot via `services/wf6/gbpSnapshot.js`, `local_rank`, NAP
   consistency). Options: **(a)** fold "Local Presence" into ai-seo as an extra
@@ -134,7 +134,7 @@ These three customer-facing audit services collide in the UI as overlapping
   feature. Either way it is **not** a second AI-SEO screen. Flagging for your
   call before Phase 3 builds the SEO surface.
 
-### 5. AI-search citation monitoring → `citation-tracker` (canonical, *not* a twin of ai-seo)
+### 5. AI-search citation monitoring → `citation-tracker` (canonical, _not_ a twin of ai-seo)
 
 - `citation-tracker` is firing (`services/inngest/functions.js:644`, cron
   `0 6 * * *` at `:650`), tested (`citation-tracker.test.js`), writes
@@ -143,7 +143,7 @@ These three customer-facing audit services collide in the UI as overlapping
   HTTP surface.
 - **It complements, not duplicates, ai-seo:** ai-seo **optimizes** (makes a
   site citable); citation-tracker **measures** (are we actually cited, share of
-  voice, gaps). These are *different screens* — citation tracking belongs in
+  voice, gaps). These are _different screens_ — citation tracking belongs in
   Intelligence/monitoring, not on the AI-SEO optimization screen.
 - **Wiring gap (Phase 2):** add a read route to surface `ai_citations` /
   share-of-voice; the engine itself only runs the daily sweep.
@@ -155,18 +155,18 @@ These three customer-facing audit services collide in the UI as overlapping
 The duplication is **not symmetric**, and this changes the wiring work:
 
 1. **The firing canonicals have no HTTP surface.** `competitor-watch`,
-   `email-lifecycle`, and `citation-tracker` are *cron-only* (`index.js`, no
+   `email-lifecycle`, and `citation-tracker` are _cron-only_ (`index.js`, no
    `registerRoutes.js`). The on-demand read/trigger endpoints currently exist
    **only on the deprecated twins** (`wf5-*`, `wf7-*`). "Bind to canonical,
    never the twin" therefore requires **building a thin canonical route (or
-   `manual.*` event) first** — see each capability's *wiring gap*. The temptation
+   `manual.*` event) first** — see each capability's _wiring gap_. The temptation
    to bind the UI to `wf5-latest`/`wf7-*` "just to ship" re-entrenches the path
    we are deprecating; don't.
 2. **`email_sequences` has two writers** (email-lifecycle + wf7). Deprecating
    wf7 removes the second writer; do it before the Email screen trusts that table.
 3. **Twins write different tables than canonicals** (`competitor_signals` vs
    `competitor_briefs`; `email_sequence_runs` vs `email_enrollments`). The
-   canonical pick *is* the data-model pick — Phase 3 reads the canonical tables.
+   canonical pick _is_ the data-model pick — Phase 3 reads the canonical tables.
 4. **`ad-optimizer` is the only clean case** (cron + routes + manual event +
    strong tests). Use it as the template for the routes/events to add to the
    other canonicals.
