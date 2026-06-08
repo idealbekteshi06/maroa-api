@@ -1,5 +1,11 @@
 /*
- * services/wf5/index.js — Competitor Intelligence engine
+ * services/wf5/index.js — Competitor Intelligence engine (DEPRECATED)
+ *
+ * @deprecated Superseded by the canonical services/competitor-watch (firing
+ * Inngest cron `competitor-watch-every-4h` + /webhook/competitor-watch-scan and
+ * /webhook/competitor-watch-briefing). See CANONICAL_WORKFLOWS.md.
+ * Marked-deprecated — do NOT build new features on it. The canonical engine
+ * writes `competitor_signals`; wf5 writes the divergent `competitor_briefs`.
  */
 
 'use strict';

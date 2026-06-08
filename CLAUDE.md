@@ -241,14 +241,30 @@ before relying on them: **WF2** (lead scoring), **WF4** (reviews),
 (`anthropic-2026` / `wf-batch-contract`) only assert factory shape or
 prompt wiring, not engine behaviour.
 
-### ⚠️ Duplication to resolve
+### ⚠️ Duplication — RESOLVED (see `CANONICAL_WORKFLOWS.md`)
 
-Three capabilities exist as **both** a legacy route-engine and a newer
-scheduled service doing similar work — pick one per capability and delete
-the other: ad optimization (`wf3` vs `ad-optimizer`), competitor intel
-(`wf5` vs `competitor-watch`), email (`wf7` vs `email-lifecycle`). Also,
-`autopilot-brain` and `ad-optimizer` both fire at `0 8 * * *` — confirm
-the brain orchestrates rather than races the optimizer.
+The canonical engine per duplicated capability is now decided and recorded in
+**`CANONICAL_WORKFLOWS.md`** (the binding contract for the dashboard UI):
+
+- **Ad optimization** → `ad-optimizer` (canonical). `wf3` `@deprecated`.
+- **Competitor intel** → `competitor-watch` (canonical). `wf5` `@deprecated`.
+  The canonical engine lacked an on-demand surface, so per-business
+  `/webhook/competitor-watch-scan` + `/webhook/competitor-watch-briefing`
+  routes and a `maroa/manual.competitor-watch` Inngest event were added.
+- **Email** → `email-lifecycle` (canonical). `wf7` `@deprecated`, and its
+  `designSequence`/`dispatchDue` no longer write the shared `email_sequences`
+  table (double-writer fixed). Added a `maroa/manual.email-lifecycle` event.
+  ⚠️ `email_sequences` is still written by **two** other paths with divergent
+  schemas — `routes/email-lifecycle.js` (`trigger_type`/`emails[]`/
+  `contact_enrollments`) and the canonical service (`stage`/`cadence_days`/
+  `email_sequence_runs`). Consolidating those two is a remaining follow-up.
+- **CRO/SEO** → `cro` + `ai-seo` canonical. `wf6` `@deprecated` for its
+  AI-SEO/schema overlap; its unique GBP/local-presence audit is **retained**
+  pending a scoped fold into ai-seo as a "Local Presence" dimension.
+
+Bind new UI/screens to the canonical only — never the deprecated twin. Also,
+`autopilot-brain` and `ad-optimizer` both fire at `0 8 * * *` — confirm the
+brain orchestrates rather than races the optimizer.
 
 ---
 

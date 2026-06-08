@@ -297,6 +297,38 @@ const manualScorecardRun = inngest.createFunction(
   }
 );
 
+// Send event "maroa/manual.competitor-watch" to run a per-business competitor
+// War Room scan on demand (canonical engine — not the deprecated wf5 twin).
+const manualCompetitorWatch = inngest.createFunction(
+  withDLQ({
+    id: 'manual-competitor-watch',
+    name: 'Manual · competitor War Room scan',
+    retries: 1,
+    concurrency: { limit: 1, key: 'event.data.businessId' },
+    triggers: [{ event: 'maroa/manual.competitor-watch' }],
+  }),
+  async ({ event, step }) => {
+    const businessId = event?.data?.businessId;
+    if (!businessId) return { ok: false, reason: 'missing businessId' };
+    return await step.run('scan', async () => callInternal('/webhook/competitor-watch-scan', { businessId }));
+  }
+);
+
+// Send event "maroa/manual.email-lifecycle" to process due email-sequence runs
+// on demand (canonical engine — not the deprecated wf7 twin).
+const manualEmailLifecycle = inngest.createFunction(
+  withDLQ({
+    id: 'manual-email-lifecycle',
+    name: 'Manual · email lifecycle process',
+    retries: 1,
+    concurrency: { limit: 1 },
+    triggers: [{ event: 'maroa/manual.email-lifecycle' }],
+  }),
+  async ({ step }) => {
+    return await step.run('process-due', async () => callInternal('/webhook/email-lifecycle-process-due', {}));
+  }
+);
+
 // ─── WF1 daily content sweep (hourly) ─────────────────────────────────────
 // Replaces the in-process setInterval that used to live in server.js. The
 // underlying engine (services/wf1/dailyRun) iterates each business and only
@@ -899,6 +931,11 @@ const functions = [
   manualAdAudit,
   manualPacingRun,
   manualScorecardRun,
+
+  // Manual triggers for the canonical engines that lacked an on-demand surface
+  // (competitor-watch / email-lifecycle) — see CANONICAL_WORKFLOWS.md.
+  manualCompetitorWatch,
+  manualEmailLifecycle,
 
   // Wave 59 S5: quarterly AI-assisted taxonomy refresh (proposes via Slack only)
   taxonomyRefreshQuarterly,
