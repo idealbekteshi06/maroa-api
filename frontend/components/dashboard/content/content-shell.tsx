@@ -17,26 +17,38 @@ import { cn } from '@/lib/cn';
 import { errorMessage } from '@/lib/errors';
 import { friendlyTime } from '@/lib/translate';
 import type { CreativeAsset, WorkspaceFeed } from '@/lib/types/war-room';
-import { api } from '@/lib/api/client';
+import { api, ApiError } from '@/lib/api/client';
 
 /**
  * components/dashboard/content/content-shell.tsx
  * ---------------------------------------------------------------------------
  * Content Studio — the customer-facing view of what Maroa is shipping.
  *
- * Three sections, in order of attention:
- *
  *   1. "Need your eyes" — pending approvals counter + link to /approvals
  *   2. "Working great" — top performers (top_creatives feed)
  *   3. "Getting tired" — decaying creatives that may need a refresh
  *
- * Plus a "Draft something new" CTA at the bottom that hits
- * POST /api/content/generate (fire-and-forget). A Sonner toast confirms.
- *
- * Built for the SMB-owner persona, not the operator: every metric is
- * framed in human terms ("seen 1,200 times" not "impressions: 1200").
+ * Plus a "Draft something new" CTA that hits POST /api/content/generate.
+ * That endpoint is SYNCHRONOUS — it returns the generated piece — so we
+ * render the result inline (the core content loop, verifiable end-to-end)
+ * instead of a fire-and-forget toast. Compliance hard-blocks (422) surface
+ * the flagged claims honestly rather than pretending the draft shipped.
  * ---------------------------------------------------------------------------
  */
+
+/** Shape returned by POST /api/content/generate (server.js generateInstantContent). */
+interface GeneratedContent {
+  content_theme?: string;
+  instagram_caption?: string;
+  facebook_post?: string;
+  instagram_story_text?: string;
+  email_subject?: string;
+  email_body?: string;
+  blog_title?: string;
+  image_url?: string;
+  status?: string;
+  compliance_warnings?: Array<{ reason?: string; rule?: string } | string>;
+}
 
 function gatherCreatives(feed: WorkspaceFeed): {
   top: Array<CreativeAsset & { clientName: string }>;
@@ -112,7 +124,8 @@ export function ContentShell({ feed, businessId }: Props) {
   const { top, decaying } = useMemo(() => gatherCreatives(feed), [feed]);
   const pending = pendingCount(feed);
   const [generating, startGenerate] = useTransition();
-  const [generated, setGenerated] = useState(false);
+  const [result, setResult] = useState<GeneratedContent | null>(null);
+  const [blockedClaims, setBlockedClaims] = useState<string[] | null>(null);
 
   function generateNew() {
     if (!businessId) {
@@ -122,16 +135,36 @@ export function ContentShell({ feed, businessId }: Props) {
       return;
     }
     startGenerate(async () => {
+      setResult(null);
+      setBlockedClaims(null);
       try {
-        await api.post('/api/content/generate', { business_id: businessId });
-        setGenerated(true);
-        toast.success('Drafting a new piece', {
-          description: "I'll surface it in your inbox in a minute or two.",
+        const r = await api.post<{ ok: boolean; content: GeneratedContent }>(
+          '/api/content/generate',
+          { business_id: businessId },
+        );
+        setResult(r.content ?? null);
+        toast.success('Draft ready', {
+          description: 'Your new piece is below — review and approve it from your inbox.',
         });
       } catch (e) {
-        toast.error('Could not start a new draft', {
-          description: errorMessage(e, 'Try again in a moment.'),
-        });
+        // 422 = compliance hard-block. Show the flagged claims instead of a
+        // generic failure — the draft exists but can't ship as-is.
+        if (e instanceof ApiError && e.status === 422) {
+          const body = (e.body ?? {}) as {
+            violations?: Array<{ reason?: string; rule?: string; claim?: string } | string>;
+          };
+          const claims = (body.violations ?? [])
+            .map((v) => (typeof v === 'string' ? v : v.reason || v.rule || v.claim))
+            .filter((x): x is string => !!x);
+          setBlockedClaims(claims.length ? claims : ['It tripped a compliance rule.']);
+          toast.error('Draft needs changes before it can ship', {
+            description: 'It tripped a compliance rule — details below.',
+          });
+        } else {
+          toast.error('Could not draft new content', {
+            description: errorMessage(e, 'Try again in a moment.'),
+          });
+        }
       }
     });
   }
@@ -246,19 +279,17 @@ export function ContentShell({ feed, businessId }: Props) {
           id="generate-new"
           className="text-xl text-ink-700 dark:text-ink-50 font-semibold"
         >
-          {generated ? 'New draft on the way' : 'Want me to draft something new?'}
+          Want me to draft something new?
         </h2>
         <p className="mt-2 text-ink-500 dark:text-ink-300">
-          {generated
-            ? "I'll surface it in your inbox in a minute or two."
-            : "I'll pick the angle and channel — you approve when it's ready."}
+          I&apos;ll pick the angle and channel — you approve when it&apos;s ready.
         </p>
         <Button
           variant="primary"
           size="lg"
           className="mt-5 disabled:opacity-60"
           onClick={generateNew}
-          disabled={generating || generated}
+          disabled={generating}
         >
           {generating ? (
             <>
@@ -268,11 +299,110 @@ export function ContentShell({ feed, businessId }: Props) {
           ) : (
             <>
               <PenSquare className="h-4 w-4" aria-hidden="true" />
-              {generated ? 'Drafting in progress' : 'Draft something new'}
+              {result ? 'Draft another' : 'Draft something new'}
             </>
           )}
         </Button>
+
+        {blockedClaims && <BlockedDraft claims={blockedClaims} />}
+        {result && <GeneratedDraft content={result} />}
       </section>
+    </div>
+  );
+}
+
+/** Renders the synchronous result of POST /api/content/generate. */
+function GeneratedDraft({ content }: { content: GeneratedContent }) {
+  const blocks: Array<{ label: string; body: string }> = [];
+  if (content.instagram_caption) blocks.push({ label: 'Instagram', body: content.instagram_caption });
+  if (content.facebook_post) blocks.push({ label: 'Facebook', body: content.facebook_post });
+  if (content.instagram_story_text) blocks.push({ label: 'Instagram story', body: content.instagram_story_text });
+  if (content.email_subject || content.email_body) {
+    blocks.push({
+      label: 'Email',
+      body: [content.email_subject, content.email_body].filter(Boolean).join('\n\n'),
+    });
+  }
+  if (content.blog_title) blocks.push({ label: 'Blog', body: content.blog_title });
+
+  const warnings = (content.compliance_warnings ?? [])
+    .map((w) => (typeof w === 'string' ? w : w.reason || w.rule))
+    .filter((x): x is string => !!x);
+
+  return (
+    <div className="mt-6 text-left rounded-xl border border-ink-200/60 dark:border-ink-800 bg-white dark:bg-ink-900 shadow-subtle overflow-hidden">
+      <div className="px-5 py-4 border-b border-ink-200/60 dark:border-ink-800 flex items-center gap-2">
+        <Sparkles className="h-4 w-4 text-accent-500" aria-hidden="true" />
+        <p className="text-sm font-semibold text-ink-700 dark:text-ink-50">
+          {content.content_theme || 'New draft'}
+        </p>
+      </div>
+
+      {content.image_url && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={content.image_url}
+          alt={content.content_theme || 'Generated creative'}
+          className="w-full max-h-72 object-cover"
+        />
+      )}
+
+      <div className="p-5 space-y-4">
+        {blocks.length === 0 ? (
+          <p className="text-sm text-ink-500 dark:text-ink-300">
+            Draft saved to your library. Review and approve it from your inbox.
+          </p>
+        ) : (
+          blocks.map((b) => (
+            <div key={b.label}>
+              <p className="text-[10px] uppercase tracking-wider text-ink-500 dark:text-ink-300 font-medium">
+                {b.label}
+              </p>
+              <p className="mt-1 text-sm text-ink-700 dark:text-ink-100 leading-relaxed whitespace-pre-line">
+                {b.body}
+              </p>
+            </div>
+          ))
+        )}
+
+        {warnings.length > 0 && (
+          <div className="rounded-lg border border-amber-200/60 dark:border-amber-500/20 bg-amber-50/60 dark:bg-amber-500/10 px-4 py-3">
+            <p className="text-xs font-medium text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+              <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
+              Heads up before you publish
+            </p>
+            <ul className="mt-1.5 space-y-1 text-xs text-amber-800/90 dark:text-amber-200/80 list-disc pl-5">
+              {warnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <p className="text-xs text-ink-400">
+          Saved to your library — review &amp; approve from your inbox before it ships.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Compliance hard-block (422) — the draft exists but can't ship as-is. */
+function BlockedDraft({ claims }: { claims: string[] }) {
+  return (
+    <div className="mt-6 text-left rounded-xl border border-red-200/60 dark:border-red-500/20 bg-red-50/60 dark:bg-red-500/10 px-5 py-4">
+      <p className="text-sm font-semibold text-red-800 dark:text-red-300 flex items-center gap-1.5">
+        <AlertCircle className="h-4 w-4" aria-hidden="true" />
+        This draft can&apos;t ship as written
+      </p>
+      <p className="mt-1 text-xs text-red-800/90 dark:text-red-200/80">
+        It tripped a compliance rule. I&apos;ll need to rephrase these before it can go out:
+      </p>
+      <ul className="mt-2 space-y-1 text-xs text-red-800/90 dark:text-red-200/80 list-disc pl-5">
+        {claims.map((c, i) => (
+          <li key={i}>{c}</li>
+        ))}
+      </ul>
     </div>
   );
 }
