@@ -1,14 +1,24 @@
 /*
- * services/wf7/index.js — Email Lifecycle engine
+ * services/wf7/index.js — Email Lifecycle engine (DEPRECATED)
+ *
+ * @deprecated Superseded by the canonical services/email-lifecycle (firing
+ * Inngest cron `email-lifecycle-process-15m` + GET /api/business/:id/email-lifecycle
+ * + /webhook/email-lifecycle-{enroll,bootstrap,process-due}). See
+ * CANONICAL_WORKFLOWS.md. Marked-deprecated — do NOT build new features on it.
+ *
+ * Double-writer fix: designSequence + dispatchDue NO LONGER read or write the
+ * shared `email_sequences` table (now owned exclusively by email-lifecycle).
+ * They are inert deprecation stubs. createSegment / enrollContact still use
+ * wf7's own email_segments / email_enrollments tables, which do not collide
+ * with the canonical engine.
  */
 
 'use strict';
 
-const { buildSequencePlanPrompt } = require('../prompts/workflow_7_email.js');
 const { buildBrandContext } = require('../wf1/brandContext.js');
 
 function createWf7(deps) {
-  const { sbGet, sbPost, sbPatch, callClaude, extractJSON, sendEmail, logger } = deps;
+  const { sbGet, sbPost } = deps;
 
   async function resolveBrandContext(businessId) {
     const [b, p] = await Promise.all([
@@ -30,27 +40,20 @@ function createWf7(deps) {
     return { segmentId: row.id };
   }
 
+  // @deprecated — no longer writes the shared `email_sequences` table (owned by
+  // services/email-lifecycle). Returns a deprecation signal rather than forking
+  // the sequence data model with a divergent {segment_id, plan} shape.
   async function designSequence({ businessId, segmentId }) {
-    const brandContext = await resolveBrandContext(businessId);
-    const segRows = await sbGet('email_segments', `id=eq.${segmentId}&business_id=eq.${businessId}&select=*`);
-    const seg = segRows[0];
-    if (!seg) throw new Error('Segment not found');
-    const { system, user } = buildSequencePlanPrompt(brandContext, {
-      name: seg.name,
-      size: seg.size_cached,
-      signals: seg.definition?.signals || [],
-      lifecycleStage: seg.lifecycle_stage,
-    });
-    const raw = await callClaude(user, 'claude-sonnet-4-5', 4000, { system, businessId, returnRaw: true });
-    const plan = extractJSON(raw) || {};
-    const row = await sbPost('email_sequences', {
-      business_id: businessId,
-      segment_id: segmentId,
-      name: plan.sequence_name || seg.name,
-      status: 'draft',
-      plan,
-    });
-    return { sequenceId: row.id, plan };
+    return {
+      ok: false,
+      deprecated: true,
+      use: 'services/email-lifecycle',
+      message:
+        'wf7.designSequence is deprecated and no longer writes email_sequences. ' +
+        'Use the canonical email-lifecycle engine (POST /webhook/email-lifecycle-bootstrap).',
+      businessId,
+      segmentId,
+    };
   }
 
   async function enrollContact({ businessId, sequenceId, contactId }) {
@@ -64,54 +67,20 @@ function createWf7(deps) {
     return { enrollmentId: row.id };
   }
 
+  // @deprecated — no longer reads or patches the shared `email_sequences` table.
+  // The canonical email-lifecycle cron (processDueRuns) dispatches due emails.
   async function dispatchDue({ businessId }) {
-    // Simple dispatch: find active enrollments whose last_sent_at is > plan delay days ago
-    const enrolls = await sbGet(
-      'email_enrollments',
-      `business_id=eq.${businessId}&status=eq.active&select=*&limit=100`
-    ).catch(() => []);
-    const results = [];
-    for (const e of enrolls) {
-      try {
-        const seqRows = await sbGet('email_sequences', `id=eq.${e.sequence_id}&select=*`);
-        const seq = seqRows[0];
-        if (!seq?.plan?.emails) continue;
-        const currentEmail = seq.plan.emails.find((em) => em.stage === e.current_stage);
-        if (!currentEmail) continue;
-
-        const lastSent = e.last_sent_at ? new Date(e.last_sent_at).getTime() : new Date(e.enrolled_at).getTime();
-        const dueAt = lastSent + Number(currentEmail.delay_days || 0) * 86400000;
-        if (Date.now() < dueAt) continue;
-
-        // Get contact email
-        const contactRows = await sbGet('contacts', `id=eq.${e.contact_id}&select=email,first_name`);
-        const contact = contactRows[0];
-        if (!contact?.email) continue;
-
-        if (sendEmail) {
-          await sendEmail(
-            contact.email,
-            currentEmail.subject_line,
-            currentEmail.body_html || currentEmail.body_plain || ''
-          );
-        }
-
-        const nextStage = e.current_stage + 1;
-        const isLast = nextStage > seq.plan.emails.length;
-        await sbPatch('email_enrollments', `id=eq.${e.id}`, {
-          current_stage: nextStage,
-          last_sent_at: new Date().toISOString(),
-          status: isLast ? 'completed' : 'active',
-        });
-        await sbPatch('email_sequences', `id=eq.${seq.id}`, {
-          emails_sent: (seq.emails_sent || 0) + 1,
-        });
-        results.push({ enrollmentId: e.id, emailStage: e.current_stage, ok: true });
-      } catch (err) {
-        results.push({ enrollmentId: e.id, ok: false, error: err.message });
-      }
-    }
-    return { dispatched: results.length, results };
+    return {
+      ok: false,
+      deprecated: true,
+      use: 'services/email-lifecycle',
+      message:
+        'wf7.dispatchDue is deprecated. The canonical email-lifecycle cron ' +
+        '(/webhook/email-lifecycle-process-due) dispatches due emails.',
+      businessId,
+      dispatched: 0,
+      results: [],
+    };
   }
 
   return { createSegment, designSequence, enrollContact, dispatchDue, resolveBrandContext };

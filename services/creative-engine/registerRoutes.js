@@ -286,6 +286,51 @@ function registerCreativeEngineRoutes(deps) {
       apiError(res, 500, 'COMPETITOR_WATCH_SCAN_ALL_FAILED', e.message);
     }
   });
+
+  // ─── Per-business competitor War Room (canonical surface for the UI) ───────
+  // These let the dashboard bind to competitor-watch (canonical) instead of the
+  // deprecated wf5-* routes. Mirrors the citation-tracker per-business pattern.
+  // The scan handler is also registered on the internal dispatcher so the
+  // `maroa/manual.competitor-watch` Inngest event runs it in-process.
+  function runCompetitorWatchScan(body) {
+    const businessId = body?.businessId || body?.business_id;
+    if (!businessId) return Promise.resolve({ ok: false, reason: 'businessId required' });
+    return competitorWatch.scanForBusiness({
+      businessId,
+      deps: { sbGet, sbPost, logger, metaAdLibraryApi },
+    });
+  }
+  internalDispatcher.register('/webhook/competitor-watch-scan', (body) => runCompetitorWatchScan(body || {}));
+
+  app.post('/webhook/competitor-watch-scan', async (req, res) => {
+    if (!competitorWatch?.scanForBusiness) {
+      return apiError(res, 503, 'COMPETITOR_WATCH_DISABLED', 'competitor-watch not configured');
+    }
+    const businessId = req.body?.businessId || req.body?.business_id;
+    if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
+    try {
+      const scan = await runCompetitorWatchScan(req.body);
+      const briefing = await competitorWatch.compileWarRoomBriefing({ businessId, days: 7, deps: { sbGet } });
+      res.json({ ...scan, briefing });
+    } catch (e) {
+      apiError(res, 500, 'COMPETITOR_WATCH_SCAN_FAILED', e.message);
+    }
+  });
+
+  app.get('/webhook/competitor-watch-briefing', async (req, res) => {
+    if (!competitorWatch?.compileWarRoomBriefing) {
+      return apiError(res, 503, 'COMPETITOR_WATCH_DISABLED', 'competitor-watch not configured');
+    }
+    const businessId = req.query?.businessId || req.query?.business_id;
+    const days = Number(req.query?.days || 7);
+    if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
+    try {
+      const briefing = await competitorWatch.compileWarRoomBriefing({ businessId, days, deps: { sbGet } });
+      res.json(briefing);
+    } catch (e) {
+      apiError(res, 500, 'COMPETITOR_WATCH_BRIEFING_FAILED', e.message);
+    }
+  });
 }
 
 module.exports = { registerCreativeEngineRoutes };

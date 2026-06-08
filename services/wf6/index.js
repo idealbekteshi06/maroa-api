@@ -1,5 +1,15 @@
 /*
- * services/wf6/index.js — Local + Digital Presence engine
+ * services/wf6/index.js — Local + Digital Presence engine (PARTIALLY DEPRECATED)
+ *
+ * @deprecated for AI-SEO / schema-markup / AI-search-readiness audits — those
+ * overlap the canonical services/ai-seo (/api/ai-seo, ai_seo_audits +
+ * ai_seo_artifacts). See CANONICAL_WORKFLOWS.md. Do NOT build new SEO/schema
+ * features here.
+ *
+ * RETAINED (not yet superseded): the unique Google Business Profile /
+ * local-presence audit (gbpSnapshot.js, local_rank, NAP). Folding that into
+ * ai-seo as a "Local Presence" dimension is a scoped follow-up — see
+ * CANONICAL_WORKFLOWS.md.
  */
 
 'use strict';

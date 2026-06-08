@@ -3,6 +3,10 @@
  * ----------------------------------------------------------------------------
  * Workflow #3 — Ad Optimization Loop.
  *
+ * @deprecated Superseded by the canonical services/ad-optimizer (firing Inngest
+ * cron `ad-optimizer-daily` + its own routes + the Meta actuator). See
+ * CANONICAL_WORKFLOWS.md. Marked-deprecated — do NOT build new features on it.
+ *
  * Weekly pipeline:
  *   1. Build snapshot from ad_campaigns + ad_performance_logs (last 7d + 4w trajectory)
  *   2. Call Claude Opus with buildAdOptimizationPrompt
