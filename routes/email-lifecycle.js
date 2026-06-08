@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * routes/email-lifecycle.js — Resend-driven email sequences.
+ * routes/email-lifecycle.js — Resend-driven, trigger-based email blasts.
  *
  * Carved from server.js as part of the 2026-05-13 audit P4 (server.js
  * carve-up). 4 endpoints around the "email-sequence" workflow:
@@ -11,7 +11,14 @@
  *   POST /webhook/email-trigger           — Resend event receiver (open / click / bounce)
  *   POST /webhook/email-sequence-process  — cron tick: send all due emails
  *
- * Behavior unchanged. Dep injection makes the module testable.
+ * Single-writer consolidation (migration 090): this legacy trigger-based system
+ * now reads/writes its OWN `email_blast_sequences` table (trigger_type + inline
+ * `emails[]`), NOT the shared `email_sequences` table — which is owned solely by
+ * the canonical services/email-lifecycle engine (stage/cadence_days +
+ * email_sequence_runs). See CANONICAL_WORKFLOWS.md. Enrollment state still lives
+ * in contact_enrollments.
+ *
+ * Behavior otherwise unchanged. Dep injection makes the module testable.
  */
 
 function register({ app, sbGet, sbPost, sbPatch, callClaude, sendEmailWithTags, log, logError }) {
@@ -28,7 +35,7 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, sendEmailWithTags, 
     if (!Array.isArray(emails) || !emails.length)
       return res.status(400).json({ error: 'emails array required (min 1 item)' });
     try {
-      const seq = await sbPost('email_sequences', {
+      const seq = await sbPost('email_blast_sequences', {
         business_id,
         name,
         trigger_type,
@@ -57,11 +64,11 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, sendEmailWithTags, 
     try {
       let seq;
       if (sequence_id) {
-        seq = (await sbGet('email_sequences', `id=eq.${sequence_id}&is_active=eq.true`))[0];
+        seq = (await sbGet('email_blast_sequences', `id=eq.${sequence_id}&is_active=eq.true`))[0];
       } else if (trigger_type) {
         seq = (
           await sbGet(
-            'email_sequences',
+            'email_blast_sequences',
             `business_id=eq.${business_id}&trigger_type=eq.${trigger_type}&is_active=eq.true&limit=1`
           )
         )[0];
@@ -135,7 +142,7 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, sendEmailWithTags, 
 
       if (type === 'email.clicked' && business_id) {
         const seqs = await sbGet(
-          'email_sequences',
+          'email_blast_sequences',
           `business_id=eq.${business_id}&trigger_type=eq.link_click&is_active=eq.true&limit=1`
         );
         if (!seqs.length) return;
@@ -179,7 +186,7 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, sendEmailWithTags, 
         try {
           processed++;
 
-          const seq = (await sbGet('email_sequences', `id=eq.${enrollment.sequence_id}`))[0];
+          const seq = (await sbGet('email_blast_sequences', `id=eq.${enrollment.sequence_id}`))[0];
           if (!seq?.emails?.[enrollment.current_step]) {
             await sbPatch('contact_enrollments', `id=eq.${enrollment.id}`, { status: 'completed', completed_at: now });
             completed++;
