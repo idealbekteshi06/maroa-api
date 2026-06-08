@@ -20,9 +20,6 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           <Link href="/terms" className="hover:text-ink-700 dark:hover:text-ink-100">
             Terms
           </Link>
-          <Link href="/security" className="hover:text-ink-700 dark:hover:text-ink-100">
-            Security
-          </Link>
           <span>© {new Date().getFullYear()} Maroa</span>
         </footer>
       </div>
