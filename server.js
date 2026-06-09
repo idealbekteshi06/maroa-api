@@ -8955,6 +8955,24 @@ Return ONLY valid JSON:
     safePublicError,
   });
 
+  // Customer-facing "marketing skill" endpoints (Popup/RevOps/SEO/Sales/Pricing/
+  // Schema/Signup-CRO/Free-tools/Upgrade/A-B/Community/Onboarding-CRO/Orchestrator
+  // + AI chat + brand-DNA) the Lovable dashboard calls. Previously scaffolded with
+  // auth middleware (above) but no handlers — these tabs 404'd until now.
+  require('./routes/marketing-skills').register({
+    app,
+    getProfile,
+    callClaude,
+    claudeBiz,
+    extractJSON,
+    sbGet,
+    sbPost,
+    sbPatch,
+    log,
+    safePublicError,
+    pCity,
+  });
+
   require('./routes/lead-magnets').register({
     app,
     getProfile,
