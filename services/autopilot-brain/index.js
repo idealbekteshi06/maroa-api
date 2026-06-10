@@ -441,8 +441,58 @@ async function runDaily({ businessId, deps }) {
   };
 }
 
+// ─── Fan-out across all active businesses (Inngest cron target) ──────────
+
+/**
+ * runDailyForAll — orchestrate every active business's day. Inngest's
+ * `autopilot-brain-daily` cron drives this (via the /webhook/autopilot-brain-run-all
+ * dispatcher target in server.js).
+ *
+ * Per-business errors are isolated (one bad business never aborts the run).
+ * BUT — gap G-9 — if EVERY business fails, that's a systemic outage (rotated
+ * key, schema drift): we return ok:false so the Inngest cron retries, lands in
+ * the DLQ, and fires the Slack alert. Previously the fan-out returned ok:true
+ * unconditionally, so a total outage looked like a clean run — invisible.
+ *
+ * @param {object} deps — { sbGet, sbPost, sbPatch, memoryService, logger,
+ *   sentry, sendEmail, voicePolish, brandVoiceService, qualityGate }
+ */
+async function runDailyForAll(deps) {
+  const { sbGet, logger } = deps || {};
+  const businesses = await sbGet('businesses', 'is_active=eq.true&select=id&limit=1000').catch(() => []);
+  let ran = 0;
+  let conflicts = 0;
+  let failed = 0;
+  const total = businesses.length;
+
+  for (const b of businesses) {
+    try {
+      const r = await runDaily({ businessId: b.id, deps });
+      if (r?.ok) {
+        ran += 1;
+        conflicts += r.conflicts_resolved || 0;
+      } else {
+        failed += 1;
+      }
+    } catch (e) {
+      failed += 1;
+      logger?.warn?.('autopilot-brain.runDailyForAll', b.id, 'run failed', { error: e.message });
+    }
+  }
+
+  return {
+    ok: !(failed === total && total > 0),
+    businesses: total,
+    total,
+    failed,
+    ran,
+    conflicts_resolved: conflicts,
+  };
+}
+
 module.exports = {
   runDaily,
+  runDailyForAll,
   collectSignals,
   composeProposedDecisions,
   resolveConflicts,

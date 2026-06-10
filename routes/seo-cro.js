@@ -336,11 +336,15 @@ function register({
   // ─────────────────────────────────────────────────────────────────────────────
   app.post('/webhook/seo-recommendation-apply', async (req, res) => {
     const { business_id, recommendation_id } = req.body;
-    if (!recommendation_id) return res.status(400).json({ error: 'recommendation_id required' });
+    if (!recommendation_id || !business_id)
+      return res.status(400).json({ error: 'recommendation_id and business_id required' });
     if (!isUUID(recommendation_id)) return res.status(400).json({ error: 'recommendation_id must be a valid UUID' });
+    // The /webhook owner gate already verifies the caller owns business_id; bind
+    // the recommendation to it so a foreign recommendation_id can't be applied.
+    const filter = `id=eq.${encodeURIComponent(recommendation_id)}&business_id=eq.${encodeURIComponent(business_id)}`;
     try {
-      await sbPatch('seo_recommendations', `id=eq.${recommendation_id}`, { status: 'applied' });
-      const rows = await sbGet('seo_recommendations', `id=eq.${recommendation_id}`);
+      await sbPatch('seo_recommendations', filter, { status: 'applied' });
+      const rows = await sbGet('seo_recommendations', filter);
       res.json({ success: true, recommendation: rows[0] || null });
     } catch (err) {
       res.status(500).json({ error: err.message });

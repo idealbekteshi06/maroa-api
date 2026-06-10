@@ -5,6 +5,14 @@
 
 'use strict';
 
+// Tenant-isolation: UUID-validate entity ids (reviewId, draftId) before they
+// reach the wf4 service. The service scopes its reviews/review_responses
+// filters to business_id so a victim's reviewId/draftId cannot be read or
+// mutated under the caller's business; rejecting malformed ids at the boundary
+// keeps junk out of the PostgREST filter (CLAUDE.md Rule 4).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
+
 function registerWf4Routes({ app, wf4, apiError, logger }) {
   async function listHandler(req, res) {
     const businessId = req.body?.business_id || req.query?.business_id;
@@ -31,6 +39,7 @@ function registerWf4Routes({ app, wf4, apiError, logger }) {
     const businessId = req.body?.business_id || req.query?.business_id;
     const reviewId = req.body?.review_id || req.query?.review_id;
     if (!businessId || !reviewId) return apiError(res, 400, 'INVALID_REQUEST', 'required');
+    if (!isUuid(reviewId)) return apiError(res, 400, 'INVALID_REQUEST', 'review_id must be a valid UUID');
     try {
       res.json(await wf4.getReview({ businessId, reviewId }));
     } catch (e) {
@@ -43,6 +52,7 @@ function registerWf4Routes({ app, wf4, apiError, logger }) {
   app.post('/webhook/wf4-generate-response', async (req, res) => {
     const { businessId, reviewId, regenerate } = req.body || {};
     if (!businessId || !reviewId) return apiError(res, 400, 'INVALID_REQUEST', 'required');
+    if (!isUuid(reviewId)) return apiError(res, 400, 'INVALID_REQUEST', 'reviewId must be a valid UUID');
     try {
       res.json(await wf4.generateResponse({ businessId, reviewId, regenerate }));
     } catch (e) {
@@ -53,6 +63,8 @@ function registerWf4Routes({ app, wf4, apiError, logger }) {
   app.post('/webhook/wf4-publish-response', async (req, res) => {
     const { businessId, reviewId, draftId, editedBody } = req.body || {};
     if (!businessId || !reviewId || !draftId) return apiError(res, 400, 'INVALID_REQUEST', 'required');
+    if (!isUuid(reviewId)) return apiError(res, 400, 'INVALID_REQUEST', 'reviewId must be a valid UUID');
+    if (!isUuid(draftId)) return apiError(res, 400, 'INVALID_REQUEST', 'draftId must be a valid UUID');
     try {
       res.json(await wf4.publishResponse({ businessId, reviewId, draftId, editedBody }));
     } catch (e) {
@@ -63,6 +75,7 @@ function registerWf4Routes({ app, wf4, apiError, logger }) {
   app.post('/webhook/wf4-dispute-review', async (req, res) => {
     const { businessId, reviewId } = req.body || {};
     if (!businessId || !reviewId) return apiError(res, 400, 'INVALID_REQUEST', 'required');
+    if (!isUuid(reviewId)) return apiError(res, 400, 'INVALID_REQUEST', 'reviewId must be a valid UUID');
     try {
       res.json(await wf4.disputeReview({ businessId, reviewId }));
     } catch (e) {
@@ -73,6 +86,7 @@ function registerWf4Routes({ app, wf4, apiError, logger }) {
   app.post('/webhook/wf4-ignore-review', async (req, res) => {
     const { businessId, reviewId, reason } = req.body || {};
     if (!businessId || !reviewId) return apiError(res, 400, 'INVALID_REQUEST', 'required');
+    if (!isUuid(reviewId)) return apiError(res, 400, 'INVALID_REQUEST', 'reviewId must be a valid UUID');
     try {
       res.json(await wf4.ignoreReview({ businessId, reviewId, reason }));
     } catch (e) {
@@ -117,6 +131,7 @@ function registerWf4Routes({ app, wf4, apiError, logger }) {
   app.post('/webhook/wf4-testimonial-request-permission', async (req, res) => {
     const { businessId, reviewId } = req.body || {};
     if (!businessId || !reviewId) return apiError(res, 400, 'INVALID_REQUEST', 'required');
+    if (!isUuid(reviewId)) return apiError(res, 400, 'INVALID_REQUEST', 'reviewId must be a valid UUID');
     try {
       res.json(await wf4.requestTestimonialPermission({ businessId, reviewId }));
     } catch (e) {

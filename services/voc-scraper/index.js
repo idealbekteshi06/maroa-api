@@ -91,7 +91,15 @@ Rules:
  * Parse the Claude output defensively. Returns null on parse failure so
  * caller can fall back to "skip this batch" without crashing.
  */
-function parseExtractedVoc(rawText) {
+// Normalize for verbatim substring matching (punctuation/whitespace tolerant).
+function _normForMatch(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function parseExtractedVoc(rawText, sources = {}) {
   if (!rawText || typeof rawText !== 'string') return null;
   const cleaned = rawText
     .replace(/^```(?:json)?\s*/i, '')
@@ -111,6 +119,14 @@ function parseExtractedVoc(rawText) {
   }
   if (!parsed || typeof parsed !== 'object') return null;
   const categories = ['love_phrases', 'pain_phrases', 'competitor_complaints', 'jtbd_phrases', 'trigger_events'];
+  // Grounding haystacks: business-review categories must appear in the business
+  // reviews; competitor_complaints must appear in the competitor reviews. These
+  // phrases are stored to customer_insights and injected into EVERY customer
+  // prompt, so a hallucinated "verbatim" phrase would become a fabricated quote
+  // across all generated copy. Enforce the no-paraphrasing rule here.
+  const bizHay = _normForMatch(sources.reviewsText || '');
+  const compHay = _normForMatch(sources.competitorReviewsText || '');
+  const haystackFor = (cat) => (cat === 'competitor_complaints' ? compHay || bizHay : bizHay);
   const out = {};
   for (const cat of categories) {
     const arr = parsed[cat];
@@ -118,9 +134,17 @@ function parseExtractedVoc(rawText) {
       out[cat] = [];
       continue;
     }
+    const hay = haystackFor(cat);
     out[cat] = arr
       .filter((p) => typeof p === 'string' && p.trim().length > 0)
       .map((p) => p.trim().slice(0, 200))
+      // Drop phrases not found verbatim in the source (only when we have a
+      // haystack to check against; if sources weren't passed, skip grounding).
+      .filter((p) => {
+        if (!hay) return true;
+        const n = _normForMatch(p);
+        return n.length >= 6 && hay.includes(n);
+      })
       .slice(0, MAX_PHRASES_PER_CATEGORY);
   }
   // De-dupe across the love + pain categories — same phrase shouldn't
@@ -175,7 +199,8 @@ async function extractFromText({ callClaude, reviewsText, competitorReviewsText,
     return null;
   }
   const text = typeof raw === 'string' ? raw : raw?._raw || raw?.text || '';
-  return parseExtractedVoc(text);
+  // Pass the source reviews so extracted phrases are grounded (no invented quotes).
+  return parseExtractedVoc(text, { reviewsText, competitorReviewsText });
 }
 
 /**

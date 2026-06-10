@@ -73,8 +73,18 @@ function register({
   app.post('/api/referral/track', async (req, res) => {
     const { referral_code, referred_email } = req.body;
     if (!referral_code) return res.status(400).json({ error: 'referral_code required' });
+    // referral_code is interpolated into a PostgREST filter — constrain its
+    // charset (reject injection) and encode it. Codes are hex, so this is safe.
+    if (typeof referral_code !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(referral_code))
+      return res.status(400).json({ error: 'invalid referral_code' });
+    // Validate the email shape before persisting a referral row.
+    if (typeof referred_email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(referred_email))
+      return res.status(400).json({ error: 'valid referred_email required' });
     try {
-      const progs = await sbGet('referral_programs', `referral_code=eq.${referral_code}&select=user_id`);
+      const progs = await sbGet(
+        'referral_programs',
+        `referral_code=eq.${encodeURIComponent(referral_code)}&select=user_id`
+      );
       if (!progs[0]) return res.status(404).json({ error: 'Invalid referral code' });
       await sbPost('referrals', { referrer_id: progs[0].user_id, referred_email, status: 'pending' });
       res.json({ tracked: true });

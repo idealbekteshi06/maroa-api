@@ -21,10 +21,12 @@
  * hard-violation posts (income guarantees, medical claims, etc.) never
  * reach LinkedIn.
  */
+const crypto = require('crypto');
 const oauthCrypto = require('../lib/oauthCrypto');
+const { signOAuthState, verifyOAuthState, isUuid } = require('../lib/oauthState');
 const { ensureCompliant, ComplianceBlocked } = require('../lib/complianceGate');
 
-function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getBrandExamples, env }) {
+function register({ app, sbGet, sbPost, sbPatch, sbDelete, callClaude, log, logError, getBrandExamples, env }) {
   const LINKEDIN_CLIENT_ID = (env?.LINKEDIN_CLIENT_ID || process.env.LINKEDIN_CLIENT_ID || '')
     .replace(/[^\x20-\x7E]/g, '')
     .trim();
@@ -32,15 +34,30 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getB
     .replace(/[^\x20-\x7E]/g, '')
     .trim();
   const LINKEDIN_REDIRECT_URI = 'https://maroa-ai-marketing-automator.lovable.app/social-callback';
+  const STATE_SECRET = (env?.N8N_WEBHOOK_SECRET || process.env.N8N_WEBHOOK_SECRET || '').trim();
 
   // GET /linkedin-oauth-start — redirect user to LinkedIn consent screen
-  app.get('/linkedin-oauth-start', (req, res) => {
+  app.get('/linkedin-oauth-start', async (req, res) => {
     const { business_id } = req.query;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
+    if (!isUuid(String(business_id))) return res.status(400).json({ error: 'business_id must be a valid UUID' });
     if (!LINKEDIN_CLIENT_ID) return res.status(500).json({ error: 'LINKEDIN_CLIENT_ID not configured' });
 
     const scope = 'openid profile email w_member_social';
-    const state = `${business_id}:linkedin`;
+    // Signed, single-use state (nonce+ts+HMAC) replaces the old predictable
+    // `${business_id}:linkedin`. Verified in the exchange to defeat CSRF /
+    // state-forgery. Mirrors routes/twitter-publishing.js. Falls back to an
+    // opaque random state if no signing secret is configured.
+    const state = STATE_SECRET
+      ? signOAuthState({ businessId: String(business_id), platform: 'linkedin', secret: STATE_SECRET })
+      : crypto.randomBytes(24).toString('base64url');
+
+    try {
+      await sbPost('oauth_states', { business_id, platform: 'linkedin', state });
+    } catch (err) {
+      log?.('/linkedin-oauth-start', `Failed to store OAuth state: ${err.message}`);
+    }
+
     const authUrl = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${LINKEDIN_CLIENT_ID}&redirect_uri=${encodeURIComponent(LINKEDIN_REDIRECT_URI)}&state=${encodeURIComponent(state)}&scope=${encodeURIComponent(scope)}`;
 
     log?.('/linkedin-oauth-start', `Redirecting business_id=${business_id} to LinkedIn`);
@@ -49,8 +66,32 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, log, logError, getB
 
   // POST /webhook/linkedin-oauth-exchange — finalize OAuth, capture tokens
   app.post('/webhook/linkedin-oauth-exchange', async (req, res) => {
-    const { code, business_id, redirect_uri } = req.body;
+    const { code, business_id, redirect_uri, state } = req.body;
     if (!code || !business_id) return res.status(400).json({ error: 'code and business_id required' });
+    if (!isUuid(String(business_id))) return res.status(400).json({ error: 'business_id must be a valid UUID' });
+
+    // When a signed `state` is supplied we verify it, require it to match
+    // business_id, confirm the server-stored row exists, and consume it
+    // (single-use). State stays optional so existing clients that don't echo
+    // it back keep working — matching the twitter-publishing.js exchange.
+    if (state) {
+      const verified = STATE_SECRET ? verifyOAuthState(state, STATE_SECRET, { platform: 'linkedin' }) : null;
+      if (!verified) return res.status(400).json({ error: 'state token invalid or expired' });
+      if (String(verified.businessId) !== String(business_id)) {
+        return res.status(403).json({ error: 'state does not match business_id' });
+      }
+      try {
+        const row = (
+          await sbGet('oauth_states', `state=eq.${encodeURIComponent(state)}&platform=eq.linkedin&limit=1`)
+        )[0];
+        if (!row) return res.status(400).json({ error: 'state not found or already used' });
+      } catch (e) {
+        log?.('/webhook/linkedin-oauth-exchange', `oauth_states lookup failed: ${e.message}`);
+      }
+      if (sbDelete) {
+        await sbDelete('oauth_states', `state=eq.${encodeURIComponent(state)}`).catch(() => {});
+      }
+    }
 
     if (!LINKEDIN_CLIENT_ID || !LINKEDIN_CLIENT_SECRET) {
       return res.status(500).json({

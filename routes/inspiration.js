@@ -26,6 +26,8 @@
  * ----------------------------------------------------------------------------
  */
 
+const { assertBusinessOwner } = require('../lib/assertBusinessOwner');
+
 function register({
   app,
   marketingGraph,
@@ -37,6 +39,8 @@ function register({
   log,
   express,
 }) {
+  const logger = { warn: (...a) => log?.(...a) };
+
   async function _ownedBusinessForUser(userId) {
     if (!userId || typeof sbGet !== 'function') return null;
     try {
@@ -70,9 +74,14 @@ function register({
     async (req, res) => {
       try {
         const body = req.body || {};
-        const businessId =
-          (body.businessId && typeof body.businessId === 'string' ? body.businessId : null) ||
-          (await _ownedBusinessForUser(req.user?.id));
+        // A client-supplied businessId must be one the caller owns — otherwise
+        // saves could be written into another tenant's Marketing Graph. Verify
+        // ownership before trusting it; fall back to the user's own business.
+        const suppliedBusinessId = body.businessId && typeof body.businessId === 'string' ? body.businessId : null;
+        if (suppliedBusinessId) {
+          if (!(await assertBusinessOwner(req, res, suppliedBusinessId, { sbGet, apiError, logger }))) return;
+        }
+        const businessId = suppliedBusinessId || (await _ownedBusinessForUser(req.user?.id));
 
         if (!businessId) {
           return apiError(res, 400, 'NO_BUSINESS', 'No business to save inspiration into. Finish onboarding first.');
@@ -129,9 +138,14 @@ function register({
 
   app.get('/api/inspiration/list', requireAnyUserId, async (req, res) => {
     try {
-      const businessId =
-        (typeof req.query.businessId === 'string' && req.query.businessId) ||
-        (await _ownedBusinessForUser(req.user?.id));
+      // A client-supplied businessId must be one the caller owns — otherwise the
+      // list could leak another tenant's saved inspiration. Verify before trust.
+      const suppliedBusinessId =
+        typeof req.query.businessId === 'string' && req.query.businessId ? req.query.businessId : null;
+      if (suppliedBusinessId) {
+        if (!(await assertBusinessOwner(req, res, suppliedBusinessId, { sbGet, apiError, logger }))) return;
+      }
+      const businessId = suppliedBusinessId || (await _ownedBusinessForUser(req.user?.id));
       if (!businessId) return res.json({ items: [] });
       if (!marketingGraph || typeof marketingGraph.getEntitiesByType !== 'function') {
         return res.json({ items: [], graph_available: false });

@@ -10,9 +10,13 @@ const { isCorsOriginAllowed } = require('../lib/corsAllow');
 
 test('isCorsOriginAllowed allows maroa.ai and project preview hosts', () => {
   assert.strictEqual(isCorsOriginAllowed('https://maroa.ai'), true);
-  // Project preview deploys (Vercel/Lovable) carry the "maroa" project token.
+  // Project preview deploys must carry the FULL project slug prefix.
   assert.strictEqual(isCorsOriginAllowed('https://maroa-ai-marketing-automator-git-main.vercel.app'), true);
-  assert.strictEqual(isCorsOriginAllowed('https://maroa-preview.lovable.app'), true);
+  assert.strictEqual(isCorsOriginAllowed('https://maroa-ai-marketing-automator-abc123.lovable.app'), true);
+  // Loosely-named hosts that merely CONTAIN "maroa" are now rejected (an
+  // attacker can register maroa-preview/maroa-attacker on these shared domains).
+  assert.strictEqual(isCorsOriginAllowed('https://maroa-preview.lovable.app'), false);
+  assert.strictEqual(isCorsOriginAllowed('https://maroa-attacker.vercel.app'), false);
   // Arbitrary third-party preview hosts must NOT be reflected with credentials.
   assert.strictEqual(isCorsOriginAllowed('https://app-abc.vercel.app'), false);
   assert.strictEqual(isCorsOriginAllowed('https://evil.example.com'), false);

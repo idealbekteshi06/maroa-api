@@ -164,8 +164,9 @@ test('costGuard: effectiveCapForPlan honors plan tiers', () => {
   assert.strictEqual(costGuard.effectiveCapForPlan('starter'), 30);
   assert.strictEqual(costGuard.effectiveCapForPlan('growth'), 80);
   assert.strictEqual(costGuard.effectiveCapForPlan('agency'), 250);
-  // Unknown / legacy plans → growth fallback
-  assert.strictEqual(costGuard.effectiveCapForPlan('unknown'), 80);
+  // Unknown / legacy plans → cheapest cap (fail-safe; was growth $80, which
+  // let a typo'd/capitalized plan silently receive the higher cap).
+  assert.strictEqual(costGuard.effectiveCapForPlan('unknown'), 30);
   assert.strictEqual(costGuard.effectiveCapForPlan('free'), 30);
 });
 

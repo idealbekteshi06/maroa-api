@@ -9,6 +9,15 @@
 
 const { limits } = require('../../lib/rateLimiters');
 
+// Tenant-isolation: every entity id interpolated into a PostgREST filter must
+// be UUID-validated + encoded, and every row touched by entity id must be
+// scoped to the caller's already-verified business_id (the /webhook owner gate
+// only verifies business_id itself, not that a briefId/actionId belongs to it).
+// See lib/assertBusinessOwner.js + CLAUDE.md Rule 4.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
+const enc = encodeURIComponent;
+
 function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logger }) {
   // ─── POST /webhook/wf13-generate-brief ──────────────────────
   app.post('/webhook/wf13-generate-brief', limits.expensive, async (req, res) => {
@@ -30,13 +39,16 @@ function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logge
     try {
       const rows = await sbGet(
         'weekly_briefs',
-        `business_id=eq.${businessId}&order=week_start.desc&limit=1&select=*`
+        `business_id=eq.${enc(businessId)}&order=week_start.desc&limit=1&select=*`
       ).catch(() => []);
       if (!rows[0]) return res.json(null);
       const brief = rows[0];
-      const actions = await sbGet('brief_plan_actions', `brief_id=eq.${brief.id}&select=*&order=created_at.asc`).catch(
-        () => []
-      );
+      // brief already scoped to business_id; actions chain off its id and are
+      // additionally pinned to business_id for defense-in-depth.
+      const actions = await sbGet(
+        'brief_plan_actions',
+        `brief_id=eq.${enc(brief.id)}&business_id=eq.${enc(businessId)}&select=*&order=created_at.asc`
+      ).catch(() => []);
       res.json(briefRowToDetail(brief, actions));
     } catch (e) {
       logger?.error('/webhook/wf13-latest-brief', businessId, 'failed', e);
@@ -53,7 +65,7 @@ function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logge
     const before = req.body?.before || req.query?.before;
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'business_id required');
     try {
-      let query = `business_id=eq.${businessId}&order=week_start.desc&limit=${limit}&select=id,week_start,week_end,status,subject_line,headline,word_count,generated_at,delivered_at`;
+      let query = `business_id=eq.${enc(businessId)}&order=week_start.desc&limit=${limit}&select=id,week_start,week_end,status,subject_line,headline,word_count,generated_at,delivered_at`;
       if (before) query += `&week_start=lt.${encodeURIComponent(before)}`;
       const rows = await sbGet('weekly_briefs', query).catch(() => []);
       const items = rows.map((r) => ({
@@ -81,8 +93,15 @@ function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logge
   app.post('/webhook/wf13-brief-decision', limits.standardMutate, async (req, res) => {
     const { businessId, briefId, decision, editedSections, reason } = req.body || {};
     if (!businessId || !briefId || !decision) return apiError(res, 400, 'INVALID_REQUEST', 'required fields missing');
+    if (!isUuid(briefId)) return apiError(res, 400, 'INVALID_REQUEST', 'briefId must be a valid UUID');
     try {
-      const briefRows = await sbGet('weekly_briefs', `id=eq.${briefId}&select=*`);
+      // Tenant-isolation: scope the brief read to businessId so a victim's
+      // briefId resolves to "not found" rather than being approved/delivered
+      // cross-tenant.
+      const briefRows = await sbGet(
+        'weekly_briefs',
+        `id=eq.${enc(briefId)}&business_id=eq.${enc(businessId)}&select=*`
+      );
       const brief = briefRows[0];
       if (!brief) return apiError(res, 404, 'NOT_FOUND', 'brief not found');
 
@@ -101,15 +120,15 @@ function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logge
           d.fullBrief = { ...(d.fullBrief || {}), strategicQuestionMarkdown: editedSections.strategicQuestion };
         patch.deliverable = d;
       }
-      await sbPatch('weekly_briefs', `id=eq.${briefId}`, patch);
+      await sbPatch('weekly_briefs', `id=eq.${enc(briefId)}&business_id=eq.${enc(businessId)}`, patch);
 
-      // Update pending approval row
+      // Update pending approval row (scoped to this business).
       const approvals = await sbGet(
         'approvals',
-        `workflow=eq.13_weekly_brief&entity_id=eq.${briefId}&status=eq.pending&select=id`
+        `workflow=eq.13_weekly_brief&entity_id=eq.${enc(briefId)}&business_id=eq.${enc(businessId)}&status=eq.pending&select=id`
       ).catch(() => []);
       for (const a of approvals) {
-        await sbPatch('approvals', `id=eq.${a.id}`, {
+        await sbPatch('approvals', `id=eq.${enc(a.id)}&business_id=eq.${enc(businessId)}`, {
           status: decision === 'approve' || decision === 'edit' ? 'approved' : 'rejected',
           decided_at: new Date().toISOString(),
           decision_reason: reason || null,
@@ -157,10 +176,10 @@ function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logge
       // Upsert
       const existing = await sbGet(
         'brief_delivery_settings',
-        `business_id=eq.${body.businessId}&select=business_id`
+        `business_id=eq.${enc(body.businessId)}&select=business_id`
       ).catch(() => []);
       if (existing[0]) {
-        await sbPatch('brief_delivery_settings', `business_id=eq.${body.businessId}`, row);
+        await sbPatch('brief_delivery_settings', `business_id=eq.${enc(body.businessId)}`, row);
       } else {
         await sbPost('brief_delivery_settings', row);
       }
@@ -176,7 +195,7 @@ function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logge
     const businessId = req.body?.business_id || req.query?.business_id;
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'business_id required');
     try {
-      const rows = await sbGet('brief_delivery_settings', `business_id=eq.${businessId}&select=*`).catch(() => []);
+      const rows = await sbGet('brief_delivery_settings', `business_id=eq.${enc(businessId)}&select=*`).catch(() => []);
       const s = rows[0] || {};
       res.json({
         autonomyMode: s.autonomy_mode || 'review_first',
@@ -201,11 +220,19 @@ function registerWf13Routes({ app, wf13, sbGet, sbPost, sbPatch, apiError, logge
     const { businessId, briefId, actionId, decision } = req.body || {};
     if (!businessId || !briefId || !actionId || !decision)
       return apiError(res, 400, 'INVALID_REQUEST', 'required fields missing');
+    if (!isUuid(briefId)) return apiError(res, 400, 'INVALID_REQUEST', 'briefId must be a valid UUID');
+    if (!isUuid(actionId)) return apiError(res, 400, 'INVALID_REQUEST', 'actionId must be a valid UUID');
     try {
-      await sbPatch('brief_plan_actions', `id=eq.${actionId}&brief_id=eq.${briefId}`, {
-        status: decision,
-        decided_at: new Date().toISOString(),
-      });
+      // Tenant-isolation: pin to business_id so a victim's actionId/briefId
+      // cannot be decided cross-tenant (brief_id alone was attacker-supplied).
+      await sbPatch(
+        'brief_plan_actions',
+        `id=eq.${enc(actionId)}&brief_id=eq.${enc(briefId)}&business_id=eq.${enc(businessId)}`,
+        {
+          status: decision,
+          decided_at: new Date().toISOString(),
+        }
+      );
       res.json({ ok: true });
     } catch (e) {
       apiError(res, 500, 'WF13_ACTION_FAILED', e.message);

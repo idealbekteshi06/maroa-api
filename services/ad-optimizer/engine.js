@@ -21,6 +21,38 @@
 
 const adOptimizer = require('../prompts/ad-optimizer');
 const { loadBusiness, checkPlatform } = require('../../lib/integrationGate');
+const budgetCalibration = require('../prompts/ad-optimizer/budget-calibration');
+
+// Clamp an LLM-proposed daily budget into the tier + learning-phase safe band
+// (computed by the safeBudgetChange guard). Rejects non-finite / non-positive
+// values (returns null → caller skips the change). Percentage-based, so it is
+// currency-agnostic. Prevents a hallucinated value from being written verbatim
+// to a real ad budget.
+function _clampProposedBudget(proposed, currentBudget, learningPhaseState) {
+  const p = Number(proposed);
+  if (!Number.isFinite(p) || p <= 0) return null;
+  const cur = Number(currentBudget) || 0;
+  if (cur <= 0) return Number(p.toFixed(2)); // no baseline — accept a positive value
+  try {
+    const up = budgetCalibration.safeBudgetChange({
+      daily_budget_usd: cur,
+      direction: 'up',
+      learning_phase_state: learningPhaseState,
+    }).new_daily_budget_usd;
+    const down = budgetCalibration.safeBudgetChange({
+      daily_budget_usd: cur,
+      direction: 'down',
+      learning_phase_state: learningPhaseState,
+    }).new_daily_budget_usd;
+    const hi = Math.max(Number(up) || cur, cur);
+    const lo = Math.min(Number(down) || cur, cur);
+    return Number(Math.max(lo, Math.min(p, hi)).toFixed(2));
+  } catch {
+    // Guard module failure → fall back to a hard ±50% clamp so we never write
+    // an unbounded value.
+    return Number(Math.max(cur * 0.5, Math.min(p, cur * 1.5)).toFixed(2));
+  }
+}
 
 function metricsFromLogAndCampaign(latest, campaign = {}) {
   return {
@@ -93,7 +125,14 @@ function createEngine(deps) {
     // mirrored as a typed entity + edge so the moat compounds. Optional;
     // soft-fails when the lib isn't wired or the migration isn't applied.
     marketingGraph,
+    // Live actuators — push the pause/scale decision to the real ad platform.
+    // Optional (lazy require). Gated internally by META_AD_LAUNCH_LIVE /
+    // GOOGLE_ADS_LIVE so they're dry-run unless the operator opts in.
+    metaMarketing,
+    googleAds,
   } = deps;
+  const _metaMarketing = metaMarketing || require('../meta-marketing');
+  const _googleAds = googleAds || require('../google-ads-api');
 
   if (!sbGet || !sbPost || !sbPatch) throw new Error('WF2 engine: sbGet/sbPost/sbPatch required');
   if (!callClaude || !extractJSON) throw new Error('WF2 engine: callClaude + extractJSON required');
@@ -347,11 +386,14 @@ function createEngine(deps) {
         let patchBudget = null;
 
         if (audit.decision === 'scale' && audit.new_daily_budget != null) {
-          patchBudget = audit.new_daily_budget;
-          action_taken = 'budget_increased';
+          // Clamp the LLM-proposed budget to the tier + learning-phase safe band
+          // (the safeBudgetChange guard was previously dead code, so a model
+          // hallucination like 9999 was written verbatim to a real budget).
+          patchBudget = _clampProposedBudget(audit.new_daily_budget, campaign.daily_budget, audit.learning_phase_state);
+          if (patchBudget != null) action_taken = 'budget_increased';
         } else if (audit.decision === 'optimize' && audit.new_daily_budget != null) {
-          patchBudget = audit.new_daily_budget;
-          action_taken = 'budget_adjusted';
+          patchBudget = _clampProposedBudget(audit.new_daily_budget, campaign.daily_budget, audit.learning_phase_state);
+          if (patchBudget != null) action_taken = 'budget_adjusted';
         } else if (audit.decision === 'pause') {
           patchStatus = 'PAUSED';
           action_taken = 'paused';
@@ -379,11 +421,16 @@ function createEngine(deps) {
           try {
             await sbRpc('ad_optimizer_decision', {
               p_business_id: businessId,
-              p_campaign_id: String(campaign?.meta_campaign_id || campaignId),
+              // Match ad_campaigns by its UUID (the audit row + legacy patch both
+              // key on the campaign UUID, not the text meta id).
+              p_campaign_id: campaignId,
               p_decision: audit.decision,
-              p_reason: audit.decision_reason || null,
-              p_score: typeof audit.score === 'number' ? audit.score : 0,
+              p_decision_reason: audit.decision_reason || null,
+              // Field is audit_score, not score — the old `audit.score` was always
+              // undefined → persisted 0 for every decision.
+              p_audit_score: typeof audit.audit_score === 'number' ? audit.audit_score : 0,
               p_score_breakdown: audit.score_breakdown || {},
+              p_new_daily_budget: audit.new_daily_budget ?? patchBudget ?? null,
               p_patch_status: patchStatus,
               p_patch_budget: patchBudget,
             });
@@ -399,6 +446,52 @@ function createEngine(deps) {
           await sbPatch('ad_campaigns', `id=eq.${campaignId}`, patch).catch((e) => {
             logger?.warn?.('wf2.engine', businessId, 'campaign patch failed', e);
           });
+        }
+
+        // ─── Live actuator (AD-3) ──────────────────────────────────────────
+        // Previously the decision only updated our DB row — nothing reached the
+        // ad platform, so a "paused" losing campaign kept spending. Push the
+        // status/budget change to Meta/Google. Each actuator is gated by its own
+        // *_LIVE env flag (dry-run when off), so this ships safe by default.
+        if (patchStatus != null || patchBudget != null) {
+          try {
+            const platform = String(campaign.platform || 'meta').toLowerCase();
+            if (platform === 'meta' && campaign.meta_campaign_id) {
+              if (patchStatus != null) {
+                const r = await _metaMarketing.updateCampaignStatus({
+                  business,
+                  metaCampaignId: campaign.meta_campaign_id,
+                  status: patchStatus,
+                });
+                if (!r?.ok) logger?.warn?.('wf2.engine', businessId, 'meta status push failed', { reason: r?.reason });
+              }
+              if (patchBudget != null && typeof _metaMarketing.updateCampaignBudget === 'function') {
+                // Meta budget is minor units (cents); stored daily_budget is in
+                // currency units → *100. (Currency normalization tracked in AD-7.)
+                await _metaMarketing
+                  .updateCampaignBudget({
+                    business,
+                    metaCampaignId: campaign.meta_campaign_id,
+                    dailyBudgetCents: Math.round(Number(patchBudget) * 100),
+                  })
+                  .catch(() => {});
+              }
+            } else if (
+              platform === 'google' &&
+              campaign.google_campaign_id &&
+              patchStatus != null &&
+              typeof _googleAds.updateCampaignStatus === 'function'
+            ) {
+              const r = await _googleAds.updateCampaignStatus({
+                business,
+                campaignId: campaign.google_campaign_id,
+                status: patchStatus,
+              });
+              if (!r?.ok) logger?.warn?.('wf2.engine', businessId, 'google status push failed', { reason: r?.reason });
+            }
+          } catch (e) {
+            logger?.warn?.('wf2.engine', businessId, 'actuator push failed', { error: e.message });
+          }
         }
       }
 
@@ -423,10 +516,15 @@ function createEngine(deps) {
    * Audit every active campaign (cron target — runs daily 8am).
    */
   async function auditAllActive({ dryRun = false, limit = 500 } = {}) {
+    // NOTE: status is stored lowercase ('active') by every writer + the schema
+    // default (migration 000). A case-sensitive `eq.ACTIVE` matched nothing, so
+    // the daily audit silently no-op'd. Use a case-tolerant `in.()` filter.
+    // Do NOT swallow a fetch failure to []: a DB outage must surface so the
+    // Inngest cron retries + DLQs instead of reporting a clean "0 campaigns".
     const campaigns = await sbGet(
       'ad_campaigns',
-      `status=eq.ACTIVE&order=last_optimized_at.asc.nullsfirst&limit=${limit}&select=id,business_id`
-    ).catch(() => []);
+      `status=in.(active,ACTIVE)&order=last_optimized_at.asc.nullsfirst&limit=${limit}&select=id,business_id`
+    );
 
     const results = {
       total: campaigns.length,

@@ -25,6 +25,7 @@
 
 const orchestrator = require('./orchestrator');
 const phases = require('./phases');
+const { sweepStaleRuns } = require('./sweep');
 
 async function ensureRun({ businessId, sbGet, sbPost }) {
   const existing = await sbGet('cold_start_runs', `business_id=eq.${businessId}&select=*&limit=1`).catch(() => []);
@@ -101,6 +102,7 @@ module.exports = {
   advance,
   resume,
   approveConcept,
+  sweepStaleRuns,
   phases,
   orchestrator,
 };

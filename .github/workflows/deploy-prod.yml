@@ -44,6 +44,22 @@ jobs:
         run: npm run lint
       - name: Re-verify migrations
         run: npm run check-migrations
+      - name: Re-run SAST (Semgrep ERROR gate)
+        # deploy-prod is workflow_dispatch, so it can't `needs:` the sast.yml
+        # job — re-run the same ERROR-severity gauntlet inline so a prod
+        # promotion can never ship a commit that fails SAST.
+        run: |
+          python3 -m pip install --quiet --disable-pip-version-check semgrep
+          semgrep scan \
+            --config "p/security-audit" \
+            --config "p/owasp-top-ten" \
+            --config "p/javascript" \
+            --config "p/nodejs" \
+            --config "p/secrets" \
+            --config "p/jwt" \
+            --config "./.semgrep/" \
+            --error \
+            --severity ERROR
       - name: Record deploy reason
         env:
           DEPLOY_SHA: ${{ github.sha }}

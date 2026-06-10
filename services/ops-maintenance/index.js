@@ -355,6 +355,7 @@ async function fanOut({ sbGet, logger, label, growthPlusOnly, perBusiness }) {
   let ok = 0;
   let crises = 0;
   let skipped = 0;
+  let failed = 0;
   const errors = [];
 
   for (const b of businesses) {
@@ -365,18 +366,29 @@ async function fanOut({ sbGet, logger, label, growthPlusOnly, perBusiness }) {
         ok += 1;
         if (r.crisis) crises += 1;
         if (r.skipped) skipped += 1;
+      } else {
+        // Per-business soft failure (returned ok:false rather than throwing).
+        failed += 1;
+        if (r?.reason) errors.push({ business_id: b.id, error: r.reason });
       }
     } catch (e) {
+      failed += 1;
       errors.push({ business_id: b.id, error: e.message });
       logger?.warn?.(`ops-maintenance/${label}`, b.id, e.message);
     }
   }
 
+  // G-9: a fan-out where EVERY business failed is a systemic outage (rotated
+  // key, schema drift) — surface it as ok:false so the Inngest cron retries,
+  // hits the DLQ, and fires the Slack alert. A partial failure (some succeed)
+  // stays ok:true; per-business errors are already isolated above.
   return {
-    ok: true,
+    ok: !(failed === processed && processed > 0),
     businesses: businesses.length,
     processed,
     succeeded: ok,
+    failed,
+    total: processed,
     crises,
     skipped,
     errors: errors.slice(0, 20),

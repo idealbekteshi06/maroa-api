@@ -42,9 +42,15 @@ function createEngine({
   groundingContext,
   adversarialCritic,
   metrics,
+  // Higgsfield image/video service (constructed in server.js). Optional — when
+  // absent, assets are created without media (text-only publish). When present,
+  // we render a visual from the asset's visual_brief and set media_url so
+  // Instagram/TikTok auto-publish (which require media) actually works.
+  higgsfield,
 }) {
   const _grounding = groundingContext || require('../../lib/groundingContext');
   const _critic = adversarialCritic || require('../../lib/adversarialCritic');
+  const _higgsfield = higgsfield || null;
   const _strategicThinking = require('../../lib/strategicThinking');
   // ── Resolve brand context for a given business_id ─────────────────────
   async function resolveBrandContext(businessId) {
@@ -505,6 +511,52 @@ function createEngine({
       model_used: 'claude-sonnet-4-5',
       status: qualityResult.score >= 80 ? 'awaiting_approval' : 'generated',
     });
+
+    // Best-effort visual generation: render media from the visual_brief and
+    // attach media_url — previously it was NEVER set, so image AND video
+    // auto-publish failed. Image platforms → generateImage; video platforms
+    // (reels/tiktok/shorts/stories) → generateVideo. Any failure degrades to
+    // text-only and never breaks the daily run.
+    const IMAGE_PLATFORMS = new Set(['instagram_feed', 'facebook', 'linkedin', 'instagram', 'social_post']);
+    const VIDEO_PLATFORMS = new Set(['instagram_reel', 'tiktok', 'youtube_shorts', 'instagram_story', 'reel', 'short']);
+    if (_higgsfield) {
+      try {
+        const visualPrompt = parsed.visualBrief || concept.visualBrief || parsed.caption || '';
+        const promptStr = typeof visualPrompt === 'string' ? visualPrompt : JSON.stringify(visualPrompt);
+        let mediaUrl = null;
+        if (promptStr && IMAGE_PLATFORMS.has(concept.platform) && typeof _higgsfield.generateImage === 'function') {
+          const gen = await _higgsfield.generateImage({
+            prompt: promptStr,
+            content_type: concept.platform,
+            businessId,
+          });
+          mediaUrl = gen?.url || gen?.imageUrl || null;
+        } else if (
+          promptStr &&
+          VIDEO_PLATFORMS.has(concept.platform) &&
+          typeof _higgsfield.generateVideo === 'function'
+        ) {
+          const gen = await _higgsfield.generateVideo({
+            prompt: promptStr,
+            motionPrompt: promptStr,
+            content_type: concept.platform,
+            businessId,
+          });
+          mediaUrl = gen?.url || gen?.videoUrl || null;
+        }
+        if (mediaUrl && assetRow?.id) {
+          await sbPatch('content_assets', `id=eq.${encodeURIComponent(assetRow.id)}`, { media_url: mediaUrl }).catch(
+            () => {}
+          );
+          assetRow.media_url = mediaUrl;
+        }
+      } catch (e) {
+        logger?.warn?.('/wf1/engine', businessId, 'visual generation failed (text-only fallback)', {
+          error: e.message,
+          concept_id: conceptId,
+        });
+      }
+    }
 
     // Update concept with latest quality score
     await sbPatch('content_concepts', `id=eq.${conceptId}`, {

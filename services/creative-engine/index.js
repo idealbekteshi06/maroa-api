@@ -317,7 +317,9 @@ async function generateOneVariantCandidate({ business, brandDNA, grounding, seed
     const r = await callClaude({
       model: 'sonnet',
       system,
-      messages: [{ role: 'user', content: userTask }],
+      // callClaude's object-shape adapter reads `user`, NOT `messages`. Passing
+      // `messages` left the prompt undefined → Anthropic 400 → 0 variants.
+      user: userTask,
       maxTokens: 600,
       cacheSystem: true,
       extra: {

@@ -172,29 +172,72 @@ function buildUserMessage({
 
 // ─── Schema validator ──────────────────────────────────────────────────────
 
-function validateOutput(raw) {
+// Normalize text for substring matching: lowercase, collapse all non-alphanumeric
+// runs to a single space, trim. Makes quote-grounding tolerant of punctuation,
+// curly quotes, and whitespace differences without being so loose it matches noise.
+function _normForMatch(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+// Drop any "verbatim" quote that does NOT actually appear in the source reviews.
+// The "never invent quotes" rule was prompt-only; this enforces it so a model
+// paraphrase/hallucination can't be stored + shown to the customer as a real
+// customer quote. Returns the count of dropped quotes for observability.
+function _groundQuotes(items, field, haystackNorm) {
+  let dropped = 0;
+  if (!Array.isArray(items) || !haystackNorm) return dropped;
+  for (const item of items) {
+    if (!item || !Array.isArray(item[field])) continue;
+    item[field] = item[field].filter((q) => {
+      const n = _normForMatch(q);
+      // Require a non-trivial match (>= 8 normalized chars) to avoid matching
+      // common short words by accident.
+      if (n.length < 8) return false;
+      const ok = haystackNorm.includes(n);
+      if (!ok) dropped += 1;
+      return ok;
+    });
+  }
+  return dropped;
+}
+
+function validateOutput(raw, sourceText) {
   const errors = [];
   if (!raw || typeof raw !== 'object') return { valid: false, errors: ['response not object'] };
   for (const f of ['pain_points', 'jtbd_signals', 'recommendations_for_marketing', 'caveats']) {
     if (raw[f] != null && !Array.isArray(raw[f])) errors.push(`${f} must be array`);
   }
   if (errors.length) return { valid: false, errors };
-  return {
-    valid: true,
-    errors: [],
-    normalized: {
-      pain_points: Array.isArray(raw.pain_points) ? raw.pain_points : [],
-      jtbd_signals: Array.isArray(raw.jtbd_signals) ? raw.jtbd_signals : [],
-      persona_refinement: raw.persona_refinement || null,
-      competitor_mentions: Array.isArray(raw.competitor_mentions) ? raw.competitor_mentions : [],
-      recommendations_for_marketing: Array.isArray(raw.recommendations_for_marketing)
-        ? raw.recommendations_for_marketing
-        : [],
-      trigger_events: Array.isArray(raw.trigger_events) ? raw.trigger_events : [],
-      positioning_implications: Array.isArray(raw.positioning_implications) ? raw.positioning_implications : [],
-      caveats: Array.isArray(raw.caveats) ? raw.caveats : [],
-    },
+
+  const normalized = {
+    pain_points: Array.isArray(raw.pain_points) ? raw.pain_points : [],
+    jtbd_signals: Array.isArray(raw.jtbd_signals) ? raw.jtbd_signals : [],
+    persona_refinement: raw.persona_refinement || null,
+    competitor_mentions: Array.isArray(raw.competitor_mentions) ? raw.competitor_mentions : [],
+    recommendations_for_marketing: Array.isArray(raw.recommendations_for_marketing)
+      ? raw.recommendations_for_marketing
+      : [],
+    trigger_events: Array.isArray(raw.trigger_events) ? raw.trigger_events : [],
+    positioning_implications: Array.isArray(raw.positioning_implications) ? raw.positioning_implications : [],
+    caveats: Array.isArray(raw.caveats) ? raw.caveats : [],
   };
+
+  // Quote grounding: only when we have the source text to verify against.
+  let quotesDropped = 0;
+  if (sourceText) {
+    const haystack = _normForMatch(sourceText);
+    quotesDropped += _groundQuotes(normalized.pain_points, 'verbatim_quotes', haystack);
+    quotesDropped += _groundQuotes(normalized.jtbd_signals, 'evidence_quotes', haystack);
+    quotesDropped += _groundQuotes(normalized.trigger_events, 'evidence_quotes', haystack);
+    if (quotesDropped > 0) {
+      normalized.caveats.push(`${quotesDropped} unverified quote(s) dropped (not found verbatim in source reviews).`);
+    }
+  }
+
+  return { valid: true, errors: [], normalized, quotesDropped };
 }
 
 // ─── Public entry ──────────────────────────────────────────────────────────
@@ -287,7 +330,9 @@ async function synthesizeVoc(opts) {
         temperature: 0.3,
       });
       const parsed = extractJSON(raw);
-      const v = parsed ? validateOutput(parsed) : { valid: false, errors: ['parse_error'] };
+      // Pass the source reviews so validateOutput can drop any "verbatim" quote
+      // the model invented (never-invent-quotes rule, now enforced not just asked).
+      const v = parsed ? validateOutput(parsed, JSON.stringify(normalized)) : { valid: false, errors: ['parse_error'] };
       if (v.valid) {
         synth = {
           ...synth,

@@ -22,6 +22,15 @@
 
 const internalDispatcher = require('../../lib/internalDispatcher');
 
+// Tenant-isolation: every entity id interpolated into a PostgREST filter must
+// be UUID-validated + encoded, and every row touched by entity id must be
+// scoped to the caller's already-verified business_id (the /webhook owner gate
+// only verifies the business_id itself, not that a secondary entity belongs to
+// it). See lib/assertBusinessOwner.js + CLAUDE.md Rule 4.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
+const enc = encodeURIComponent;
+
 function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger }) {
   // ─── POST /webhook/wf1-strategic-decision ──────────────────────────
   app.post('/webhook/wf1-strategic-decision', async (req, res) => {
@@ -53,7 +62,7 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
 
       const planRows = await sbGet(
         'content_plans',
-        `business_id=eq.${businessId}&plan_date=eq.${resolvedDate}&select=*`
+        `business_id=eq.${enc(businessId)}&plan_date=eq.${enc(resolvedDate)}&select=*`
       ).catch(() => []);
 
       if (!planRows[0]) {
@@ -65,15 +74,17 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
         });
       }
       const plan = planRows[0];
-      const concepts = await sbGet('content_concepts', `plan_id=eq.${plan.id}&order=created_at.asc&select=*`).catch(
-        () => []
-      );
+      // plan already scoped to business_id above; concepts/assets chain off it.
+      const concepts = await sbGet(
+        'content_concepts',
+        `plan_id=eq.${enc(plan.id)}&order=created_at.asc&select=*`
+      ).catch(() => []);
 
       // Fetch latest asset per concept
       const conceptIds = concepts.map((c) => c.id);
       let assets = [];
       if (conceptIds.length) {
-        const inList = conceptIds.map((id) => `"${id}"`).join(',');
+        const inList = conceptIds.map((id) => `"${enc(id)}"`).join(',');
         assets = await sbGet('content_assets', `concept_id=in.(${inList})&order=generated_at.desc&select=*`).catch(
           () => []
         );
@@ -146,12 +157,16 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
     const { businessId, conceptId, decision, editedCaption, reason } = req.body || {};
     if (!businessId || !conceptId || !decision)
       return apiError(res, 400, 'INVALID_REQUEST', 'businessId, conceptId, decision required');
+    if (!isUuid(conceptId)) return apiError(res, 400, 'INVALID_REQUEST', 'conceptId must be a valid UUID');
     if (!['approve', 'reject', 'edit'].includes(decision))
       return apiError(res, 400, 'INVALID_REQUEST', 'decision must be approve|reject|edit');
 
     try {
+      // Tenant-isolation: the owner gate verified businessId, NOT that this
+      // concept belongs to it. Scope every concept/asset filter to businessId
+      // so a victim's conceptId can never be touched cross-tenant.
       // Update concept row
-      await sbPatch('content_concepts', `id=eq.${conceptId}`, {
+      await sbPatch('content_concepts', `id=eq.${enc(conceptId)}&business_id=eq.${enc(businessId)}`, {
         status: decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : 'approved',
         rejection_reason: decision === 'reject' ? reason || 'manual reject' : null,
         decided_at: new Date().toISOString(),
@@ -161,10 +176,10 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
       // Approvals row: try to find latest approval for this entity
       const approvalRows = await sbGet(
         'approvals',
-        `workflow=eq.1_daily_content&entity_type=eq.asset&business_id=eq.${businessId}&status=eq.pending&order=created_at.desc&limit=5&select=id,entity_id`
+        `workflow=eq.1_daily_content&entity_type=eq.asset&business_id=eq.${enc(businessId)}&status=eq.pending&order=created_at.desc&limit=5&select=id,entity_id`
       ).catch(() => []);
       for (const ap of approvalRows) {
-        await sbPatch('approvals', `id=eq.${ap.id}`, {
+        await sbPatch('approvals', `id=eq.${enc(ap.id)}&business_id=eq.${enc(businessId)}`, {
           status: decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : 'edited',
           decided_at: new Date().toISOString(),
           decision_reason: reason || null,
@@ -177,11 +192,11 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
       if (decision === 'approve' || decision === 'edit') {
         const assetRows = await sbGet(
           'content_assets',
-          `concept_id=eq.${conceptId}&order=generated_at.desc&limit=1&select=id`
+          `concept_id=eq.${enc(conceptId)}&business_id=eq.${enc(businessId)}&order=generated_at.desc&limit=1&select=id`
         ).catch(() => []);
         if (assetRows[0]) {
           if (editedCaption) {
-            await sbPatch('content_assets', `id=eq.${assetRows[0].id}`, {
+            await sbPatch('content_assets', `id=eq.${enc(assetRows[0].id)}&business_id=eq.${enc(businessId)}`, {
               caption: editedCaption,
             }).catch(() => {});
           }
@@ -227,7 +242,7 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
     if (!['full_autopilot', 'hybrid', 'approve_everything'].includes(mode))
       return apiError(res, 400, 'INVALID_REQUEST', 'mode must be full_autopilot|hybrid|approve_everything');
     try {
-      await sbPatch('businesses', `id=eq.${businessId}`, {
+      await sbPatch('businesses', `id=eq.${enc(businessId)}`, {
         wf1_autonomy_mode: mode,
         wf1_hybrid_window_hours: hybridWindowHours ?? 4,
       });

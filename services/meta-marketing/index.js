@@ -29,17 +29,32 @@
  * ---------------------------------------------------------------------------
  */
 
+const crypto = require('crypto');
+const oauthCrypto = require('../../lib/oauthCrypto');
+
 const GRAPH_VERSION = 'v21.0';
 const GRAPH_HOST = 'graph.facebook.com';
 const META_LAUNCH_LIVE = () => String(process.env.META_AD_LAUNCH_LIVE || '').toLowerCase() === 'true';
 
+// readToken prefers the encrypted *_enc column and falls back to legacy
+// plaintext. Synchronous (no I/O) — the business row is already fetched.
+function metaToken(business) {
+  return oauthCrypto.readToken(business, 'meta_access_token');
+}
+
 function isConfigured({ business }) {
-  return !!(business?.meta_access_token && business?.ad_account_id);
+  return !!(metaToken(business) && business?.ad_account_id);
 }
 
 async function graphCall({ method, path, accessToken, body, query }) {
   if (!accessToken) return { ok: false, status: 0, reason: 'access token required' };
   const params = new URLSearchParams({ access_token: accessToken, ...(query || {}) });
+  // appsecret_proof: required when the Meta app enforces it; also prevents a
+  // leaked token from being replayed without the app secret. HMAC of the token.
+  const appSecret = (process.env.META_APP_SECRET || '').trim();
+  if (appSecret) {
+    params.set('appsecret_proof', crypto.createHmac('sha256', appSecret).update(accessToken).digest('hex'));
+  }
   const url = `https://${GRAPH_HOST}/${GRAPH_VERSION}${path}?${params.toString()}`;
   try {
     const res = await fetch(url, {
@@ -83,7 +98,7 @@ async function createCampaign({ business, name, conversionEvent, dailyBudgetCent
   return graphCall({
     method: 'POST',
     path: `/act_${business.ad_account_id}/campaigns`,
-    accessToken: business.meta_access_token,
+    accessToken: metaToken(business),
     body: {
       name,
       objective,
@@ -110,7 +125,7 @@ async function createAdSet({
   return graphCall({
     method: 'POST',
     path: `/act_${business.ad_account_id}/adsets`,
-    accessToken: business.meta_access_token,
+    accessToken: metaToken(business),
     body: {
       name,
       campaign_id: campaignId,
@@ -132,7 +147,7 @@ async function createAd({ business, adSetId, name, creative }) {
   return graphCall({
     method: 'POST',
     path: `/act_${business.ad_account_id}/ads`,
-    accessToken: business.meta_access_token,
+    accessToken: metaToken(business),
     body: {
       name,
       adset_id: adSetId,
@@ -195,7 +210,7 @@ async function createCampaignWithAdSetsAndAds({ business, payload }) {
 // ─── Insights (used by ad-optimizer daily audit) ────────────────────────
 
 async function fetchInsights({ businessId, business, since, until }) {
-  if (!business?.meta_access_token || !business?.ad_account_id) {
+  if (!metaToken(business) || !business?.ad_account_id) {
     return { ok: true, campaigns: [], reason: 'meta token missing' };
   }
   const dateStart = since || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -204,7 +219,7 @@ async function fetchInsights({ businessId, business, since, until }) {
   const r = await graphCall({
     method: 'GET',
     path: `/act_${business.ad_account_id}/insights`,
-    accessToken: business.meta_access_token,
+    accessToken: metaToken(business),
     query: {
       level: 'campaign',
       time_range: JSON.stringify({ since: dateStart, until: dateEnd }),
@@ -243,7 +258,7 @@ async function fetchInsights({ businessId, business, since, until }) {
 // ─── Measurement health (EMQ + dedup) ───────────────────────────────────
 
 async function fetchMeasurementHealth({ business }) {
-  if (!business?.meta_access_token || !business?.ad_account_id) {
+  if (!metaToken(business) || !business?.ad_account_id) {
     return null;
   }
   // Pixel events stats endpoint — requires the pixel ID. We try to find it
@@ -251,7 +266,7 @@ async function fetchMeasurementHealth({ business }) {
   const pxRes = await graphCall({
     method: 'GET',
     path: `/act_${business.ad_account_id}/customconversions`,
-    accessToken: business.meta_access_token,
+    accessToken: metaToken(business),
     query: { fields: 'pixel,id', limit: '5' },
   });
   const pixelId = pxRes.ok ? pxRes.raw?.data?.[0]?.pixel?.id : null;
@@ -262,7 +277,7 @@ async function fetchMeasurementHealth({ business }) {
   const stats = await graphCall({
     method: 'GET',
     path: `/${pixelId}/stats`,
-    accessToken: business.meta_access_token,
+    accessToken: metaToken(business),
     query: { aggregation: 'event', start_time: String(Math.floor(Date.now() / 1000) - 86400) },
   });
   if (!stats.ok) return { emq: null, dedup: null, capi_events_24h: null, raw: stats.raw };
@@ -296,14 +311,14 @@ async function fetchMeasurementHealth({ business }) {
 // ─── Conversions API (CAPI) — server-side conversion send ───────────────
 
 async function sendConversionEvent({ business, pixelId, event_name, event_data, user_data, event_id }) {
-  if (!business?.meta_access_token) return { ok: false, reason: 'meta token missing' };
+  if (!metaToken(business)) return { ok: false, reason: 'meta token missing' };
   const px = pixelId || business.meta_pixel_id;
   if (!px) return { ok: false, reason: 'pixel_id missing — cannot send CAPI event' };
 
   return graphCall({
     method: 'POST',
     path: `/${px}/events`,
-    accessToken: business.meta_access_token,
+    accessToken: metaToken(business),
     body: {
       data: [
         {
@@ -319,6 +334,37 @@ async function sendConversionEvent({ business, pixelId, event_name, event_data, 
   });
 }
 
+// ─── Actuator: push ad-optimizer decisions to the live Meta account ──────────
+// Gated by META_AD_LAUNCH_LIVE — dry-run (no API call) when off, so it ships safe.
+async function updateCampaignStatus({ business, metaCampaignId, status }) {
+  if (!metaCampaignId) return { ok: false, reason: 'metaCampaignId required' };
+  const s = String(status).toUpperCase() === 'PAUSED' ? 'PAUSED' : 'ACTIVE';
+  if (!META_LAUNCH_LIVE()) {
+    return { ok: true, dry_run: true, reason: 'META_AD_LAUNCH_LIVE=false', metaCampaignId, status: s };
+  }
+  return graphCall({
+    method: 'POST',
+    path: `/${encodeURIComponent(metaCampaignId)}`,
+    accessToken: metaToken(business),
+    body: { status: s },
+  });
+}
+
+async function updateCampaignBudget({ business, metaCampaignId, dailyBudgetCents }) {
+  if (!metaCampaignId) return { ok: false, reason: 'metaCampaignId required' };
+  const cents = Math.round(Number(dailyBudgetCents));
+  if (!Number.isFinite(cents) || cents <= 0) return { ok: false, reason: 'invalid daily budget' };
+  if (!META_LAUNCH_LIVE()) {
+    return { ok: true, dry_run: true, reason: 'META_AD_LAUNCH_LIVE=false', metaCampaignId, daily_budget: cents };
+  }
+  return graphCall({
+    method: 'POST',
+    path: `/${encodeURIComponent(metaCampaignId)}`,
+    accessToken: metaToken(business),
+    body: { daily_budget: cents },
+  });
+}
+
 module.exports = {
   isConfigured,
   createCampaign,
@@ -328,5 +374,7 @@ module.exports = {
   fetchInsights,
   fetchMeasurementHealth,
   sendConversionEvent,
+  updateCampaignStatus,
+  updateCampaignBudget,
   META_OBJECTIVE_MAP,
 };
