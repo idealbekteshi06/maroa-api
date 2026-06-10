@@ -11,7 +11,27 @@ source of truth for completing them.
 ## 1. Apply the two new migrations (Supabase SQL editor) — SECURITY-URGENT
 
 The app talks to Supabase only through PostgREST, which cannot run DDL, so there
-is no in-app auto-runner (by design). Apply these **in order**:
+is no in-app auto-runner (by design).
+
+### Option A — one command (recommended)
+
+Grab your Supabase direct-connection string (Project Settings → Database →
+Connection string), then:
+
+```bash
+npm install                 # pulls the newly-declared `pg` dependency
+DATABASE_URL='postgresql://postgres:[PASSWORD]@db.[REF].supabase.co:5432/postgres' npm run db:migrate:dry   # preview
+DATABASE_URL='postgresql://postgres:[PASSWORD]@db.[REF].supabase.co:5432/postgres' npm run db:migrate       # apply
+```
+
+The runner applies every migration not yet in the `_migrations` ledger, in
+order, records each + its checksum, takes an advisory lock so two runners can't
+race, and stops on the first failure. Safe to re-run (already-applied files are
+skipped). It only runs when you invoke it — never on boot/deploy.
+
+### Option B — manual paste (no connection string needed)
+
+Apply these **in order**:
 
 1. Open Supabase → SQL Editor.
 2. Paste the full contents of **`migrations/086_rls_tenant_isolation.sql`**, Run.
