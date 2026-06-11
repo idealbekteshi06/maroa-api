@@ -27,6 +27,79 @@ const creativeDirector = require('../prompts/creative-director');
 const trendingHooks = require('../prompts/trending-hooks');
 const { callMarketingClaude } = require('../../lib/marketingClaude');
 
+// Higgsfield is the ONLY image provider for maroa.ai — no Replicate, no Flux,
+// no fallback. Builds the image prompt from the structured visualBrief the
+// generation prompt returns ({ style, shots[], thumbnailGuidance, brandAssets[] }).
+function visualBriefToPrompt(vb, concept = {}) {
+  if (!vb) return concept.core_idea || concept.hook || '';
+  if (typeof vb === 'string') return vb;
+  const parts = [];
+  if (vb.style) parts.push(vb.style);
+  if (Array.isArray(vb.shots) && vb.shots.length) parts.push(vb.shots.join('. '));
+  if (vb.thumbnailGuidance) parts.push(vb.thumbnailGuidance);
+  if (Array.isArray(vb.brandAssets) && vb.brandAssets.length) parts.push(`Brand assets: ${vb.brandAssets.join(', ')}`);
+  return parts.filter(Boolean).join('. ') || concept.core_idea || concept.hook || '';
+}
+
+// Platforms that take video — these route through Higgsfield generateVideo
+// (seedance / kling / wan) instead of generateImage.
+const VIDEO_PLATFORMS = new Set(['instagram_reel', 'instagram_story', 'tiktok', 'youtube_shorts', 'social_reel']);
+
+// Pick the right Higgsfield video model from concept signal. Mirrors the
+// content_type intent: UGC → wan, cinematic/product → kling, social reel
+// default → seedance. Explicit override beats routing so WF1 isn't at the
+// mercy of modelRouter changes.
+function videoModelForConcept(concept = {}) {
+  const fmt = String(concept.format || '').toLowerCase();
+  const pillar = String(concept.pillar || '').toLowerCase();
+  if (/ugc|testimonial|lipsync/.test(fmt) || /ugc/.test(pillar)) return 'wan-2.5';
+  if (/cinematic|hero/.test(fmt) || /cinematic|hero/.test(pillar)) return 'kling-3.0';
+  return 'seedance-2.0';
+}
+
+// Normalize businesses.product_image_urls (JSONB array, possibly a JSON
+// string or null) into a clean list of http(s) URLs.
+function referenceImageList(raw) {
+  let arr = raw;
+  if (typeof raw === 'string') {
+    try {
+      arr = JSON.parse(raw);
+    } catch {
+      arr = [raw];
+    }
+  }
+  if (!Array.isArray(arr)) return [];
+  return arr.filter((u) => typeof u === 'string' && /^https?:\/\//i.test(u));
+}
+
+// Deterministic per-concept rotation so multiple concepts in one day don't
+// all reference the same product photo.
+function rotationIndex(seed, length) {
+  if (length <= 1) return 0;
+  const s = String(seed || '');
+  let sum = 0;
+  for (let i = 0; i < s.length; i += 1) sum = (sum + s.charCodeAt(i)) % length;
+  return sum;
+}
+
+// Pure helper: portrait for feeds, vertical for reels/stories.
+function aspectRatioForPlatform(platform) {
+  switch (String(platform || '').toLowerCase()) {
+    case 'instagram_reel':
+    case 'instagram_story':
+    case 'youtube_shorts':
+    case 'tiktok':
+      return '9:16';
+    case 'instagram_feed':
+      return '4:5';
+    case 'facebook':
+    case 'linkedin':
+    case 'gbp_post':
+    default:
+      return '1:1';
+  }
+}
+
 function createEngine({
   sbGet,
   sbPost,
@@ -37,21 +110,20 @@ function createEngine({
   contextBundleBuilder,
   guardrails,
   buildBrandContext,
+  // Higgsfield image/video service (services/higgsfield). Optional in unit
+  // tests; required in production so generated assets get a real media_url.
+  higgsfield,
   // Closed-loop creative system libraries — injected for testability.
   // See ADR-0005. Fall back to require() so production wiring just works.
   groundingContext,
   adversarialCritic,
+  viralityPredictor,
   metrics,
-  // Higgsfield image/video service (constructed in server.js). Optional — when
-  // absent, assets are created without media (text-only publish). When present,
-  // we render a visual from the asset's visual_brief and set media_url so
-  // Instagram/TikTok auto-publish (which require media) actually works.
-  higgsfield,
 }) {
   const _grounding = groundingContext || require('../../lib/groundingContext');
   const _critic = adversarialCritic || require('../../lib/adversarialCritic');
-  const _higgsfield = higgsfield || null;
   const _strategicThinking = require('../../lib/strategicThinking');
+  const _virality = viralityPredictor || require('../../lib/viralityPredictor');
   // ── Resolve brand context for a given business_id ─────────────────────
   async function resolveBrandContext(businessId) {
     const [bizRows, profileRows] = await Promise.all([
@@ -489,6 +561,135 @@ function createEngine({
       asset: parsed,
     });
 
+    // ─── Phase 4.5: render the visual via Higgsfield ───────────────────────
+    // The visual_brief is the art-direction; Higgsfield turns it into a real
+    // image OR video so the asset carries a media_url to publish. Higgsfield
+    // is the ONLY provider — no Replicate, no Flux, no fallback. Behavior:
+    //   • Reels / TikTok / Story / Shorts → generateVideo (9:16, 6s default)
+    //   • Feeds / Facebook / LinkedIn / GBP → generateImage
+    //   • Email concepts → skip (no visual asset needed)
+    //   • Soul ID (businesses.higgsfield_soul_id) is attached when present so
+    //     every generation carries a consistent brand identity.
+    //   • Credit guard: if businesses.higgsfield_credits is known and <100,
+    //     skip generation (low-balance email is sent by the daily cron).
+    let mediaUrl = null;
+    let imageModelUsed = null;
+    let generationType = null;
+    const visualPrompt = visualBriefToPrompt(parsed.visualBrief, concept);
+    const platformLower = String(concept.platform || '').toLowerCase();
+    const isVideoPlatform = VIDEO_PLATFORMS.has(platformLower);
+    const isImagePlatform = !isVideoPlatform && platformLower !== 'email';
+
+    const bizCfgRows = await sbGet(
+      'businesses',
+      `id=eq.${businessId}&select=higgsfield_soul_id,higgsfield_credits,product_image_urls,logo_url`
+    ).catch(() => []);
+    const bizCfg = bizCfgRows[0] || {};
+    const soulId = bizCfg.higgsfield_soul_id || null;
+    const credits = typeof bizCfg.higgsfield_credits === 'number' ? bizCfg.higgsfield_credits : null;
+    const creditsBlocked = credits != null && credits < 100;
+
+    // Customer-supplied product/shop photos → Higgsfield reference image, so
+    // generated visuals riff on their REAL products instead of generic stock.
+    // Rotate across the day's concepts (deterministic per-concept) for variety.
+    const productImages = referenceImageList(bizCfg.product_image_urls);
+    const referenceImageUrl = productImages.length
+      ? productImages[rotationIndex(conceptId, productImages.length)]
+      : null;
+
+    // Logo is folded into the prompt as a brand-asset cue. NOTE: this is a
+    // soft reference, NOT a pixel-accurate overlay — true logo placement needs
+    // a compositing step (documented in migration 088).
+    const logoUrl = bizCfg.logo_url || null;
+    const promptWithBrand = logoUrl
+      ? `${visualPrompt}. Tastefully incorporate the brand's logo/identity where natural.`
+      : visualPrompt;
+
+    if (creditsBlocked) {
+      await sbPost('events', {
+        business_id: businessId,
+        kind: 'higgsfield.credits.low.blocked',
+        workflow: '1_daily_content',
+        payload: { concept_id: conceptId, credits, threshold: 100 },
+        severity: 'warning',
+      }).catch(() => {});
+      logger?.warn?.('/wf1/engine.image', businessId, 'higgsfield generation blocked — low credits', {
+        credits,
+        threshold: 100,
+      });
+    } else if (higgsfield && visualPrompt) {
+      if (isVideoPlatform && typeof higgsfield.generateVideo === 'function') {
+        try {
+          const vid = await higgsfield.generateVideo({
+            prompt: promptWithBrand,
+            aspect_ratio: '9:16',
+            resolution: '720p',
+            durationSeconds: 6,
+            model: videoModelForConcept(concept),
+            soul_id: soulId,
+            sourceImageUrl: referenceImageUrl || undefined,
+            businessId,
+          });
+          mediaUrl = vid?.url || vid?.videoUrl || null;
+          imageModelUsed = vid?.model_used || vid?.model_slug || null;
+          if (mediaUrl) generationType = 'video';
+        } catch (e) {
+          logger?.error?.('/wf1/engine.video', businessId, 'higgsfield video generation failed', {
+            conceptId,
+            error: e.message,
+          });
+        }
+      } else if (isImagePlatform && typeof higgsfield.generateImage === 'function') {
+        try {
+          const img = await higgsfield.generateImage({
+            prompt: promptWithBrand,
+            aspect_ratio: aspectRatioForPlatform(concept.platform),
+            soul_id: soulId,
+            image_url: referenceImageUrl || undefined,
+            businessId,
+          });
+          mediaUrl = img?.url || img?.imageUrl || null;
+          imageModelUsed = img?.model_used || img?.model_slug || null;
+          if (mediaUrl) generationType = 'image';
+          // Pixel-accurate logo placement: overlay the logo PNG onto the
+          // finished image (Higgsfield's reference is only a style hint).
+          // Soft-fails to the un-overlaid image. Image-only. Runs before the
+          // generation-history mirror so the recorded media_url is the final
+          // (composited) URL.
+          if (mediaUrl && logoUrl && typeof higgsfield.applyLogoOverlay === 'function') {
+            mediaUrl = await higgsfield.applyLogoOverlay({ imageUrl: mediaUrl, logoUrl, businessId });
+          }
+        } catch (e) {
+          logger?.error?.('/wf1/engine.image', businessId, 'higgsfield image generation failed', {
+            conceptId,
+            error: e.message,
+          });
+        }
+      }
+    }
+
+    // ─── Generation-history mirror (migration 087) ─────────────────────────
+    // Record every successful Higgsfield generation so cost attribution +
+    // analytics have a per-asset ledger independent of content_assets. This
+    // is a pure internal write on a call we already made — no external API.
+    // Soft-fails: a mirror miss must never sink the content pipeline.
+    if (mediaUrl && generationType) {
+      await sbPost('higgsfield_generations', {
+        business_id: businessId,
+        job_id: null,
+        model: imageModelUsed || null,
+        prompt: visualPrompt ? visualPrompt.slice(0, 2000) : null,
+        media_url: mediaUrl,
+        generation_type: generationType,
+        cost_credits: null,
+      }).catch((e) =>
+        logger?.warn?.('/wf1/engine', businessId, 'higgsfield_generations mirror failed', {
+          conceptId,
+          error: e.message,
+        })
+      );
+    }
+
     const assetRow = await sbPost('content_assets', {
       business_id: businessId,
       concept_id: conceptId,
@@ -499,6 +700,7 @@ function createEngine({
       hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : [],
       cta: parsed.cta || concept.cta,
       visual_brief: parsed.visualBrief || null,
+      media_url: mediaUrl,
       accessibility_alt_text: parsed.accessibilityAltText || null,
       burned_in_captions: parsed.burnedInCaptions || null,
       posting_time_local: parsed.postingTime?.localTime || defaultPostTime || null,
@@ -508,54 +710,46 @@ function createEngine({
       confidence: Number(parsed.confidence || 0),
       quality_score: qualityResult.score,
       quality_breakdown: qualityResult.breakdown,
-      model_used: 'claude-sonnet-4-5',
+      model_used: imageModelUsed ? `claude-sonnet-4-5+${imageModelUsed}` : 'claude-sonnet-4-5',
       status: qualityResult.score >= 80 ? 'awaiting_approval' : 'generated',
     });
 
-    // Best-effort visual generation: render media from the visual_brief and
-    // attach media_url — previously it was NEVER set, so image AND video
-    // auto-publish failed. Image platforms → generateImage; video platforms
-    // (reels/tiktok/shorts/stories) → generateVideo. Any failure degrades to
-    // text-only and never breaks the daily run.
-    const IMAGE_PLATFORMS = new Set(['instagram_feed', 'facebook', 'linkedin', 'instagram', 'social_post']);
-    const VIDEO_PLATFORMS = new Set(['instagram_reel', 'tiktok', 'youtube_shorts', 'instagram_story', 'reel', 'short']);
-    if (_higgsfield) {
-      try {
-        const visualPrompt = parsed.visualBrief || concept.visualBrief || parsed.caption || '';
-        const promptStr = typeof visualPrompt === 'string' ? visualPrompt : JSON.stringify(visualPrompt);
-        let mediaUrl = null;
-        if (promptStr && IMAGE_PLATFORMS.has(concept.platform) && typeof _higgsfield.generateImage === 'function') {
-          const gen = await _higgsfield.generateImage({
-            prompt: promptStr,
-            content_type: concept.platform,
-            businessId,
-          });
-          mediaUrl = gen?.url || gen?.imageUrl || null;
-        } else if (
-          promptStr &&
-          VIDEO_PLATFORMS.has(concept.platform) &&
-          typeof _higgsfield.generateVideo === 'function'
-        ) {
-          const gen = await _higgsfield.generateVideo({
-            prompt: promptStr,
-            motionPrompt: promptStr,
-            content_type: concept.platform,
-            businessId,
-          });
-          mediaUrl = gen?.url || gen?.videoUrl || null;
-        }
-        if (mediaUrl && assetRow?.id) {
-          await sbPatch('content_assets', `id=eq.${encodeURIComponent(assetRow.id)}`, { media_url: mediaUrl }).catch(
-            () => {}
-          );
-          assetRow.media_url = mediaUrl;
-        }
-      } catch (e) {
-        logger?.warn?.('/wf1/engine', businessId, 'visual generation failed (text-only fallback)', {
+    // ─── Virality prediction (migration 089 content_virality_predictions) ──
+    // Internal Claude-based predictor (lib/viralityPredictor) — scores the
+    // finished asset for predicted organic performance and records a row in
+    // content_virality_predictions keyed to the asset. NOTE: this used to
+    // write `content_performance`, but that name collides with migration 024's
+    // post-publish measurement table (post_id/asset_id NOT NULL), so every
+    // insert silently failed. Migration 089 gives predictions their own table.
+    // Soft-fails: a prediction miss returns a neutral band and never blocks.
+    try {
+      const prediction = await _virality.predictVirality({
+        content: {
+          platform: concept.platform,
+          hook: parsed.hook || concept.hook,
+          caption: parsed.caption || '',
+          media_url: mediaUrl,
+          format: concept.format,
+        },
+        deps: { callClaude, extractJSON, logger },
+        businessId,
+      });
+      await sbPost('content_virality_predictions', {
+        business_id: businessId,
+        content_id: assetRow.id,
+        virality_score: prediction.virality_score,
+        predicted_engagement: prediction.predicted_engagement,
+        hook_strength: prediction.hook_strength,
+        retention_risk: prediction.retention_risk,
+        raw: prediction.raw,
+      }).catch((e) =>
+        logger?.warn?.('/wf1/engine', businessId, 'content_virality_predictions insert failed', {
+          conceptId,
           error: e.message,
-          concept_id: conceptId,
-        });
-      }
+        })
+      );
+    } catch (e) {
+      logger?.warn?.('/wf1/engine', businessId, 'virality prediction failed', { conceptId, error: e.message });
     }
 
     // Update concept with latest quality score

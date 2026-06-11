@@ -225,6 +225,28 @@ module.exports = function createHiggsfieldService(deps) {
     throw new Error(`Upload failed: ${uploadResp.status} ${(uploadResp.body || '').slice(0, 200)}`);
   }
 
+  /**
+   * Composite the business logo onto a generated image (pixel-accurate, not a
+   * prompt hint) and re-upload to storage. Returns the new public URL on
+   * success, or the original imageUrl on any failure (soft-fail — never blocks
+   * the content pipeline). Image-only; video logo-burn is a separate concern.
+   */
+  async function applyLogoOverlay({ imageUrl, logoUrl, businessId, opts }) {
+    if (!imageUrl || !logoUrl) return imageUrl;
+    try {
+      const { buildOverlayedImage } = require('../../lib/logoOverlay');
+      const r = await buildOverlayedImage({ baseImageUrl: imageUrl, logoUrl, deps: { logger, opts } });
+      if (!r.ok || !r.buffer) return imageUrl;
+      const newUrl = await uploadBufferToContentImages(r.buffer, businessId || 'logo', `logo-${Date.now()}`);
+      return newUrl || imageUrl;
+    } catch (e) {
+      logger?.warn?.('higgsfield.applyLogoOverlay', businessId, 'overlay failed — using original', {
+        error: e.message,
+      });
+      return imageUrl;
+    }
+  }
+
   /** Download Higgsfield CDN image and persist to Supabase Storage (public URL). */
   async function mirrorHiggsfieldImageToSupabase(hfUrl, userId, index) {
     const buf = await downloadImageBuffer(hfUrl);
@@ -1579,6 +1601,9 @@ module.exports = function createHiggsfieldService(deps) {
       preset.id
     );
     if (args.image_url) payload.image_url = args.image_url;
+    // Soul ID for brand-consistent identity across every generated image.
+    // No-op when the business hasn't trained a character yet (args.soul_id falsy).
+    attachSoulIdToPayload(payload, args.soul_id || args.higgsfield_soul_id);
     const url = await submitSoulAndWait(payload, path);
     const est = await recordGenerationCost(args.businessId, routed.model_slug, { skill: 'wf10_image' });
     return {
@@ -1836,7 +1861,23 @@ module.exports = function createHiggsfieldService(deps) {
     };
   }
 
+  // ─── Credit balance ─────────────────────────────────────────────────────
+  // Returns { ok, credits, raw } when the Higgsfield balance endpoint is
+  // wired; otherwise { ok: false, reason } so callers (the daily cron in
+  // services/inngest/functions.js + the pre-generation guard in wf1) can
+  // soft-fall back to the last-known businesses.higgsfield_credits column.
+  //
+  // TODO: replace the placeholder with the real REST call once the
+  // Higgsfield balance endpoint URL is confirmed (Integration #2). All the
+  // surrounding plumbing (column, cron, alert email) is already in place
+  // and will start exercising this function as soon as it returns numbers.
+  async function getBalance(_args = {}) {
+    return { ok: false, credits: null, reason: 'higgsfield_balance_endpoint_pending' };
+  }
+
   return {
+    getBalance,
+    applyLogoOverlay,
     generateProductImage,
     generateProductVideo,
     generateHeroAd,

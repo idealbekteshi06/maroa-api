@@ -278,7 +278,7 @@ function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger
 
     if (oauthError) {
       logger?.warn?.('/webhook/oauth/meta/callback', null, 'user cancelled or denied', { oauthError });
-      return res.redirect(302, `${FRONTEND_URL}/integrations?meta=cancelled`);
+      return res.redirect(302, `${FRONTEND_URL}/settings/connections?meta=cancelled`);
     }
     if (!code) return apiError(res, 400, 'INVALID_REQUEST', 'code required');
 
@@ -300,7 +300,7 @@ function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger
         });
         return res.redirect(
           302,
-          `${FRONTEND_URL}/integrations?meta=error&reason=${encodeURIComponent(shortRes.reason)}`
+          `${FRONTEND_URL}/settings/connections?meta=error&reason=${encodeURIComponent(shortRes.reason)}`
         );
       }
 
@@ -316,7 +316,7 @@ function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger
         });
         return res.redirect(
           302,
-          `${FRONTEND_URL}/integrations?meta=error&reason=${encodeURIComponent(longRes.reason)}`
+          `${FRONTEND_URL}/settings/connections?meta=error&reason=${encodeURIComponent(longRes.reason)}`
         );
       }
 
@@ -359,10 +359,13 @@ function registerMetaOAuthRoutes({ app, sbGet, sbPatch, sbPost, apiError, logger
         },
       }).catch(() => {});
 
-      return res.redirect(302, `${FRONTEND_URL}/integrations?meta=connected`);
+      return res.redirect(302, `${FRONTEND_URL}/settings/connections?meta=connected`);
     } catch (e) {
       logger?.error?.('/webhook/oauth/meta/callback', businessId, 'callback handler crashed', { error: e.message });
-      return res.redirect(302, `${FRONTEND_URL}/integrations?meta=error&reason=${encodeURIComponent(e.message)}`);
+      return res.redirect(
+        302,
+        `${FRONTEND_URL}/settings/connections?meta=error&reason=${encodeURIComponent(e.message)}`
+      );
     }
   });
 

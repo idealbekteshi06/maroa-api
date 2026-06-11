@@ -110,20 +110,33 @@ function createWf4(deps) {
     if (!draft) throw new Error('Draft not found');
 
     const finalBody = editedBody || draft.body;
-    // Platform API publish would go here (GBP, FB, Trustpilot). For now, mark as published.
+    // HONESTY (audit 2026-05): platform posting (GBP / Facebook / Trustpilot)
+    // is NOT implemented. This previously set published_at + status 'responded'
+    // + a 'wf4.response.published' event with severity 'success' — i.e. it told
+    // the customer the reply was live when it never left the system. We now
+    // store the approved copy, do NOT set published_at, and return posted:false
+    // + a reason so no caller mistakes this for a live post. Real platform
+    // publishing is a follow-up (Wave 2+).
     await sbPatch('review_responses', `id=eq.${draftId}`, {
       body: finalBody,
-      published_at: new Date().toISOString(),
+      // published_at intentionally NOT set — nothing was posted to a platform.
     });
-    await sbPatch('reviews', `id=eq.${reviewId}&business_id=eq.${businessId}`, { response_status: 'responded' });
+    await sbPatch('reviews', `id=eq.${reviewId}&business_id=eq.${businessId}`, {
+      response_status: 'approved_pending_publish',
+    });
     await sbPost('events', {
       business_id: businessId,
-      kind: 'wf4.response.published',
+      kind: 'wf4.response.approved',
       workflow: '4_reviews',
-      payload: { review_id: reviewId, draft_id: draftId },
-      severity: 'success',
+      payload: { review_id: reviewId, draft_id: draftId, posted_to_platform: false },
+      severity: 'info',
     }).catch(() => {});
-    return { publishedAt: new Date().toISOString() };
+    return {
+      ok: true,
+      posted: false,
+      status: 'approved_pending_publish',
+      reason: 'platform_publish_not_implemented',
+    };
   }
 
   async function disputeReview({ businessId, reviewId }) {

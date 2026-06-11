@@ -71,6 +71,7 @@ function register({
   log,
   express,
   callContentGenerate, // optional — server.js may pass an internal helper
+  enrichWebsite, // optional — fetch+summarize the customer's website (migration 088)
 }) {
   if (!requireAnyUserId || !sbGet || !sbPost || !sbPatch) {
     log?.('/api/onboarding', null, 'register skipped — missing dependencies');
@@ -135,6 +136,15 @@ function register({
           });
           const row = Array.isArray(created) ? created[0] : created;
           businessId = row?.id || null;
+        }
+
+        // Fire-and-forget website enrichment so the brain actually "reads" the
+        // customer's site (migration 088). Never blocks the snappy save
+        // response; the summary lands a few seconds later via sbPatch.
+        if (businessId && profile.website_url && typeof enrichWebsite === 'function') {
+          Promise.resolve(enrichWebsite({ businessId, url: profile.website_url })).catch((e) =>
+            log?.('/api/onboarding/save', businessId, 'website enrichment failed (non-fatal)', { error: e.message })
+          );
         }
 
         return res.json({

@@ -233,7 +233,7 @@ function PaletteBody({ isOpen, onClose }: { isOpen: boolean; onClose: () => void
   }
 
   function jumpToClient(businessId: string) {
-    router.push(`/dashboard/client/${encodeURIComponent(businessId)}`);
+    router.push(`/dashboard/clients/${encodeURIComponent(businessId)}`);
     onClose();
   }
 

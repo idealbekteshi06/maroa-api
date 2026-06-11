@@ -589,6 +589,13 @@ server.on('listening', () => {
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   console.log(`  Maroa.ai API v2.0 — port :${PORT}`);
   console.log(`  Layer 1: Execution ✓  Layer 2: Intelligence ✓  Layer 3: Learning ✓`);
+  // External-write gating visibility (audit fix): show whether the system will
+  // actuate ads / publish for real, or run dry. Never block boot on a log line.
+  try {
+    console.log(`  ${require('./lib/env').liveFlagsLogLine(env)}`);
+  } catch {
+    /* diagnostic only */
+  }
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   console.log('[boot] listening — loading routes (/healthz ready)');
 
@@ -781,6 +788,7 @@ setImmediate(() => {
   app.use('/api/reviews/auto-respond', requireValidUserId);
   app.use('/api/referral/setup', requireValidUserId);
   app.use('/api/signup-cro/analyze', requireValidUserId);
+  app.use('/api/higgsfield/train-soul', requireValidUserId);
 
   // Auth guard for routes that use user_id/userId.
   // Closes the IDOR risk surfaced in the 2026-05-13 audit: previously the
@@ -4946,6 +4954,50 @@ setImmediate(() => {
       return res.json(health);
     } catch (err) {
       return apiError(res, 500, 'INTEGRATIONS_FAILED', err.message);
+    }
+  });
+
+  // POST /api/business/:businessId/brand-assets — set the customer's logo +
+  // product/shop reference photos (migration 088). Accepts already-hosted
+  // URLs (the frontend uploads the file to storage, then sends the URL here).
+  // These are consumed by WF1: product images become the Higgsfield reference
+  // image, the logo a brand cue. JWT + business-owner gated by the /api/business
+  // app.use prefixes above.
+  app.post('/api/business/:businessId/brand-assets', async (req, res) => {
+    const businessId = String(req.params.businessId || '').trim();
+    if (!businessId) return apiError(res, 400, 'VALIDATION_ERROR', 'businessId required');
+    const body = req.body || {};
+    const patch = {};
+
+    if (body.logo_url !== undefined) {
+      const logo = body.logo_url === null ? null : String(body.logo_url).trim();
+      if (logo && !/^https?:\/\//i.test(logo)) {
+        return apiError(res, 400, 'VALIDATION_ERROR', 'logo_url must be an http(s) URL');
+      }
+      patch.logo_url = logo || null;
+    }
+
+    if (body.product_image_urls !== undefined) {
+      const raw = Array.isArray(body.product_image_urls) ? body.product_image_urls : [];
+      const urls = raw
+        .map((u) => String(u || '').trim())
+        .filter((u) => /^https?:\/\//i.test(u))
+        .slice(0, 20); // cap — matches Higgsfield reference ceiling
+      if (raw.length && !urls.length) {
+        return apiError(res, 400, 'VALIDATION_ERROR', 'product_image_urls must be http(s) URLs');
+      }
+      patch.product_image_urls = urls;
+    }
+
+    if (!Object.keys(patch).length) {
+      return apiError(res, 400, 'VALIDATION_ERROR', 'provide logo_url and/or product_image_urls');
+    }
+
+    try {
+      await sbPatch('businesses', `id=eq.${encodeURIComponent(businessId)}`, patch);
+      return res.json({ ok: true, business_id: businessId, updated: Object.keys(patch) });
+    } catch (e) {
+      return apiError(res, 500, 'BRAND_ASSETS_UPDATE_FAILED', e.message);
     }
   });
 
@@ -10193,6 +10245,168 @@ Return ONLY valid JSON:
     }
   });
 
+  // ─── Higgsfield: Soul ID training + daily credit check ──────────────────
+  // POST /api/higgsfield/train-soul — kicks off Soul ID training, then fires
+  // higgsfield/soul-train.poll so a durable Inngest function waits for the
+  // training to complete and stamps businesses.higgsfield_soul_id.
+  app.post('/api/higgsfield/train-soul', async (req, res) => {
+    const businessId = String((req.body && (req.body.business_id || req.body.businessId)) || '').trim();
+    const photoUrls = Array.isArray(req.body?.photoUrls || req.body?.photo_urls)
+      ? req.body.photoUrls || req.body.photo_urls
+      : null;
+    const name = req.body?.name || null;
+    const model = req.body?.model || 'soul_2';
+    if (!businessId) return apiError(res, 400, 'VALIDATION_ERROR', 'business_id required');
+    if (!photoUrls || photoUrls.length === 0) {
+      return apiError(res, 400, 'VALIDATION_ERROR', 'photoUrls[] (1-20) required');
+    }
+    if (photoUrls.length > 20) {
+      return apiError(res, 400, 'VALIDATION_ERROR', 'photoUrls capped at 20');
+    }
+    try {
+      const trained = await higgsfieldAI.trainSoulCharacter({
+        characterId: `${businessId}-soul-${Date.now()}`,
+        sourceImageUrls: photoUrls,
+        name: name || `business-${businessId}`,
+        model,
+      });
+      const higgsfieldCharacterId = trained?.higgsfield_character_id;
+      if (!higgsfieldCharacterId) {
+        return apiError(res, 502, 'SOUL_TRAIN_FAILED', 'no character_id returned from Higgsfield');
+      }
+      // Durable poll → finalize (writes businesses.higgsfield_soul_id when done).
+      const { inngest } = require('./services/inngest/client');
+      await inngest.send({
+        name: 'higgsfield/soul-train.poll',
+        data: { businessId, characterId: higgsfieldCharacterId },
+      });
+      res.json({
+        ok: true,
+        business_id: businessId,
+        character_id: higgsfieldCharacterId,
+        status: 'training_started',
+        model_used: trained.model_used,
+        image_count: trained.image_count,
+      });
+    } catch (e) {
+      apiError(res, 500, 'SOUL_TRAIN_FAILED', e.message);
+    }
+  });
+
+  // POST /webhook/higgsfield-soul-train-finalize — invoked by the Inngest
+  // higgsfieldSoulTrainPoll function. Waits for training to complete (uses
+  // the existing internal poller), then stamps businesses.higgsfield_soul_id.
+  async function runHiggsfieldSoulTrainFinalize({ businessId, characterId }) {
+    if (!businessId || !characterId) {
+      throw new Error('businessId + characterId required');
+    }
+    const status = await higgsfieldAI.waitForSoulIdTraining(characterId);
+    const soulId = status?.higgsfield_character_id || characterId;
+    await sbPatch('businesses', `id=eq.${encodeURIComponent(businessId)}`, {
+      higgsfield_soul_id: soulId,
+    }).catch(() => {});
+    return { ok: true, business_id: businessId, soul_id: soulId, status: status?.status || 'completed' };
+  }
+  internalDispatcher.register('/webhook/higgsfield-soul-train-finalize', (body) =>
+    runHiggsfieldSoulTrainFinalize({
+      businessId: body?.businessId || body?.business_id,
+      characterId: body?.characterId,
+    })
+  );
+  app.post('/webhook/higgsfield-soul-train-finalize', async (req, res) => {
+    try {
+      res.json(
+        await runHiggsfieldSoulTrainFinalize({
+          businessId: String(req.body?.businessId || req.body?.business_id || '').trim(),
+          characterId: String(req.body?.characterId || '').trim(),
+        })
+      );
+    } catch (e) {
+      apiError(res, 500, 'SOUL_TRAIN_WAIT_FAILED', e.message);
+    }
+  });
+
+  // POST /webhook/check-higgsfield-credits — invoked by the daily 07:00 UTC
+  // Inngest cron. Tries to refresh each business's Higgsfield balance (no-op
+  // until the REST balance endpoint is wired — Integration #2), then emails
+  // a low-balance alert to any business with credits < 200.
+  async function runCheckHiggsfieldCredits() {
+    // HONEST STATE: getBalance() is a stub (no Higgsfield balance REST endpoint
+    // yet), so higgsfield_credits is only ever populated by (a) that future
+    // endpoint or (b) an operator-set HIGGSFIELD_DEFAULT_CREDITS starting grant
+    // that we seed here. The previous version filtered `higgsfield_credits=
+    // not.is.null`, which silently scanned ZERO rows forever (the column was
+    // never written) — so the guard + alerts never fired. We now scan all
+    // businesses, optionally seed, and report whether monitoring is actually
+    // active instead of pretending.
+    const defaultGrant = parseInt(env.HIGGSFIELD_DEFAULT_CREDITS, 10);
+    const seedEnabled = Number.isFinite(defaultGrant) && defaultGrant > 0;
+    const businesses = await sbGet('businesses', `select=id,business_name,email,higgsfield_credits`).catch(() => []);
+    let refreshed = 0;
+    let seeded = 0;
+    let alerted = 0;
+    for (const biz of businesses) {
+      try {
+        const bal = await higgsfieldAI.getBalance({ business: biz });
+        if (bal?.ok && typeof bal.credits === 'number') {
+          await sbPatch('businesses', `id=eq.${encodeURIComponent(biz.id)}`, {
+            higgsfield_credits: bal.credits,
+            higgsfield_credits_checked_at: new Date().toISOString(),
+          }).catch(() => {});
+          biz.higgsfield_credits = bal.credits;
+          refreshed++;
+        }
+      } catch {
+        /* soft-fail refresh */
+      }
+      // Seed an operator-configured starting grant for businesses with no known
+      // balance, so the guard + alert path can actually fire. Opt-in only.
+      if (seedEnabled && biz.higgsfield_credits == null) {
+        await sbPatch('businesses', `id=eq.${encodeURIComponent(biz.id)}`, {
+          higgsfield_credits: defaultGrant,
+          higgsfield_credits_checked_at: new Date().toISOString(),
+        }).catch(() => {});
+        biz.higgsfield_credits = defaultGrant;
+        seeded++;
+      }
+      const credits = Number(biz.higgsfield_credits);
+      if (Number.isFinite(credits) && credits < 200 && biz.email) {
+        try {
+          await sendEmail(
+            biz.email,
+            `Maroa.ai — Higgsfield image credits running low (${credits} left)`,
+            `<p>Hi ${biz.business_name || 'there'},</p>` +
+              `<p>Your Higgsfield image-generation balance is at <b>${credits}</b> credits — below our 200-credit safety floor.</p>` +
+              `<p>Generation will pause automatically once you drop under 100 credits, to avoid mid-post failures. Top up to keep your daily content flowing.</p>` +
+              `<p>— Maroa.ai</p>`
+          );
+          alerted++;
+        } catch (e) {
+          logger?.warn?.('check-higgsfield-credits', biz.id, 'alert email failed', { error: e.message });
+        }
+      }
+    }
+    const monitoringActive = seedEnabled || refreshed > 0;
+    if (!monitoringActive) {
+      logger?.warn?.(
+        'check-higgsfield-credits',
+        null,
+        'credit monitoring INACTIVE — getBalance() is a stub and HIGGSFIELD_DEFAULT_CREDITS is unset; ' +
+          'no balances are known so the <100 generation guard and <200 alerts cannot fire',
+        { scanned: businesses.length }
+      );
+    }
+    return { ok: true, monitoring_active: monitoringActive, scanned: businesses.length, seeded, refreshed, alerted };
+  }
+  internalDispatcher.register('/webhook/check-higgsfield-credits', () => runCheckHiggsfieldCredits());
+  app.post('/webhook/check-higgsfield-credits', async (_req, res) => {
+    try {
+      res.json(await runCheckHiggsfieldCredits());
+    } catch (e) {
+      apiError(res, 500, 'HF_CREDITS_CHECK_FAILED', e.message);
+    }
+  });
+
   const EMAIL_STAGE_LABELS = {
     welcome: 'Welcome Series',
     nurture: 'Nurture',
@@ -10399,7 +10613,22 @@ Return ONLY valid JSON:
     return opsMaintenance.runDailyHealthAll(opsDeps());
   }
   async function runOpsWeeklyMaintenanceAll() {
-    return opsMaintenance.runWeeklyMaintenanceAll(opsDeps());
+    const result = await opsMaintenance.runWeeklyMaintenanceAll(opsDeps());
+    // Refresh the cached Higgsfield preset catalog (migration 087) from the
+    // in-code source of truth. Soft-fails so a preset-sync hiccup never fails
+    // the weekly maintenance bundle.
+    let presets = null;
+    try {
+      presets = await require('./services/higgsfield/cameraPresets').syncPresetCatalog({
+        sbGet,
+        sbPost,
+        sbPatch,
+        logger,
+      });
+    } catch (e) {
+      logger?.warn?.('ops-weekly-maintenance', null, 'preset catalog sync failed', { error: e.message });
+    }
+    return { ...result, preset_catalog: presets };
   }
   async function runOpsGrowthEngineAll() {
     return opsMaintenance.runGrowthEngineAll(opsDeps());
@@ -11113,6 +11342,24 @@ Return ONLY valid JSON:
       safePublicError,
       log,
       express,
+      // Fetch + Claude-summarize the customer's website on signup, then stamp
+      // businesses.website_summary so the brand context can read it (migration
+      // 088). Fire-and-forget from the route; soft-fails on any error.
+      enrichWebsite: async ({ businessId, url }) => {
+        const { enrichFromWebsite } = require('./lib/websiteEnricher');
+        const r = await enrichFromWebsite({
+          url,
+          businessId,
+          deps: { callClaude, extractJSON, logger },
+        });
+        if (r.ok && r.summary) {
+          await sbPatch('businesses', `id=eq.${encodeURIComponent(businessId)}`, {
+            website_summary: r.summary,
+            website_enriched_at: new Date().toISOString(),
+          }).catch(() => {});
+        }
+        return r;
+      },
       // callContentGenerate is plumbed via a loopback HTTP call to
       // /api/content/generate so the route reuses the existing creative
       // pipeline (grounding + critic + cost tracking). 30s budget — past
