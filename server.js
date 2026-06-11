@@ -5163,6 +5163,7 @@ setImmediate(() => {
     sbGet,
     sbPost,
     sbPatch,
+    sbDelete,
     callClaude,
     log,
     logError,
