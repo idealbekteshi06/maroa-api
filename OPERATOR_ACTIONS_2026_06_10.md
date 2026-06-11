@@ -75,6 +75,17 @@ update the value in Railway env:
 - [ ] SerpAPI — `SERPAPI_KEY`
 - [ ] Pexels — `PEXELS_API_KEY`
 - [ ] Meta app secret — `META_APP_SECRET`
+- [ ] Upstash Redis — `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`
+
+> ⚠️ Incident 2026-06-11: production Upstash REST calls are failing (every
+> `rl.limit()` errors after ~6s of SDK retries), which made dashboard quick
+> actions hang and the frontend show "Connection error" toasts. The backend
+> now fails open instead of hanging, but **rate limiting is degraded until
+> the Railway `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN` values are
+> updated to match the current Upstash database**. Verify after updating:
+> `curl -s "$UPSTASH_REDIS_REST_URL/ping" -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN"`
+> should return `{"result":"PONG"}`, and the Railway logs should stop printing
+> `[rateLimit] Upstash unavailable`.
 
 ---
 
