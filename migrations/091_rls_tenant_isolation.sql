@@ -1,4 +1,4 @@
--- migrations/086_rls_tenant_isolation.sql
+-- migrations/091_rls_tenant_isolation.sql
 -- ───────────────────────────────────────────────────────────────────────
 -- CRITICAL: close the cross-tenant read leak.
 --

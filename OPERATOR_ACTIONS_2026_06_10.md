@@ -34,21 +34,29 @@ skipped). It only runs when you invoke it — never on boot/deploy.
 Apply these **in order**:
 
 1. Open Supabase → SQL Editor.
-2. Paste the full contents of **`migrations/086_rls_tenant_isolation.sql`**, Run.
+2. Paste the full contents of **`migrations/091_rls_tenant_isolation.sql`**, Run.
    - Closes the cross-tenant **public-read** hole (`business_profiles` + ~20 tables
      readable by the anon key the frontend ships). This is the most urgent item.
-3. Paste the full contents of **`migrations/087_fix_atomic_rpcs_and_errors.sql`**, Run.
+3. Paste the full contents of **`migrations/092_fix_atomic_rpcs_and_errors.sql`**, Run.
    - Fixes the cold-start / ad-optimizer atomic RPCs (were throwing on every call)
      and creates the missing `errors` table.
 4. (Optional, recommended) record each in the ledger so `check-migrations
 --verify-applied` stays accurate:
+
    ```sql
    insert into _migrations (filename, checksum, applied_at)
-   values ('086_rls_tenant_isolation.sql', '<sha256-of-file>', now()),
-          ('087_fix_atomic_rpcs_and_errors.sql', '<sha256-of-file>', now())
+   values ('091_rls_tenant_isolation.sql', '<sha256-of-file>', now()),
+          ('092_fix_atomic_rpcs_and_errors.sql', '<sha256-of-file>', now())
    on conflict (filename) do update set checksum = excluded.checksum, applied_at = now();
    ```
-   (`shasum -a 256 migrations/086_*.sql` for the checksum.)
+
+   (`shasum -a 256 migrations/091_*.sql` for the checksum.)
+
+   > Note (2026-06-11): these two files were renumbered from 086/087 — the
+   > merge with main collided with main's own 086/087. If you already applied
+   > them under the old numbers, re-running under the new names is harmless
+   > (both are idempotent), but update any old-name ledger rows to the new
+   > filenames so `--verify-applied` doesn't flag them as missing.
 
 Both files are idempotent-safe and wrapped in transactions; re-running is harmless.
 

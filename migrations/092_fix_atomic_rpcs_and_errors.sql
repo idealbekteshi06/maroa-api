@@ -1,4 +1,4 @@
--- migrations/087_fix_atomic_rpcs_and_errors.sql
+-- migrations/092_fix_atomic_rpcs_and_errors.sql
 -- ----------------------------------------------------------------------------
 -- 1. Fix the migration-071 atomic RPCs, which referenced columns/constraints
 --    that don't exist and therefore threw on EVERY call — so callers silently
