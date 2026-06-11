@@ -17,6 +17,7 @@ on:
       - 'lib/circuitBreaker.js'
       - 'lib/webhookEvents.js'
       - 'lib/costGuard.js'
+      - 'lib/businessMemory.js'
       - 'middleware/planGate.js'
       - 'middleware/planLimits.js'
       - 'tests/oauth-crypto.test.js'
@@ -24,6 +25,9 @@ on:
       - 'tests/abuse-detector.test.js'
       - 'tests/circuit-breaker.test.js'
       - 'tests/stripe-webhook.test.js'
+      - 'tests/plan-gate.test.js'
+      - 'tests/business-memory.test.js'
+      - 'tests/webhook-events.test.js'
       - 'stryker.conf.json'
   schedule:
     # Weekly Monday 04:00 UTC — catches new test drift across the whole base
@@ -84,7 +88,7 @@ jobs:
               const score = report.metrics?.mutationScore?.toFixed(1) || 'n/a';
               const killed = report.metrics?.killed || 0;
               const survived = report.metrics?.survived || 0;
-              const body = `🧬 **Mutation score:** ${score}% (killed: ${killed}, survived: ${survived})\n\nThreshold: 30% break (ratchet — raise as killing tests land) / 70% low / 85% high. See artifact \`mutation-report\` for the HTML report.`;
+              const body = `🧬 **Mutation score:** ${score}% (killed: ${killed}, survived: ${survived})\n\nThreshold: 54% break (ratchet — raise as killing tests land) / 70% low / 85% high. See artifact \`mutation-report\` for the HTML report.`;
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,

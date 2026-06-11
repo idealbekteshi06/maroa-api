@@ -1,10 +1,10 @@
 {
   "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/api/schema/stryker-core.json",
-  "_comment": "Stryker mutates ONLY the money/security/resilience-critical files. Mutating everything would take hours; this scope completes in <8min on CI. Add entries when a new critical lib lands — AND add a fast test file that kills its mutants to the command below, or the score silently dilutes. THRESHOLD RATCHET (2026-06-11): break was an aspirational 60% that never passed after the mutate list grew past the command's test files (real score: 25.75% before plan-limits + cost-guard were wired in below). break now sits just under the measured score and must only move UP: write killing tests for the 0%-score files (planGate, businessMemory, webhookEvents), then raise break to match. Keep command tests fast — each runs once per mutant.",
+  "_comment": "Stryker mutates ONLY the money/security/resilience-critical files. Mutating everything would take hours; this scope completes in <8min on CI. Add entries when a new critical lib lands — AND add a fast test file that kills its mutants to the command below, or the score silently dilutes. THRESHOLD RATCHET (2026-06-11): break sits ~4-5 points under the measured score and must only move UP. Measured 58.49% after plan-gate/business-memory/webhook-events killing tests landed (was 34.35% with planGate/businessMemory/webhookEvents at ~0%) → break 54. Next-weakest targets if raising further: serviceTimeouts (21.6%), idempotency (34.3%), planLimits (35.6%). Keep command tests fast — each runs once per mutant.",
   "packageManager": "npm",
   "testRunner": "command",
   "commandRunner": {
-    "command": "node --test tests/oauth-crypto.test.js tests/budget-counter.test.js tests/abuse-detector.test.js tests/stripe-webhook.test.js tests/circuit-breaker.test.js tests/retry-with-jitter.test.js tests/external-http.test.js tests/idempotency.test.js tests/event-schemas.test.js tests/plan-limits.test.js tests/cost-guard.test.js"
+    "command": "node --test tests/oauth-crypto.test.js tests/budget-counter.test.js tests/abuse-detector.test.js tests/stripe-webhook.test.js tests/circuit-breaker.test.js tests/retry-with-jitter.test.js tests/external-http.test.js tests/idempotency.test.js tests/event-schemas.test.js tests/plan-limits.test.js tests/cost-guard.test.js tests/plan-gate.test.js tests/business-memory.test.js tests/webhook-events.test.js"
   },
   "reporters": ["clear-text", "progress", "html", "json"],
   "htmlReporter": {
@@ -32,7 +32,7 @@
   "thresholds": {
     "high": 85,
     "low": 70,
-    "break": 30
+    "break": 54
   },
   "coverageAnalysis": "off",
   "concurrency": 4,
