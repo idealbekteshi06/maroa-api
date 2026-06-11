@@ -69,7 +69,7 @@ function register({
     return `https://${s.replace(/^\/+/, '')}`;
   }
 
-  app.post('/webhook/google-campaign-create', async (req, res) => {
+  app.post('/webhook/google-campaign-create', planGate('paid_ads'), async (req, res) => {
     const { business_id, monthly_budget = 200 } = req.body;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
 
@@ -362,7 +362,7 @@ Return exactly:
   // POST /webhook/google-campaign-optimize
   // Pulls performance via Google Ads Reporting API, calls Claude Opus, adjusts budget.
   // ─────────────────────────────────────────────────────────────────────────────
-  app.post('/webhook/google-campaign-optimize', async (req, res) => {
+  app.post('/webhook/google-campaign-optimize', planGate('paid_ads'), async (req, res) => {
     const { business_id } = req.body;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
     res.json({ received: true, message: 'Google Ads optimization started' });

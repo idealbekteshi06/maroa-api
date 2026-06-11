@@ -130,7 +130,9 @@ function register({
           const created = await sbPost('businesses', {
             ...profile,
             onboarding_complete: true,
-            plan: profile.plan || existing?.plan || 'growth',
+            // New businesses must start on the unpaid tier; billing elevates
+            // them. Previously defaulted to 'growth' (a paid tier) for free.
+            plan: profile.plan || existing?.plan || 'free',
           });
           const row = Array.isArray(created) ? created[0] : created;
           businessId = row?.id || null;

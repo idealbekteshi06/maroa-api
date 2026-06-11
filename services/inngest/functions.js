@@ -773,6 +773,33 @@ const coldStartResume = inngest.createFunction(
   }
 );
 
+// ─── Cold-start stale-run sweep (daily 11:00 UTC) ─────────────────────────
+// Gap G-1: a cold-start run can wedge forever in awaiting_input when the
+// customer never uploads photos / approves a concept. Nothing previously
+// timed these out, so a paying customer could silently get nothing. This
+// sweep reminds (once at 72h) and fails cleanly (at 7d) so the run stops
+// counting as in-progress. Dispatches in-process via internalDispatcher
+// (registered in services/cold-start/registerRoutes.js) — same wiring as the
+// cold-start resume handler — falling back to HTTP loopback if unregistered.
+const coldStartSweepDaily = inngest.createFunction(
+  withDLQ({
+    id: 'cold-start-sweep-daily',
+    name: 'Cold-start · stale-run sweep',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 11 * * *' }],
+  }),
+  async ({ step }) => {
+    const result = await step.run('sweep-stale-runs', async () => callInternal('/webhook/cold-start-sweep', {}));
+    return {
+      ok: true,
+      scanned: result?.scanned ?? 0,
+      reminded: result?.reminded ?? 0,
+      expired: result?.expired ?? 0,
+    };
+  }
+);
+
 // ─── WF13 weekly synthesis (Sunday 07:00 UTC) ─────────────────────────────
 // Generates the weekly brief for every active business. Runs early Sunday so
 // briefs are ready when the customer-facing weekly scorecard fires at 22:00.
@@ -893,6 +920,7 @@ const functions = [
   // Cold-start onboarding orchestrator (event-driven, not cron)
   coldStartRun,
   coldStartResume,
+  coldStartSweepDaily,
 
   // Multi-platform ads + Daily Creative Engine + Measurement Health (Week 5-7)
   measurementHealthProbe,

@@ -47,6 +47,7 @@ function registerColdStartRoutes(deps) {
     aiSeo,
     wf1,
     sentry,
+    sendEmail, // optional — used by the stale-run sweep to nudge stuck customers
   } = deps;
 
   // Inngest sender (optional — if INNGEST_EVENT_KEY set we trigger durable run;
@@ -155,6 +156,23 @@ function registerColdStartRoutes(deps) {
     };
   }
   internalDispatcher.register('/webhook/cold-start-resume', (body) => runColdStartResume(body || {}));
+
+  // ─── Stale-run sweep (gap G-1) ───────────────────────────────────────────
+  // Daily Inngest cron `cold-start-sweep-daily` dispatches here. Reminds
+  // customers stuck >72h in awaiting_input (once) and fails runs abandoned
+  // >7d so they stop counting as in-progress. No HTTP route — dispatcher-only,
+  // same as how the Inngest cold-start functions reach the resume handler.
+  async function runColdStartSweep() {
+    return coldStart.sweepStaleRuns({
+      sbGet,
+      sbPatch,
+      sbPost,
+      sendEmail,
+      inngest,
+      logger,
+    });
+  }
+  internalDispatcher.register('/webhook/cold-start-sweep', () => runColdStartSweep());
 
   // ─── POST /webhook/cold-start-resume ─────────────────────────────────────
   app.post('/webhook/cold-start-resume', limit.resume, async (req, res) => {

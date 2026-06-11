@@ -17,10 +17,12 @@
 
 'use strict';
 
+const oauthCrypto = require('../../lib/oauthCrypto');
+
 function createLearningLoop({ sbGet, sbPost, sbPatch, apiRequest, logger }) {
   // ── Fetch engagement from platform ────────────────────────────────────
   async function fetchMetaInsights({ business, post }) {
-    const token = business.meta_access_token;
+    const token = oauthCrypto.readToken(business, 'meta_access_token');
     if (!token || !post.platform_post_id) return null;
     // Instagram media insights
     if (/instagram/.test(post.platform)) {
@@ -69,7 +71,7 @@ function createLearningLoop({ sbGet, sbPost, sbPatch, apiRequest, logger }) {
   }
 
   async function fetchLinkedInInsights({ business, post }) {
-    const token = business.linkedin_access_token;
+    const token = oauthCrypto.readToken(business, 'linkedin_access_token');
     if (!token || !post.platform_post_id) return null;
     // LinkedIn insights API requires company pages; personal UGC doesn't
     // expose all metrics. For now return null — will add when org pages wired.
@@ -77,7 +79,7 @@ function createLearningLoop({ sbGet, sbPost, sbPatch, apiRequest, logger }) {
   }
 
   async function fetchTwitterInsights({ business, post }) {
-    const token = business.twitter_access_token;
+    const token = oauthCrypto.readToken(business, 'twitter_access_token');
     if (!token || !post.platform_post_id) return null;
     const url = `https://api.twitter.com/2/tweets/${post.platform_post_id}?tweet.fields=public_metrics`;
     const r = await apiRequest('GET', url, { Authorization: `Bearer ${token}` });

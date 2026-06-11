@@ -1,7 +1,16 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- Maroa.ai — Combined Migration Bundle (000 → 036)
+-- ⚠️  DEPRECATED — DO NOT APPLY THIS FILE. ⚠️
 -- ═══════════════════════════════════════════════════════════════════════════
--- HOW TO APPLY:
+-- This is a STALE bundle that stops at migration 036. The live schema is at
+-- migration 087+. Pasting this over a current database re-runs old DDL and can
+-- corrupt/rollback schema state, and it bypasses the `_migrations` checksum
+-- ledger. The canonical source of truth is the numbered files in `migrations/`
+-- applied IN ORDER (see scripts/check-migrations.js). This file is retained
+-- only as a historical reference and should be deleted once confirmed unused.
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Maroa.ai — Combined Migration Bundle (000 → 036)  [HISTORICAL — superseded]
+-- ═══════════════════════════════════════════════════════════════════════════
+-- HOW TO APPLY: (DO NOT — see deprecation banner above; apply migrations/ instead)
 -- 1. Open the Supabase SQL editor
 -- 2. Paste this ENTIRE file, click "Run"
 -- 3. Wait ~30-90 seconds

@@ -26,3 +26,7 @@ npm-debug.log*
 # macOS
 .DS_Store
 .claude/
+
+# Stryker mutation reports (CI uploads these as artifacts)
+reports/
+.stryker-tmp/

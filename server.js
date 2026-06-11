@@ -110,7 +110,7 @@ const SERVICE_TIMEOUTS_MS = require('./lib/serviceTimeouts');
 const externalHttp = require('./lib/externalHttp');
 const { assertPublicHttpUrl } = require('./lib/ssrfGuard');
 const planGate = require('./middleware/planGate');
-const { checkPlanLimit } = require('./middleware/planLimits');
+const { checkPlanLimit, PLAN_LIMITS, normalizePlan } = require('./middleware/planLimits');
 const paddle = require('./services/paddle');
 
 const logger = {
@@ -225,6 +225,7 @@ const corsOptions = {
     'x-orchestrator-secret',
     'x-webhook-secret',
     'paddle-signature',
+    'Idempotency-Key',
   ],
   credentials: true,
 };
@@ -300,13 +301,20 @@ app.post('/webhook/stripe-webhook', stripeWebhookRawBody, async (req, res) => {
     return res.status(400).json({ error: { code: 'INVALID_JSON', message: 'Could not parse body' } });
   }
 
-  // Stripe idempotency — same event.id can arrive multiple times during
-  // failover. Block duplicates before async dispatch.
+  // Stripe idempotency + provisioning. Two-phase dedup (received → processed/
+  // failed) with sbPatch+sbGet so a FAILED event is re-runnable on retry (not
+  // silently swallowed by the PK). We provision SYNCHRONOUSLY and only ACK 200
+  // on success — on failure we mark the event failed, evict the LRU, and return
+  // 500 so Stripe retries. Previously we ACKed 200 before the async grant, so a
+  // transient failure left a paying customer un-provisioned with no retry.
+  const _webhookEvents = require('./lib/webhookEvents');
   if (event?.id) {
-    const dedup = await require('./lib/webhookEvents').markProcessed({
+    const dedup = await _webhookEvents.markProcessed({
       provider: 'stripe',
       eventId: event.id,
       sbPost,
+      sbPatch,
+      sbGet,
       logger,
     });
     if (!dedup.firstTime) {
@@ -315,10 +323,8 @@ app.post('/webhook/stripe-webhook', stripeWebhookRawBody, async (req, res) => {
     }
   }
 
-  // Acknowledge fast so Stripe doesn't retry. Handle async.
-  res.json({ received: true, request_id: req.requestId });
-  stripeService
-    .handleStripeEvent({
+  try {
+    const result = await stripeService.handleStripeEvent({
       event,
       sbGet,
       sbPatch,
@@ -327,8 +333,35 @@ app.post('/webhook/stripe-webhook', stripeWebhookRawBody, async (req, res) => {
       logger,
       internalSecret: N8N_WEBHOOK_SECRET,
       port: process.env.PORT || 3000,
-    })
-    .catch((e) => logger.error('/webhook/stripe-webhook', null, 'async handler failed', { error: e.message }));
+    });
+    const ok = !result || result.ok !== false;
+    if (event?.id) {
+      await _webhookEvents
+        .commitProcessed({
+          provider: 'stripe',
+          eventId: event.id,
+          status: ok ? 'processed' : 'failed',
+          sbPatch,
+          logger,
+          error: ok ? null : result?.error || 'handler returned ok:false',
+        })
+        .catch(() => {});
+    }
+    if (!ok) {
+      if (event?.id) _webhookEvents.forgetEvent('stripe', event.id);
+      return res.status(500).json({ error: { code: 'HANDLER_FAILED', message: 'event processing failed' } });
+    }
+    return res.json({ received: true, request_id: req.requestId });
+  } catch (e) {
+    logger.error('/webhook/stripe-webhook', null, 'handler error', { error: e.message });
+    if (event?.id) {
+      await _webhookEvents
+        .commitProcessed({ provider: 'stripe', eventId: event.id, status: 'failed', sbPatch, logger, error: e.message })
+        .catch(() => {});
+      _webhookEvents.forgetEvent('stripe', event.id);
+    }
+    return res.status(500).json({ error: { code: 'HANDLER_ERROR', message: 'event processing error' } });
+  }
 });
 
 // Paddle must register before express.json() so req.body stays a Buffer for HMAC.
@@ -452,10 +485,12 @@ function apiRequest(method, url, headers = {}, body = null, timeoutMs = EXTERNAL
       let data = '';
       res.on('data', (c) => (data += c));
       res.on('end', () => {
+        // Surface response headers so callers (externalHttp → retryWithJitter)
+        // can honor Retry-After on 429/503 instead of only exponential backoff.
         try {
-          resolve({ status: res.statusCode, body: JSON.parse(data) });
+          resolve({ status: res.statusCode, body: JSON.parse(data), headers: res.headers });
         } catch {
-          resolve({ status: res.statusCode, body: data });
+          resolve({ status: res.statusCode, body: data, headers: res.headers });
         }
       });
     });
@@ -640,6 +675,14 @@ setImmediate(() => {
   app.use('/webhook', requireAuthOrWebhookSecret);
   app.use('/webhook', assertBusinessOwnerMiddleware({ sbGet, apiError, logger }));
   app.use('/api/business', assertBusinessOwnerMiddleware({ sbGet, apiError, logger }));
+  // Param-aware mounts: at the bare '/api/business' mount above, Express does
+  // NOT populate req.params.businessId, so :businessId routes (llm-spend,
+  // brand-voice, integrations, monthly-report, marketing-deep-dive,
+  // email-lifecycle) were unguarded — any JWT could read/act on any tenant by
+  // changing the UUID in the URL. These mounts populate the param so the owner
+  // check actually fires. Same for /api/cron-health/:businessId.
+  app.use('/api/business/:businessId', assertBusinessOwnerMiddleware({ sbGet, apiError, logger }));
+  app.use('/api/cron-health/:businessId', assertBusinessOwnerMiddleware({ sbGet, apiError, logger }));
 
   const aiLimitExpress = expressRateLimit({
     windowMs: 60 * 1000,
@@ -649,7 +692,11 @@ setImmediate(() => {
 
   function aiRateLimit(req, res, next) {
     if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-      const id = String(req.body?.userId || req.body?.business_id || req.ip || 'anon');
+      // Key on the JWT-verified user id, never body fields: a client could send
+      // a fresh random userId/business_id per request to get a new bucket each
+      // time, defeating the limit. Fall back to the real client IP (trust
+      // proxy=1 makes req.ip the actual client behind Railway's proxy).
+      const id = String(req.user?.id || req.ip || 'anon');
       return checkRateLimit(id)
         .then((out) => {
           if (!out.success) {
@@ -1423,7 +1470,7 @@ setImmediate(() => {
    * Resolves with the full accumulated text when the stream ends.
    * No retries (streaming retries are complex — caller can retry the whole call).
    */
-  async function streamClaude({ model, system, messages, maxTokens = 2500, onToken, businessId }) {
+  async function streamClaude({ model, system, messages, maxTokens = 2500, onToken, businessId, skill }) {
     if (businessId) {
       const { enforceLLMBudget } = require('./lib/llmGateway');
       const budget = await enforceLLMBudget({
@@ -1434,12 +1481,18 @@ setImmediate(() => {
       maxTokens = Math.min(maxTokens, budget.maxTokensPerCall || maxTokens);
     }
 
-    const body = { model, max_tokens: maxTokens, stream: true, messages };
+    // include_usage so Anthropic emits token counts in the SSE frames — without
+    // it, streamed AI-Brain turns consumed budget but recorded ZERO cost, so the
+    // monthly cap never moved for streaming chat (untracked Anthropic spend).
+    const body = { model, max_tokens: maxTokens, stream: true, stream_options: { include_usage: true }, messages };
     if (system) body.system = system;
     const bodyStr = JSON.stringify(body);
 
     return new Promise((resolve, reject) => {
       let fullText = '';
+      // Accumulate token usage across the SSE frames: message_start carries the
+      // input/cache usage, message_delta carries cumulative output_tokens.
+      const usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
       const streamReq = https.request(
         {
           hostname: 'api.anthropic.com',
@@ -1476,6 +1529,13 @@ setImmediate(() => {
                 if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
                   fullText += parsed.delta.text;
                   if (onToken) onToken(parsed.delta.text);
+                } else if (parsed.type === 'message_start' && parsed.message?.usage) {
+                  const u = parsed.message.usage;
+                  usage.input_tokens = Number(u.input_tokens) || 0;
+                  usage.cache_read_input_tokens = Number(u.cache_read_input_tokens) || 0;
+                  usage.cache_creation_input_tokens = Number(u.cache_creation_input_tokens) || 0;
+                } else if (parsed.type === 'message_delta' && parsed.usage) {
+                  usage.output_tokens = Number(parsed.usage.output_tokens) || usage.output_tokens;
                 }
               } catch {
                 /* ignore malformed SSE lines */
@@ -1488,6 +1548,13 @@ setImmediate(() => {
                 sbGet('businesses', `id=eq.${businessId}&select=user_id`)
                   .then((rows) => recordOrchestrationTaskRun(rows[0]?.user_id || businessId, 'ai_call'))
                   .catch(() => {});
+                // Record the streamed call's cost so it counts against the
+                // monthly cap (was previously untracked spend).
+                if (usage.input_tokens || usage.output_tokens) {
+                  observability.costTracker
+                    .track({ businessId, skill: skill || 'ai_brain_stream', model, usage, sbPost, logger })
+                    .catch(() => {});
+                }
               });
             }
             resolve(fullText);
@@ -1794,6 +1861,8 @@ setImmediate(() => {
     checkOrchestrationIdempotency,
     recordOrchestrationTaskRun,
     batchService: _batchServiceForWf1,
+    // Enables WF1 to render visuals (media_url) so IG-feed/FB/LinkedIn
+    // auto-publish has media instead of failing on a missing asset.
     higgsfield: higgsfieldAI,
     logger,
   });
@@ -2648,7 +2717,9 @@ setImmediate(() => {
     rateLimitStore.set(key, valid);
     return true; // allowed
   }
-  // Clean stale entries every 5 minutes
+  // Clean stale entries every 5 minutes. .unref() so this timer never keeps the
+  // event loop alive (consistent with the other sweepers — lets the process exit
+  // cleanly on non-signal paths).
   setInterval(() => {
     const now = Date.now();
     for (const [k, v] of rateLimitStore) {
@@ -2656,7 +2727,7 @@ setImmediate(() => {
       if (valid.length === 0) rateLimitStore.delete(k);
       else rateLimitStore.set(k, valid);
     }
-  }, 300000);
+  }, 300000).unref();
 
   // ─── Simple response cache (30s TTL) ────────────────────────────────────────
   const responseCache = new Map();
@@ -3040,6 +3111,16 @@ setImmediate(() => {
     next();
   }
 
+  // Fan-out / cron-only endpoints iterate across ALL businesses (LLM + email
+  // spend on Maroa's keys). The /webhook prefix accepts any valid Supabase JWT,
+  // so without this any logged-in customer could trigger fleet-wide work. Only
+  // Inngest/operator callers carrying the webhook secret (authSource==='webhook')
+  // may invoke them. In-process Inngest dispatch bypasses HTTP entirely.
+  function requireWebhookSource(req, res, next) {
+    if (req.authSource === 'webhook') return next();
+    return apiError(res, 403, 'FORBIDDEN', 'This endpoint is operator/cron only');
+  }
+
   function safePublicError(err) {
     const msg = String(err?.message || '').toLowerCase();
     if (msg.includes('supabase') || msg.includes('sbget') || msg.includes('sbpost') || msg.includes('sbpatch'))
@@ -3217,21 +3298,38 @@ setImmediate(() => {
         return;
       }
 
+      // Identity binding: a JWT caller's identity comes from the verified token,
+      // NOT the request body — otherwise an attacker could pass a victim's
+      // user_id/email and overwrite their business (IDOR). Only the trusted
+      // webhook-secret path (onboarding orchestrator) may name the target in the body.
+      const isJwtCaller = req.authSource === 'jwt';
+      const boundUserId = isJwtCaller ? req.user?.id || null : user_id;
+      const boundEmail = isJwtCaller ? req.user?.email || email : email;
+      if (isJwtCaller && !boundUserId) {
+        log('/webhook/new-user-signup', 'JWT caller without a token user id — skipping');
+        return;
+      }
+      if (boundUserId && !isUUID(String(boundUserId))) {
+        log('/webhook/new-user-signup', 'Invalid user_id — skipping');
+        return;
+      }
+
       // ── Check if business already exists for this user ──────────────────────
       let bizId = null;
 
-      // Try by user_id first
-      if (user_id) {
-        const existing = await sbGet('businesses', `user_id=eq.${user_id}&select=id`);
+      // Try by (bound) user_id first — encoded per Rule 4.
+      if (boundUserId) {
+        const existing = await sbGet('businesses', `user_id=eq.${encodeURIComponent(boundUserId)}&select=id`);
         if (existing[0]) {
           bizId = existing[0].id;
           log('/webhook/new-user-signup', `Found existing business by user_id: ${bizId}`);
         }
       }
 
-      // Try by email if not found by user_id
-      if (!bizId && email) {
-        const existing = await sbGet('businesses', `email=eq.${encodeURIComponent(email)}&select=id`);
+      // Email fallback is only safe for the trusted webhook path; a JWT caller
+      // must not be able to locate a business by an arbitrary email.
+      if (!bizId && boundEmail && !isJwtCaller) {
+        const existing = await sbGet('businesses', `email=eq.${encodeURIComponent(boundEmail)}&select=id`);
         if (existing[0]) {
           bizId = existing[0].id;
           log('/webhook/new-user-signup', `Found existing business by email: ${bizId}`);
@@ -3255,14 +3353,14 @@ setImmediate(() => {
 
       if (bizId) {
         // ── Update existing business ───────────────────────────────────────────
-        await sbPatch('businesses', `id=eq.${bizId}`, bizData);
+        await sbPatch('businesses', `id=eq.${encodeURIComponent(bizId)}`, bizData);
         log('/webhook/new-user-signup', `Updated existing business: ${bizId}`);
       } else {
         // ── Create new business ────────────────────────────────────────────────
         const insertData = {
           ...bizData,
-          user_id: user_id,
-          email: email,
+          user_id: boundUserId,
+          email: boundEmail,
           first_name: first_name,
           plan: plan,
           is_active: true,
@@ -4041,7 +4139,10 @@ setImmediate(() => {
 
     if (!content_id) return apiError(res, 400, 'VALIDATION_ERROR', 'content_id required');
     if (!isUUID(String(content_id))) return apiError(res, 400, 'VALIDATION_ERROR', 'content_id must be a valid UUID');
-    if (business_id && !isUUID(String(business_id)))
+    // business_id is required: the /webhook owner gate verifies the caller owns
+    // it, and we then bind content_id to it below so a caller can't approve or
+    // publish another tenant's content by passing a foreign content_id.
+    if (!business_id || !isUUID(String(business_id)))
       return apiError(res, 400, 'VALIDATION_ERROR', 'business_id must be a valid UUID');
 
     // Return immediately — DB update + publishing happen in background
@@ -4049,15 +4150,11 @@ setImmediate(() => {
 
     setImmediate(async () => {
       try {
-        await sbPatch('generated_content', `id=eq.${content_id}`, {
-          status: 'approved',
-          approved_at: new Date().toISOString(),
-          approval_method: approval_method || 'manual',
-        });
-
+        const encContent = encodeURIComponent(content_id);
+        const encBiz = encodeURIComponent(business_id);
         const [bizArr, contentArr] = await Promise.all([
-          sbGet('businesses', `id=eq.${business_id}&select=*`),
-          sbGet('generated_content', `id=eq.${content_id}&select=*`),
+          sbGet('businesses', `id=eq.${encBiz}&select=*`),
+          sbGet('generated_content', `id=eq.${encContent}&select=*`),
         ]);
         const biz = bizArr[0];
         const cont = contentArr[0];
@@ -4065,6 +4162,18 @@ setImmediate(() => {
           log('/webhook/content-approved', 'biz/content not found — skipping publish');
           return;
         }
+        // Tenant binding: the content must belong to the verified business.
+        if (String(cont.business_id) !== String(business_id)) {
+          logger.warn('/webhook/content-approved', business_id, 'content_id does not belong to business — blocked', {
+            content_id,
+          });
+          return;
+        }
+        await sbPatch('generated_content', `id=eq.${encContent}&business_id=eq.${encBiz}`, {
+          status: 'approved',
+          approved_at: new Date().toISOString(),
+          approval_method: approval_method || 'manual',
+        });
 
         const platforms = (() => {
           try {
@@ -5106,6 +5215,7 @@ setImmediate(() => {
     sbGet,
     sbPost,
     sbPatch,
+    sbDelete,
     callClaude,
     log,
     logError,
@@ -5920,8 +6030,15 @@ Return ONLY valid JSON: { "response_text": "..." }`;
   // Body: { creative_id, [status], [is_winner], [impressions], [clicks], [ctr] }
   // ─────────────────────────────────────────────────────────────────────────────
   app.post('/webhook/ad-creative-update', async (req, res) => {
-    const { creative_id, status, is_winner, impressions, clicks, ctr } = req.body;
-    if (!creative_id) return res.status(400).json({ error: 'creative_id required' });
+    const { creative_id, business_id, status, is_winner, impressions, clicks, ctr } = req.body;
+    if (!creative_id || !isUUID(String(creative_id)))
+      return res.status(400).json({ error: 'valid creative_id required' });
+    // business_id is required so we can verify ownership — without it the
+    // owner gate no-ops and any tenant could overwrite another's creative.
+    if (!business_id || !isUUID(String(business_id)))
+      return res.status(400).json({ error: 'valid business_id required' });
+    const { assertBusinessOwner } = require('./lib/assertBusinessOwner');
+    if (!(await assertBusinessOwner(req, res, business_id, { sbGet, apiError, logger }))) return;
     try {
       const updates = {};
       if (status !== undefined) updates.status = status;
@@ -5932,14 +6049,19 @@ Return ONLY valid JSON: { "response_text": "..." }`;
 
       if (!Object.keys(updates).length) return res.status(400).json({ error: 'No fields to update' });
 
-      await sbPatch('ad_creatives', `id=eq.${creative_id}`, updates);
+      const encCreative = encodeURIComponent(creative_id);
+      const encBiz = encodeURIComponent(business_id);
+      // Scope by business_id so the patch can only touch the caller's own creative.
+      await sbPatch('ad_creatives', `id=eq.${encCreative}&business_id=eq.${encBiz}`, updates);
 
       // If this creative is being marked as winner, unmark siblings in same campaign
       if (is_winner === true) {
-        const rows = await sbGet('ad_creatives', `id=eq.${creative_id}&select=campaign_id`);
+        const rows = await sbGet('ad_creatives', `id=eq.${encCreative}&business_id=eq.${encBiz}&select=campaign_id`);
         const cid = rows[0]?.campaign_id;
         if (cid) {
-          await sbPatch('ad_creatives', `campaign_id=eq.${cid}&id=neq.${creative_id}`, { is_winner: false });
+          await sbPatch('ad_creatives', `campaign_id=eq.${encodeURIComponent(cid)}&id=neq.${encCreative}`, {
+            is_winner: false,
+          });
         }
       }
 
@@ -6140,7 +6262,7 @@ Return ONLY valid JSON:
   "confidence_score": 0-100
 }`;
 
-        const decisions = await callClaude(prompt, 'strategy', 1500);
+        const decisions = await callClaude(prompt, 'strategy', 1500, { businessId: business_id });
 
         await sbPatch('businesses', `id=eq.${business_id}`, {
           ai_brain_decisions: JSON.stringify(decisions),
@@ -6297,7 +6419,7 @@ Based on ALL data, return ONLY valid JSON with your decisions:
   "reasoning": "why these decisions"
 }`;
 
-        const decisions = await callClaude(prompt, 'strategy', 2000);
+        const decisions = await callClaude(prompt, 'strategy', 2000, { businessId: business_id });
 
         // ── 4. EXECUTE decisions automatically ──────────────────────────────
         const acts = decisions.actions || {};
@@ -6609,7 +6731,7 @@ Return ONLY valid JSON:
   "key_changes": ["change 1 from last strategy", "change 2"]
 }`;
 
-        const result = await callClaude(prompt, 'strategy', 2000);
+        const result = await callClaude(prompt, 'strategy', 2000, { businessId: business_id });
 
         const updates = { strategy_updated_at: new Date().toISOString() };
         if (result.marketing_strategy) updates.marketing_strategy = result.marketing_strategy;
@@ -6894,7 +7016,7 @@ Return ONLY valid JSON:
   "agent_summary": "1-2 sentence summary"
 }`;
 
-    const plan = await callClaude(prompt, 'strategy', 4000);
+    const plan = await callClaude(prompt, 'strategy', 4000, { businessId });
 
     // EXECUTION
     const actions = await executePlan(businessId, plan.execution_plan);
@@ -6941,7 +7063,7 @@ Return ONLY valid JSON:
     });
   });
 
-  app.post('/webhook/master-agent-all', async (req, res) => {
+  app.post('/webhook/master-agent-all', requireWebhookSource, async (req, res) => {
     res.json({ received: true, message: 'Running master agent for all active businesses' });
     setImmediate(async () => {
       try {
@@ -7212,7 +7334,7 @@ Return ONLY valid JSON:
   "recommendations": ["rec 1", "rec 2", "rec 3"]
 }`;
 
-        const result = await callClaude(prompt, 'strategy', 1500);
+        const result = await callClaude(prompt, 'strategy', 1500, { businessId: business_id });
 
         await sbPatch('businesses', `id=eq.${business_id}`, {
           audience_insights_full: JSON.stringify(result),
@@ -7301,7 +7423,7 @@ Return ONLY valid JSON:
   "gaps_found": ["gap 1", "gap 2"]
 }`;
 
-        const result = await callClaude(prompt, 'strategy', 1500);
+        const result = await callClaude(prompt, 'strategy', 1500, { businessId: business_id });
 
         await sbPatch('businesses', `id=eq.${business_id}`, {
           content_opportunities: JSON.stringify(result.content_opportunities || []),
@@ -7381,7 +7503,7 @@ Return ONLY valid JSON:
   "budget_breakdown": { "meta_ads": 0, "google_ads": 0, "content_creation": 0 }
 }`;
 
-        const campaign = await callClaude(prompt, 'strategy', 3000);
+        const campaign = await callClaude(prompt, 'strategy', 3000, { businessId: business_id });
 
         // Save orchestration
         const orchRow = await sbPost('campaign_orchestrations', {
@@ -7506,7 +7628,7 @@ Return ONLY valid JSON:
   "alert_message": "message for business owner"
 }`;
 
-        const response = await callClaude(prompt, 'strategy', 1500);
+        const response = await callClaude(prompt, 'strategy', 1500, { businessId: business_id });
 
         await sbPatch('businesses', `id=eq.${business_id}`, { crisis_status: response.crisis_level || 'warning' });
 
@@ -7628,7 +7750,7 @@ Return ONLY valid JSON:
   "bottleneck": "the #1 thing holding growth back"
 }`;
 
-        const result = await callClaude(prompt, 'strategy', 2000);
+        const result = await callClaude(prompt, 'strategy', 2000, { businessId: business_id });
 
         await sbPatch('businesses', `id=eq.${business_id}`, {
           growth_engine_recommendation: JSON.stringify(result),
@@ -7884,6 +8006,45 @@ Return ONLY valid JSON:
   // POST /webhook/generate-image — On-demand image generation API
   // Body: { business_id, prompt, content_type? }
   // ─────────────────────────────────────────────────────────────────────────────
+  // Shared per-plan generation quota helper for the direct generation webhooks
+  // (/webhook/generate-image, /webhook/video-generate). /api/generate enforces
+  // this via checkPlanLimit middleware + writes usage_logs; these webhooks
+  // bypassed both, so a customer could exceed their plan's image/video quota by
+  // calling the webhook directly. business_id is the usage key (matches the
+  // planLimits convention where "user_id" == the business id).
+  async function _checkGenQuota(businessId, action) {
+    try {
+      const bizArr = await sbGet('businesses', `id=eq.${encodeURIComponent(businessId)}&select=plan`).catch(() => []);
+      const plan = normalizePlan(bizArr[0]?.plan);
+      const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.starter;
+      const key =
+        action === 'generate_image'
+          ? 'images'
+          : action === 'generate_video_kling'
+            ? 'kling'
+            : action === 'generate_video_sora'
+              ? 'sora'
+              : null;
+      if (!key) return { allowed: true, plan };
+      const cap = Number(limits[key] || 0);
+      if (cap <= 0) return { allowed: false, plan, limit: cap, used: 0, key };
+      const monthStart = new Date();
+      monthStart.setUTCDate(1);
+      monthStart.setUTCHours(0, 0, 0, 0);
+      const rows = await sbGet(
+        'usage_logs',
+        `user_id=eq.${encodeURIComponent(businessId)}&action=eq.${encodeURIComponent(action)}&created_at=gte.${encodeURIComponent(monthStart.toISOString())}&select=id&limit=${cap + 1}`
+      ).catch(() => []);
+      const used = Array.isArray(rows) ? rows.length : 0;
+      return { allowed: used < cap, plan, limit: cap, used, key };
+    } catch {
+      return { allowed: true }; // soft-fail: never block generation on a telemetry error
+    }
+  }
+  async function _logGenUsage(businessId, action) {
+    await sbPost('usage_logs', { user_id: businessId, action, created_at: new Date().toISOString() }).catch(() => {});
+  }
+
   app.post('/webhook/generate-image', async (req, res) => {
     const { business_id, prompt, content_type = 'social_post' } = req.body;
     if (!business_id || !prompt) return res.status(400).json({ error: 'business_id and prompt required' });
@@ -7893,9 +8054,15 @@ Return ONLY valid JSON:
 
     setImmediate(async () => {
       try {
-        const bizArr = await sbGet('businesses', `id=eq.${business_id}&select=plan`);
+        const quota = await _checkGenQuota(business_id, 'generate_image');
+        if (!quota.allowed) {
+          log('/webhook/generate-image', `quota reached for ${business_id} (${quota.used}/${quota.limit})`);
+          return;
+        }
+        const bizArr = await sbGet('businesses', `id=eq.${encodeURIComponent(business_id)}&select=plan`);
         const plan = bizArr[0]?.plan || 'free';
         const result = await generateSmartImage(business_id, prompt, content_type, plan);
+        await _logGenUsage(business_id, 'generate_image');
         if (result.url) {
           await sbPost('business_photos', {
             business_id,
@@ -8206,20 +8373,21 @@ Return ONLY valid JSON:
     // Idempotency: Paddle can deliver the same notification twice. Block
     // duplicates before any side-effect (plan grant, cold-start fire, email).
     const eventId = event?.notification_id || event?.event_id || event?.data?.id;
+    const _wh = require('./lib/webhookEvents');
     if (eventId) {
-      const dedup = await require('./lib/webhookEvents').markProcessed({
-        provider: 'paddle',
-        eventId,
-        sbPost,
-        logger,
-      });
+      const dedup = await _wh.markProcessed({ provider: 'paddle', eventId, sbPost, sbPatch, sbGet, logger });
       if (!dedup.firstTime) {
         logger.info('/webhook/paddle-webhook', null, 'duplicate event — skipping', { event_id: eventId });
         return res.json({ received: true, duplicate: true });
       }
     }
 
-    res.json({ received: true });
+    // Provision SYNCHRONOUSLY, then ACK based on outcome in `finally` (so the
+    // early no-op `return` still ACKs 200). On failure we commit the event
+    // 'failed', evict the LRU, and return 500 so Paddle retries — instead of the
+    // old ACK-200-before-grant which left paid customers permanently un-provisioned.
+    let _paddleOk = true;
+    let _paddleErr = null;
     try {
       const eventType = event?.event_type;
       const data = event?.data;
@@ -8297,12 +8465,19 @@ Return ONLY valid JSON:
           }
         }
       } else if (eventType === 'subscription.canceled') {
+        // Also set is_active:false so the 16 background crons (which select
+        // is_active=eq.true) stop processing — otherwise a churned account
+        // keeps incurring LLM/image/email cost at $0 revenue indefinitely.
+        const canceledPatch = { plan: 'free', plan_price: 0, is_active: false };
         const businessId = data.custom_data?.business_id;
         if (businessId) {
-          await sbPatch('businesses', `id=eq.${businessId}`, { plan: 'free' });
+          await sbPatch('businesses', `id=eq.${encodeURIComponent(businessId)}`, canceledPatch);
         } else {
-          const bizArr = await sbGet('businesses', `paddle_subscription_id=eq.${data.id}&select=id`);
-          if (bizArr[0]) await sbPatch('businesses', `id=eq.${bizArr[0].id}`, { plan: 'free' });
+          const bizArr = await sbGet(
+            'businesses',
+            `paddle_subscription_id=eq.${encodeURIComponent(data.id)}&select=id`
+          );
+          if (bizArr[0]) await sbPatch('businesses', `id=eq.${encodeURIComponent(bizArr[0].id)}`, canceledPatch);
         }
       } else if (eventType === 'subscription.past_due' || eventType === 'transaction.payment_failed') {
         // Payment failed — downgrade to free
@@ -8428,6 +8603,26 @@ Return ONLY valid JSON:
     } catch (err) {
       console.error('[paddle-webhook ERROR]', err.message);
       logger.error('/paddle/webhook', null, 'handler crashed', err);
+      _paddleOk = false;
+      _paddleErr = err.message;
+    } finally {
+      if (eventId) {
+        await _wh
+          .commitProcessed({
+            provider: 'paddle',
+            eventId,
+            status: _paddleOk ? 'processed' : 'failed',
+            sbPatch,
+            logger,
+            error: _paddleOk ? null : _paddleErr,
+          })
+          .catch(() => {});
+        if (!_paddleOk) _wh.forgetEvent('paddle', eventId);
+      }
+      if (!res.headersSent) {
+        if (_paddleOk) res.json({ received: true });
+        else res.status(500).json({ error: { code: 'HANDLER_ERROR', message: 'event processing error' } });
+      }
     }
   }
 
@@ -8477,16 +8672,33 @@ Return ONLY valid JSON:
   app.post('/webhook/video-generate', async (req, res) => {
     const { business_id, video_id } = req.body;
     if (!business_id || !video_id) return res.status(400).json({ error: 'business_id and video_id required' });
+    if (!isUUID(String(business_id)) || !isUUID(String(video_id)))
+      return res.status(400).json({ error: 'business_id and video_id must be valid UUIDs' });
     if (!RUNWAY_API_KEY) return res.json({ generated: false, reason: 'RUNWAY_API_KEY not set' });
     res.json({ received: true, message: 'Video generation started — this takes 2-5 minutes' });
     setImmediate(async () => {
       try {
-        log('/webhook/video-generate', `Starting for video ${video_id}`);
-        const video = (await sbGet('video_generations', `id=eq.${video_id}&select=*`))[0];
-        if (!video) {
-          log('/webhook/video-generate', `Video ${video_id} not found`);
+        // Per-plan video quota (paid video gen) — was ungated, letting a plan
+        // exceed its video allowance by calling this webhook directly.
+        const quota = await _checkGenQuota(business_id, 'generate_video_kling');
+        if (!quota.allowed) {
+          log('/webhook/video-generate', `video quota reached for ${business_id} (${quota.used}/${quota.limit})`);
           return;
         }
+        log('/webhook/video-generate', `Starting for video ${video_id}`);
+        // Scope by business_id so a caller can't drive generation on another
+        // tenant's video row (IDOR); ids are UUID-validated above.
+        const video = (
+          await sbGet(
+            'video_generations',
+            `id=eq.${encodeURIComponent(video_id)}&business_id=eq.${encodeURIComponent(business_id)}&select=*`
+          )
+        )[0];
+        if (!video) {
+          log('/webhook/video-generate', `Video ${video_id} not found for business ${business_id}`);
+          return;
+        }
+        await _logGenUsage(business_id, 'generate_video_kling');
 
         // Parse script — may be stored as string or object
         let script = video.script;
@@ -8696,7 +8908,7 @@ Data: Revenue last 90d: $${totalRev.toFixed(2)} | Reach: ${totalReach} | Active 
 Plan: ${biz.plan} | Goal: ${biz.marketing_goal || 'grow'}
 Return ONLY valid JSON:
 {"forecast_30d":{"revenue":0,"confidence":"low/medium/high"},"forecast_90d":{"revenue":0,"confidence":"low/medium/high"},"top_revenue_actions":[{"action":"string","expected_impact":"string","effort":"low/medium/high"}],"risk_factors":[{"risk":"string","probability":"low/medium/high"}],"forecast_summary":"2-3 sentences"}`;
-        const forecast = await callClaude(prompt, 'strategy', 1500);
+        const forecast = await callClaude(prompt, 'strategy', 1500, { businessId: business_id });
         await sbPatch('businesses', `id=eq.${business_id}`, { revenue_forecast: JSON.stringify(forecast) });
         sendSSE(business_id, 'forecast_updated', { summary: forecast.forecast_summary });
         try {
@@ -9010,8 +9222,8 @@ Return ONLY valid JSON:
 
   // Customer-facing "marketing skill" endpoints (Popup/RevOps/SEO/Sales/Pricing/
   // Schema/Signup-CRO/Free-tools/Upgrade/A-B/Community/Onboarding-CRO/Orchestrator
-  // + AI chat + brand-DNA) the dashboard calls. Previously scaffolded with auth
-  // middleware (above) but no handlers — these tabs 404'd until now.
+  // + AI chat + brand-DNA) the Lovable dashboard calls. Previously scaffolded with
+  // auth middleware (above) but no handlers — these tabs 404'd until now.
   require('./routes/marketing-skills').register({
     app,
     getProfile,
@@ -9184,11 +9396,17 @@ Return ONLY valid JSON:
   app.post('/api/content/feedback', validate('contentScore'), async (req, res) => {
     const { contentId, userId, action, editedVersion } = req.validatedBody;
     try {
-      // Get content for memory storage
+      // Get content for memory storage (contentId is UUID-validated by the
+      // contentScore zod schema). Fetch business_id so we can verify the JWT
+      // caller actually owns this content before approving/rejecting/editing —
+      // otherwise any user could mutate another tenant's content by id (IDOR).
       const contentRows = await sbGet(
         'generated_content',
-        `id=eq.${contentId}&select=instagram_caption,content_theme`
+        `id=eq.${encodeURIComponent(contentId)}&select=business_id,instagram_caption,content_theme`
       ).catch(() => []);
+      if (!contentRows[0]) return apiError(res, 404, 'NOT_FOUND', 'content not found');
+      const { assertBusinessOwner } = require('./lib/assertBusinessOwner');
+      if (!(await assertBusinessOwner(req, res, contentRows[0].business_id, { sbGet, apiError, logger }))) return;
       const snippet = contentRows[0]?.instagram_caption?.slice(0, 200) || '';
       const theme = contentRows[0]?.content_theme || '';
       if (action === 'approved') {
@@ -9900,6 +10118,9 @@ Return ONLY valid JSON:
     aiSeo: aiSeoForColdStart,
     wf1: wf1ForColdStart,
     coldStart: coldStartService,
+    // Enables the 72h reminder email in the stale-run sweep (cold-start-sweep
+    // cron). Without it the sweep still expires abandoned runs at 7d.
+    sendEmail,
   });
 
   // ─── Multi-platform ads + Daily Creative Engine + Measurement Health (Week 5-7)
@@ -9982,7 +10203,7 @@ Return ONLY valid JSON:
     });
   }
   internalDispatcher.register('/webhook/email-lifecycle-process-due', () => runEmailLifecycleProcessDue());
-  app.post('/webhook/email-lifecycle-process-due', async (req, res) => {
+  app.post('/webhook/email-lifecycle-process-due', requireWebhookSource, async (req, res) => {
     try {
       const r = await runEmailLifecycleProcessDue();
       res.json(r);
@@ -10307,7 +10528,8 @@ Return ONLY valid JSON:
   async function runAutopilotBrainAll() {
     const businesses = await sbGet('businesses', 'is_active=eq.true&select=id&limit=1000').catch(() => []);
     let ran = 0,
-      conflicts = 0;
+      conflicts = 0,
+      failed = 0;
     const brainDeps = { sbGet, sbPost, sbPatch, memoryService, logger, sentry: Sentry };
     for (const b of businesses) {
       try {
@@ -10315,15 +10537,29 @@ Return ONLY valid JSON:
         if (r?.ok) {
           ran += 1;
           conflicts += r.conflicts_resolved || 0;
+        } else {
+          failed += 1;
         }
       } catch (e) {
+        failed += 1;
         logger?.warn?.('/webhook/autopilot-brain-run-all', b.id, 'run failed', { error: e.message });
       }
     }
-    return { ok: true, businesses: businesses.length, ran, conflicts_resolved: conflicts };
+    // Report failure when EVERY business failed (systemic outage — rotated key,
+    // schema drift) so the Inngest cron retries + DLQs instead of silently
+    // reporting success. Partial failures stay ok:true (per-business isolation).
+    const total = businesses.length;
+    return {
+      ok: !(failed === total && total > 0),
+      businesses: total,
+      total,
+      failed,
+      ran,
+      conflicts_resolved: conflicts,
+    };
   }
   internalDispatcher.register('/webhook/autopilot-brain-run-all', () => runAutopilotBrainAll());
-  app.post('/webhook/autopilot-brain-run-all', async (req, res) => {
+  app.post('/webhook/autopilot-brain-run-all', requireWebhookSource, async (req, res) => {
     try {
       res.json(await runAutopilotBrainAll());
     } catch (e) {
@@ -10410,35 +10646,35 @@ Return ONLY valid JSON:
   internalDispatcher.register('/webhook/ops-analytics-snapshots-all', () => runOpsAnalyticsSnapshotsAll());
   internalDispatcher.register('/webhook/ops-monthly-reports-all', () => runOpsMonthlyReportsAll());
 
-  app.post('/webhook/ops-daily-health-all', async (req, res) => {
+  app.post('/webhook/ops-daily-health-all', requireWebhookSource, async (req, res) => {
     try {
       res.json(await runOpsDailyHealthAll());
     } catch (e) {
       apiError(res, 500, 'OPS_DAILY_HEALTH_FAILED', e.message);
     }
   });
-  app.post('/webhook/ops-weekly-maintenance-all', async (req, res) => {
+  app.post('/webhook/ops-weekly-maintenance-all', requireWebhookSource, async (req, res) => {
     try {
       res.json(await runOpsWeeklyMaintenanceAll());
     } catch (e) {
       apiError(res, 500, 'OPS_WEEKLY_MAINTENANCE_FAILED', e.message);
     }
   });
-  app.post('/webhook/ops-growth-engine-all', async (req, res) => {
+  app.post('/webhook/ops-growth-engine-all', requireWebhookSource, async (req, res) => {
     try {
       res.json(await runOpsGrowthEngineAll());
     } catch (e) {
       apiError(res, 500, 'OPS_GROWTH_ENGINE_FAILED', e.message);
     }
   });
-  app.post('/webhook/ops-analytics-snapshots-all', async (req, res) => {
+  app.post('/webhook/ops-analytics-snapshots-all', requireWebhookSource, async (req, res) => {
     try {
       res.json(await runOpsAnalyticsSnapshotsAll());
     } catch (e) {
       apiError(res, 500, 'OPS_ANALYTICS_SNAPSHOTS_FAILED', e.message);
     }
   });
-  app.post('/webhook/ops-monthly-reports-all', async (req, res) => {
+  app.post('/webhook/ops-monthly-reports-all', requireWebhookSource, async (req, res) => {
     try {
       res.json(await runOpsMonthlyReportsAll());
     } catch (e) {
@@ -10712,11 +10948,17 @@ Return ONLY valid JSON:
   app.post('/api/delete-account', requireAnyUserId, async (req, res) => {
     const userId = req.body.user_id || req.body.userId;
     try {
-      const businesses = await sbGet('businesses', `user_id=eq.${userId}&select=id`);
+      if (!isUUID(String(userId || ''))) return apiError(res, 400, 'VALIDATION_ERROR', 'valid user_id required');
+      const encUser = encodeURIComponent(userId);
+      const businesses = await sbGet('businesses', `user_id=eq.${encUser}&select=id`);
       if (!businesses.length) return apiError(res, 404, 'NOT_FOUND', 'No business found for this user');
 
       for (const biz of businesses) {
-        const bid = biz.id;
+        const bid = encodeURIComponent(biz.id);
+        // Child tables keyed by business_id. These MUST be real deletes — the
+        // previous code patched business_id to itself (a no-op), so GDPR
+        // erasure left every row in place. email_sequence_runs +
+        // contact_enrollments are included so lifecycle emails actually stop.
         const tables = [
           'content_concepts',
           'content_assets',
@@ -10725,6 +10967,8 @@ Return ONLY valid JSON:
           'ad_campaigns',
           'contacts',
           'email_sequences',
+          'email_sequence_runs',
+          'contact_enrollments',
           'generated_content',
           'competitor_insights',
           'retention_logs',
@@ -10740,7 +10984,8 @@ Return ONLY valid JSON:
           'onboarding_events',
         ];
         for (const table of tables) {
-          await sbPatch(table, `business_id=eq.${bid}`, { business_id: bid }).catch(() => {}); // Some tables may not exist or have no rows
+          // Some tables may not exist or have no rows on a given account.
+          await sbDelete(table, `business_id=eq.${bid}`).catch(() => {});
         }
       }
 
@@ -10760,8 +11005,9 @@ Return ONLY valid JSON:
         });
       }
 
-      // Delete business_profiles if any
-      await sbPatch('business_profiles', `user_id=eq.${userId}`, { user_id: userId }).catch(() => {});
+      // Delete business_profiles + any user-keyed PII (real delete, not no-op).
+      await sbDelete('business_profiles', `user_id=eq.${encUser}`).catch(() => {});
+      await sbDelete('usage_logs', `user_id=eq.${encUser}`).catch(() => {});
 
       logger.info('/api/delete-account', userId, 'Account data deleted (GDPR)', { businesses: businesses.length });
       res.json({ success: true, message: 'Your data has been deleted. This action cannot be undone.' });
@@ -11151,7 +11397,7 @@ Return ONLY valid JSON:
   // Internal webhook to trigger the weekly-scorecard batch orchestrator
   // (Anthropic Batches API → 50% list price). Webhook-secret gated so only
   // Inngest's cron (or an operator with the secret) can invoke it.
-  app.post('/webhook/weekly-scorecard-batch', requireAuthOrWebhookSecret, async (req, res) => {
+  app.post('/webhook/weekly-scorecard-batch', requireAuthOrWebhookSecret, requireWebhookSource, async (req, res) => {
     try {
       if (!ANTHROPIC_KEY) {
         return apiError(res, 503, 'SERVICE_UNAVAILABLE', 'Anthropic key not configured');
@@ -11393,10 +11639,22 @@ function beginFatalShutdown(signal, err) {
 }
 
 process.on('unhandledRejection', (reason) => {
-  logger.error('/process', null, 'Unhandled Promise Rejection — graceful shutdown', {
+  // Log + capture but do NOT shut down. A single stray rejection in any
+  // background path (cron, SSE write, fire-and-forget loopback) must not drop
+  // every in-flight customer request on the instance. Only a genuine
+  // uncaughtException (corrupt process state) warrants a graceful restart.
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  logger.error('/process', null, 'Unhandled Promise Rejection (continuing)', {
     reason: String(reason),
+    stack: err.stack,
   });
-  beginFatalShutdown('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)));
+  if (process.env.SENTRY_DSN) {
+    try {
+      Sentry.captureException(err);
+    } catch {
+      /* ignore */
+    }
+  }
 });
 
 process.on('uncaughtException', (err) => {

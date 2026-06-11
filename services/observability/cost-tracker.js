@@ -11,7 +11,7 @@
  * Pricing constants (Anthropic May 2026):
  *   Sonnet 4.5  — $3.00 / MTok input, $15.00 / MTok output
  *   Opus 4.7    — $5.00 / MTok input, $25.00 / MTok output
- *   Haiku 4.5   — $0.80 / MTok input, $4.00 / MTok output
+ *   Haiku 4.5   — $1.00 / MTok input, $5.00 / MTok output
  *
  * Caching: cached input is 90% cheaper. We track cache hits separately.
  * ----------------------------------------------------------------------------
@@ -24,7 +24,7 @@ const PRICING = {
   'claude-sonnet-4-6': { input: 3.0, output: 15.0, cache_read: 0.3 },
   'claude-sonnet-4-5': { input: 3.0, output: 15.0, cache_read: 0.3 },
   'claude-opus-4-7': { input: 5.0, output: 25.0, cache_read: 0.5 },
-  'claude-haiku-4-5': { input: 0.8, output: 4.0, cache_read: 0.08 },
+  'claude-haiku-4-5': { input: 1.0, output: 5.0, cache_read: 0.1 },
   // Aliases for backwards compat
   'claude-sonnet-4': { input: 3.0, output: 15.0, cache_read: 0.3 },
   'claude-opus-4': { input: 5.0, output: 25.0, cache_read: 0.5 },

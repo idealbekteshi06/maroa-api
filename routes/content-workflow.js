@@ -14,6 +14,8 @@
  * Behavior unchanged. Dep injection for testability.
  */
 
+const { assertBusinessOwner } = require('../lib/assertBusinessOwner');
+
 function register({
   app,
   sbGet,
@@ -28,6 +30,10 @@ function register({
   generateSmartImage,
   isUUID,
 }) {
+  // assertBusinessOwner reports via apiError(res, status, code, message); this
+  // module returns { error } JSON, so adapt. logger shim preserves the warn path.
+  const apiError = (res, status, _code, message) => res.status(status).json({ error: message });
+  const logger = { warn: (...a) => log?.(...a) };
   // ─────────────────────────────────────────────────────────────────────────────
   // POST /webhook/content-generate
   // Generate blog / landing_page / video_script via Claude + optionally image.
@@ -222,13 +228,20 @@ function register({
   // ─────────────────────────────────────────────────────────────────────────────
   app.post('/webhook/content-approve', async (req, res) => {
     const piece_id = req.body.piece_id || req.body.content_id;
-    const { published_url } = req.body;
-    if (!piece_id) return res.status(400).json({ error: 'piece_id required' });
+    const { business_id, published_url } = req.body;
+    if (!piece_id || !business_id) return res.status(400).json({ error: 'piece_id and business_id required' });
     if (!isUUID(piece_id)) return res.status(400).json({ error: 'piece_id must be a valid UUID' });
+    // Cross-tenant publish fix: bind the piece to a business the caller owns and
+    // scope the patch to BOTH ids so a foreign piece_id can't be published.
+    if (!(await assertBusinessOwner(req, res, business_id, { sbGet, apiError, logger }))) return;
     try {
       const updates = { status: published_url ? 'published' : 'approved' };
       if (published_url) updates.published_url = published_url;
-      await sbPatch('content_pieces', `id=eq.${piece_id}`, updates);
+      await sbPatch(
+        'content_pieces',
+        `id=eq.${encodeURIComponent(piece_id)}&business_id=eq.${encodeURIComponent(business_id)}`,
+        updates
+      );
       res.json({ success: true, piece_id, status: updates.status });
     } catch (err) {
       res.status(500).json({ error: err.message });

@@ -26,12 +26,20 @@
  * ---------------------------------------------------------------------------
  */
 
+const oauthCrypto = require('../../lib/oauthCrypto');
+
 const HOST = 'business-api.tiktok.com';
 const VERSION = 'v1.3';
 const TIKTOK_ADS_LIVE = () => String(process.env.TIKTOK_ADS_LIVE || '').toLowerCase() === 'true';
 
+// readToken prefers the encrypted *_enc column and falls back to legacy
+// plaintext. Synchronous (no I/O) — the business row is already fetched.
+function tiktokToken(business) {
+  return oauthCrypto.readToken(business, 'tiktok_access_token');
+}
+
 function isConfigured(business) {
-  return !!(business?.tiktok_access_token && business?.tiktok_advertiser_id);
+  return !!(tiktokToken(business) && business?.tiktok_advertiser_id);
 }
 
 async function tiktokCall({ method, path, business, body, query }) {
@@ -43,7 +51,7 @@ async function tiktokCall({ method, path, business, body, query }) {
       signal: AbortSignal.timeout(30000),
       method,
       headers: {
-        'Access-Token': business.tiktok_access_token,
+        'Access-Token': tiktokToken(business),
         'Content-Type': 'application/json',
       },
       body: body ? JSON.stringify(body) : undefined,

@@ -50,22 +50,29 @@ EXCEPTION WHEN undefined_table THEN
   RAISE NOTICE 'approvals table not present — skipping approvals_payload_shape';
 END $$;
 
--- decision_logs.context — must be an object with `agent` set.
+-- decision_logs.inputs — must be an object when present.
+-- NOTE: the original constraint referenced a `context` column that
+-- decision_logs (migration 065) never had — only `inputs`/`agent_name`/
+-- `execution_details` exist. That made this block raise undefined_column
+-- (not caught below) and abort the whole migration. Target the real column
+-- and also catch undefined_column so a schema drift can't abort 070.
 DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.table_constraints
-    WHERE constraint_name = 'decision_logs_context_shape' AND table_name = 'decision_logs'
+    WHERE constraint_name = 'decision_logs_inputs_shape' AND table_name = 'decision_logs'
   ) THEN
     EXECUTE 'ALTER TABLE decision_logs
-       ADD CONSTRAINT decision_logs_context_shape
+       ADD CONSTRAINT decision_logs_inputs_shape
        CHECK (
-         context IS NULL
-         OR (jsonb_typeof(context) = ''object''
-             AND context->>''agent'' IS NOT NULL)
+         inputs IS NULL
+         OR jsonb_typeof(inputs) = ''object''
        )';
   END IF;
-EXCEPTION WHEN undefined_table THEN
-  RAISE NOTICE 'decision_logs table not present — skipping decision_logs_context_shape';
+EXCEPTION
+  WHEN undefined_table THEN
+    RAISE NOTICE 'decision_logs table not present — skipping decision_logs_inputs_shape';
+  WHEN undefined_column THEN
+    RAISE NOTICE 'decision_logs.inputs not present — skipping decision_logs_inputs_shape';
 END $$;
 
 -- inngest_dlq.event_data — soft check: must be an object if present.

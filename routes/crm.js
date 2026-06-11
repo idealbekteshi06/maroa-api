@@ -19,6 +19,8 @@
  * Behavior unchanged. Dep injection makes the module testable.
  */
 
+const { assertBusinessOwner } = require('../lib/assertBusinessOwner');
+
 function register({
   app,
   sbGet,
@@ -33,6 +35,10 @@ function register({
   SUPABASE_URL,
   storeInsight,
 }) {
+  // assertBusinessOwner calls apiError(res, status, code, message); this module
+  // reports errors as { error } JSON, so adapt. logger shim keeps its warn path.
+  const apiError = (res, status, _code, message) => res.status(status).json({ error: message });
+  const logger = { warn: (...a) => log?.(...a) };
   // ── Lead score weights ────────────────────────────────────────────────────────
   const SCORE_WEIGHTS = {
     email_open: 5,
@@ -122,16 +128,24 @@ function register({
   // Update arbitrary fields on a contact.
   // ─────────────────────────────────────────────────────────────────────────────
   app.post('/webhook/contact-update', async (req, res) => {
-    const { contact_id, ...fields } = req.body;
-    if (!contact_id) return res.status(400).json({ error: 'contact_id required' });
+    const { contact_id, business_id, ...fields } = req.body;
+    if (!contact_id || !business_id) return res.status(400).json({ error: 'contact_id and business_id required' });
+    if (!isUUID(contact_id)) return res.status(400).json({ error: 'contact_id must be a valid UUID' });
+    // Cross-tenant write fix: bind the contact to a business the caller owns and
+    // scope the filter to BOTH ids so a foreign contact_id can't be patched.
+    if (!(await assertBusinessOwner(req, res, business_id, { sbGet, apiError, logger }))) return;
     delete fields.id;
     delete fields.business_id;
     delete fields.created_at;
     try {
-      await sbPatch('contacts', `id=eq.${contact_id}`, {
-        ...fields,
-        last_activity_at: new Date().toISOString(),
-      });
+      await sbPatch(
+        'contacts',
+        `id=eq.${encodeURIComponent(contact_id)}&business_id=eq.${encodeURIComponent(business_id)}`,
+        {
+          ...fields,
+          last_activity_at: new Date().toISOString(),
+        }
+      );
       res.json({ success: true, contact_id, updated: fields });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -451,13 +465,22 @@ function register({
   // POST /webhook/deal-stage-update
   // ─────────────────────────────────────────────────────────────────────────────
   app.post('/webhook/deal-stage-update', async (req, res) => {
-    const { deal_id, stage, probability, notes } = req.body;
-    if (!deal_id || !stage) return res.status(400).json({ error: 'deal_id and stage required' });
+    const { deal_id, business_id, stage, probability, notes } = req.body;
+    if (!deal_id || !stage || !business_id)
+      return res.status(400).json({ error: 'deal_id, business_id and stage required' });
+    if (!isUUID(deal_id)) return res.status(400).json({ error: 'deal_id must be a valid UUID' });
+    // Cross-tenant write fix: bind the deal to a business the caller owns and
+    // scope the filter to BOTH ids so a foreign deal_id can't be moved.
+    if (!(await assertBusinessOwner(req, res, business_id, { sbGet, apiError, logger }))) return;
     try {
       const updates = { stage };
       if (probability !== undefined) updates.probability = probability;
       if (notes) updates.notes = notes;
-      await sbPatch('deals', `id=eq.${deal_id}`, updates);
+      await sbPatch(
+        'deals',
+        `id=eq.${encodeURIComponent(deal_id)}&business_id=eq.${encodeURIComponent(business_id)}`,
+        updates
+      );
       res.json({ success: true, deal_id, stage });
     } catch (err) {
       res.status(500).json({ error: err.message });

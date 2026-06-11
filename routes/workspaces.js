@@ -36,12 +36,37 @@
  * methods that soft-fail to null/[] → routes return 404/empty without crashing.
  */
 
+const { assertBusinessOwner } = require('../lib/assertBusinessOwner');
+
 function register({ app, workspaces, requireAnyUserId, apiError, safePublicError, log }) {
   if (!workspaces) {
     // Migration 066 not applied / lib not constructed — skip route mounting.
     // Boot stays clean; routes simply 404.
     return;
   }
+
+  // server.js does not inject sbGet into this module, but assertBusinessOwner
+  // needs a PostgREST reader to verify business ownership before a caller can
+  // attach an arbitrary business_id to their workspace (IDOR / privilege
+  // escalation fix). Build a minimal sbGet-compatible reader from env, mirroring
+  // the service-role pattern in middleware/requireAuthOrWebhookSecret.js. Returns
+  // [] / throws like server.js's sbGet so assertBusinessOwner behaves identically.
+  const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/[^\x20-\x7E]/g, '').trim();
+  const SUPABASE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '')
+    .replace(/[^\x20-\x7E]/g, '')
+    .trim();
+  const sbGet =
+    SUPABASE_URL && SUPABASE_KEY
+      ? async function sbGet(table, query = '') {
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
+            headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+          });
+          if (r.status !== 200) throw new Error(`sbGet ${table}: ${r.status}`);
+          const body = await r.json();
+          return Array.isArray(body) ? body : [];
+        }
+      : undefined;
+  const logger = { warn: (...a) => log?.(...a) };
 
   // ── Authenticated workspaces routes ────────────────────────────────────
   // requireAnyUserId is mounted globally for /api/* in server.js, so
@@ -215,6 +240,10 @@ function register({ app, workspaces, requireAnyUserId, apiError, safePublicError
       if (!allowed) return apiError(res, 403, 'FORBIDDEN', 'Strategist role or higher required');
       const { business_id, client_name, monthly_retainer_usd } = req.body || {};
       if (!business_id) return apiError(res, 400, 'INVALID_BODY', 'business_id required');
+      // Privilege-escalation fix: you may only attach a business you own to your
+      // workspace. Without this, any strategist could attach an arbitrary
+      // business_id and gain access to another tenant's data via the workspace.
+      if (!(await assertBusinessOwner(req, res, business_id, { sbGet, apiError, logger }))) return;
       const result = await workspaces.addClient({
         workspaceId: id,
         businessId: business_id,

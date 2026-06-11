@@ -274,23 +274,31 @@ function createWf15(deps) {
 
     return {
       assistantMessageId: assistantMsg.id,
-      streamUrl: `/webhook/wf15-stream/${assistantMsg.id}`,
+      // business_id is REQUIRED by the hardened /webhook/wf15-stream handler
+      // (it scopes the brain_messages read by tenant). The EventSource opens
+      // this URL verbatim, so it must carry the business_id.
+      streamUrl: `/webhook/wf15-stream/${assistantMsg.id}?business_id=${encodeURIComponent(businessId)}`,
     };
   }
 
   async function toolDecision({ businessId, toolCallId, decision, edits }) {
-    const rows = await sbGet('brain_tool_calls', `id=eq.${toolCallId}&select=*`).catch(() => []);
+    // Scope by business_id so a caller can't approve/reject another tenant's
+    // tool call by id (brain_tool_calls has a business_id column, migration 026).
+    const encTool = encodeURIComponent(toolCallId);
+    const encBiz = encodeURIComponent(businessId);
+    const scope = `id=eq.${encTool}&business_id=eq.${encBiz}`;
+    const rows = await sbGet('brain_tool_calls', `${scope}&select=*`).catch(() => []);
     const toolCall = rows[0];
     if (!toolCall) throw new Error('Tool call not found');
     if (decision === 'reject') {
-      await sbPatch('brain_tool_calls', `id=eq.${toolCallId}`, {
+      await sbPatch('brain_tool_calls', scope, {
         status: 'rejected',
         completed_at: new Date().toISOString(),
       });
       return { ok: true, status: 'rejected' };
     }
     // approve: mark status completed (actual execution dispatched by workflow-specific code)
-    await sbPatch('brain_tool_calls', `id=eq.${toolCallId}`, {
+    await sbPatch('brain_tool_calls', scope, {
       status: 'completed',
       completed_at: new Date().toISOString(),
       result: edits ? { ...(toolCall.result || {}), edits } : toolCall.result,

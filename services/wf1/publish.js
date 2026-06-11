@@ -13,12 +13,14 @@
 
 'use strict';
 
+const oauthCrypto = require('../../lib/oauthCrypto');
+
 function createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger, ANTHROPIC_KEY_UNUSED }) {
   // Internal helper: call Meta Graph API for an Instagram/Facebook post
   async function publishToMeta({ business, asset, platform }) {
     const pageId = business.facebook_page_id;
     const igUserId = business.instagram_account_id;
-    const token = business.meta_access_token;
+    const token = oauthCrypto.readToken(business, 'meta_access_token');
     if (!token) throw new Error('Meta access token not set for business');
 
     if (platform === 'facebook') {
@@ -78,7 +80,7 @@ function createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger, ANTHROPIC
   }
 
   async function publishToLinkedIn({ business, asset }) {
-    const token = business.linkedin_access_token;
+    const token = oauthCrypto.readToken(business, 'linkedin_access_token');
     const author = business.linkedin_person_urn;
     if (!token || !author) throw new Error('LinkedIn not connected');
 
@@ -110,7 +112,7 @@ function createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger, ANTHROPIC
 
   async function publishToTikTok({ business, asset }) {
     // TikTok Business API — simplified. Full impl in server.js /webhook/tiktok-publish.
-    const token = business.tiktok_access_token;
+    const token = oauthCrypto.readToken(business, 'tiktok_access_token');
     if (!token) throw new Error('TikTok not connected');
     if (!asset.media_url) throw new Error('TikTok requires video media_url');
     const r = await apiRequest(
@@ -130,7 +132,7 @@ function createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger, ANTHROPIC
   }
 
   async function publishToTwitter({ business, asset }) {
-    const token = business.twitter_access_token;
+    const token = oauthCrypto.readToken(business, 'twitter_access_token');
     if (!token) throw new Error('Twitter not connected');
     const r = await apiRequest(
       'POST',
@@ -147,7 +149,7 @@ function createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger, ANTHROPIC
 
   async function publishToGbp({ business, asset }) {
     // Google Business Profile posts — requires Google OAuth
-    const token = business.google_access_token;
+    const token = oauthCrypto.readToken(business, 'google_access_token');
     const locationId = business.google_business_id;
     if (!token || !locationId) throw new Error('GBP not connected');
     const url = `https://mybusiness.googleapis.com/v4/accounts/-/locations/${locationId}/localPosts`;
