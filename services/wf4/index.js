@@ -16,6 +16,14 @@ const {
 } = require('../prompts/workflow_4_reviews.js');
 const { buildBrandContext } = require('../wf1/brandContext.js');
 
+// Statuses meaning "the business replied to this review", for response-rate
+// reporting. Must track every post-approval writer: publishResponse here
+// writes 'approved_pending_publish' (honest no-publish rework), server.js's
+// review-publish route writes 'published', and 'responded' survives on rows
+// from before the rename. Draft-only ('awaiting_approval', 'draft_ready')
+// and non-reply outcomes ('disputed', 'ignored', 'pending') don't count.
+const RESPONDED_STATUSES = new Set(['responded', 'approved_pending_publish', 'published']);
+
 function createWf4(deps) {
   const { sbGet, sbPost, sbPatch, callClaude, extractJSON, logger, sendEmail, sendWhatsApp } = deps;
 
@@ -292,7 +300,7 @@ function createWf4(deps) {
       const rec = byPlatform.get(p) || { sum: 0, count: 0, respCount: 0 };
       rec.sum += Number(r.rating || 0);
       rec.count++;
-      if (r.response_status === 'responded') rec.respCount++;
+      if (RESPONDED_STATUSES.has(r.response_status)) rec.respCount++;
       byPlatform.set(p, rec);
 
       const day = (r.posted_at || r.created_at || '').slice(0, 10);
