@@ -9500,6 +9500,52 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /api/stream-ticket:
+    post:
+      tags:
+        - api
+      summary: "POST /api/stream-ticket"
+      description: "Dashboard API (POST /api/stream-ticket); JWT required unless public."
+      responses:
+        200:
+          description: "Successful response"
+        400:
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        402:
+          description: "Payment Required — cost cap reached"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        429:
+          description: "Rate limited"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        500:
+          description: "Server error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+      requestBody:
+        description: "Request body — hand-edit shape per route"
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
   /tiktok-oauth-start:
     get:
       tags:
