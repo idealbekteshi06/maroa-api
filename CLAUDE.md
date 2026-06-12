@@ -426,6 +426,17 @@ patterns:
   as `received` → side-effect → `processed`/`failed`. Failed events are
   re-runnable on retry; previously they were silently swallowed by the
   PK constraint.
+- **SSE stream tickets (2026-06-11)** — the audit's removal of `?token=`
+  broke EventSource (browsers can't attach an Authorization header), so the
+  dashboard status stream + WF15 stream 401'd silently. Fix: JWT-authed
+  `POST /api/stream-ticket` mints a 60s HMAC ticket binding
+  user_id+business_id (`lib/streamTicket.js`, oauthState-style signing,
+  `STREAM_TICKET_SECRET` → falls back to `N8N_WEBHOOK_SECRET`);
+  `middleware/requireAuthOrWebhookSecret.js` accepts `?ticket=` ONLY on GET
+  `/webhook/dashboard-events` + `/webhook/wf15-stream/:id`
+  (`req.authSource='stream-ticket'`), with live ownership re-checked by the
+  owner gate. Never widen the allowlist to mutating routes; long-lived JWTs
+  stay banned from URLs. Tests: `tests/stream-ticket.test.js`.
 - **Real readiness probes** — `/readyz` actually pings Anthropic
   (`/v1/models`), Higgsfield (`/v1/models`), and reports DLQ accumulation
   - open breaker snapshot. 10s cache so a flood of probes doesn't DDoS.

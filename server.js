@@ -872,6 +872,14 @@ setImmediate(() => {
   app.use('/api/pricing', requireAnyUserId); // /api/pricing/:userId (READ side of pricing)
   app.use('/api/sales', requireAnyUserId); // /api/sales/objection-handler + future siblings
 
+  // ─── Stream tickets — EventSource auth for the SSE routes ────────────────
+  // Browsers cannot attach an Authorization header to an EventSource, so the
+  // dashboard mints a short-lived signed ticket here (JWT-authed) and appends
+  // it as ?ticket= on GET /webhook/dashboard-events + /webhook/wf15-stream/:id.
+  // Verify side lives in middleware/requireAuthOrWebhookSecret.js.
+  app.use('/api/stream-ticket', requireAnyUserId);
+  require('./routes/stream-ticket').register({ app, sbGet, apiError, logger, env });
+
   // ─── Tenant isolation on /api/* routes that act on a business_id ──────────
   // requireAnyUserId proves the JWT matches the supplied userId, but NOT that
   // the user may act on the business_id in the request body. Without this gate
@@ -8315,8 +8323,11 @@ Return ONLY valid JSON:
 
   // ── PIECE 4: Real-Time Dashboard Events (SSE) ──────────────────────────────
   app.get('/webhook/dashboard-events', async (req, res) => {
-    if (req.authSource !== 'jwt' || !req.user) {
-      return apiError(res, 401, 'UNAUTHORIZED', 'JWT required for dashboard events (Authorization: Bearer)');
+    // 'stream-ticket' = short-lived signed ticket from POST /api/stream-ticket
+    // (EventSource cannot send an Authorization header). The webhook-secret
+    // machine path stays excluded — it carries no user to scope events to.
+    if ((req.authSource !== 'jwt' && req.authSource !== 'stream-ticket') || !req.user) {
+      return apiError(res, 401, 'UNAUTHORIZED', 'JWT or stream ticket required for dashboard events');
     }
     const { business_id } = req.query;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
