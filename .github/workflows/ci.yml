@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node 20
         uses: actions/setup-node@v4
@@ -95,7 +95,7 @@ jobs:
         working-directory: ./frontend
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Node 20
         uses: actions/setup-node@v4
@@ -140,7 +140,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout (full history for diff scan)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Run gitleaks

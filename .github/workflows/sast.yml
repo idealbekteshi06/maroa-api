@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Curated rulesets cover OWASP Top 10 + Node-specific bug patterns
       # + JWT/JS gotchas. Custom rules in .semgrep/ catch Maroa-specific
