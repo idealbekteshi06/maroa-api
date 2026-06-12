@@ -699,16 +699,27 @@ setImmediate(() => {
       const id = String(req.user?.id || req.ip || 'anon');
       return checkRateLimit(id)
         .then((out) => {
+          if (out.degraded) {
+            // checkRateLimit fails open ({success:true, degraded:true}) when
+            // Upstash is down/slow so bare awaits elsewhere never hang. Here
+            // we must NOT accept that open-pass: fail closed onto the
+            // in-process limiter instead — an Upstash blip must not uncap the
+            // expensive (LLM/image/video) endpoints, especially since
+            // costGuard also soft-fails open during a correlated outage.
+            logger.warn(req.path, null, 'Rate limiter degraded — falling back to in-process limiter', {
+              request_id: req.requestId,
+              reason: out.reason || null,
+            });
+            return aiLimitExpress(req, res, next);
+          }
           if (!out.success) {
             return apiError(res, 429, 'RATE_LIMITED', 'Too many requests — please wait 1 minute');
           }
           next();
         })
         .catch((e) => {
-          // Fail closed onto the in-process limiter instead of allowing the
-          // request through — an Upstash blip must not uncap the expensive
-          // (LLM/image/video) endpoints, especially since costGuard also
-          // soft-fails open during a correlated outage.
+          // Belt-and-braces: checkRateLimit's contract is never-reject, but if
+          // that ever regresses, still fail closed onto the in-process limiter.
           logger.warn(req.path, null, 'Redis rate limit check failed — falling back to in-process limiter', {
             request_id: req.requestId,
             error: e.message,
