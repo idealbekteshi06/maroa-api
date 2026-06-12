@@ -51,10 +51,13 @@ test('rateLimit: stalling limiter is cut off by the decision timeout', async () 
   assert.equal(out.success, true);
   assert.equal(out.degraded, true);
   assert.equal(out.reason, 'timeout');
-  // Bounded: well under double the configured ceiling, never an infinite hang.
+  // Bounded — the point is "settles instead of hanging forever", not a
+  // precise stopwatch: under the full parallel suite (one process per test
+  // file) CPU starvation can delay a 1.5s timer by several seconds (5.5s
+  // observed on Node 20), so the ceiling here is deliberately generous.
   assert.ok(
-    elapsed < LIMIT_DECISION_TIMEOUT_MS * 2,
-    `decision took ${elapsed}ms, ceiling ${LIMIT_DECISION_TIMEOUT_MS}ms`
+    elapsed >= LIMIT_DECISION_TIMEOUT_MS - 50 && elapsed < 15_000,
+    `decision took ${elapsed}ms, configured ceiling ${LIMIT_DECISION_TIMEOUT_MS}ms`
   );
 });
 
