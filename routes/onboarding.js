@@ -29,6 +29,8 @@
  * ----------------------------------------------------------------------------
  */
 
+const { sanitizeOnboardingProfile } = require('../lib/onboardingProfile');
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function clean(value, max = 200) {
@@ -90,11 +92,53 @@ function register({
     }
   }
 
+  // Persist the FULL wizard payload into business_profiles (the row wf1's
+  // resolveBrandContext + renderPremiumBrandContext already consume), and
+  // seed businesses.competitors (what competitor-watch actually scans) with
+  // the competitors the customer NAMED — instead of SerpAPI re-discovery.
+  // Soft-fails by design: profile richness must never break the save flow.
+  // Keyed user_id = businessId by long-standing convention (see lib/onboardingProfile.js).
+  async function persistRichProfile(businessId, body) {
+    const { row, competitors } = sanitizeOnboardingProfile(body, businessId);
+    if (!row) return { wrote: false };
+    try {
+      const existing = await sbGet(
+        'business_profiles',
+        `user_id=eq.${encodeURIComponent(businessId)}&select=user_id&limit=1`
+      ).catch(() => []);
+      if (existing?.[0]) {
+        await sbPatch('business_profiles', `user_id=eq.${encodeURIComponent(businessId)}`, row);
+      } else {
+        await sbPost('business_profiles', row);
+      }
+    } catch (err) {
+      log?.('/api/onboarding/save', businessId, 'business_profiles upsert failed (profile fields lost)', {
+        error: err.message,
+      });
+      return { wrote: false, error: err.message };
+    }
+    if (competitors.length) {
+      // Separate write + separate catch: businesses.competitors has drifted
+      // between text/jsonb across environments — a type mismatch here must
+      // not undo the profile write above.
+      await sbPatch('businesses', `id=eq.${encodeURIComponent(businessId)}`, { competitors }).catch((err) =>
+        log?.('/api/onboarding/save', businessId, 'competitors seed failed (competitor-watch will rediscover)', {
+          error: err.message,
+        })
+      );
+    }
+    return { wrote: true, competitorsSeeded: competitors.length };
+  }
+
   // ─── POST /api/onboarding/save ──────────────────────────────────────────
   app.post(
     '/api/onboarding/save',
     requireAnyUserId,
-    express ? express.json({ limit: '8kb' }) : (req, _res, next) => next(),
+    // 48kb: the full wizard payload (products + locations + competitors
+    // arrays) regularly exceeds the old 8kb cap, which silently truncated
+    // bodies at the parser and dropped the profile. Field-level caps in
+    // lib/onboardingProfile.js bound the stored size.
+    express ? express.json({ limit: '48kb' }) : (req, _res, next) => next(),
     async (req, res) => {
       try {
         const userId = req.user?.id;
@@ -138,6 +182,16 @@ function register({
           businessId = row?.id || null;
         }
 
+        // Persist the rich wizard payload (products, pains, USP, named
+        // competitors, never-words, hours, seasonality) into
+        // business_profiles — the row every WF1 prompt already reads.
+        // Awaited: it is one small upsert, and returning before it lands
+        // would let the spark draft generate from a thin profile.
+        let richProfile = { wrote: false };
+        if (businessId) {
+          richProfile = await persistRichProfile(businessId, body);
+        }
+
         // Fire-and-forget website enrichment so the brain actually "reads" the
         // customer's site (migration 088). Never blocks the snappy save
         // response; the summary lands a few seconds later via sbPatch.
@@ -151,6 +205,8 @@ function register({
           ok: true,
           businessId,
           profile: { ...profile, id: businessId },
+          richProfileSaved: !!richProfile.wrote,
+          competitorsSeeded: richProfile.competitorsSeeded || 0,
           // The dashboard immediately follows up with /api/onboarding/spark
           // to trigger the magic moment. Returning here keeps `save` snappy.
           nextStep: 'spark',
@@ -214,6 +270,9 @@ function register({
         const existing = await businessForUser(userId);
         if (!existing) return apiError(res, 404, 'NOT_FOUND', 'No business profile yet — call /save first');
         await sbPatch('businesses', `id=eq.${encodeURIComponent(existing.id)}`, patch);
+        // Settings edits may carry rich-profile fields too (products, USP,
+        // competitors…) — same persistence path as /save.
+        await persistRichProfile(existing.id, body);
         const refreshed = await businessForUser(userId);
         return res.json({
           profile: {

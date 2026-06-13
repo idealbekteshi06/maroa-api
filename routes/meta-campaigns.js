@@ -20,6 +20,7 @@
 const oauthCrypto = require('../lib/oauthCrypto');
 const { validateMonthlyBudget } = require('../lib/adBudgetGuard');
 const { THREADS_PLACEMENTS, THREADS_OBJECTIVES, graphBaseUrl } = require('../lib/metaMetrics');
+const { buildAdProfileContext } = require('../lib/onboardingProfile');
 
 // Selector for businesses rows used by Meta routes. Reads encrypted column;
 // keep the plaintext column name in the list too in case a row predates
@@ -62,6 +63,15 @@ function register({
       }
       const metaToken = oauthCrypto.readToken(biz, 'meta_access_token');
       const draftMode = !metaToken || !biz.ad_account_id;
+      // Rich onboarding profile (USP/products/pains/never-words) — the ad
+      // strategy must use the customer's actual specifics, not generic
+      // industry filler. Soft-fails to '' when the row doesn't exist yet.
+      const profileRow = (
+        await sbGet('business_profiles', `user_id=eq.${encodeURIComponent(business_id)}&select=*&limit=1`).catch(
+          () => []
+        )
+      )[0];
+      const profileContext = buildAdProfileContext(profileRow);
       if (draftMode) {
         // DRAFT MODE — build strategy + creatives without Meta API
         res.json({
@@ -76,6 +86,7 @@ function register({
             const strategyPrompt = `You are a Meta Ads expert. Create a campaign strategy for ${biz.business_name} (${biz.industry}).
   Goal: ${biz.marketing_goal || 'grow'} | Budget: $${monthly_budget}/mo | Audience: ${biz.target_audience || 'general'}
   Location: ${biz.location || 'United States'} | Tone: ${biz.brand_tone || 'professional'}
+  ${profileContext}
   Return ONLY valid JSON: { "objective": "OUTCOME_TRAFFIC", "daily_budget_usd": ${dailyBudget}, "targeting": { "age_min": 25, "age_max": 55 }, "creatives": [{ "headline": "max 40 chars", "primary_text": "max 125 chars", "description": "max 30 chars", "cta": "LEARN_MORE", "image_prompt": "image description" }] }`;
             const strategy = await callClaude(strategyPrompt, 'strategy', 1500);
             const creatives = Array.isArray(strategy.creatives) ? strategy.creatives.slice(0, 3) : [];
@@ -136,6 +147,15 @@ function register({
       if (!token) {
         return res.status(400).json({ error: 'meta_not_connected', detail: 'Connect Meta in Settings → Connections.' });
       }
+      // Rich onboarding profile (USP/products/pains/never-words) — same block
+      // the draft path uses. Re-fetched here because this live branch has its
+      // own scope. Soft-fails to '' when no profile row exists yet.
+      const profileRow = (
+        await sbGet('business_profiles', `user_id=eq.${encodeURIComponent(business_id)}&select=*&limit=1`).catch(
+          () => []
+        )
+      )[0];
+      const profileContext = buildAdProfileContext(profileRow);
 
       // 1. Claude Opus — full campaign strategy + 3 creative variations
       const strategyPrompt = `You are a Meta Ads expert. Return ONLY valid JSON, no markdown, no explanation.
@@ -147,6 +167,7 @@ function register({
   Location: ${biz.location || 'United States'}
   Competitors: ${biz.competitors ? JSON.stringify(biz.competitors).slice(0, 200) : 'not specified'}
   Brand tone: ${biz.brand_tone || 'professional and friendly'}
+  ${profileContext}
   
   Return exactly this JSON:
   {
