@@ -899,6 +899,30 @@ const taxonomyRefreshQuarterly = inngest.createFunction(
   }
 );
 
+// ─── OAuth token refresh (hourly) ─────────────────────────────────────────
+// Rebuild of lost feature #2. Proactively refreshes short-lived LinkedIn /
+// Twitter-X / TikTok access tokens before they expire (Twitter ~2h, TikTok
+// ~24h) so connections don't silently die. Only accounts within the refresh
+// lead window (or with unknown expiry) are touched. See services/oauth/tokenRefresh.js.
+const oauthTokenRefreshHourly = inngest.createFunction(
+  withDLQ({
+    id: 'oauth-token-refresh-hourly',
+    name: 'OAuth · refresh expiring social tokens',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 * * * *' }],
+  }),
+  async ({ step }) => {
+    const result = await step.run('refresh-all-due', async () => callInternal('/webhook/oauth-token-refresh-all', {}));
+    return {
+      ok: true,
+      due: result?.due ?? 0,
+      refreshed: result?.refreshed ?? 0,
+      failed: result?.failed ?? 0,
+    };
+  }
+);
+
 const functions = [
   // Domain crons (originally migrated from n8n)
   adOptimizerDaily,
@@ -971,6 +995,9 @@ const functions = [
   // Higgsfield expansion — credit guard + Soul ID training poll
   checkHiggsfieldCredits,
   higgsfieldSoulTrainPoll,
+
+  // OAuth token refresh (hourly) — keep LinkedIn/X/TikTok connections alive
+  oauthTokenRefreshHourly,
 ];
 
 module.exports = { functions, callInternal };
