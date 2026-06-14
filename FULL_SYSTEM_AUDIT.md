@@ -1,7 +1,7 @@
 # FULL_SYSTEM_AUDIT.md
 
-> **Audit date:** 2026-06-08 · **Auditor scope:** this session can read the
-> **`maroa-api` backend repo only.** · **Launch target:** June 20.
+> **Audit date:** 2026-06-08 · **Updated:** 2026-06-14 (Generate-Now root cause
+> **CONFIRMED** against the live Vite code — see Part 1). · **Launch target:** June 20.
 
 ---
 
@@ -14,7 +14,7 @@ because the honesty of the rest depends on it.
 | What | Access | Consequence |
 | --- | --- | --- |
 | **`maroa-api`** (backend) | ✅ full source, this repo | Backend findings below are **code-verified** (with `file:line`). |
-| **`maroa-ai-marketing-automator`** (LIVE Vite frontend) | ❌ **not accessible** — not in this session's GitHub scope, no repo-add tooling available, not cloned locally (`/home/user` contains only `maroa-api`) | **Parts 2 & 4, and the frontend half of Part 1, CANNOT be verified here.** I do not guess frontend code. |
+| **`maroa-ai-marketing-automator`** (LIVE Vite frontend) | ⚠️ **read-only via GitHub global code-search** — `search_code` returns code *fragments* (the repo is public); `get_file_contents` + all writes are **denied** (session scope = `maroa-api`); not cloned locally | Enough to **confirm the Generate-Now root cause** by reading the real handlers (Part 1). **Cannot** enumerate every screen (Part 2), read exact line numbers, or **write/build** the fix. |
 | **Live running system** (`maroa-api-production.up.railway.app`, `maroa.ai`) | ❌ **egress blocked** — a direct `curl` from this session returns `403 host_not_allowed` from the sandbox proxy (not the backend) | I could **not** probe real request/response shapes against prod. Findings are from source at the current `main`. |
 
 **Two consequences you need to know before launch:**
@@ -25,10 +25,11 @@ because the honesty of the rest depends on it.
    changes do NOT fix the live "Generate Now."** Any prior report implying the
    dashboard P0s were "done" was true only for the dead Next.js app. This is the
    single most important correction in this document.
-2. To actually close Parts 2 & 4 and confirm the Generate-Now root cause, run an
-   audit in a session scoped to **`maroa-ai-marketing-automator`**, or add that
-   repo to this session. Everything I *can't* verify is tagged **[UNVERIFIED —
-   needs Vite repo]**.
+2. **The Generate-Now root cause is now CONFIRMED** (Part 1) by reading the live
+   Vite code via GitHub code-search — a `.maybeSingle()` bug in `AuthContext.tsx`.
+   *Applying* the fix + building still need a session scoped to
+   **`maroa-ai-marketing-automator`** (writes are denied here). Items needing the
+   full repo or live runtime remain tagged **[UNVERIFIED]**.
 
 ---
 
@@ -61,33 +62,58 @@ backend that returns 400/401/404/422/429/500 cannot by itself produce a *silent*
 result. **So the defect is on the frontend** — the request is either not sent,
 sent wrong, or its error is swallowed.
 
-### Frontend side — root cause — **[UNVERIFIED — needs Vite repo]**
+### Frontend side — root cause — ✅ CONFIRMED (read from the live Vite code via GitHub code-search)
 
-I cannot read the Vite handler, so I am ranking hypotheses by likelihood given
-the backend contract + the exact symptom ("silent, no error"). Each lists the
-**precise thing to check** in `maroa-ai-marketing-automator`.
+I read the live handler chain directly from `maroa-ai-marketing-automator`
+(public repo, commit `f4c6404`) via GitHub global code-search. The bug is in
+**business selection**, not the generate call.
 
-1. **Most likely — fresh user has no `business_id`, and the click handler bails
-   silently.** A brand-new account has no `businesses` row until onboarding runs
-   the insert (`server.js:3273`). If the Vite handler does
-   `if (!businessId) return;` with **no** toast/redirect, the click does exactly
-   nothing — matching the symptom perfectly. **Check:** the Generate-Now `onClick`
-   in the Vite repo — does it guard on a missing/empty `businessId` and return
-   without surfacing anything? Where does it source `businessId`?
-2. **`VITE_API_URL` unset / wrong in the live deploy.** Vite inlines `import.meta.env.VITE_*`
-   at **build time**. If the production build lacks `VITE_API_URL`, calls go to a
-   relative `/api/content/generate` on `maroa.ai` (no backend there) → 404 HTML →
-   JSON parse throws → if caught silently, nothing renders. **Check:** the API
-   base-URL constant + the deploy's env vars (Lovable/Vercel project settings).
-3. **Missing auth header.** If the fetch doesn't attach the Supabase
-   `access_token`, backend returns **401**; if the handler swallows non-2xx,
-   nothing shows. **Check:** does the API client attach `Authorization: Bearer`?
-4. **Silent catch.** A `try/catch` that logs to console but renders no toast/error
-   state would hide all of the above. **Check:** the catch block on the generate call.
+**`src/contexts/AuthContext.tsx`** resolves the signed-in user's business with:
 
-> **I am not claiming which of these it is** — that requires the Vite source.
-> But #1 and #2 are the highest-probability given a *silent* failure for a
-> *fresh* user, and both are quick to confirm with the repo open.
+```ts
+const { data, error } = await externalSupabase
+  .from("businesses")
+  .select("id, onboarding_complete")
+  .eq("user_id", userId)
+  .maybeSingle();              // ← ROOT CAUSE
+// ...
+if (data) { setBusinessId(data.id); setOnboardingComplete(data.onboarding_complete ?? null); }
+```
+
+Supabase `.maybeSingle()` **throws when more than one row matches.** The reported
+account has **two** `businesses` rows (`onboarding_complete:true` `fea4aae5-…` and
+`:false` `7a9c3057-…`). So `.maybeSingle()` errors → `data` is `null` →
+`setBusinessId()` never runs → **`businessId` stays `null` app-wide.**
+
+**`src/components/dashboard/DashboardContent.tsx`** then bails on its
+`if (!businessId …) return;` guards — including the Generate-Now handler that
+would call `generateContentNow(businessId, …)`. So **no `POST /api/content/generate`
+is ever fired, and nothing is shown** — exactly the network-tab symptom. (The API
+layer is fine: `src/lib/apiClient.ts` `generateContentNow()` attaches the auth
+header and throws on non-2xx — it is simply never reached.)
+
+**Secondary effect:** when `.maybeSingle()` errors, AuthContext falls into its
+"no business → `.insert([...])`" branch, which can **create duplicate businesses**
+on load — the likely reason this account has two.
+
+**The fix (in the Vite repo — cannot be applied or built from this session):**
+
+1. `src/contexts/AuthContext.tsx` — drop `.maybeSingle()`; select all, prefer the
+   onboarded business, and only insert when the result is genuinely empty:
+   ```ts
+   const { data, error } = await externalSupabase
+     .from("businesses")
+     .select("id, onboarding_complete")
+     .eq("user_id", userId)
+     .order("onboarding_complete", { ascending: false }) // onboarded first
+     .order("created_at", { ascending: true });
+   const biz = (data ?? []).find((b) => b.onboarding_complete) ?? (data ?? [])[0] ?? null;
+   if (biz) { setBusinessId(biz.id); setOnboardingComplete(biz.onboarding_complete ?? null); }
+   else if (!error && (data ?? []).length === 0) { /* existing insert-new-business branch */ }
+   ```
+2. `src/components/dashboard/DashboardContent.tsx` — never fail silently:
+   `if (!businessId) { toast.error("Still finishing setup — refresh, or finish onboarding."); return; }`,
+   and surface `err.message` in the generate handler's `catch`.
 
 ---
 
@@ -183,15 +209,15 @@ What happens **server-side** at each step (what the user *sees* needs the Vite r
 
 ### P0 — breaks the core promise / blocks launch
 
-1. **"Generate Now" does nothing on the live Vite app.** Root cause is
-   frontend-side (Part 1) — **[confirm in Vite repo]**. Most likely: missing
-   `business_id` with a silent guard, or unset `VITE_API_URL`, or missing auth
-   header, or a silent catch. **Fix:** (a) ensure `VITE_API_URL` is set in the
-   live build → `https://maroa-api-production.up.railway.app`; (b) attach the
-   Supabase `Authorization: Bearer` token; (c) guard `businessId` with a *visible*
-   state ("finish onboarding") not a silent return; (d) on any non-2xx, render the
-   backend error + on 200 render `content`. The backend already returns everything
-   needed — this is purely surfacing it.
+1. **"Generate Now" does nothing on the live Vite app — ROOT CAUSE CONFIRMED.**
+   `.maybeSingle()` in `src/contexts/AuthContext.tsx` throws for the 2-business
+   test account → `businessId` is `null` → `DashboardContent.tsx`'s `!businessId`
+   guard bails → no request fired, silently. **Fix (full code in Part 1):** in
+   AuthContext, drop `.maybeSingle()` → select-all + prefer-onboarded; in
+   DashboardContent, show a visible error instead of a silent return. **Must be
+   applied in the Vite repo** (writes denied from this session); the backend
+   `POST /api/content/generate` is already correct. Also fixes the duplicate-
+   business creation side effect.
 2. **Audit the LIVE frontend at all.** Until someone audits `maroa-ai-marketing-automator`,
    you are launching on a frontend nobody in this thread has verified end-to-end.
    This is itself a P0 process gap. **Fix:** run Parts 2 & 4 in a session scoped to that repo.
@@ -217,7 +243,9 @@ What happens **server-side** at each step (what the user *sees* needs the Vite r
 
 ## What I could NOT verify (explicit, per your instruction)
 
-- Any Vite frontend code (handlers, env usage, API client, screens, mock data).
+- The *full* Vite frontend — I read the auth + generate handlers via code-search
+  and confirmed Part 1, but could not read every screen/file, exact line numbers,
+  or the deploy's env-var values.
 - The live deployment's real request/response behavior (egress blocked).
 - Whether `META_AD_LAUNCH_LIVE` (and the other `LIVE_FLAGS`) are `true` in Railway prod.
 - Whether PR #23's canonical competitor/email routes are merged into the running build.
