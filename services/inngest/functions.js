@@ -899,6 +899,53 @@ const taxonomyRefreshQuarterly = inngest.createFunction(
   }
 );
 
+// ─── OAuth token refresh (hourly) ─────────────────────────────────────────
+// Rebuild of lost feature #2. Proactively refreshes short-lived LinkedIn /
+// Twitter-X / TikTok access tokens before they expire (Twitter ~2h, TikTok
+// ~24h) so connections don't silently die. Only accounts within the refresh
+// lead window (or with unknown expiry) are touched. See services/oauth/tokenRefresh.js.
+const oauthTokenRefreshHourly = inngest.createFunction(
+  withDLQ({
+    id: 'oauth-token-refresh-hourly',
+    name: 'OAuth · refresh expiring social tokens',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 * * * *' }],
+  }),
+  async ({ step }) => {
+    const result = await step.run('refresh-all-due', async () => callInternal('/webhook/oauth-token-refresh-all', {}));
+    return {
+      ok: true,
+      due: result?.due ?? 0,
+      refreshed: result?.refreshed ?? 0,
+      failed: result?.failed ?? 0,
+    };
+  }
+);
+
+// ─── Publish scheduler (every 15 min) ─────────────────────────────────────
+// Rebuild of lost feature #3. Publishes content whose scheduled slot has
+// arrived — content_assets at posting_time_local (business-local tz) and
+// generated_content at scheduled_for — idempotent via the published_at gate.
+// See services/publish-scheduler/index.js.
+const publishSchedulerEvery15m = inngest.createFunction(
+  withDLQ({
+    id: 'publish-scheduler-15m',
+    name: 'Publish scheduler · publish due content',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC */15 * * * *' }],
+  }),
+  async ({ step }) => {
+    const r = await step.run('publish-due', async () => callInternal('/webhook/publish-scheduler-run', {}));
+    return {
+      ok: true,
+      assets_published: r?.assets_published ?? 0,
+      scheduled_triggered: r?.scheduled_triggered ?? 0,
+    };
+  }
+);
+
 const functions = [
   // Domain crons (originally migrated from n8n)
   adOptimizerDaily,
@@ -971,6 +1018,12 @@ const functions = [
   // Higgsfield expansion — credit guard + Soul ID training poll
   checkHiggsfieldCredits,
   higgsfieldSoulTrainPoll,
+
+  // OAuth token refresh (hourly) — keep LinkedIn/X/TikTok connections alive
+  oauthTokenRefreshHourly,
+
+  // Publish scheduler (every 15 min) — publish content at its scheduled slot
+  publishSchedulerEvery15m,
 ];
 
 module.exports = { functions, callInternal };
