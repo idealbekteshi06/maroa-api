@@ -17,7 +17,34 @@
  * Behavior unchanged from inline. Dep-injected for testability.
  */
 
+const { isUuid } = require('../lib/assertBusinessOwner');
+
 function register({ app, sbGet, sbPost, sbPatch, sendEmail, planGate, log, logError }) {
+  // Verify the JWT caller is a member of `orgId` before reading/writing it.
+  // Webhook-secret callers (req.authSource==='webhook') are trusted and bypass.
+  // Returns true when access is allowed; sends a 4xx and returns false otherwise.
+  async function assertOrgMember(req, res, orgId) {
+    if (req.authSource === 'webhook') return true;
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ error: 'JWT required to access this organization' });
+      return false;
+    }
+    try {
+      const rows = await sbGet(
+        'organization_members',
+        `organization_id=eq.${encodeURIComponent(orgId)}&user_id=eq.${encodeURIComponent(userId)}&select=role&limit=1`
+      );
+      if (!rows?.[0]) {
+        res.status(403).json({ error: 'not a member of this organization' });
+        return false;
+      }
+      return true;
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+      return false;
+    }
+  }
   // POST /webhook/org-create
   // Body: { business_id, name }
   app.post('/webhook/org-create', planGate('multi_workspace'), async (req, res) => {
@@ -55,11 +82,13 @@ function register({ app, sbGet, sbPost, sbPatch, sendEmail, planGate, log, logEr
   app.get('/webhook/org-get', async (req, res) => {
     const org_id = req.query.org_id || req.query.organization_id;
     if (!org_id) return res.status(400).json({ error: 'org_id required' });
+    if (!isUuid(String(org_id))) return res.status(400).json({ error: 'org_id must be a valid UUID' });
+    if (!(await assertOrgMember(req, res, org_id))) return;
     try {
-      const org = (await sbGet('organizations', `id=eq.${org_id}`))[0];
+      const org = (await sbGet('organizations', `id=eq.${encodeURIComponent(org_id)}`))[0];
       if (!org) return res.status(404).json({ error: 'Organization not found' });
-      const members = await sbGet('organization_members', `organization_id=eq.${org_id}`);
-      const workspaces = await sbGet('workspaces', `organization_id=eq.${org_id}`);
+      const members = await sbGet('organization_members', `organization_id=eq.${encodeURIComponent(org_id)}`);
+      const workspaces = await sbGet('workspaces', `organization_id=eq.${encodeURIComponent(org_id)}`);
       res.json({ organization: org, members, workspaces, workspace_count: workspaces.length });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -71,10 +100,12 @@ function register({ app, sbGet, sbPost, sbPatch, sendEmail, planGate, log, logEr
   app.post('/webhook/org-add-workspace', planGate('multi_workspace'), async (req, res) => {
     const { business_id, org_id, name, client_name } = req.body;
     if (!org_id || !name) return res.status(400).json({ error: 'org_id and name required' });
+    if (!isUuid(String(org_id))) return res.status(400).json({ error: 'org_id must be a valid UUID' });
+    if (!(await assertOrgMember(req, res, org_id))) return;
     res.json({ received: true, message: 'Adding workspace' });
 
     try {
-      const existing = await sbGet('workspaces', `organization_id=eq.${org_id}&select=id`);
+      const existing = await sbGet('workspaces', `organization_id=eq.${encodeURIComponent(org_id)}&select=id`);
       if (existing.length >= 20) {
         return log('/webhook/org-add-workspace', `Workspace limit reached for org ${org_id}`);
       }
@@ -86,7 +117,7 @@ function register({ app, sbGet, sbPost, sbPatch, sendEmail, planGate, log, logEr
         is_active: true,
       });
       if (business_id && ws?.id) {
-        await sbPatch('businesses', `id=eq.${business_id}`, {
+        await sbPatch('businesses', `id=eq.${encodeURIComponent(business_id)}`, {
           organization_id: org_id,
           workspace_id: ws.id,
         });
@@ -103,10 +134,12 @@ function register({ app, sbGet, sbPost, sbPatch, sendEmail, planGate, log, logEr
   app.post('/webhook/org-invite-member', planGate('multi_workspace'), async (req, res) => {
     const { org_id, email, role = 'member' } = req.body;
     if (!org_id || !email) return res.status(400).json({ error: 'org_id and email required' });
+    if (!isUuid(String(org_id))) return res.status(400).json({ error: 'org_id must be a valid UUID' });
+    if (!(await assertOrgMember(req, res, org_id))) return;
     res.json({ received: true, message: `Invite sent to ${email}` });
 
     try {
-      const org = (await sbGet('organizations', `id=eq.${org_id}&select=name`))[0];
+      const org = (await sbGet('organizations', `id=eq.${encodeURIComponent(org_id)}&select=name`))[0];
       await sbPost('organization_members', {
         organization_id: org_id,
         user_id: null,
@@ -130,6 +163,8 @@ function register({ app, sbGet, sbPost, sbPatch, sendEmail, planGate, log, logEr
   app.post('/webhook/org-white-label-update', planGate('white_label'), async (req, res) => {
     const { org_id } = req.body;
     if (!org_id) return res.status(400).json({ error: 'org_id required' });
+    if (!isUuid(String(org_id))) return res.status(400).json({ error: 'org_id must be a valid UUID' });
+    if (!(await assertOrgMember(req, res, org_id))) return;
 
     const fields = [
       'white_label_logo_url',
@@ -146,7 +181,7 @@ function register({ app, sbGet, sbPost, sbPatch, sendEmail, planGate, log, logEr
       return res.status(400).json({ error: 'No white-label fields provided', accepted: fields });
 
     try {
-      await sbPatch('organizations', `id=eq.${org_id}`, updates);
+      await sbPatch('organizations', `id=eq.${encodeURIComponent(org_id)}`, updates);
       log('/webhook/org-white-label-update', `White-label updated for org ${org_id}`);
       res.json({ received: true, updated: Object.keys(updates) });
     } catch (err) {

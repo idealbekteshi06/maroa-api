@@ -46,7 +46,7 @@ function createWf4(deps) {
       legal_flags: parsed.legalFlags || [],
       language: parsed.language || 'en',
     };
-    await sbPatch('reviews', `id=eq.${reviewId}`, patch).catch(() => {});
+    await sbPatch('reviews', `id=eq.${reviewId}&business_id=eq.${businessId}`, patch).catch(() => {});
     return parsed;
   }
 
@@ -86,7 +86,9 @@ function createWf4(deps) {
       if (row) saved.push(row);
     }
 
-    await sbPatch('reviews', `id=eq.${reviewId}`, { response_status: 'awaiting_approval' }).catch(() => {});
+    await sbPatch('reviews', `id=eq.${reviewId}&business_id=eq.${businessId}`, {
+      response_status: 'awaiting_approval',
+    }).catch(() => {});
 
     return {
       drafts: saved.map((r) => ({
@@ -119,7 +121,9 @@ function createWf4(deps) {
       body: finalBody,
       // published_at intentionally NOT set — nothing was posted to a platform.
     });
-    await sbPatch('reviews', `id=eq.${reviewId}`, { response_status: 'approved_pending_publish' });
+    await sbPatch('reviews', `id=eq.${reviewId}&business_id=eq.${businessId}`, {
+      response_status: 'approved_pending_publish',
+    });
     await sbPost('events', {
       business_id: businessId,
       kind: 'wf4.response.approved',
@@ -152,7 +156,7 @@ function createWf4(deps) {
       justification: parsed.justification || '',
       outcome: 'pending',
     });
-    await sbPatch('reviews', `id=eq.${reviewId}`, { response_status: 'disputed' });
+    await sbPatch('reviews', `id=eq.${reviewId}&business_id=eq.${businessId}`, { response_status: 'disputed' });
     return { disputeId: row.id, submittedAt: row.submitted_at };
   }
 
@@ -359,7 +363,10 @@ function createWf4(deps) {
     if (existing[0]) {
       await sbPatch('testimonial_library', `id=eq.${existing[0].id}`, { permission_status: 'requested' });
     } else {
-      const reviewRows = await sbGet('reviews', `id=eq.${reviewId}&select=platform,reviewer_name,rating,body`);
+      const reviewRows = await sbGet(
+        'reviews',
+        `id=eq.${reviewId}&business_id=eq.${businessId}&select=platform,reviewer_name,rating,body`
+      );
       const r = reviewRows[0] || {};
       await sbPost('testimonial_library', {
         business_id: businessId,

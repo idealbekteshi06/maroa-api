@@ -30,12 +30,21 @@
  * ---------------------------------------------------------------------------
  */
 
+const oauthCrypto = require('../../lib/oauthCrypto');
+
 const HOST = 'googleads.googleapis.com';
 const VERSION = 'v18';
 const GOOGLE_ADS_LIVE = () => String(process.env.GOOGLE_ADS_LIVE || '').toLowerCase() === 'true';
 
+// readToken prefers the encrypted *_enc column and falls back to legacy
+// plaintext. Synchronous (no I/O) — the business row is already fetched.
+// Works whether the caller selected plaintext or the *_enc column.
+function googleRefreshToken(business) {
+  return oauthCrypto.readToken(business, 'google_refresh_token');
+}
+
 function isConfigured(business) {
-  return !!(process.env.GOOGLE_ADS_DEVELOPER_TOKEN && business?.google_refresh_token && business?.google_customer_id);
+  return !!(process.env.GOOGLE_ADS_DEVELOPER_TOKEN && googleRefreshToken(business) && business?.google_customer_id);
 }
 
 async function exchangeRefreshTokenForAccessToken(refreshToken) {
@@ -68,7 +77,7 @@ async function adsCall({ method, path, business, body, query }) {
   if (!isConfigured(business)) {
     return { ok: false, status: 0, reason: 'google ads not configured for this business' };
   }
-  const accessToken = await exchangeRefreshTokenForAccessToken(business.google_refresh_token);
+  const accessToken = await exchangeRefreshTokenForAccessToken(googleRefreshToken(business));
   if (!accessToken) return { ok: false, status: 0, reason: 'failed to mint access token' };
 
   const params = query ? `?${new URLSearchParams(query).toString()}` : '';
@@ -395,6 +404,11 @@ async function uploadEnhancedConversion({
   user_identifiers,
 }) {
   if (!isConfigured(business)) return { ok: false, reason: 'not configured' };
+  // Writes real conversion data into the customer's Google Ads account (drives
+  // bidding) — gate behind GOOGLE_ADS_LIVE like the other mutating calls.
+  if (!GOOGLE_ADS_LIVE()) {
+    return { ok: true, dry_run: true, reason: 'GOOGLE_ADS_LIVE=false' };
+  }
   const customerId = business.google_customer_id.replace(/-/g, '');
   return adsCall({
     method: 'POST',
@@ -416,6 +430,31 @@ async function uploadEnhancedConversion({
   });
 }
 
+// ─── Actuator: pause/enable a campaign (gated behind GOOGLE_ADS_LIVE) ────────
+async function updateCampaignStatus({ business, campaignId, status }) {
+  if (!campaignId) return { ok: false, reason: 'campaignId required' };
+  if (!isConfigured(business)) return { ok: false, reason: 'not configured' };
+  // Map our internal status to Google's enum.
+  const gStatus = String(status).toUpperCase() === 'PAUSED' ? 'PAUSED' : 'ENABLED';
+  if (!GOOGLE_ADS_LIVE()) {
+    return { ok: true, dry_run: true, reason: 'GOOGLE_ADS_LIVE=false', campaignId, status: gStatus };
+  }
+  const customerId = business.google_customer_id.replace(/-/g, '');
+  return adsCall({
+    method: 'POST',
+    path: `/customers/${customerId}/campaigns:mutate`,
+    business,
+    body: {
+      operations: [
+        {
+          update: { resourceName: `customers/${customerId}/campaigns/${campaignId}`, status: gStatus },
+          updateMask: 'status',
+        },
+      ],
+    },
+  });
+}
+
 module.exports = {
   isConfigured,
   searchGaql,
@@ -424,6 +463,7 @@ module.exports = {
   fetchEnhancedConversionsHealth,
   createPmaxCampaign,
   uploadEnhancedConversion,
+  updateCampaignStatus,
   // Error classification + quota parsing — exported for tests and per-callsite
   // surfacing into dashboards / alerts.
   classifyGoogleAdsError,

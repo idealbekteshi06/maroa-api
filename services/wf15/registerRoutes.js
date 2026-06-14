@@ -9,6 +9,16 @@
 
 const { limits } = require('../../lib/rateLimiters');
 
+// Tenant-isolation: every entity id interpolated into a PostgREST filter must
+// be UUID-validated + encoded, and every row touched by entity id must be
+// scoped to the caller's already-verified business_id (the /webhook owner gate
+// only verifies business_id IF one is present — it is a no-op on routes that
+// don't carry one, e.g. the :messageId stream route below).
+// See lib/assertBusinessOwner.js + CLAUDE.md Rule 4.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
+const enc = encodeURIComponent;
+
 function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logger }) {
   // ─── GET/POST /webhook/wf15-conversations ──────────────────
   async function listHandler(req, res) {
@@ -30,6 +40,7 @@ function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logge
     const conversationId = req.body?.conversation_id || req.query?.conversation_id;
     if (!businessId || !conversationId)
       return apiError(res, 400, 'INVALID_REQUEST', 'business_id + conversation_id required');
+    if (!isUuid(conversationId)) return apiError(res, 400, 'INVALID_REQUEST', 'conversation_id must be a valid UUID');
     try {
       const r = await wf15.getConversation({ businessId, conversationId });
       res.json(r);
@@ -57,6 +68,7 @@ function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logge
     const { businessId, conversationId, content, attachmentIds } = req.body || {};
     if (!businessId || !conversationId || !content)
       return apiError(res, 400, 'INVALID_REQUEST', 'businessId + conversationId + content required');
+    if (!isUuid(conversationId)) return apiError(res, 400, 'INVALID_REQUEST', 'conversationId must be a valid UUID');
 
     // Set SSE headers — response is a stream, not JSON
     res.setHeader('Content-Type', 'text/event-stream');
@@ -82,11 +94,28 @@ function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logge
   // SSE `done` event so the frontend EventSource picks up the final payload.
   app.get('/webhook/wf15-stream/:messageId', async (req, res) => {
     const { messageId } = req.params;
+    // Tenant-isolation: this route carries no business_id in its path, so the
+    // global owner gate is a no-op here — without scoping, any caller could
+    // read any business's brain_messages by id. Require + verify business_id
+    // and scope the read to it. (Owner gate also reads ?business_id, so when
+    // present it is already ownership-checked.)
+    const businessId = req.query?.business_id || req.body?.business_id;
+    if (!businessId || !isUuid(businessId)) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.write(`event: error\ndata: ${JSON.stringify({ message: 'business_id required' })}\n\n`);
+      return res.end();
+    }
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     try {
-      const rows = await sbGet('brain_messages', `id=eq.${messageId}&select=*`);
+      if (!isUuid(messageId)) {
+        res.write(`event: error\ndata: ${JSON.stringify({ message: 'not found' })}\n\n`);
+        return res.end();
+      }
+      const rows = await sbGet('brain_messages', `id=eq.${enc(messageId)}&business_id=eq.${enc(businessId)}&select=*`);
       const msg = rows[0];
       if (!msg) {
         res.write(`event: error\ndata: ${JSON.stringify({ message: 'not found' })}\n\n`);
@@ -109,6 +138,7 @@ function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logge
     const { businessId, toolCallId, decision, edits } = req.body || {};
     if (!businessId || !toolCallId || !decision)
       return apiError(res, 400, 'INVALID_REQUEST', 'required fields missing');
+    if (!isUuid(toolCallId)) return apiError(res, 400, 'INVALID_REQUEST', 'toolCallId must be a valid UUID');
     try {
       const r = await wf15.toolDecision({ businessId, toolCallId, decision, edits });
       res.json(r);
@@ -121,6 +151,7 @@ function registerWf15Routes({ app, wf15, sbGet, sbPost, sbPatch, apiError, logge
   app.post('/webhook/wf15-explain', limits.expensive, async (req, res) => {
     const { businessId, messageId } = req.body || {};
     if (!businessId || !messageId) return apiError(res, 400, 'INVALID_REQUEST', 'required fields missing');
+    if (!isUuid(messageId)) return apiError(res, 400, 'INVALID_REQUEST', 'messageId must be a valid UUID');
     try {
       const r = await wf15.explainDecision({ businessId, messageId });
       res.json(r);

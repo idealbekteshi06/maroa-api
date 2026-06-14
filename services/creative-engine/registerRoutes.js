@@ -63,16 +63,29 @@ function registerCreativeEngineRoutes(deps) {
       'is_active=eq.true&plan=in.(growth,agency)&select=id&limit=1000'
     ).catch(() => []);
     let generated = 0;
+    let failed = 0;
+    const total = businesses.length;
     const errors = [];
     for (const b of businesses) {
       try {
         const r = await creativeEngine.generateDailyVariants({ businessId: b.id, deps: buildEngineDeps() });
-        if (r?.ok && r?.generated) generated += r.generated;
+        if (r?.ok === false) failed += 1;
+        else if (r?.generated) generated += r.generated;
       } catch (e) {
+        failed += 1;
         errors.push({ businessId: b.id, error: e.message });
       }
     }
-    return { ok: true, businesses: businesses.length, generated, errors: errors.length };
+    // G-9: every business failing = systemic outage → ok:false so the cron
+    // retries + DLQs + alerts. Partial failure stays ok:true.
+    return {
+      ok: !(failed === total && total > 0),
+      businesses: total,
+      total,
+      failed,
+      generated,
+      errors: errors.length,
+    };
   }
   internalDispatcher.register('/webhook/creative-engine-generate-all', () => runCreativeEngineGenerateAll());
 
@@ -108,18 +121,27 @@ function registerCreativeEngineRoutes(deps) {
     }
     let evaluated = 0,
       promoted = 0,
-      killed = 0;
+      killed = 0,
+      failed = 0;
+    const total = businessIds.length;
     for (const bid of businessIds) {
       try {
         const r = await creativeEngine.evaluateTestingVariants({ businessId: bid, deps: buildEngineDeps() });
+        if (r?.ok === false) {
+          failed += 1;
+          continue;
+        }
         evaluated += r?.evaluated || 0;
         promoted += r?.promoted || 0;
         killed += r?.killed || 0;
       } catch (e) {
+        failed += 1;
         logger?.warn?.('/webhook/creative-engine-evaluate-all', bid, 'evaluate failed', { error: e.message });
       }
     }
-    return { ok: true, businesses: businessIds.length, evaluated, promoted, killed };
+    // G-9: every business failing = systemic outage → ok:false so the cron
+    // retries + DLQs + alerts. Partial failure stays ok:true.
+    return { ok: !(failed === total && total > 0), businesses: total, total, failed, evaluated, promoted, killed };
   }
   internalDispatcher.register('/webhook/creative-engine-evaluate-all', () => runCreativeEngineEvaluateAll());
 
@@ -147,10 +169,13 @@ function registerCreativeEngineRoutes(deps) {
     let probed = 0,
       healthy = 0,
       degraded = 0,
-      broken = 0;
+      broken = 0,
+      failed = 0,
+      attempted = 0;
     for (const b of businesses) {
       for (const platform of ['meta', 'google', 'tiktok']) {
         if (platform === 'tiktok' && Number(b.daily_budget) < 50) continue;
+        attempted += 1;
         try {
           const r = await measurementHealth.probe({ businessId: b.id, platform, deps: buildHealthDeps() });
           if (r?.ok) {
@@ -158,8 +183,11 @@ function registerCreativeEngineRoutes(deps) {
             if (r.health_verdict === 'healthy') healthy += 1;
             else if (r.health_verdict === 'degraded') degraded += 1;
             else if (r.health_verdict === 'broken') broken += 1;
+          } else {
+            failed += 1;
           }
         } catch (e) {
+          failed += 1;
           logger?.warn?.('/webhook/measurement-health-probe-all', b.id, 'probe failed', {
             platform,
             error: e.message,
@@ -167,7 +195,17 @@ function registerCreativeEngineRoutes(deps) {
         }
       }
     }
-    return { ok: true, probed, healthy, degraded, broken };
+    // G-9: every probe failing = systemic outage → ok:false so the cron
+    // retries + DLQs + alerts. Partial failure stays ok:true.
+    return {
+      ok: !(failed === attempted && attempted > 0),
+      probed,
+      failed,
+      total: attempted,
+      healthy,
+      degraded,
+      broken,
+    };
   }
   internalDispatcher.register('/webhook/measurement-health-probe-all', () => runMeasurementHealthProbeAll());
 
@@ -199,7 +237,9 @@ function registerCreativeEngineRoutes(deps) {
     ).catch(() => []);
     let ran = 0,
       cited = 0,
-      costUsd = 0;
+      costUsd = 0,
+      failed = 0;
+    const total = businesses.length;
     const trackerDeps = { sbGet, sbPost, sbPatch, logger };
     for (const b of businesses) {
       try {
@@ -208,12 +248,17 @@ function registerCreativeEngineRoutes(deps) {
           ran += r.ran || 0;
           cited += r.cited || 0;
           costUsd += r.cost_usd || 0;
+        } else {
+          failed += 1;
         }
       } catch (e) {
+        failed += 1;
         logger?.warn?.('/webhook/citation-tracker-run-all', b.id, 'run failed', { error: e.message });
       }
     }
-    return { ok: true, businesses: businesses.length, ran, cited, cost_usd: costUsd };
+    // G-9: every business failing = systemic outage → ok:false so the cron
+    // retries + DLQs + alerts. Partial failure stays ok:true.
+    return { ok: !(failed === total && total > 0), businesses: total, total, failed, ran, cited, cost_usd: costUsd };
   }
   internalDispatcher.register('/webhook/citation-tracker-run-all', () => runCitationTrackerAll());
 
@@ -256,7 +301,9 @@ function registerCreativeEngineRoutes(deps) {
     const businesses = await sbGet('businesses', 'is_active=eq.true&select=id&limit=1000').catch(() => []);
     let scanned = 0,
       alerts = 0,
-      critical = 0;
+      critical = 0,
+      failed = 0;
+    const total = businesses.length;
     const watchDeps = { sbGet, sbPost, logger, metaAdLibraryApi };
     for (const b of businesses) {
       try {
@@ -267,12 +314,17 @@ function registerCreativeEngineRoutes(deps) {
             if (s.severity === 'alert') alerts += 1;
             else if (s.severity === 'critical') critical += 1;
           }
+        } else {
+          failed += 1;
         }
       } catch (e) {
+        failed += 1;
         logger?.warn?.('/webhook/competitor-watch-scan-all', b.id, 'scan failed', { error: e.message });
       }
     }
-    return { ok: true, businesses: businesses.length, scanned, alerts, critical };
+    // G-9: every business failing = systemic outage → ok:false so the cron
+    // retries + DLQs + alerts. Partial failure stays ok:true.
+    return { ok: !(failed === total && total > 0), businesses: total, total, failed, scanned, alerts, critical };
   }
   internalDispatcher.register('/webhook/competitor-watch-scan-all', () => runCompetitorWatchScanAll());
 

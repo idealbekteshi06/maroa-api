@@ -7,6 +7,14 @@
 
 const internalDispatcher = require('../../lib/internalDispatcher');
 
+// Tenant-isolation: UUID-validate the entity id (leadId) before it reaches the
+// wf2 service. The service scopes every contacts/lead_scores/lead_responses
+// filter to business_id (so a victim's leadId cannot be read/mutated under the
+// caller's business), but rejecting a malformed id at the boundary keeps junk
+// out of the PostgREST filter (CLAUDE.md Rule 4).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
+
 function registerWf2Routes({ app, wf2, apiError, logger }) {
   internalDispatcher.register('/webhook/wf2-calibration-run-all', () => wf2.runWeeklyCalibrationAll());
   async function listHandler(req, res) {
@@ -34,6 +42,7 @@ function registerWf2Routes({ app, wf2, apiError, logger }) {
     const businessId = req.body?.business_id || req.query?.business_id;
     const leadId = req.body?.lead_id || req.query?.lead_id;
     if (!businessId || !leadId) return apiError(res, 400, 'INVALID_REQUEST', 'business_id + lead_id required');
+    if (!isUuid(leadId)) return apiError(res, 400, 'INVALID_REQUEST', 'lead_id must be a valid UUID');
     try {
       const r = await wf2.getLead({ businessId, leadId });
       res.json(r);
@@ -47,6 +56,7 @@ function registerWf2Routes({ app, wf2, apiError, logger }) {
   app.post('/webhook/wf2-lead-rescore', async (req, res) => {
     const { businessId, leadId } = req.body || {};
     if (!businessId || !leadId) return apiError(res, 400, 'INVALID_REQUEST', 'required');
+    if (!isUuid(leadId)) return apiError(res, 400, 'INVALID_REQUEST', 'leadId must be a valid UUID');
     try {
       const r = await wf2.rescoreLead({ businessId, leadId });
       res.json(r);
@@ -58,6 +68,7 @@ function registerWf2Routes({ app, wf2, apiError, logger }) {
   app.post('/webhook/wf2-generate-response', async (req, res) => {
     const { businessId, leadId } = req.body || {};
     if (!businessId || !leadId) return apiError(res, 400, 'INVALID_REQUEST', 'required');
+    if (!isUuid(leadId)) return apiError(res, 400, 'INVALID_REQUEST', 'leadId must be a valid UUID');
     try {
       const r = await wf2.generateResponse({ businessId, leadId });
       res.json(r);
@@ -69,6 +80,7 @@ function registerWf2Routes({ app, wf2, apiError, logger }) {
   app.post('/webhook/wf2-send-response', async (req, res) => {
     const { businessId, leadId, subject, body, force } = req.body || {};
     if (!businessId || !leadId || !subject || !body) return apiError(res, 400, 'INVALID_REQUEST', 'required');
+    if (!isUuid(leadId)) return apiError(res, 400, 'INVALID_REQUEST', 'leadId must be a valid UUID');
     try {
       const r = await wf2.sendResponse({ businessId, leadId, subject, body, force });
       res.json(r);
@@ -80,6 +92,7 @@ function registerWf2Routes({ app, wf2, apiError, logger }) {
   app.post('/webhook/wf2-lead-update', async (req, res) => {
     const { businessId, leadId, tier, status, ownerId, tagAsJunk, unjunk } = req.body || {};
     if (!businessId || !leadId) return apiError(res, 400, 'INVALID_REQUEST', 'required');
+    if (!isUuid(leadId)) return apiError(res, 400, 'INVALID_REQUEST', 'leadId must be a valid UUID');
     try {
       const r = await wf2.updateLead({ businessId, leadId, tier, status, ownerId, tagAsJunk, unjunk });
       res.json(r);

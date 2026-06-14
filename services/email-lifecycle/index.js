@@ -268,8 +268,18 @@ async function processDueRuns({ now = new Date(), deps }) {
         recipient: { recipient_email: run.recipient_email, recipient_name: run.recipient_name },
       });
 
+      // Idempotency guard: if this step was already sent successfully on a
+      // prior tick (but the state-advance PATCH below failed, leaving the run
+      // at this step with next_send_at in the past), DO NOT send again — just
+      // re-attempt the state advance. Without this, a swallowed PATCH failure
+      // re-sent the same lifecycle email every 15-min tick.
+      const priorLog = Array.isArray(run.send_log) ? run.send_log : [];
+      const alreadySent = priorLog.some((e) => e && e.step === stepIdx && e.success);
+
       let sendResult = { ok: false, reason: 'no sender' };
-      if (sendEmail) {
+      if (alreadySent) {
+        sendResult = { ok: true, skipped: 'already_sent_recovering_state' };
+      } else if (sendEmail) {
         sendResult = await sendEmail({
           to: run.recipient_email,
           subject: composed.subject,
@@ -278,14 +288,16 @@ async function processDueRuns({ now = new Date(), deps }) {
         }).catch((e) => ({ ok: false, reason: e.message }));
       }
 
-      const log = Array.isArray(run.send_log) ? run.send_log : [];
-      log.push({
-        step: stepIdx,
-        sent_at: new Date().toISOString(),
-        success: !!sendResult.ok,
-        reason: sendResult.reason || null,
-        resend_id: sendResult.id || null,
-      });
+      const log = priorLog.slice();
+      if (!alreadySent) {
+        log.push({
+          step: stepIdx,
+          sent_at: new Date().toISOString(),
+          success: !!sendResult.ok,
+          reason: sendResult.reason || null,
+          resend_id: sendResult.id || null,
+        });
+      }
 
       const nextStep = stepIdx + 1;
       const isComplete = nextStep >= cadence.length;

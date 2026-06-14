@@ -24,17 +24,18 @@ embed the same Supabase service-role key in 10+ places.
 Rotate in order of blast radius:
 
 - [ ] **Anthropic** — https://console.anthropic.com/settings/keys
-      Revoke `sk-ant-api03-2wwBU3RhNG…` and issue a new one. Update
+      Revoke the exposed key (prefix redacted from this file — see your
+      provider console / git history) and issue a new one. Update
       `ANTHROPIC_KEY` in Railway env.
 - [ ] **Supabase service-role** — Supabase dashboard → Project Settings
       → API → "Reset service role key." Update `SUPABASE_KEY` and
       `SUPABASE_SERVICE_ROLE_KEY` in Railway env. **Every** n8n-workflows
       JSON file that embeds this key is now broken — that's intentional.
-- [ ] **Replicate** — `r8_Jet7AKlTlr6…`. Revoke at https://replicate.com/account/api-tokens, mint new, update `REPLICATE_API_KEY`.
+- [ ] **Replicate** — revoke the exposed token (prefix redacted) at https://replicate.com/account/api-tokens, mint new, update `REPLICATE_API_KEY`.
 - [ ] **SerpAPI** — revoke + remint. Update `SERPAPI_KEY`.
 - [ ] **Pexels** — revoke + remint. Update `PEXELS_API_KEY`.
-- [ ] **Meta app secret** — `21a29db7…` (rotate it; the full value was
-      previously committed here and remains in git history, so rotation at
+- [ ] **Meta app secret** — rotate it (prefix redacted here; the full value was
+      previously committed and remains in git history, so rotation at
       Meta is the real fix). Meta Developer console → App Dashboard →
       Settings → Basic → Reset App Secret. Update `META_APP_SECRET`.
 - [ ] **n8n Cloud JWT** — kill the n8n Cloud account entirely if you're

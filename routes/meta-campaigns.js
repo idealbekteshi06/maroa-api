@@ -45,7 +45,7 @@ function register({
   logError,
   storeInsight,
 }) {
-  app.post('/webhook/meta-campaign-create', async (req, res) => {
+  app.post('/webhook/meta-campaign-create', planGate('paid_ads'), async (req, res) => {
     const { business_id, objective = 'OUTCOME_TRAFFIC', monthly_budget = 300 } = req.body;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
 
@@ -476,7 +476,7 @@ function register({
   // Full portfolio optimization — pulls all campaigns, Claude Opus decides
   // budget reallocation across the entire portfolio at once.
   // ─────────────────────────────────────────────────────────────────────────────
-  app.post('/webhook/meta-campaign-optimize', async (req, res) => {
+  app.post('/webhook/meta-campaign-optimize', planGate('paid_ads'), async (req, res) => {
     const { business_id } = req.body;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
     res.json({ received: true, message: 'Portfolio optimization started' });

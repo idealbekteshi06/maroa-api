@@ -195,13 +195,33 @@ test('voc-scraper: ingestReviews end-to-end with stubbed Claude', async () => {
     callClaude: fakeClaude,
     sbPost,
     businessId: 'biz1',
-    reviewsText: '5 stars: this thing actually works! I was about to give up on apps like this.',
+    // Every extracted phrase must appear verbatim in the source (grounding):
+    reviewsText:
+      '5 stars: this thing actually works! I was about to give up on apps like this. It finally helps me remember birthdays — I missed mom birthday last year.',
     competitorReviewsText: '1 star: other app charged me twice and never refunded.',
   });
   assert.strictEqual(out.ok, true);
   assert.strictEqual(out.totalPhrases, 5);
   assert.strictEqual(out.inserted, 5);
   assert.strictEqual(inserts.length, 5);
+});
+
+test('voc-scraper: drops invented phrases not present in source reviews (grounding)', async () => {
+  // Claude returns one real phrase and one hallucinated one; only the grounded
+  // phrase survives — the never-invent-quotes rule is enforced, not just asked.
+  const fakeClaude = async () =>
+    JSON.stringify({
+      love_phrases: ['this thing actually works', 'best app I have ever used in my life'],
+      pain_phrases: [],
+      competitor_complaints: [],
+      jtbd_phrases: [],
+      trigger_events: [],
+    });
+  const out = await voc.extractFromText({
+    callClaude: fakeClaude,
+    reviewsText: '5 stars: this thing actually works!',
+  });
+  assert.deepStrictEqual(out.love_phrases, ['this thing actually works']);
 });
 
 test('voc-scraper: ingestReviews returns ok=false on extraction failure', async () => {

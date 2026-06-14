@@ -14,29 +14,40 @@
  * Exports sync runners for Inngest ops-maintenance (no fire-and-forget).
  */
 
+const oauthCrypto = require('../lib/oauthCrypto');
+
 async function runSnapshotForBusiness(business_id, { sbGet, sbUpsert, apiRequest, log, logError }) {
   const biz = (
     await sbGet(
       'businesses',
-      `id=eq.${business_id}&select=business_name,email,facebook_page_id,meta_access_token,` +
-        `linkedin_connected,linkedin_access_token,linkedin_organization_id,` +
-        `twitter_connected,twitter_access_token,twitter_user_id,` +
-        `tiktok_connected,tiktok_access_token`
+      `id=eq.${business_id}&select=business_name,email,facebook_page_id,` +
+        `meta_access_token,meta_access_token_enc,` +
+        `linkedin_connected,linkedin_access_token,linkedin_access_token_enc,linkedin_organization_id,` +
+        `twitter_connected,twitter_access_token,twitter_access_token_enc,twitter_user_id,` +
+        `tiktok_connected,tiktok_access_token,tiktok_access_token_enc`
     )
   )[0];
   if (!biz) return { ok: false, reason: 'business_not_found', saved: [] };
+
+  // Resolve tokens through the decryption helper (prefers *_enc, falls back
+  // to legacy plaintext). Keeps analytics working for OAuth-flow accounts
+  // that only have encrypted tokens, and survives the migration-073 plaintext drop.
+  const metaToken = oauthCrypto.readToken(biz, 'meta_access_token');
+  const linkedinToken = oauthCrypto.readToken(biz, 'linkedin_access_token');
+  const twitterToken = oauthCrypto.readToken(biz, 'twitter_access_token');
+  const tiktokToken = oauthCrypto.readToken(biz, 'tiktok_access_token');
 
   const today = new Date().toISOString().slice(0, 10);
   const todayStart = `${today}T00:00:00.000Z`;
   const saved = [];
 
-  if (biz.facebook_page_id && biz.meta_access_token) {
+  if (biz.facebook_page_id && metaToken) {
     try {
       const fbR = await apiRequest(
         'GET',
         `https://graph.facebook.com/v19.0/${biz.facebook_page_id}/insights` +
           `?metric=page_impressions,page_reach,page_engaged_users,page_fans_total` +
-          `&period=day&access_token=${biz.meta_access_token}`,
+          `&period=day&access_token=${metaToken}`,
         {}
       );
       if (fbR.status === 200) {
@@ -67,7 +78,7 @@ async function runSnapshotForBusiness(business_id, { sbGet, sbUpsert, apiRequest
     }
   }
 
-  if (biz.linkedin_connected && biz.linkedin_access_token && biz.linkedin_organization_id) {
+  if (biz.linkedin_connected && linkedinToken && biz.linkedin_organization_id) {
     try {
       const orgUrn = encodeURIComponent(`urn:li:organization:${biz.linkedin_organization_id}`);
       const now = Date.now();
@@ -78,7 +89,7 @@ async function runSnapshotForBusiness(business_id, { sbGet, sbUpsert, apiRequest
           `&timeIntervals.timeGranularityType=DAY` +
           `&timeIntervals.timeRange.start=${now - 86400000}` +
           `&timeIntervals.timeRange.end=${now}`,
-        { Authorization: `Bearer ${biz.linkedin_access_token}`, 'LinkedIn-Version': '202401' }
+        { Authorization: `Bearer ${linkedinToken}`, 'LinkedIn-Version': '202401' }
       );
       if (liR.status === 200) {
         const el = liR.body?.elements?.[0]?.totalShareStatistics || {};
@@ -99,13 +110,13 @@ async function runSnapshotForBusiness(business_id, { sbGet, sbUpsert, apiRequest
     }
   }
 
-  if (biz.twitter_connected && biz.twitter_access_token && biz.twitter_user_id) {
+  if (biz.twitter_connected && twitterToken && biz.twitter_user_id) {
     try {
       const twR = await apiRequest(
         'GET',
         `https://api.twitter.com/2/users/${biz.twitter_user_id}/tweets` +
           `?start_time=${todayStart}&tweet.fields=public_metrics&max_results=100`,
-        { Authorization: `Bearer ${biz.twitter_access_token}` }
+        { Authorization: `Bearer ${twitterToken}` }
       );
       if (twR.status === 200) {
         const tweets = twR.body?.data || [];
@@ -134,12 +145,12 @@ async function runSnapshotForBusiness(business_id, { sbGet, sbUpsert, apiRequest
     }
   }
 
-  if (biz.tiktok_connected && biz.tiktok_access_token) {
+  if (biz.tiktok_connected && tiktokToken) {
     try {
       const ttR = await apiRequest(
         'GET',
         `https://business-api.tiktok.com/open_api/v1.3/business/get/?business_id=${business_id}`,
-        { 'Access-Token': biz.tiktok_access_token }
+        { 'Access-Token': tiktokToken }
       );
       if (ttR.status === 200 && ttR.body?.data) {
         const m = ttR.body.data;

@@ -147,9 +147,10 @@ function createEngine(deps) {
   }
 
   async function evaluateAll({ dryRun = false, limit = 500 } = {}) {
-    const campaigns = await sbGet('ad_campaigns', `status=eq.ACTIVE&limit=${limit}&select=id,business_id`).catch(
-      () => []
-    );
+    // status is stored lowercase ('active'); case-sensitive eq.ACTIVE matched
+    // nothing. Use a case-tolerant filter and let a DB error surface (so the
+    // cron retries) rather than masking it as "0 campaigns".
+    const campaigns = await sbGet('ad_campaigns', `status=in.(active,ACTIVE)&limit=${limit}&select=id,business_id`);
 
     const results = { total: campaigns.length, evaluated: 0, alerts_fired: 0, errors: 0 };
     for (const c of campaigns) {

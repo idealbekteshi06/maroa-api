@@ -35,6 +35,46 @@ function normalizePlan(raw) {
   return 'starter';
 }
 
+function isValidAction(action) {
+  return VALID_ACTIONS.has(action);
+}
+
+function limitKeyForAction(action) {
+  switch (action) {
+    case 'generate_image':
+      return 'images';
+    case 'generate_video_kling':
+      return 'kling';
+    case 'generate_video_sora':
+      return 'sora';
+    case 'score_content':
+      return 'scores';
+    case 'generate_caption':
+      return 'captions';
+    case 'process_product':
+      return 'process_product';
+    default:
+      return null;
+  }
+}
+
+// Pure quota decision — no I/O, unit-testable. Given the (raw) plan, the action,
+// and the current month's usage count for that action, decide allow/deny.
+function decidePlanLimit({ plan, action, count }) {
+  const normPlan = normalizePlan(plan);
+  const limits = PLAN_LIMITS[normPlan] || PLAN_LIMITS.starter;
+  const isVideo = action === 'generate_video' || action === 'generate_video_kling' || action === 'generate_video_sora';
+  if (isVideo && !limits.video) {
+    return { allowed: false, reason: 'upgrade_required', plan: normPlan };
+  }
+  const limitKey = limitKeyForAction(action);
+  const limit = limitKey ? limits[limitKey] : undefined;
+  if (limitKey && limit !== undefined && Number(count) >= limit) {
+    return { allowed: false, reason: 'limit_reached', plan: normPlan, limitKey, limit, current: Number(count) };
+  }
+  return { allowed: true, plan: normPlan, limitKey, limit };
+}
+
 function sbRequest(method, path, body, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(SUPABASE_URL + path);
@@ -139,52 +179,29 @@ async function checkPlanLimit(req, res, next) {
     const plan = normalizePlan(rows[0]?.plan);
     const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.starter;
 
-    if (
-      (action === 'generate_video' || action === 'generate_video_kling' || action === 'generate_video_sora') &&
-      !limits.video
-    ) {
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+    // SECURITY/PERFORMANCE: HEAD request + Prefer: count=exact (PostgREST returns
+    // the count in the Content-Range header without sending rows — bounded memory).
+    const count = await sbCountExact(
+      'usage_logs',
+      `user_id=eq.${safeUserId}&action=eq.${safeAction}&created_at=gte.${encodeURIComponent(monthStart)}`
+    ).catch(() => 0);
+
+    // Pure decision (unit-tested in tests/plan-limits.test.js).
+    const decision = decidePlanLimit({ plan, action, count });
+    if (!decision.allowed && decision.reason === 'upgrade_required') {
       return res.status(403).json({
         error: 'upgrade_required',
         message: 'Video generation requires Growth or Agency plan.',
         upgrade_url: 'https://maroa.ai/pricing',
       });
     }
-
-    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-    // SECURITY/PERFORMANCE: previously this fetched the entire result set
-    // and read `.length` — at 15k rows per agency user per month that's
-    // a 15k-element JSON parse on every API call. Memory DoS vector
-    // flagged by the 2026-05-11 Antigravity adversarial review.
-    //
-    // Now: HEAD request + Prefer: count=exact. PostgREST returns the
-    // count in the Content-Range header without sending any rows.
-    // Same correctness, bounded memory.
-    const count = await sbCountExact(
-      'usage_logs',
-      `user_id=eq.${safeUserId}&action=eq.${safeAction}&created_at=gte.${encodeURIComponent(monthStart)}`
-    ).catch(() => 0);
-
-    const limitKey =
-      action === 'generate_image'
-        ? 'images'
-        : action === 'generate_video_kling'
-          ? 'kling'
-          : action === 'generate_video_sora'
-            ? 'sora'
-            : action === 'score_content'
-              ? 'scores'
-              : action === 'generate_caption'
-                ? 'captions'
-                : action === 'process_product'
-                  ? 'process_product'
-                  : null;
-
-    if (limitKey && limits[limitKey] !== undefined && count >= limits[limitKey]) {
+    if (!decision.allowed && decision.reason === 'limit_reached') {
       return res.status(429).json({
         error: 'limit_reached',
-        message: `Monthly ${limitKey} limit reached for ${plan} plan (${limits[limitKey]}).`,
-        current: count,
-        limit: limits[limitKey],
+        message: `Monthly ${decision.limitKey} limit reached for ${plan} plan (${decision.limit}).`,
+        current: decision.current,
+        limit: decision.limit,
         upgrade_url: 'https://maroa.ai/pricing',
       });
     }
@@ -200,4 +217,12 @@ async function checkPlanLimit(req, res, next) {
   }
 }
 
-module.exports = { checkPlanLimit, PLAN_LIMITS, normalizePlan };
+module.exports = {
+  checkPlanLimit,
+  PLAN_LIMITS,
+  normalizePlan,
+  decidePlanLimit,
+  isValidAction,
+  limitKeyForAction,
+  VALID_ACTIONS,
+};

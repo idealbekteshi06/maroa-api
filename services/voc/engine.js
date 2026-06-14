@@ -17,6 +17,7 @@
  */
 
 const voc = require('../prompts/voc');
+const oauthCrypto = require('../../lib/oauthCrypto');
 
 function createEngine(deps) {
   const { sbGet, sbPost, sbPatch, callClaude, extractJSON, serpSearch, apiRequest, logger, Sentry } = deps;
@@ -52,11 +53,12 @@ function createEngine(deps) {
 
   async function _fetchFacebookReviews({ business }) {
     if (typeof apiRequest !== 'function') return [];
-    if (!business?.facebook_page_id || !business?.meta_access_token) return [];
+    const metaToken = oauthCrypto.readToken(business, 'meta_access_token');
+    if (!business?.facebook_page_id || !metaToken) return [];
     try {
       const r = await apiRequest({
         method: 'GET',
-        url: `https://graph.facebook.com/v19.0/${business.facebook_page_id}/ratings?access_token=${business.meta_access_token}&fields=created_time,recommendation_type,review_text,reviewer&limit=50`,
+        url: `https://graph.facebook.com/v19.0/${business.facebook_page_id}/ratings?access_token=${metaToken}&fields=created_time,recommendation_type,review_text,reviewer&limit=50`,
       });
       return r?.data || [];
     } catch (e) {
@@ -67,14 +69,15 @@ function createEngine(deps) {
 
   async function _fetchInstagramComments({ business, recentPostIds }) {
     if (typeof apiRequest !== 'function') return [];
-    if (!business?.instagram_account_id || !business?.meta_access_token) return [];
+    const metaToken = oauthCrypto.readToken(business, 'meta_access_token');
+    if (!business?.instagram_account_id || !metaToken) return [];
     if (!Array.isArray(recentPostIds) || !recentPostIds.length) return [];
     const out = [];
     for (const postId of recentPostIds.slice(0, 10)) {
       try {
         const r = await apiRequest({
           method: 'GET',
-          url: `https://graph.facebook.com/v19.0/${postId}/comments?access_token=${business.meta_access_token}&limit=20`,
+          url: `https://graph.facebook.com/v19.0/${postId}/comments?access_token=${metaToken}&limit=20`,
         });
         if (r?.data) out.push(...r.data);
       } catch (e) {

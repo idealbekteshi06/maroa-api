@@ -14,6 +14,8 @@
  * Behavior unchanged. Dep injection for testability.
  */
 
+const { assertBusinessOwner, isUuid } = require('../lib/assertBusinessOwner');
+
 function register({
   app,
   sbGet,
@@ -29,6 +31,10 @@ function register({
   RUNWAY_API_KEY,
   getBrandExamples,
 }) {
+  // assertBusinessOwner reports via apiError(res, status, code, message); this
+  // module returns { error } JSON, so adapt. logger shim preserves the warn path.
+  const apiError = (res, status, _code, message) => res.status(status).json({ error: message });
+  const logger = { warn: (...a) => log?.(...a) };
   // ─────────────────────────────────────────────────────────────────────────────
   // POST /webhook/video-script-generate
   // Generate full structured video script + thumbnail. Saves to video_generations.
@@ -148,13 +154,20 @@ function register({
   // ─────────────────────────────────────────────────────────────────────────────
   app.post('/webhook/video-generate-runway', async (req, res) => {
     const { business_id, video_id } = req.body;
-    if (!video_id) return res.status(400).json({ error: 'video_id required' });
+    if (!video_id || !business_id) return res.status(400).json({ error: 'video_id and business_id required' });
+    if (!isUuid(String(video_id))) return res.status(400).json({ error: 'video_id must be a valid UUID' });
+    // Cross-tenant IDOR + paid-gen cost fix: bind the video row to a business the
+    // caller owns and scope the lookup to BOTH ids before spending Runway credits.
+    if (!(await assertBusinessOwner(req, res, business_id, { sbGet, apiError, logger }))) return;
 
     if (!RUNWAY_API_KEY)
       return res.json({ skipped: true, reason: 'RUNWAY_API_KEY not set — set it in Railway environment variables' });
 
     try {
-      const rows = await sbGet('video_generations', `id=eq.${video_id}&select=*`);
+      const rows = await sbGet(
+        'video_generations',
+        `id=eq.${encodeURIComponent(video_id)}&business_id=eq.${encodeURIComponent(business_id)}&select=*`
+      );
       const vid = rows[0];
       if (!vid) return res.status(404).json({ error: 'video not found' });
 
@@ -184,10 +197,14 @@ function register({
         }
       }
 
-      await sbPatch('video_generations', `id=eq.${video_id}`, {
-        runway_task_id: JSON.stringify(taskIds),
-        status: taskIds.length ? 'generating' : 'failed',
-      });
+      await sbPatch(
+        'video_generations',
+        `id=eq.${encodeURIComponent(video_id)}&business_id=eq.${encodeURIComponent(business_id)}`,
+        {
+          runway_task_id: JSON.stringify(taskIds),
+          status: taskIds.length ? 'generating' : 'failed',
+        }
+      );
 
       res.json({
         task_ids: taskIds,
@@ -205,10 +222,16 @@ function register({
   // Poll Runway task status; update DB when complete.
   // ─────────────────────────────────────────────────────────────────────────────
   app.get('/webhook/video-status', async (req, res) => {
-    const { video_id } = req.query;
-    if (!video_id) return res.status(400).json({ error: 'video_id required' });
+    const { video_id, business_id } = req.query;
+    if (!video_id || !business_id) return res.status(400).json({ error: 'video_id and business_id required' });
+    if (!isUuid(String(video_id))) return res.status(400).json({ error: 'video_id must be a valid UUID' });
+    // Cross-tenant IDOR fix: bind the video row to a business the caller owns.
+    if (!(await assertBusinessOwner(req, res, business_id, { sbGet, apiError, logger }))) return;
     try {
-      const rows = await sbGet('video_generations', `id=eq.${video_id}&select=*`);
+      const rows = await sbGet(
+        'video_generations',
+        `id=eq.${encodeURIComponent(video_id)}&business_id=eq.${encodeURIComponent(business_id)}&select=*`
+      );
       const vid = rows[0];
       if (!vid) return res.status(404).json({ error: 'video not found' });
 
@@ -246,7 +269,11 @@ function register({
       const allDone = completedUrls.length === taskIds.length && taskIds.length > 0;
       if (allDone) {
         const videoUrl = completedUrls[0]?.url || null;
-        await sbPatch('video_generations', `id=eq.${video_id}`, { video_url: videoUrl, status: 'ready' });
+        await sbPatch(
+          'video_generations',
+          `id=eq.${encodeURIComponent(video_id)}&business_id=eq.${encodeURIComponent(business_id)}`,
+          { video_url: videoUrl, status: 'ready' }
+        );
         return res.json({
           video_id,
           status: 'ready',
