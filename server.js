@@ -10076,6 +10076,12 @@ Return ONLY valid JSON:
   const { registerTokenRefreshRoutes } = require('./services/oauth/registerRoutes');
   registerTokenRefreshRoutes({ app, apiError, sbGet, sbPatch, logger });
 
+  // ─── Publish scheduler (rebuild of lost feature #3) ─────────────────────
+  // 15-min cron publishes due content at its slot (posting_time_local / tz +
+  // generated_content.scheduled_for), idempotent via published_at.
+  const { registerPublishSchedulerRoutes } = require('./services/publish-scheduler/registerRoutes');
+  registerPublishSchedulerRoutes({ app, apiError, sbGet, sbPost, sbPatch, apiRequest, logger });
+
   // ─── Cold-start onboarding ──────────────────────────────────────────────────
   // Drives a new business through industry-classify → competitor-detect →
   // brand-voice → Soul ID → concepts → campaign launch → content → AI-SEO.

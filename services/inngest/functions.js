@@ -923,6 +923,29 @@ const oauthTokenRefreshHourly = inngest.createFunction(
   }
 );
 
+// ─── Publish scheduler (every 15 min) ─────────────────────────────────────
+// Rebuild of lost feature #3. Publishes content whose scheduled slot has
+// arrived — content_assets at posting_time_local (business-local tz) and
+// generated_content at scheduled_for — idempotent via the published_at gate.
+// See services/publish-scheduler/index.js.
+const publishSchedulerEvery15m = inngest.createFunction(
+  withDLQ({
+    id: 'publish-scheduler-15m',
+    name: 'Publish scheduler · publish due content',
+    retries: 2,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC */15 * * * *' }],
+  }),
+  async ({ step }) => {
+    const r = await step.run('publish-due', async () => callInternal('/webhook/publish-scheduler-run', {}));
+    return {
+      ok: true,
+      assets_published: r?.assets_published ?? 0,
+      scheduled_triggered: r?.scheduled_triggered ?? 0,
+    };
+  }
+);
+
 const functions = [
   // Domain crons (originally migrated from n8n)
   adOptimizerDaily,
@@ -998,6 +1021,9 @@ const functions = [
 
   // OAuth token refresh (hourly) — keep LinkedIn/X/TikTok connections alive
   oauthTokenRefreshHourly,
+
+  // Publish scheduler (every 15 min) — publish content at its scheduled slot
+  publishSchedulerEvery15m,
 ];
 
 module.exports = { functions, callInternal };
