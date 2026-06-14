@@ -11,11 +11,11 @@ This audit was requested across **two** repos. I can only access **one** of them
 from this session. I am stating that up front rather than papering over it,
 because the honesty of the rest depends on it.
 
-| What | Access | Consequence |
-| --- | --- | --- |
-| **`maroa-api`** (backend) | ✅ full source, this repo | Backend findings below are **code-verified** (with `file:line`). |
-| **`maroa-ai-marketing-automator`** (LIVE Vite frontend) | ⚠️ **read-only via GitHub global code-search** — `search_code` returns code *fragments* (the repo is public); `get_file_contents` + all writes are **denied** (session scope = `maroa-api`); not cloned locally | Enough to **confirm the Generate-Now root cause** by reading the real handlers (Part 1). **Cannot** enumerate every screen (Part 2), read exact line numbers, or **write/build** the fix. |
-| **Live running system** (`maroa-api-production.up.railway.app`, `maroa.ai`) | ❌ **egress blocked** — a direct `curl` from this session returns `403 host_not_allowed` from the sandbox proxy (not the backend) | I could **not** probe real request/response shapes against prod. Findings are from source at the current `main`. |
+| What                                                                        | Access                                                                                                                                                                                                          | Consequence                                                                                                                                                                               |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`maroa-api`** (backend)                                                   | ✅ full source, this repo                                                                                                                                                                                       | Backend findings below are **code-verified** (with `file:line`).                                                                                                                          |
+| **`maroa-ai-marketing-automator`** (LIVE Vite frontend)                     | ⚠️ **read-only via GitHub global code-search** — `search_code` returns code _fragments_ (the repo is public); `get_file_contents` + all writes are **denied** (session scope = `maroa-api`); not cloned locally | Enough to **confirm the Generate-Now root cause** by reading the real handlers (Part 1). **Cannot** enumerate every screen (Part 2), read exact line numbers, or **write/build** the fix. |
+| **Live running system** (`maroa-api-production.up.railway.app`, `maroa.ai`) | ❌ **egress blocked** — a direct `curl` from this session returns `403 host_not_allowed` from the sandbox proxy (not the backend)                                                                               | I could **not** probe real request/response shapes against prod. Findings are from source at the current `main`.                                                                          |
 
 **Two consequences you need to know before launch:**
 
@@ -27,7 +27,7 @@ because the honesty of the rest depends on it.
    single most important correction in this document.
 2. **The Generate-Now root cause is now CONFIRMED** (Part 1) by reading the live
    Vite code via GitHub code-search — a `.maybeSingle()` bug in `AuthContext.tsx`.
-   *Applying* the fix + building still need a session scoped to
+   _Applying_ the fix + building still need a session scoped to
    **`maroa-ai-marketing-automator`** (writes are denied here). Items needing the
    full repo or live runtime remain tagged **[UNVERIFIED]**.
 
@@ -57,8 +57,8 @@ because the honesty of the rest depends on it.
 (Vite dev). A request from the live origin is not CORS-blocked.
 
 **Key inference:** every backend failure path returns an **explicit HTTP error**.
-The reported symptom is *"nothing happens, no draft, **no error shown**."* A
-backend that returns 400/401/404/422/429/500 cannot by itself produce a *silent*
+The reported symptom is _"nothing happens, no draft, **no error shown**."_ A
+backend that returns 400/401/404/422/429/500 cannot by itself produce a _silent_
 result. **So the defect is on the frontend** — the request is either not sent,
 sent wrong, or its error is swallowed.
 
@@ -72,12 +72,15 @@ I read the live handler chain directly from `maroa-ai-marketing-automator`
 
 ```ts
 const { data, error } = await externalSupabase
-  .from("businesses")
-  .select("id, onboarding_complete")
-  .eq("user_id", userId)
-  .maybeSingle();              // ← ROOT CAUSE
+  .from('businesses')
+  .select('id, onboarding_complete')
+  .eq('user_id', userId)
+  .maybeSingle(); // ← ROOT CAUSE
 // ...
-if (data) { setBusinessId(data.id); setOnboardingComplete(data.onboarding_complete ?? null); }
+if (data) {
+  setBusinessId(data.id);
+  setOnboardingComplete(data.onboarding_complete ?? null);
+}
 ```
 
 Supabase `.maybeSingle()` **throws when more than one row matches.** The reported
@@ -102,14 +105,18 @@ on load — the likely reason this account has two.
    onboarded business, and only insert when the result is genuinely empty:
    ```ts
    const { data, error } = await externalSupabase
-     .from("businesses")
-     .select("id, onboarding_complete")
-     .eq("user_id", userId)
-     .order("onboarding_complete", { ascending: false }) // onboarded first
-     .order("created_at", { ascending: true });
+     .from('businesses')
+     .select('id, onboarding_complete')
+     .eq('user_id', userId)
+     .order('onboarding_complete', { ascending: false }) // onboarded first
+     .order('created_at', { ascending: true });
    const biz = (data ?? []).find((b) => b.onboarding_complete) ?? (data ?? [])[0] ?? null;
-   if (biz) { setBusinessId(biz.id); setOnboardingComplete(biz.onboarding_complete ?? null); }
-   else if (!error && (data ?? []).length === 0) { /* existing insert-new-business branch */ }
+   if (biz) {
+     setBusinessId(biz.id);
+     setOnboardingComplete(biz.onboarding_complete ?? null);
+   } else if (!error && (data ?? []).length === 0) {
+     /* existing insert-new-business branch */
+   }
    ```
 2. `src/components/dashboard/DashboardContent.tsx` — never fail silently:
    `if (!businessId) { toast.error("Still finishing setup — refresh, or finish onboarding."); return; }`,
@@ -121,23 +128,23 @@ on load — the likely reason this account has two.
 
 **[UNVERIFIED — needs Vite repo]** I cannot enumerate what the live Vite screens
 actually call. What I **can** give is the **verified backend endpoint inventory**
-— the targets a correct frontend *should* hit — so the mapping is half-done and
+— the targets a correct frontend _should_ hit — so the mapping is half-done and
 ready to complete against the Vite repo.
 
-| Capability | Backend endpoint (exists in `maroa-api`) | Backend status |
-| --- | --- | --- |
-| Instant content / "Generate Now" | `POST /api/content/generate` (`server.js:4681`) | **WORKS** (real Claude gen + save) |
-| Connection status | `GET /api/business/:id/integrations` (`server.js:4837`) | **WORKS** (live Meta token probe) |
-| Connect Meta/Google | `GET /webhook/oauth/{meta,google}/start` (`services/oauth/*`) | **WORKS** (real OAuth; LinkedIn/TikTok start routes absent) |
-| Plans | `GET /api/billing/plans` (`server.js:4616`, public) | **WORKS** (static catalog `lib/planCatalog.js`) |
-| Email lifecycle | `GET /api/business/:id/email-lifecycle` + `-process-due/-enroll/-bootstrap` | **WORKS** (canonical engine) |
-| Competitor intel | `/webhook/competitor-watch-scan` / `-briefing` (creative-engine routes) | **WORKS if PR #23 merged** — verify on `main` |
-| Ad optimization | `ad-optimizer` routes + `manual.ad-audit` | **WORKS but dry-run** (see Part 3) |
-| AI Brain (WF15) | `/webhook/wf15-*` | **PARTIAL** — chat real, tools inert (Part 3) |
-| Inbox (WF9/WF11) | `/webhook/wf9-*`, `/webhook/wf11-*` | **READ ok; no send path** (Part 3) |
-| Reviews (WF4) | `/webhook/wf4-*` | **publish is inert** (Part 3) |
-| Studio (WF10) | `/webhook/wf10-*` | real media gen (needs Higgsfield keys) |
-| CRO / AI-SEO / Forecasting / VoC | `croService` / `/api/ai-seo` / `forecasting` / `voc` routes | **WORKS** (on-demand) |
+| Capability                       | Backend endpoint (exists in `maroa-api`)                                    | Backend status                                              |
+| -------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Instant content / "Generate Now" | `POST /api/content/generate` (`server.js:4681`)                             | **WORKS** (real Claude gen + save)                          |
+| Connection status                | `GET /api/business/:id/integrations` (`server.js:4837`)                     | **WORKS** (live Meta token probe)                           |
+| Connect Meta/Google              | `GET /webhook/oauth/{meta,google}/start` (`services/oauth/*`)               | **WORKS** (real OAuth; LinkedIn/TikTok start routes absent) |
+| Plans                            | `GET /api/billing/plans` (`server.js:4616`, public)                         | **WORKS** (static catalog `lib/planCatalog.js`)             |
+| Email lifecycle                  | `GET /api/business/:id/email-lifecycle` + `-process-due/-enroll/-bootstrap` | **WORKS** (canonical engine)                                |
+| Competitor intel                 | `/webhook/competitor-watch-scan` / `-briefing` (creative-engine routes)     | **WORKS if PR #23 merged** — verify on `main`               |
+| Ad optimization                  | `ad-optimizer` routes + `manual.ad-audit`                                   | **WORKS but dry-run** (see Part 3)                          |
+| AI Brain (WF15)                  | `/webhook/wf15-*`                                                           | **PARTIAL** — chat real, tools inert (Part 3)               |
+| Inbox (WF9/WF11)                 | `/webhook/wf9-*`, `/webhook/wf11-*`                                         | **READ ok; no send path** (Part 3)                          |
+| Reviews (WF4)                    | `/webhook/wf4-*`                                                            | **publish is inert** (Part 3)                               |
+| Studio (WF10)                    | `/webhook/wf10-*`                                                           | real media gen (needs Higgsfield keys)                      |
+| CRO / AI-SEO / Forecasting / VoC | `croService` / `/api/ai-seo` / `forecasting` / `voc` routes                 | **WORKS** (on-demand)                                       |
 
 **To finish Part 2:** open the Vite repo, grep its API client for each path above,
 and tag each screen WIRED-AND-WORKING / CALLS-BUT-BROKEN / NOT-WIRED / NO-BACKEND.
@@ -159,12 +166,12 @@ WF15 chat (conversational text), WF9 triage/draft, review classification/draftin
 **Things gated, stubbed, or inert — do NOT present as fully working:**
 
 - **Ad execution is DRY-RUN by default.** `services/ad-optimizer/launcher.js:145`
-  + `engine.js` gate all live Meta writes behind `META_AD_LAUNCH_LIVE=true`
-  (`lib/env.js:226` `LIVE_FLAGS = META_AD_LAUNCH_LIVE, META_PUBLISH_LIVE,
-  GOOGLE_ADS_LIVE, TIKTOK_ADS_LIVE`). It **decides and logs** scale/pause/budget
-  but does **not** change real campaigns unless the flag is set. **Whether it's
-  set in prod is UNVERIFIABLE from this session** (can't read Railway env / can't
-  probe). Treat as "advisory until confirmed live."
+  - `engine.js` gate all live Meta writes behind `META_AD_LAUNCH_LIVE=true`
+    (`lib/env.js:226` `LIVE_FLAGS = META_AD_LAUNCH_LIVE, META_PUBLISH_LIVE,
+GOOGLE_ADS_LIVE, TIKTOK_ADS_LIVE`). It **decides and logs** scale/pause/budget
+    but does **not** change real campaigns unless the flag is set. **Whether it's
+    set in prod is UNVERIFIABLE from this session** (can't read Railway env / can't
+    probe). Treat as "advisory until confirmed live."
 - **WF15 AI Brain: 30 tools are declared but none execute.** Chat is advisory;
   there is no tool-execution path. Don't ship "the AI does it for you" framing.
 - **WF9 inbox: no send path.** `wf9-draft-reply` produces a suggestion; nothing
@@ -186,11 +193,11 @@ WF15 chat (conversational text), WF9 triage/draft, review classification/draftin
 
 **[PARTIAL — backend behavior VERIFIED; the live Vite UX is UNVERIFIED]**
 
-What happens **server-side** at each step (what the user *sees* needs the Vite repo):
+What happens **server-side** at each step (what the user _sees_ needs the Vite repo):
 
 1. **Signup** → Supabase magic-link auth. Backend creates/links a `businesses`
    row in the onboarding path (`sbPost('businesses', …)` `server.js:3273`).
-   **Gap risk:** if the user reaches the dashboard *before* that insert,
+   **Gap risk:** if the user reaches the dashboard _before_ that insert,
    `business_id` is null → Generate Now / any `/api/business/:id/*` call 400/404s.
 2. **Onboarding** → profile save + (per backend) a cold-start orchestration can
    fire. Real.
@@ -199,7 +206,7 @@ What happens **server-side** at each step (what the user *sees* needs the Vite r
    data here; the Vite app must be checked.)
 4. **Quick Actions** → backend endpoints exist (Part 2). But: **Generate Now is
    reported broken (Part 1)**; ad actions are **dry-run**; inbox can't send;
-   reviews can't publish. So the promise *"Your AI is handling everything"* is, on
+   reviews can't publish. So the promise _"Your AI is handling everything"_ is, on
    the backend, **"your AI drafts and recommends; humans approve, and several
    actions are advisory or gated."** That gap is real and a launch-messaging risk.
 
@@ -243,7 +250,7 @@ What happens **server-side** at each step (what the user *sees* needs the Vite r
 
 ## What I could NOT verify (explicit, per your instruction)
 
-- The *full* Vite frontend — I read the auth + generate handlers via code-search
+- The _full_ Vite frontend — I read the auth + generate handlers via code-search
   and confirmed Part 1, but could not read every screen/file, exact line numbers,
   or the deploy's env-var values.
 - The live deployment's real request/response behavior (egress blocked).
