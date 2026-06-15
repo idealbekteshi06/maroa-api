@@ -367,6 +367,22 @@ app.post('/webhook/stripe-webhook', stripeWebhookRawBody, async (req, res) => {
 // Paddle must register before express.json() so req.body stays a Buffer for HMAC.
 app.post('/webhook/paddle-webhook', paddleWebhookRawBody, paddleWebhookEntry);
 
+// Shopify webhooks — raw body + Shopify HMAC, registered before express.json()
+// (like Paddle/Stripe) so they bypass the /webhook secret-auth and the HMAC is
+// verified over the exact bytes Shopify sent. Handlers enqueue to Inngest and
+// return 200 fast; no heavy work in the request cycle. sb* are hoisted function
+// declarations so they're safe to pass here at module-load time.
+require('./services/shopify').registerShopifyWebhookRoutes({
+  app,
+  express,
+  sbGet,
+  sbPost,
+  sbPatch,
+  logger,
+  inngest: require('./services/inngest/client').inngest,
+  secret: () => env.SHOPIFY_API_SECRET || '',
+});
+
 app.use(express.json({ limit: '10mb' }));
 
 // ─── Distributed-tracing: request-correlation IDs ──────────────────────────
@@ -405,7 +421,11 @@ const globalRateLimit = expressRateLimit({
     req.path === '/health' ||
     req.path === '/metrics' ||
     req.path === '/webhook/paddle-webhook' ||
-    req.path === '/webhook/stripe-webhook',
+    req.path === '/webhook/stripe-webhook' ||
+    // Shopify webhook ingress (HMAC-verified) + internal /webhook/shopify-*
+    // workers (secret-auth, loopback from Inngest): provider retry storms and
+    // order bursts are legitimate, so exempt from the per-IP DoS ceiling.
+    req.path.startsWith('/webhook/shopify'),
 });
 app.use(globalRateLimit);
 
@@ -10075,6 +10095,25 @@ Return ONLY valid JSON:
   // not silently die between logins.
   const { registerTokenRefreshRoutes } = require('./services/oauth/registerRoutes');
   registerTokenRefreshRoutes({ app, apiError, sbGet, sbPatch, logger });
+
+  // ─── Shopify public app — OAuth (install/callback) + Inngest worker routes ──
+  // Webhook ingress is registered earlier (before express.json). These are the
+  // JWT-owned install flow (/auth/shopify/*) and the internal /webhook/shopify-*
+  // workers driven by the Shopify Inngest functions (secret-auth via callInternal).
+  const shopifyApp = require('./services/shopify');
+  shopifyApp.registerShopifyOAuthRoutes({
+    app,
+    sbGet,
+    sbPatch,
+    sbPost,
+    apiError,
+    logger,
+    verifyUserJwt,
+    inngest: require('./services/inngest/client').inngest,
+  });
+  // Worker handlers run in-process via the internalDispatcher (callInternal
+  // dispatches without HTTP loopback), driven by the Shopify Inngest functions.
+  shopifyApp.registerShopifyDispatch({ apiRequest, sbGet, sbPost, sbPatch, sbDelete, logger });
 
   // ─── Publish scheduler (rebuild of lost feature #3) ─────────────────────
   // 15-min cron publishes due content at its slot (posting_time_local / tz +

@@ -52,6 +52,12 @@ const REQUIRED_FUNCTION_IDS = [
   'ops-weekly-maintenance',
   'ops-growth-engine-monday',
   'ops-monthly-reports',
+
+  // Shopify public app (event-driven)
+  'shopify-initial-sync',
+  'shopify-ingest-resource',
+  'shopify-store-purge',
+  'shopify-customer-redact',
 ];
 
 test('inngest: all required function ids are registered', () => {
