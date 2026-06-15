@@ -946,6 +946,73 @@ const publishSchedulerEvery15m = inngest.createFunction(
   }
 );
 
+// ─── Shopify public app (install sync · ingest · purge · GDPR redact) ──────
+// Event-driven. The webhook ingress (services/shopify/webhooks.js) verifies the
+// Shopify HMAC + dedups, then enqueues here so the HTTP request returns in <5s.
+// Per-business concurrency so one store's events serialize without blocking
+// other stores. Each step.run() POSTs to an internal /webhook/shopify-* worker.
+const shopifyInitialSync = inngest.createFunction(
+  withDLQ({
+    id: 'shopify-initial-sync',
+    name: 'Shopify · install sync (register webhooks + backfill)',
+    retries: 2,
+    concurrency: { limit: 1, key: 'event.data.businessId' },
+    triggers: [{ event: 'maroa/shopify.install.sync' }],
+  }),
+  async ({ event, step }) => {
+    const businessId = event?.data?.businessId;
+    if (!businessId) return { ok: false, reason: 'missing businessId' };
+    return step.run('initial-sync', async () => callInternal('/webhook/shopify-initial-sync', { businessId }));
+  }
+);
+
+const shopifyIngestResource = inngest.createFunction(
+  withDLQ({
+    id: 'shopify-ingest-resource',
+    name: 'Shopify · ingest webhook resource',
+    retries: 2,
+    concurrency: { limit: 1, key: 'event.data.businessId' },
+    triggers: [{ event: 'maroa/shopify.resource.ingest' }],
+  }),
+  async ({ event, step }) => {
+    const { businessId, topic, payload } = event?.data || {};
+    if (!businessId || !topic) return { ok: false, reason: 'missing businessId or topic' };
+    return step.run('ingest', async () =>
+      callInternal('/webhook/shopify-ingest-resource', { businessId, topic, payload })
+    );
+  }
+);
+
+const shopifyStorePurge = inngest.createFunction(
+  withDLQ({
+    id: 'shopify-store-purge',
+    name: 'Shopify · purge store data (uninstall / shop redact)',
+    retries: 2,
+    concurrency: { limit: 1, key: 'event.data.businessId' },
+    triggers: [{ event: 'maroa/shopify.store.purge' }],
+  }),
+  async ({ event, step }) => {
+    const { businessId, reason } = event?.data || {};
+    if (!businessId) return { ok: false, reason: 'missing businessId' };
+    return step.run('purge', async () => callInternal('/webhook/shopify-purge-store', { businessId, reason }));
+  }
+);
+
+const shopifyCustomerRedact = inngest.createFunction(
+  withDLQ({
+    id: 'shopify-customer-redact',
+    name: 'Shopify · GDPR customer redaction',
+    retries: 2,
+    concurrency: { limit: 1, key: 'event.data.businessId' },
+    triggers: [{ event: 'maroa/shopify.customer.redact' }],
+  }),
+  async ({ event, step }) => {
+    const { businessId, email } = event?.data || {};
+    if (!businessId) return { ok: false, reason: 'missing businessId' };
+    return step.run('redact', async () => callInternal('/webhook/shopify-redact-customer', { businessId, email }));
+  }
+);
+
 const functions = [
   // Domain crons (originally migrated from n8n)
   adOptimizerDaily,
@@ -1024,6 +1091,12 @@ const functions = [
 
   // Publish scheduler (every 15 min) — publish content at its scheduled slot
   publishSchedulerEvery15m,
+
+  // Shopify public app — event-driven install sync + webhook ingest + GDPR
+  shopifyInitialSync,
+  shopifyIngestResource,
+  shopifyStorePurge,
+  shopifyCustomerRedact,
 ];
 
 module.exports = { functions, callInternal };
