@@ -1409,7 +1409,11 @@ module.exports = function createHiggsfieldService(deps) {
    * via HIGGSFIELD_SOUL_ID_MIN_IMAGES env var if needed.
    */
   async function trainSoulCharacter({ characterId, sourceImageUrls, name, model = 'soul_2' }) {
-    const minImages = Number(process.env.HIGGSFIELD_SOUL_ID_MIN_IMAGES) || 5;
+    // Floor lowered from 5 → 3 (2026-05-26) so cold-start auto-training fires
+    // for any business that uploaded the bare minimum 3 character-sheet photos
+    // during onboarding. Higgsfield accepts 1+ in practice; 3 is the Maroa
+    // quality floor (front + 3/4 + profile). Bump via env var for stricter ops.
+    const minImages = Number(process.env.HIGGSFIELD_SOUL_ID_MIN_IMAGES) || 3;
     const maxImages = Number(process.env.HIGGSFIELD_SOUL_ID_MAX_IMAGES) || 20;
     if (!Array.isArray(sourceImageUrls) || sourceImageUrls.length < minImages || sourceImageUrls.length > maxImages) {
       throw new Error(
