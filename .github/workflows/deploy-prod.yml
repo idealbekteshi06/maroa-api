@@ -28,7 +28,7 @@ jobs:
       name: production
       url: https://maroa-api-production.up.railway.app
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: main
       - uses: actions/setup-node@v4
