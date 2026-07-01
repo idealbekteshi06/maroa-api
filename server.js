@@ -536,6 +536,23 @@ async function sbPatch(table, filter, data) {
   return true;
 }
 
+// Like sbPatch but returns the updated rows (Prefer: return=representation).
+// Used for atomic compare-and-swap claims: PATCH with a status-guard filter
+// (e.g. `id=eq.X&status=eq.scheduled`) updates 0 rows if another worker already
+// changed the status, so an empty result means "lost the claim". The WF1
+// scheduler relies on this to never double-publish.
+async function sbPatchReturning(table, filter, data) {
+  const r = await apiRequest(
+    'PATCH',
+    `${SUPABASE_URL}/rest/v1/${table}?${filter}`,
+    { ...sbH(), 'Content-Type': 'application/json', Prefer: 'return=representation' },
+    data
+  );
+  if (![200, 201, 204].includes(r.status))
+    throw new Error(`sbPatchReturning ${table}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+  return Array.isArray(r.body) ? r.body : [];
+}
+
 async function sbDelete(table, filter) {
   const r = await apiRequest('DELETE', `${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
     ...sbH(),
@@ -1872,6 +1889,10 @@ setImmediate(() => {
     sbGet,
     sbPost,
     sbPatch,
+    // Atomic compare-and-swap for the publish scheduler's claim step
+    // (scheduled → publishing); without representation the sweep couldn't
+    // tell whether it won the row, risking double-publish.
+    sbPatchReturning,
     callClaude,
     extractJSON,
     apiRequest,

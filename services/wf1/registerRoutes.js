@@ -200,7 +200,11 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
               caption: editedCaption,
             }).catch(() => {});
           }
-          publishResult = await wf1.publisher.publishAsset({ assetId: assetRows[0].id });
+          // Honor posting_time_local: park for the optimal slot when it's still
+          // ahead today; otherwise publish now (same policy as auto-approve).
+          publishResult = wf1.scheduler
+            ? await wf1.scheduler.publishOrSchedule({ assetId: assetRows[0].id, businessId })
+            : await wf1.publisher.publishAsset({ assetId: assetRows[0].id });
         }
       }
 
@@ -297,6 +301,24 @@ function registerWf1Routes({ app, wf1, sbGet, sbPost, sbPatch, apiError, logger 
     } catch (e) {
       logger?.error('/webhook/wf1-measure-performance', null, 'sweep failed', e);
       apiError(res, 500, 'WF1_MEASURE_FAILED', e.message);
+    }
+  });
+
+  // ─── Scheduled publishing (honors posting_time_local) ──────────────
+  // 15-min cron target: publishes assets whose optimal slot has arrived.
+  // Atomic claim inside sweepDuePublishes prevents double-publish.
+  async function runWf1ScheduledPublish(body = {}) {
+    if (!wf1.scheduler) return { ok: false, skipped: true, reason: 'scheduler_not_wired' };
+    return wf1.scheduler.sweepDuePublishes({ limit: Number(body.limit || 25) });
+  }
+  internalDispatcher.register('/webhook/wf1-scheduled-publish', (body) => runWf1ScheduledPublish(body || {}));
+
+  app.post('/webhook/wf1-scheduled-publish', async (req, res) => {
+    try {
+      res.json(await runWf1ScheduledPublish(req.body || {}));
+    } catch (e) {
+      logger?.error('/webhook/wf1-scheduled-publish', null, 'scheduled publish sweep failed', e);
+      apiError(res, 500, 'WF1_SCHEDULED_PUBLISH_FAILED', e.message);
     }
   });
 

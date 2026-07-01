@@ -371,6 +371,30 @@ const wf1MeasureFallbacksHourly = inngest.createFunction(
   }
 );
 
+// Drains content_assets parked for their posting_time_local slot. Every 15 min.
+// concurrency:1 + the atomic scheduled→publishing claim inside the sweep mean a
+// slow run that overlaps the next tick, or a step retry, can never double-post.
+const wf1ScheduledPublish = inngest.createFunction(
+  withDLQ({
+    id: 'wf1-scheduled-publish',
+    name: 'WF1 · scheduled publishing (posting_time_local)',
+    retries: 3,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC */15 * * * *' }],
+  }),
+  async ({ step }) => {
+    const result = await step.run('publish-due', async () =>
+      callInternal('/webhook/wf1-scheduled-publish', { limit: 25 })
+    );
+    return {
+      ok: true,
+      due: result?.due ?? null,
+      processed: result?.processed ?? null,
+      reclaimed: result?.reclaimed ?? null,
+    };
+  }
+);
+
 // ─── WF1 overnight batch submit (nightly 23:00 UTC) ───────────────────────
 // Consolidates every active business's WF1 strategic-decision call into ONE
 // Anthropic Message Batch — 50% Sonnet cost cut on overnight bulk content.
@@ -908,6 +932,7 @@ const functions = [
   // WF1 (content) — replaces in-process setInterval + wires orphan endpoints
   wf1DailySweepHourly,
   wf1MeasureFallbacksHourly,
+  wf1ScheduledPublish,
   wf1OvernightBatchSubmitNightly,
   wf1OvernightBatchApplyPoll,
 

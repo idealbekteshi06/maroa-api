@@ -27,6 +27,7 @@ const createGuardrails = require('./guardrails.js');
 const createEngine = require('./engine.js');
 const createPublisher = require('./publish.js');
 const createLearningLoop = require('./learningLoop.js');
+const createScheduler = require('./scheduler.js');
 const createDailyRun = require('./dailyRun.js');
 const createBatchOvernight = require('./batchOvernight.js');
 
@@ -35,6 +36,7 @@ function createWf1(deps) {
     sbGet,
     sbPost,
     sbPatch,
+    sbPatchReturning,
     callClaude,
     extractJSON,
     apiRequest,
@@ -67,6 +69,13 @@ function createWf1(deps) {
   });
   const publisher = createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger });
   const learningLoop = createLearningLoop({ sbGet, sbPost, sbPatch, apiRequest, logger });
+  // Honors posting_time_local: parks approved assets for their optimal slot and
+  // a 15-min cron (sweepDuePublishes) drains them. Falls back to immediate
+  // publish when sbPatchReturning isn't wired (keeps unit tests + any partial
+  // deploy working) — without the atomic claim the safe choice is publish-now.
+  const scheduler = sbPatchReturning
+    ? createScheduler({ sbGet, sbPost, sbPatch, sbPatchReturning, publisher, logger })
+    : null;
   const dailyRun = createDailyRun({
     sbGet,
     sbPost,
@@ -74,6 +83,7 @@ function createWf1(deps) {
     logger,
     engine,
     publisher,
+    scheduler,
     checkOrchestrationIdempotency,
     recordOrchestrationTaskRun,
   });
@@ -96,6 +106,7 @@ function createWf1(deps) {
   return {
     engine,
     publisher,
+    scheduler,
     learningLoop,
     dailyRun,
     guardrails,
