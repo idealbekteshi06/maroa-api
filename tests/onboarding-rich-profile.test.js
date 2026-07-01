@@ -228,6 +228,99 @@ test('save: business_profiles failure is non-fatal and reported honestly', async
   assert.equal(res.body.richProfileSaved, false, 'and must not claim the profile was saved');
 });
 
+// ─── signup → autopilot wiring: autonomy answer, arming flags, cold-start ──
+
+test('save: arms automation on the UPDATE path and honors the autonomy answer', async () => {
+  const writes = { patches: [] };
+  const coldStarts = [];
+  const { app, handlers } = buildFakeApp();
+  register({
+    app,
+    requireAnyUserId: (req, _res, next) => next(),
+    sbGet: async (table) => (table === 'businesses' ? [{ id: BIZ_ID, user_id: 'user-1', plan: 'free' }] : []),
+    sbPost: async (_table, row) => [row],
+    sbPatch: async (table, q, patch) => {
+      writes.patches.push({ table, q, patch });
+      return [];
+    },
+    apiError: (res, code, c, msg) => res.status(code).json({ error: { code: c, message: msg } }),
+    safePublicError: (e) => e.message,
+    log: () => {},
+    triggerColdStart: async (args) => {
+      coldStarts.push(args);
+    },
+  });
+
+  const res = fakeRes();
+  await handlers['POST /api/onboarding/save'](
+    {
+      user: { id: 'user-1', email: 'a@b.c' },
+      body: { business_name: 'Aqua Prishtina', autonomyMode: 'full_autopilot', hybridWindowHours: 6 },
+    },
+    res
+  );
+
+  assert.equal(res.body?.ok, true);
+  const bizPatch = writes.patches.find((w) => w.table === 'businesses' && w.patch.onboarding_complete);
+  assert.ok(bizPatch, 'UPDATE path must write the completion patch');
+  assert.equal(bizPatch.patch.autopilot_enabled, true, 'UPDATE path must arm autopilot (old INSERT-only bug)');
+  assert.equal(bizPatch.patch.wf1_autonomy_mode, 'full_autopilot', 'autonomy answer must persist');
+  assert.equal(bizPatch.patch.wf1_hybrid_window_hours, 6);
+  assert.equal(coldStarts.length, 1, 'cold-start must fire on completed onboarding');
+  assert.equal(coldStarts[0].businessId, BIZ_ID);
+  assert.equal(coldStarts[0].source, 'onboarding_completed');
+});
+
+test('save: invalid autonomy answer falls through to the DB default, never errors', async () => {
+  const writes = { patches: [] };
+  const { app, handlers } = buildFakeApp();
+  register({
+    app,
+    requireAnyUserId: (req, _res, next) => next(),
+    sbGet: async (table) => (table === 'businesses' ? [{ id: BIZ_ID, user_id: 'user-1' }] : []),
+    sbPost: async (_table, row) => [row],
+    sbPatch: async (table, q, patch) => {
+      writes.patches.push({ table, q, patch });
+      return [];
+    },
+    apiError: (res, code, c, msg) => res.status(code).json({ error: { code: c, message: msg } }),
+    safePublicError: (e) => e.message,
+    log: () => {},
+  });
+  const res = fakeRes();
+  await handlers['POST /api/onboarding/save'](
+    { user: { id: 'user-1', email: 'a@b.c' }, body: { business_name: 'X', autonomyMode: 'yolo_mode' } },
+    res
+  );
+  assert.equal(res.body?.ok, true);
+  const bizPatch = writes.patches.find((w) => w.table === 'businesses' && w.patch.onboarding_complete);
+  assert.ok(bizPatch);
+  assert.equal('wf1_autonomy_mode' in bizPatch.patch, false, 'junk mode must not be written');
+});
+
+test('save: cold-start trigger failure is non-fatal', async () => {
+  const { app, handlers } = buildFakeApp();
+  register({
+    app,
+    requireAnyUserId: (req, _res, next) => next(),
+    sbGet: async (table) => (table === 'businesses' ? [{ id: BIZ_ID, user_id: 'user-1' }] : []),
+    sbPost: async (_table, row) => [row],
+    sbPatch: async () => [],
+    apiError: (res, code, c, msg) => res.status(code).json({ error: { code: c, message: msg } }),
+    safePublicError: (e) => e.message,
+    log: () => {},
+    triggerColdStart: async () => {
+      throw new Error('loopback refused');
+    },
+  });
+  const res = fakeRes();
+  await handlers['POST /api/onboarding/save'](
+    { user: { id: 'user-1', email: 'a@b.c' }, body: { business_name: 'X' } },
+    res
+  );
+  assert.equal(res.body?.ok, true, 'save must succeed even when the cold-start kick fails');
+});
+
 // ─── the proof: a wizard field reaches the content-generation prompt ──────
 
 test('end-to-end: wizard fields reach the WF1 strategic prompt', () => {

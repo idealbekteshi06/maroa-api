@@ -62,6 +62,8 @@ function completenessScore(profile) {
   return { score, missing_fields: missing, recommendations };
 }
 
+const AUTONOMY_MODES = ['full_autopilot', 'hybrid', 'approve_everything'];
+
 function register({
   app,
   requireAnyUserId,
@@ -74,6 +76,7 @@ function register({
   express,
   callContentGenerate, // optional — server.js may pass an internal helper
   enrichWebsite, // optional — fetch+summarize the customer's website (migration 088)
+  triggerColdStart, // optional — fire the cold-start orchestrator on completed onboarding
 }) {
   if (!requireAnyUserId || !sbGet || !sbPost || !sbPatch) {
     log?.('/api/onboarding', null, 'register skipped — missing dependencies');
@@ -160,9 +163,28 @@ function register({
           email: req.user?.email || null,
           user_id: userId,
           updated_at: new Date().toISOString(),
+          // Completing the wizard IS the "from here it runs itself" moment:
+          // both branches (the AuthContext-created row takes the UPDATE path)
+          // must flip these, or automation silently never arms for the
+          // normal signup flow (the old INSERT-only bug).
+          onboarding_complete: true,
+          autopilot_enabled: true,
         };
         if (!profile.business_name) {
           return apiError(res, 400, 'VALIDATION_ERROR', 'businessName is required');
+        }
+
+        // Autonomy preference — the wizard's answer to "how much should Maroa
+        // do without asking?". Column exists since migration 024 (DEFAULT
+        // 'hybrid') but was never written from onboarding. Invalid/absent
+        // values fall through to the DB default rather than erroring the save.
+        const autonomyMode = clean(body.autonomyMode || body.autonomy_mode || body.wf1_autonomy_mode, 40);
+        if (autonomyMode && AUTONOMY_MODES.includes(autonomyMode)) {
+          profile.wf1_autonomy_mode = autonomyMode;
+          const windowHours = Number(body.hybridWindowHours || body.wf1_hybrid_window_hours);
+          if (Number.isFinite(windowHours) && windowHours >= 1 && windowHours <= 48) {
+            profile.wf1_hybrid_window_hours = Math.round(windowHours);
+          }
         }
 
         // Upsert: if this user already has a business row, patch it.
@@ -173,7 +195,6 @@ function register({
         } else {
           const created = await sbPost('businesses', {
             ...profile,
-            onboarding_complete: true,
             // New businesses must start on the unpaid tier; billing elevates
             // them. Previously defaulted to 'growth' (a paid tier) for free.
             plan: profile.plan || existing?.plan || 'free',
@@ -198,6 +219,18 @@ function register({
         if (businessId && profile.website_url && typeof enrichWebsite === 'function') {
           Promise.resolve(enrichWebsite({ businessId, url: profile.website_url })).catch((e) =>
             log?.('/api/onboarding/save', businessId, 'website enrichment failed (non-fatal)', { error: e.message })
+          );
+        }
+
+        // Fire the cold-start orchestrator for EVERY completed onboarding —
+        // previously it only ran on the first paid upgrade (Paddle webhook),
+        // so free signups never got competitor detection / soul training /
+        // first-campaign orchestration. Idempotent downstream: cold_start_runs
+        // has a (business_id, run_date) unique constraint, so a re-submitted
+        // wizard doesn't create a duplicate run. Fire-and-forget by design.
+        if (businessId && typeof triggerColdStart === 'function') {
+          Promise.resolve(triggerColdStart({ businessId, source: 'onboarding_completed' })).catch((e) =>
+            log?.('/api/onboarding/save', businessId, 'cold-start trigger failed (non-fatal)', { error: e.message })
           );
         }
 

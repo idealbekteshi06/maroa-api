@@ -11403,6 +11403,21 @@ Return ONLY valid JSON:
         }
         return r;
       },
+      // Kick the cold-start orchestrator for every completed onboarding —
+      // same loopback pattern the Paddle webhook uses for paid upgrades.
+      // Fire-and-forget; cold_start_runs' (business_id, run_date) uniqueness
+      // makes duplicate fires harmless.
+      triggerColdStart: ({ businessId, source }) => {
+        const internalSecret = process.env.N8N_WEBHOOK_SECRET || '';
+        return fetch(`http://127.0.0.1:${process.env.PORT || 3000}/webhook/cold-start-trigger`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(internalSecret ? { 'x-webhook-secret': internalSecret } : {}),
+          },
+          body: JSON.stringify({ businessId, source }),
+        });
+      },
       // callContentGenerate is plumbed via a loopback HTTP call to
       // /api/content/generate so the route reuses the existing creative
       // pipeline (grounding + critic + cost tracking). 30s budget — past
