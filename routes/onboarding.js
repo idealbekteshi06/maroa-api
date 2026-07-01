@@ -187,6 +187,13 @@ function register({
           }
         }
 
+        // Ad-execution consent (migration 095): "May Maroa launch and adjust
+        // ads without asking?". Only an EXPLICIT answer writes the column —
+        // absent/junk leaves the safe default (false) untouched.
+        const adsConsent = body.adsConsent ?? body.ads_live;
+        if (adsConsent === true || adsConsent === 'true') profile.ads_live = true;
+        else if (adsConsent === false || adsConsent === 'false') profile.ads_live = false;
+
         // Upsert: if this user already has a business row, patch it.
         const existing = await businessForUser(userId);
         let businessId = existing?.id || null;
