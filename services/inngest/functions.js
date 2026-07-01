@@ -395,6 +395,30 @@ const wf1ScheduledPublish = inngest.createFunction(
   }
 );
 
+// Keeps LinkedIn/Twitter/TikTok OAuth alive: refresh tokens were stored at
+// connect time and never used, so access tokens rotted (2h-60d) and connected
+// platforms died silently. Daily 04:00 UTC; rejected refresh tokens flip
+// <platform>_connected=false and emit oauth.reconnect_required.
+const oauthTokenRefreshDaily = inngest.createFunction(
+  withDLQ({
+    id: 'oauth-token-refresh-daily',
+    name: 'OAuth · LinkedIn/Twitter/TikTok token refresh',
+    retries: 3,
+    triggers: [{ cron: 'TZ=UTC 0 4 * * *' }],
+  }),
+  async ({ step }) => {
+    const result = await step.run('refresh-all', async () =>
+      callInternal('/webhook/oauth-token-refresh', { limit: 200 })
+    );
+    return {
+      ok: true,
+      businesses: result?.businesses ?? null,
+      refreshed: result?.refreshed ?? null,
+      reconnectRequired: result?.reconnectRequired ?? null,
+    };
+  }
+);
+
 // ─── WF1 overnight batch submit (nightly 23:00 UTC) ───────────────────────
 // Consolidates every active business's WF1 strategic-decision call into ONE
 // Anthropic Message Batch — 50% Sonnet cost cut on overnight bulk content.
@@ -933,6 +957,7 @@ const functions = [
   wf1DailySweepHourly,
   wf1MeasureFallbacksHourly,
   wf1ScheduledPublish,
+  oauthTokenRefreshDaily,
   wf1OvernightBatchSubmitNightly,
   wf1OvernightBatchApplyPoll,
 

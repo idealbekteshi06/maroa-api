@@ -1885,6 +1885,18 @@ setImmediate(() => {
     ? _earlyBatchFactory({ apiKey: ANTHROPIC_KEY, logger, sbGet, sbPost, sbPatch })
     : null;
 
+  // OAuth token refresh for LinkedIn/Twitter/TikTok — created before WF1 so
+  // the publisher can refresh-and-retry a 401'd Twitter publish (2h expiry).
+  // The daily sweep route registers further down with the other cron targets.
+  const tokenRefresh = require('./services/token-refresh')({
+    sbGet,
+    sbPatch,
+    sbPost,
+    apiRequest,
+    env: process.env,
+    logger,
+  });
+
   const wf1 = createWf1({
     sbGet,
     sbPost,
@@ -1896,6 +1908,7 @@ setImmediate(() => {
     callClaude,
     extractJSON,
     apiRequest,
+    tokenRefresh,
     serpSearch,
     countryIntelligence: countryIntelligenceMod,
     checkOrchestrationIdempotency,
@@ -10447,6 +10460,24 @@ Return ONLY valid JSON:
       res.json(await runCheckHiggsfieldCredits());
     } catch (e) {
       apiError(res, 500, 'HF_CREDITS_CHECK_FAILED', e.message);
+    }
+  });
+
+  // ─── OAuth token refresh (LinkedIn / Twitter / TikTok) ────────────────────
+  // Daily cron target. Refresh tokens were stored at connect time and never
+  // used — access tokens rotted in 2h-60d and "connected" platforms silently
+  // died. The sweep keeps them alive and flips <platform>_connected=false
+  // (+ an oauth.reconnect_required event) when a refresh token is rejected.
+  // (Service instance created next to createWf1 so the publisher shares it.)
+  async function runOauthTokenRefresh(body = {}) {
+    return tokenRefresh.sweepAll({ limit: Number(body.limit || 200) });
+  }
+  internalDispatcher.register('/webhook/oauth-token-refresh', (body) => runOauthTokenRefresh(body || {}));
+  app.post('/webhook/oauth-token-refresh', async (req, res) => {
+    try {
+      res.json(await runOauthTokenRefresh(req.body || {}));
+    } catch (e) {
+      apiError(res, 500, 'OAUTH_TOKEN_REFRESH_FAILED', e.message);
     }
   });
 

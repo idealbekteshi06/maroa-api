@@ -46,6 +46,7 @@ function createWf1(deps) {
     recordOrchestrationTaskRun,
     batchService,
     higgsfield,
+    tokenRefresh,
     logger,
   } = deps;
 
@@ -67,7 +68,7 @@ function createWf1(deps) {
     buildBrandContext,
     higgsfield,
   });
-  const publisher = createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger });
+  const publisher = createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger, tokenRefresh });
   const learningLoop = createLearningLoop({ sbGet, sbPost, sbPatch, apiRequest, logger });
   // Honors posting_time_local: parks approved assets for their optimal slot and
   // a 15-min cron (sweepDuePublishes) drains them. Falls back to immediate
