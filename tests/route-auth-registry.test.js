@@ -34,6 +34,9 @@ function isTokenPublicApi(p) {
   if (/^\/api\/invites\/[^/]+\/accept$/.test(p)) return true;
   if (/^\/api\/approvals\/[^/]+$/.test(p)) return true;
   if (/^\/api\/approvals\/[^/]+\/(approve|reject)$/.test(p)) return true;
+  // Hosted lead-capture form target: HMAC-signed per-business token in the
+  // path, honeypot + IP throttle in the handler (routes/lead-capture.js).
+  if (/^\/public\/lead-capture\/:token$/.test(p)) return true;
   return false;
 }
 
@@ -43,6 +46,9 @@ const SIGNED_WEBHOOK_ROUTES = new Set([
   '/webhook/meta-deauthorize',
   '/webhook/meta-data-deletion-callback',
   '/webhook/data-deletion-request',
+  // Meta Lead Ads intake: X-Hub-Signature-256 HMAC over raw bytes; registered
+  // before the /webhook auth gate because Meta cannot carry our JWT/secret.
+  '/webhook/meta-leads',
 ]);
 
 const ADMIN_ROUTES_RE = /requireAdminSecret/;

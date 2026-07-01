@@ -23,6 +23,8 @@ tags:
     description: 'meta-oauth-exchange-prefixed routes'
   - name: metrics
     description: 'metrics-prefixed routes'
+  - name: public
+    description: 'public-prefixed routes'
   - name: root
     description: 'root-prefixed routes'
   - name: status
@@ -88,6 +90,90 @@ paths:
         - payments
       summary: 'Paddle subscription webhook'
       description: "Handles subscription lifecycle: activated, updated, canceled, paused, resumed, past_due, trialing. Also transaction.completed + transaction.refunded. Verifies Paddle HMAC signature with 5-minute timestamp tolerance, then dedupes via webhook_events(provider='paddle', event_id) before any side-effect."
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        description: 'Request body — hand-edit shape per route'
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /webhook/meta-leads:
+    get:
+      tags:
+        - webhook
+      summary: 'GET /webhook/meta-leads'
+      description: 'Automation webhook (GET /webhook/meta-leads). See docs/openapi-overrides.json for detail.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    post:
+      tags:
+        - webhook
+      summary: 'POST /webhook/meta-leads'
+      description: 'Automation webhook (POST /webhook/meta-leads). See docs/openapi-overrides.json for detail.'
       responses:
         200:
           description: 'Successful response'
@@ -7023,6 +7109,91 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+  /api/lead-capture/embed:
+    get:
+      tags:
+        - api
+      summary: 'GET /api/lead-capture/embed'
+      description: 'Dashboard API (GET /api/lead-capture/embed); JWT required unless public.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /public/lead-capture/:token:
+    post:
+      tags:
+        - public
+      summary: 'POST /public/lead-capture/:token'
+      description: 'Maroa API (POST /public/lead-capture/:token).'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        description: 'Request body — hand-edit shape per route'
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
   /api/lead-magnets/generate:
     post:
       tags:

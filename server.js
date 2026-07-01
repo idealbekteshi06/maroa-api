@@ -367,6 +367,19 @@ app.post('/webhook/stripe-webhook', stripeWebhookRawBody, async (req, res) => {
 // Paddle must register before express.json() so req.body stays a Buffer for HMAC.
 app.post('/webhook/paddle-webhook', paddleWebhookRawBody, paddleWebhookEntry);
 
+// Meta Lead Ads webhook — must also register BEFORE express.json (its
+// X-Hub-Signature-256 verifies the raw bytes) and before the /webhook auth
+// gate (Meta signs with the app secret; it cannot carry our JWT). The real
+// handlers bind late, once DB helpers exist in the deferred block.
+const metaLeadsRawBody = express.raw({ type: 'application/json', limit: '64kb' });
+let _leadCapture = null; // assigned in the deferred route-registration block
+app.get('/webhook/meta-leads', (req, res) =>
+  _leadCapture ? _leadCapture.metaLeadsVerify(req, res) : res.status(503).json({ error: 'booting' })
+);
+app.post('/webhook/meta-leads', metaLeadsRawBody, (req, res) =>
+  _leadCapture ? _leadCapture.metaLeadsIntake(req, res) : res.status(503).json({ error: 'booting' })
+);
+
 app.use(express.json({ limit: '10mb' }));
 
 // ─── Distributed-tracing: request-correlation IDs ──────────────────────────
@@ -5528,6 +5541,26 @@ setImmediate(() => {
     sbH,
     SUPABASE_URL,
     storeInsight,
+  });
+
+  // Lead/contact capture v1 — hosted embeddable form + Meta Lead Ads intake.
+  // Fuels the email + lead loops that previously ran on an empty contacts
+  // table (the only intakes were manual contact-create / CSV import). The
+  // /webhook/meta-leads shim registered pre-express.json binds here.
+  _leadCapture = require('./routes/lead-capture').register({
+    app,
+    express,
+    requireAnyUserId,
+    sbGet,
+    sbPost,
+    sbPatch,
+    apiRequest,
+    sbH,
+    SUPABASE_URL,
+    oauthCrypto: require('./lib/oauthCrypto'),
+    wf2,
+    markProcessed: require('./lib/webhookEvents').markProcessed,
+    log,
   });
 
   // ═════════════════════════════════════════════════════════════════════════════
