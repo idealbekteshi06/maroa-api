@@ -188,7 +188,10 @@ function createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger, tokenRefr
     const business = bizRows[0];
     if (!business) throw new Error(`Business not found: ${asset.business_id}`);
 
-    const platform = concept.platform || asset.platform;
+    // Prefer the ASSET's platform: the engine may have degraded a media-
+    // required concept (IG/TikTok/Story) to a text platform when no media
+    // could be produced — the asset row records what is actually publishable.
+    const platform = asset.platform || concept.platform;
     switch (platform) {
       case 'facebook':
         return publishToMeta({ business, asset, platform: 'facebook' });
@@ -241,7 +244,7 @@ function createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger, tokenRefr
       await sbPost('content_posts', {
         business_id: asset.business_id,
         asset_id: assetId,
-        platform: concept.platform,
+        platform: asset.platform || concept.platform,
         platform_post_id: result.postId,
         platform_post_url: result.postUrl,
         posted_at: new Date().toISOString(),

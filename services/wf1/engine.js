@@ -45,6 +45,20 @@ function visualBriefToPrompt(vb, concept = {}) {
 // (seedance / kling / wan) instead of generateImage.
 const VIDEO_PLATFORMS = new Set(['instagram_reel', 'instagram_story', 'tiktok', 'youtube_shorts', 'social_reel']);
 
+// Platforms whose publisher HARD-REQUIRES a media_url (publish.js throws
+// without one). When media can't be produced (low credits, Higgsfield down or
+// unconfigured), an asset targeted at these is unpublishable garbage — the
+// engine degrades it to a text-first platform instead (see generateAsset).
+const MEDIA_REQUIRED_PLATFORMS = new Set([
+  'instagram_feed',
+  'instagram_reel',
+  'instagram_story',
+  'tiktok',
+  'youtube_shorts',
+  'social_reel',
+]);
+const TEXT_FALLBACK_PLATFORM = 'facebook';
+
 // Pick the right Higgsfield video model from concept signal. Mirrors the
 // content_type intent: UGC → wan, cinematic/product → kling, social reel
 // default → seedance. Explicit override beats routing so WF1 isn't at the
@@ -690,10 +704,39 @@ function createEngine({
       );
     }
 
+    // ─── Text-only degradation ──────────────────────────────────────────────
+    // No media + a platform that can't publish without it → retarget the asset
+    // to a text-first platform rather than manufacturing a guaranteed publish
+    // failure. The concept row keeps its original platform (strategy record);
+    // the asset row carries the platform that will actually be published, and
+    // the publisher prefers asset.platform.
+    let effectivePlatform = concept.platform;
+    if (!mediaUrl && MEDIA_REQUIRED_PLATFORMS.has(platformLower)) {
+      effectivePlatform = TEXT_FALLBACK_PLATFORM;
+      const reason = creditsBlocked ? 'low_credits' : higgsfield ? 'generation_failed' : 'higgsfield_not_configured';
+      await sbPost('events', {
+        business_id: businessId,
+        kind: 'wf1.media.degraded_to_text',
+        workflow: '1_daily_content',
+        payload: {
+          concept_id: conceptId,
+          original_platform: concept.platform,
+          fallback_platform: effectivePlatform,
+          reason,
+        },
+        severity: 'warning',
+      }).catch(() => {});
+      logger?.warn?.('/wf1/engine.media', businessId, 'media unavailable — degraded to text platform', {
+        conceptId,
+        original_platform: concept.platform,
+        reason,
+      });
+    }
+
     const assetRow = await sbPost('content_assets', {
       business_id: businessId,
       concept_id: conceptId,
-      platform: concept.platform,
+      platform: effectivePlatform,
       caption: parsed.caption || '',
       hook: parsed.hook || concept.hook,
       hook_pattern: parsed.hookPattern || null,

@@ -1863,6 +1863,31 @@ setImmediate(() => {
     callClaude,
   });
 
+  // Boot validation: Higgsfield is the ONLY media provider (no fallback), and
+  // its credentials are checked lazily at call time — so a missing env var
+  // used to surface as per-concept generation errors at 06:00 local, not at
+  // deploy. Warn loudly at boot instead. Not fatal: WF1 degrades media-
+  // required concepts (IG/TikTok/Story) to text platforms when media can't
+  // be produced, so content keeps flowing.
+  {
+    const hasCloudKeys = !!(process.env.HIGGSFIELD_API_KEY_ID && process.env.HIGGSFIELD_API_KEY_SECRET);
+    const hasFnfToken = !!process.env.HIGGSFIELD_BEARER_TOKEN;
+    if (!hasCloudKeys && !hasFnfToken) {
+      logger.warn(
+        'boot/higgsfield',
+        null,
+        'HIGGSFIELD credentials missing (HIGGSFIELD_API_KEY_ID/SECRET or HIGGSFIELD_BEARER_TOKEN) — ' +
+          'no images/videos can be generated; WF1 will degrade IG/TikTok/Story concepts to text-only posts'
+      );
+    } else if (!hasCloudKeys) {
+      logger.warn(
+        'boot/higgsfield',
+        null,
+        'Only HIGGSFIELD_BEARER_TOKEN set — Cloud API (Soul ID, preferred models) unavailable, FNF fallback only'
+      );
+    }
+  }
+
   // ─── Workflow #1 — Daily Content Engine ──────────────────────────────────────
   // Factory wires: context bundle, strategic decision, platform generation,
   // quality gate, guardrails, publisher, learning loop, daily orchestrator.
