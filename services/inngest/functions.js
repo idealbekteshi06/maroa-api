@@ -651,7 +651,11 @@ const autopilotBrainDaily = inngest.createFunction(
     name: 'Autopilot Brain · daily orchestration + customer brief',
     retries: 2,
     concurrency: { limit: 1 },
-    triggers: [{ cron: 'TZ=UTC 0 8 * * *' }],
+    // 08:45, not 08:00: the brain consumes the ad-optimizer's decisions
+    // (ad-optimizer-daily fires at 08:00). Firing them at the same minute
+    // made the brain orchestrate on YESTERDAY'S pending decisions. 45 min
+    // gives the optimizer's fleet run time to finish first.
+    triggers: [{ cron: 'TZ=UTC 45 8 * * *' }],
   }),
   async ({ step }) => {
     const result = await step.run('run-all-businesses', async () =>
