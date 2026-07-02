@@ -1,4 +1,4 @@
--- Migration 094 — backfill businesses.user_id for legacy rows
+-- Migration 098 — backfill businesses.user_id for legacy rows
 --
 -- WHY: businesses.user_id was retrofitted (bootstrap adds the column, only
 -- post-audit code writes it) with NO backfill. Legacy rows carry
@@ -23,13 +23,13 @@ DECLARE
   updated_count INTEGER;
 BEGIN
   IF to_regclass('public.businesses') IS NULL THEN
-    RAISE NOTICE 'businesses table absent — skipping 094 user_id backfill';
+    RAISE NOTICE 'businesses table absent — skipping 098 user_id backfill';
     RETURN;
   END IF;
 
   IF to_regclass('auth.users') IS NULL THEN
     -- No auth schema (bare shadow DB in CI) — nothing safe to verify against.
-    RAISE NOTICE 'auth.users absent — skipping 094 user_id backfill';
+    RAISE NOTICE 'auth.users absent — skipping 098 user_id backfill';
     RETURN;
   END IF;
 
@@ -39,12 +39,12 @@ BEGIN
     AND EXISTS (SELECT 1 FROM auth.users u WHERE u.id = b.id);
 
   GET DIAGNOSTICS updated_count = ROW_COUNT;
-  RAISE NOTICE '094: backfilled user_id on % legacy business row(s)', updated_count;
+  RAISE NOTICE '098: backfilled user_id on % legacy business row(s)', updated_count;
 
   -- Surface what could NOT be matched so the operator can triage manually
   -- (these rows remain invisible to RLS and 403'd by the owner gate).
   SELECT COUNT(*) INTO updated_count FROM businesses WHERE user_id IS NULL;
   IF updated_count > 0 THEN
-    RAISE NOTICE '094: % business row(s) still have user_id = NULL (no matching auth.users id) — review manually', updated_count;
+    RAISE NOTICE '098: % business row(s) still have user_id = NULL (no matching auth.users id) — review manually', updated_count;
   END IF;
 END $$;
