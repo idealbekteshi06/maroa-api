@@ -11453,6 +11453,32 @@ Return ONLY valid JSON:
 
   // ─── 404 ──────────────────────────────────────────────────────────────────────
   app.use((req, res) => apiError(res, 404, 'NOT_FOUND', `Route ${req.method} ${req.path} not found`));
+  // ─── Meta Leads Webhook ────────────────────────────────────────────────────
+  app.post('/webhook/meta-leads', async (req, res) => {
+    const secret = req.get('x-webhook-secret');
+    if (!secret || secret !== process.env.N8N_WEBHOOK_SECRET) {
+      return apiError(res, 401, 'UNAUTHORIZED', 'Invalid or missing x-webhook-secret');
+    }
+    try {
+      const { leadgen_id, field_data } = req.body;
+      if (!leadgen_id || !field_data) {
+        return apiError(res, 400, 'INVALID_LEAD', 'Missing leadgen_id or field_data');
+      }
+      let email;
+      field_data.forEach(field => {
+        if (field.name === 'email') email = field.value;
+      });
+      if (!email) {
+        return apiError(res, 400, 'INVALID_EMAIL', 'No email in lead data');
+      }
+      logger.info('meta-leads', null, 'Lead received', { leadgen_id, email });
+      res.json({ success: true, lead_id: leadgen_id });
+    } catch (err) {
+      logger.error('meta-leads', null, 'Webhook error', err);
+      return apiError(res, 500, 'WEBHOOK_ERROR', err.message);
+    }
+  });
+
 
   app.use((err, req, res, next) => {
     if (err && String(err.message || '').includes('CORS')) {
