@@ -1,9 +1,12 @@
-// Accepts EITHER a Supabase user JWT (Authorization header) OR the n8n webhook secret.
-// Attaches req.user and req.businessId when authenticated via JWT.
+// Accepts EITHER a Supabase user JWT (Authorization header) OR the n8n webhook secret,
+// OR — on the allowlisted GET SSE routes only — a short-lived signed stream ticket
+// (?ticket=, minted by POST /api/stream-ticket; see lib/streamTicket.js).
+// Attaches req.user and req.businessId when authenticated via JWT or ticket.
 
 'use strict';
 
 const crypto = require('crypto');
+const { verifyStreamTicket } = require('../lib/streamTicket');
 
 let createClient;
 try {
@@ -19,6 +22,7 @@ const clean = (v) => (v || '').replace(/[^\x20-\x7E]/g, '').trim();
 const SUPABASE_URL = clean(process.env.SUPABASE_URL);
 const SUPABASE_SERVICE_ROLE_KEY = clean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY);
 const N8N_WEBHOOK_SECRET = clean(process.env.N8N_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET);
+const STREAM_TICKET_SECRET = clean(process.env.STREAM_TICKET_SECRET) || N8N_WEBHOOK_SECRET;
 
 const supabaseAdmin =
   createClient && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
@@ -51,6 +55,16 @@ const OPEN_PATHS = new Set([
   '/api/data-deletion-status',
 ]);
 
+// GET-only SSE endpoints that may authenticate with a short-lived signed
+// ticket (?ticket=) minted by POST /api/stream-ticket. EventSource cannot
+// attach an Authorization header, and the audit removed general ?token=
+// support because long-lived JWTs leak into request logs — a 60s
+// business-bound ticket is the narrow exception. Keep this list tight:
+// read-only streams only, never mutating routes.
+function isStreamTicketPath(pathOnly) {
+  return pathOnly === '/webhook/dashboard-events' || pathOnly.startsWith('/webhook/wf15-stream/');
+}
+
 function requireAuthOrWebhookSecret(req, res, next) {
   if (req.method === 'OPTIONS') return next();
 
@@ -64,7 +78,41 @@ function requireAuthOrWebhookSecret(req, res, next) {
     return next();
   }
 
-  // 2. User path: Supabase JWT from Authorization header only (no ?token= query)
+  // 2. Stream-ticket path: GET + allowlisted SSE route + ?ticket= only.
+  // A present-but-invalid ticket is a hard 401 — never fall through to
+  // weaker auth. The ticket already binds business_id; requiring the query
+  // param to match makes the binding explicit at the auth layer, and the
+  // assertBusinessOwner gate downstream re-verifies live ownership with the
+  // ticket's user_id (defense in depth).
+  const ticket = typeof req.query?.ticket === 'string' ? req.query.ticket : null;
+  if (ticket && req.method === 'GET' && isStreamTicketPath(pathOnly)) {
+    const verified = STREAM_TICKET_SECRET ? verifyStreamTicket(ticket, STREAM_TICKET_SECRET) : null;
+    if (!verified) {
+      return res.status(401).json({
+        error: {
+          code: 'INVALID_STREAM_TICKET',
+          message: 'Stream ticket invalid or expired — fetch a new one from POST /api/stream-ticket',
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+    const qBusinessId = req.query?.business_id;
+    if (!qBusinessId || String(qBusinessId) !== verified.businessId) {
+      return res.status(403).json({
+        error: {
+          code: 'STREAM_TICKET_BUSINESS_MISMATCH',
+          message: 'business_id does not match the stream ticket',
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+    req.user = { id: verified.userId };
+    req.authSource = 'stream-ticket';
+    req.streamTicket = { userId: verified.userId, businessId: verified.businessId, issuedAt: verified.ts };
+    return next();
+  }
+
+  // 3. User path: Supabase JWT from Authorization header only (no ?token= query)
   const authHeader = req.get('authorization') || '';
   const headerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
   const token = headerMatch ? headerMatch[1].trim() : null;

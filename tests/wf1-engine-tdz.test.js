@@ -376,6 +376,76 @@ test('Credit guard blocks generation when higgsfield_credits < 100', async () =>
   assert.equal(blockEvent.row.payload.credits, 42);
 });
 
+// ─── Text-only degradation: media-required platforms without media ─────────
+
+test('Degradation: credit-blocked IG concept is retargeted to facebook, not left unpublishable', async () => {
+  const biz = {
+    id: '66666666-6666-4666-8666-666666666666',
+    business_name: 'Cafe Test',
+    industry: 'cafe',
+    plan: 'free',
+    higgsfield_credits: 10,
+  };
+  const { engine, concept, posts } = buildEngineHarness({
+    platform: 'instagram_feed',
+    biz,
+    higgsfieldStub: { generateImage: async () => ({ url: 'should-not-happen' }) },
+  });
+  await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
+  const assetInsert = posts.find((p) => p.table === 'content_assets');
+  assert.equal(assetInsert.row.platform, 'facebook', 'asset retargeted to a text-capable platform');
+  assert.equal(assetInsert.row.media_url, null);
+  const degraded = posts.find((p) => p.table === 'events' && p.row.kind === 'wf1.media.degraded_to_text');
+  assert.ok(degraded, 'degradation event written');
+  assert.equal(degraded.row.payload.original_platform, 'instagram_feed');
+  assert.equal(degraded.row.payload.fallback_platform, 'facebook');
+  assert.equal(degraded.row.payload.reason, 'low_credits');
+});
+
+test('Degradation: Higgsfield failure on TikTok concept degrades with reason generation_failed', async () => {
+  const biz = {
+    id: '77777777-7777-4777-8777-777777777777',
+    business_name: 'Cafe Test',
+    industry: 'cafe',
+    plan: 'free',
+    higgsfield_credits: 900,
+  };
+  const { engine, concept, posts } = buildEngineHarness({
+    platform: 'tiktok',
+    biz,
+    higgsfieldStub: {
+      generateVideo: async () => {
+        throw new Error('Higgsfield 503');
+      },
+    },
+  });
+  await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
+  const assetInsert = posts.find((p) => p.table === 'content_assets');
+  assert.equal(assetInsert.row.platform, 'facebook');
+  const degraded = posts.find((p) => p.table === 'events' && p.row.kind === 'wf1.media.degraded_to_text');
+  assert.equal(degraded.row.payload.reason, 'generation_failed');
+});
+
+test('Degradation: text-capable platform (facebook) without media is NOT degraded', async () => {
+  const biz = {
+    id: '88888888-8888-4888-8888-888888888888',
+    business_name: 'Cafe Test',
+    industry: 'cafe',
+    plan: 'free',
+    higgsfield_credits: 5, // credit-blocked, but facebook publishes text fine
+  };
+  const { engine, concept, posts } = buildEngineHarness({
+    platform: 'facebook',
+    biz,
+    higgsfieldStub: { generateImage: async () => ({ url: 'x' }) },
+  });
+  await engine.generateAssetForConcept({ businessId: biz.id, conceptId: concept.id });
+  const assetInsert = posts.find((p) => p.table === 'content_assets');
+  assert.equal(assetInsert.row.platform, 'facebook', 'platform unchanged');
+  const degraded = posts.find((p) => p.table === 'events' && p.row.kind === 'wf1.media.degraded_to_text');
+  assert.equal(degraded, undefined, 'no degradation event for text-capable platforms');
+});
+
 test('Generation-history mirror: image gen writes a higgsfield_generations row', async () => {
   const biz = {
     id: '66666666-6666-4666-8666-666666666666',

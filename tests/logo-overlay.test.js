@@ -2,16 +2,14 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const Jimp = require('jimp');
+const { Jimp, JimpMime, intToRGBA } = require('jimp');
 
 const { compositeLogo, buildOverlayedImage } = require('../lib/logoOverlay');
 
 // Build a solid-color PNG buffer in memory (no network, no fixtures).
 async function solidPng(width, height, hex) {
-  const img = await new Promise((resolve, reject) => {
-    new Jimp(width, height, hex, (err, image) => (err ? reject(err) : resolve(image)));
-  });
-  return img.getBufferAsync(Jimp.MIME_PNG);
+  const img = new Jimp({ width, height, color: hex });
+  return img.getBuffer(JimpMime.png);
 }
 
 test('compositeLogo: returns a valid PNG with the base dimensions preserved', async () => {
@@ -21,8 +19,8 @@ test('compositeLogo: returns a valid PNG with the base dimensions preserved', as
 
   assert.ok(Buffer.isBuffer(out) && out.length > 0, 'returns a non-empty buffer');
   const result = await Jimp.read(out);
-  assert.strictEqual(result.getWidth(), 800, 'base width preserved');
-  assert.strictEqual(result.getHeight(), 800, 'base height preserved');
+  assert.strictEqual(result.width, 800, 'base width preserved');
+  assert.strictEqual(result.height, 800, 'base height preserved');
 });
 
 test('compositeLogo: logo pixels actually land in the chosen corner', async () => {
@@ -32,8 +30,8 @@ test('compositeLogo: logo pixels actually land in the chosen corner', async () =
   const result = await Jimp.read(out);
 
   // Bottom-right region should now contain red (logo); top-left stays black.
-  const brPixel = Jimp.intToRGBA(result.getPixelColor(950, 950));
-  const tlPixel = Jimp.intToRGBA(result.getPixelColor(20, 20));
+  const brPixel = intToRGBA(result.getPixelColor(950, 950));
+  const tlPixel = intToRGBA(result.getPixelColor(20, 20));
   assert.ok(
     brPixel.r > 150 && brPixel.g < 80 && brPixel.b < 80,
     `bottom-right should be reddish, got ${JSON.stringify(brPixel)}`
@@ -50,7 +48,7 @@ test('compositeLogo: top-left placement puts the logo top-left, not bottom-right
   const out = await compositeLogo(base, logo, { position: 'top-left', scale: 0.2, marginRatio: 0.04, opacity: 1 });
   const result = await Jimp.read(out);
   // Logo sits at the margin (~40px) with width ~200px → sample well inside it.
-  const tlPixel = Jimp.intToRGBA(result.getPixelColor(100, 100));
+  const tlPixel = intToRGBA(result.getPixelColor(100, 100));
   assert.ok(tlPixel.g > 150 && tlPixel.r < 80, `top-left should be greenish, got ${JSON.stringify(tlPixel)}`);
 });
 
@@ -68,7 +66,7 @@ test('buildOverlayedImage: downloads both, composites, returns a buffer', async 
   });
   assert.strictEqual(r.ok, true);
   const img = await Jimp.read(r.buffer);
-  assert.strictEqual(img.getWidth(), 600);
+  assert.strictEqual(img.width, 600);
 });
 
 test('buildOverlayedImage: soft-fails when a download is not ok', async () => {

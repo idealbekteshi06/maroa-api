@@ -15,7 +15,7 @@
 
 const oauthCrypto = require('../../lib/oauthCrypto');
 
-function createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger, ANTHROPIC_KEY_UNUSED }) {
+function createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger, tokenRefresh, ANTHROPIC_KEY_UNUSED }) {
   // Internal helper: call Meta Graph API for an Instagram/Facebook post
   async function publishToMeta({ business, asset, platform }) {
     const pageId = business.facebook_page_id;
@@ -132,14 +132,27 @@ function createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger, ANTHROPIC
   }
 
   async function publishToTwitter({ business, asset }) {
-    const token = oauthCrypto.readToken(business, 'twitter_access_token');
+    let token = oauthCrypto.readToken(business, 'twitter_access_token');
     if (!token) throw new Error('Twitter not connected');
-    const r = await apiRequest(
-      'POST',
-      'https://api.twitter.com/2/tweets',
-      { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      { text: (asset.caption || '').slice(0, 280) }
-    );
+    const postTweet = (bearer) =>
+      apiRequest(
+        'POST',
+        'https://api.twitter.com/2/tweets',
+        { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
+        { text: (asset.caption || '').slice(0, 280) }
+      );
+    let r = await postTweet(token);
+    // Twitter access tokens expire in ~2h, so a 401 here is the NORMAL case
+    // for any post more than 2h after connect — refresh and retry once.
+    if (r.status === 401 && tokenRefresh) {
+      const refreshed = await tokenRefresh
+        .refreshPlatform({ business, platform: 'twitter' })
+        .catch(() => ({ ok: false }));
+      if (refreshed.ok && refreshed.accessToken) {
+        token = refreshed.accessToken;
+        r = await postTweet(token);
+      }
+    }
     if (r.status >= 300) throw new Error(`Twitter publish ${r.status}: ${JSON.stringify(r.body).slice(0, 200)}`);
     return {
       postId: r.body.data?.id,
@@ -175,7 +188,10 @@ function createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger, ANTHROPIC
     const business = bizRows[0];
     if (!business) throw new Error(`Business not found: ${asset.business_id}`);
 
-    const platform = concept.platform || asset.platform;
+    // Prefer the ASSET's platform: the engine may have degraded a media-
+    // required concept (IG/TikTok/Story) to a text platform when no media
+    // could be produced — the asset row records what is actually publishable.
+    const platform = asset.platform || concept.platform;
     switch (platform) {
       case 'facebook':
         return publishToMeta({ business, asset, platform: 'facebook' });
@@ -228,7 +244,7 @@ function createPublisher({ apiRequest, sbGet, sbPost, sbPatch, logger, ANTHROPIC
       await sbPost('content_posts', {
         business_id: asset.business_id,
         asset_id: assetId,
-        platform: concept.platform,
+        platform: asset.platform || concept.platform,
         platform_post_id: result.postId,
         platform_post_url: result.postUrl,
         posted_at: new Date().toISOString(),

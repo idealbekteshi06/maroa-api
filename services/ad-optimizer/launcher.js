@@ -142,7 +142,6 @@ function initialBidStrategy({ industry, dailyBudget }) {
 
 async function coldStartLaunch({ businessId, approvedConcept, coldStartRunId, deps = {} }) {
   const { sbGet, sbPost, logger, sentry } = deps;
-  const liveMode = String(process.env.META_AD_LAUNCH_LIVE || '').toLowerCase() === 'true';
 
   // Pull business + competitors
   const businessRows = await sbGet?.('businesses', `id=eq.${businessId}&select=*`).catch(() => []);
@@ -150,6 +149,10 @@ async function coldStartLaunch({ businessId, approvedConcept, coldStartRunId, de
   if (!business) {
     return { launched: 0, campaign_ids: [], platforms: [], dry_run: true, errors: ['business not found'] };
   }
+
+  // Live when the global env flag is on OR this business consented
+  // (businesses.ads_live, migration 095). Env stays the kill-switch.
+  const liveMode = String(process.env.META_AD_LAUNCH_LIVE || '').toLowerCase() === 'true' || business.ads_live === true;
 
   const platforms = eligiblePlatforms({ dailyBudget: business.daily_budget });
   const conversionEvent = conversionEventForIndustry(business.industry);

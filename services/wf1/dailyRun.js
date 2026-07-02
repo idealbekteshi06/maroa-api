@@ -27,9 +27,25 @@ function createDailyRun({
   logger,
   engine,
   publisher,
+  scheduler,
   checkOrchestrationIdempotency,
   recordOrchestrationTaskRun,
 }) {
+  // Route an approved asset through the scheduler when one is wired: it parks
+  // the asset for its posting_time_local slot, or publishes now if the slot has
+  // passed / is imminent. Falls back to immediate publish when no scheduler.
+  // Returns { action, publishResult } where action is one of
+  // 'scheduled' | 'auto_published' | 'publish_failed'.
+  async function publishNowOrSchedule({ assetId, businessId }) {
+    if (scheduler) {
+      const r = await scheduler.publishOrSchedule({ assetId, businessId });
+      if (r.scheduled) return { action: 'scheduled', publishResult: r };
+      return { action: r.ok ? 'auto_published' : 'publish_failed', publishResult: r };
+    }
+    const r = await publisher.publishAsset({ assetId });
+    return { action: r.ok ? 'auto_published' : 'publish_failed', publishResult: r };
+  }
+
   async function shouldRunForBusiness(businessId) {
     // Check local time == 06 in business timezone
     const profileRows = await sbGet('business_profiles', `user_id=eq.${businessId}&select=timezone`).catch(() => []);
@@ -85,20 +101,12 @@ function createDailyRun({
         let action = 'queue';
         let publishResult = null;
 
-        if (mode === 'full_autopilot') {
-          if (qs >= (config.autoPublishThreshold || 95)) {
-            publishResult = await publisher.publishAsset({ assetId: asset.assetId });
-            action = publishResult.ok ? 'auto_published' : 'publish_failed';
-          } else {
-            action = 'queue';
-          }
-        } else if (mode === 'hybrid') {
-          if (qs >= (config.autoPublishThreshold || 95)) {
-            publishResult = await publisher.publishAsset({ assetId: asset.assetId });
-            action = publishResult.ok ? 'auto_published' : 'publish_failed';
-          } else {
-            action = 'queue';
-          }
+        const autoPublishEligible =
+          (mode === 'full_autopilot' || mode === 'hybrid') && qs >= (config.autoPublishThreshold || 95);
+        if (autoPublishEligible) {
+          const r = await publishNowOrSchedule({ assetId: asset.assetId, businessId });
+          action = r.action;
+          publishResult = r.publishResult;
         } else {
           action = 'queue';
         }
@@ -190,15 +198,28 @@ function createDailyRun({
       const qs = Number(approval.preview?.quality_score || 0);
       if (qs >= 90) {
         try {
-          const pub = await publisher.publishAsset({ assetId: approval.entity_id });
+          // Route through the scheduler: if the asset's optimal slot is still
+          // ahead today, it's parked rather than fired at the SLA-expiry moment.
+          const pub = scheduler
+            ? await scheduler.publishOrSchedule({ assetId: approval.entity_id, businessId: approval.business_id })
+            : await publisher.publishAsset({ assetId: approval.entity_id });
+          const decisionReason = pub.scheduled
+            ? `SLA fallback approved (quality ≥ 90) — scheduled for ${pub.scheduledAt}`
+            : pub.ok
+              ? 'SLA fallback auto-approved (quality ≥ 90)'
+              : `Publish failed: ${pub.error}`;
           await sbPatch('approvals', `id=eq.${approval.id}`, {
             status: pub.ok ? 'approved' : 'rejected',
             decided_at: new Date().toISOString(),
-            decision_reason: pub.ok ? 'SLA fallback auto-approved (quality ≥ 90)' : `Publish failed: ${pub.error}`,
+            decision_reason: decisionReason,
           }).catch((e) =>
             logger?.warn('/wf1/dailyRun', approval.business_id, 'approval status patch failed', { error: e.message })
           );
-          results.push({ approvalId: approval.id, action: 'auto_published', ok: pub.ok });
+          results.push({
+            approvalId: approval.id,
+            action: pub.scheduled ? 'scheduled' : 'auto_published',
+            ok: pub.ok,
+          });
         } catch (e) {
           results.push({ approvalId: approval.id, action: 'error', error: e.message });
         }

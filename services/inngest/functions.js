@@ -371,6 +371,54 @@ const wf1MeasureFallbacksHourly = inngest.createFunction(
   }
 );
 
+// Drains content_assets parked for their posting_time_local slot. Every 15 min.
+// concurrency:1 + the atomic scheduled→publishing claim inside the sweep mean a
+// slow run that overlaps the next tick, or a step retry, can never double-post.
+const wf1ScheduledPublish = inngest.createFunction(
+  withDLQ({
+    id: 'wf1-scheduled-publish',
+    name: 'WF1 · scheduled publishing (posting_time_local)',
+    retries: 3,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC */15 * * * *' }],
+  }),
+  async ({ step }) => {
+    const result = await step.run('publish-due', async () =>
+      callInternal('/webhook/wf1-scheduled-publish', { limit: 25 })
+    );
+    return {
+      ok: true,
+      due: result?.due ?? null,
+      processed: result?.processed ?? null,
+      reclaimed: result?.reclaimed ?? null,
+    };
+  }
+);
+
+// Keeps LinkedIn/Twitter/TikTok OAuth alive: refresh tokens were stored at
+// connect time and never used, so access tokens rotted (2h-60d) and connected
+// platforms died silently. Daily 04:00 UTC; rejected refresh tokens flip
+// <platform>_connected=false and emit oauth.reconnect_required.
+const oauthTokenRefreshDaily = inngest.createFunction(
+  withDLQ({
+    id: 'oauth-token-refresh-daily',
+    name: 'OAuth · LinkedIn/Twitter/TikTok token refresh',
+    retries: 3,
+    triggers: [{ cron: 'TZ=UTC 0 4 * * *' }],
+  }),
+  async ({ step }) => {
+    const result = await step.run('refresh-all', async () =>
+      callInternal('/webhook/oauth-token-refresh', { limit: 200 })
+    );
+    return {
+      ok: true,
+      businesses: result?.businesses ?? null,
+      refreshed: result?.refreshed ?? null,
+      reconnectRequired: result?.reconnectRequired ?? null,
+    };
+  }
+);
+
 // ─── WF1 overnight batch submit (nightly 23:00 UTC) ───────────────────────
 // Consolidates every active business's WF1 strategic-decision call into ONE
 // Anthropic Message Batch — 50% Sonnet cost cut on overnight bulk content.
@@ -955,6 +1003,8 @@ const functions = [
   // WF1 (content) — replaces in-process setInterval + wires orphan endpoints
   wf1DailySweepHourly,
   wf1MeasureFallbacksHourly,
+  wf1ScheduledPublish,
+  oauthTokenRefreshDaily,
   wf1OvernightBatchSubmitNightly,
   wf1OvernightBatchApplyPoll,
 

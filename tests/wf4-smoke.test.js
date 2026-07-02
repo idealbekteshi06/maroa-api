@@ -36,6 +36,32 @@ test('wf4: listReviews returns empty items when DB is empty', async () => {
   assert.equal(r.items.length, 0);
 });
 
+test('wf4: reputation snapshot counts approved/published/legacy-responded replies', async () => {
+  // Full response_status vocabulary: wf4 writes awaiting_approval /
+  // approved_pending_publish / disputed / ignored; server.js writes
+  // draft_ready / published; 'responded' is the pre-rework legacy value.
+  const reviews = [
+    { platform: 'google', rating: 5, response_status: 'approved_pending_publish' },
+    { platform: 'google', rating: 4, response_status: 'published' },
+    { platform: 'google', rating: 3, response_status: 'responded' },
+    { platform: 'google', rating: 2, response_status: 'awaiting_approval' },
+    { platform: 'google', rating: 1, response_status: 'draft_ready' },
+    { platform: 'google', rating: 5, response_status: 'disputed' },
+    { platform: 'google', rating: 5, response_status: 'ignored' },
+    { platform: 'google', rating: 5, response_status: null },
+    { platform: 'facebook', rating: 4, response_status: 'published' },
+  ];
+  const wf4 = makeWf4({
+    sbGet: async (table) => (table === 'reviews' ? reviews : []),
+  });
+  const snap = await wf4.getReputationSnapshot({ businessId: 'b1' });
+  const google = snap.byPlatform.find((p) => p.platform === 'google');
+  assert.equal(google.reviewCount, 8);
+  assert.equal(google.responseRate, 3 / 8, 'approved + published + legacy responded count as replies');
+  const facebook = snap.byPlatform.find((p) => p.platform === 'facebook');
+  assert.equal(facebook.responseRate, 1);
+});
+
 test('wf4: classifyReview patches the review with the Claude classification', async () => {
   const patched = [];
   const wf4 = makeWf4({

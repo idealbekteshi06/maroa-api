@@ -35,6 +35,12 @@ const oauthCrypto = require('../../lib/oauthCrypto');
 const GRAPH_VERSION = 'v21.0';
 const GRAPH_HOST = 'graph.facebook.com';
 const META_LAUNCH_LIVE = () => String(process.env.META_AD_LAUNCH_LIVE || '').toLowerCase() === 'true';
+// Per-business consent (migration 095): the global env flag remains a
+// kill-switch/override, but a business that explicitly opted in
+// (businesses.ads_live=true, asked at onboarding) gets real execution
+// without arming every other customer at once.
+const adsLive = (business) => META_LAUNCH_LIVE() || business?.ads_live === true;
+const DRY_RUN_REASON = 'ads not live (META_AD_LAUNCH_LIVE=false and business.ads_live=false)';
 
 // readToken prefers the encrypted *_enc column and falls back to legacy
 // plaintext. Synchronous (no I/O) — the business row is already fetched.
@@ -91,8 +97,8 @@ const META_OBJECTIVE_MAP = {
 };
 
 async function createCampaign({ business, name, conversionEvent, dailyBudgetCents }) {
-  if (!META_LAUNCH_LIVE()) {
-    return { ok: true, dry_run: true, campaign_id: `dry_run_${Date.now()}`, reason: 'META_AD_LAUNCH_LIVE=false' };
+  if (!adsLive(business)) {
+    return { ok: true, dry_run: true, campaign_id: `dry_run_${Date.now()}`, reason: DRY_RUN_REASON };
   }
   const objective = META_OBJECTIVE_MAP[conversionEvent] || 'OUTCOME_LEADS';
   return graphCall({
@@ -119,7 +125,7 @@ async function createAdSet({
   optimizationGoal = 'OFFSITE_CONVERSIONS',
   billingEvent = 'IMPRESSIONS',
 }) {
-  if (!META_LAUNCH_LIVE()) {
+  if (!adsLive(business)) {
     return { ok: true, dry_run: true, ad_set_id: `dry_run_adset_${Date.now()}` };
   }
   return graphCall({
@@ -141,7 +147,7 @@ async function createAdSet({
 }
 
 async function createAd({ business, adSetId, name, creative }) {
-  if (!META_LAUNCH_LIVE()) {
+  if (!adsLive(business)) {
     return { ok: true, dry_run: true, ad_id: `dry_run_ad_${Date.now()}` };
   }
   return graphCall({
@@ -362,8 +368,8 @@ async function fetchCampaignInsights({
 //                    | { daily_budget: 1500 }  (cents) | { lifetime_budget: 30000 }
 async function updateCampaign({ business, campaignId, fields }) {
   if (!fields || Object.keys(fields).length === 0) return { ok: false, reason: 'no fields to update' };
-  if (!META_LAUNCH_LIVE()) {
-    return { ok: true, dry_run: true, campaign_id: campaignId, intended: fields, reason: 'META_AD_LAUNCH_LIVE=false' };
+  if (!adsLive(business)) {
+    return { ok: true, dry_run: true, campaign_id: campaignId, intended: fields, reason: DRY_RUN_REASON };
   }
   if (!business?.meta_access_token) return { ok: false, reason: 'meta token missing' };
   if (!campaignId) return { ok: false, reason: 'campaignId required' };
@@ -459,8 +465,8 @@ async function sendConversionEvent({ business, pixelId, event_name, event_data, 
 async function updateCampaignStatus({ business, metaCampaignId, status }) {
   if (!metaCampaignId) return { ok: false, reason: 'metaCampaignId required' };
   const s = String(status).toUpperCase() === 'PAUSED' ? 'PAUSED' : 'ACTIVE';
-  if (!META_LAUNCH_LIVE()) {
-    return { ok: true, dry_run: true, reason: 'META_AD_LAUNCH_LIVE=false', metaCampaignId, status: s };
+  if (!adsLive(business)) {
+    return { ok: true, dry_run: true, reason: DRY_RUN_REASON, metaCampaignId, status: s };
   }
   return graphCall({
     method: 'POST',
@@ -474,8 +480,8 @@ async function updateCampaignBudget({ business, metaCampaignId, dailyBudgetCents
   if (!metaCampaignId) return { ok: false, reason: 'metaCampaignId required' };
   const cents = Math.round(Number(dailyBudgetCents));
   if (!Number.isFinite(cents) || cents <= 0) return { ok: false, reason: 'invalid daily budget' };
-  if (!META_LAUNCH_LIVE()) {
-    return { ok: true, dry_run: true, reason: 'META_AD_LAUNCH_LIVE=false', metaCampaignId, daily_budget: cents };
+  if (!adsLive(business)) {
+    return { ok: true, dry_run: true, reason: DRY_RUN_REASON, metaCampaignId, daily_budget: cents };
   }
   return graphCall({
     method: 'POST',

@@ -43,6 +43,8 @@ const REQUIRED_FUNCTION_IDS = [
   // Week 1 additions — WF1 setInterval replacement + 4 orphan crons
   'wf1-daily-sweep-hourly',
   'wf1-measure-fallbacks-hourly',
+  'wf1-scheduled-publish',
+  'oauth-token-refresh-daily',
   'wf1-overnight-batch-submit-nightly',
   'wf1-overnight-batch-apply-poll',
   'anthropic-batch-reconcile-poll',
@@ -69,6 +71,8 @@ const EXPECTED_CRONS = {
   'weekly-scorecard-sun-22-utc': 'TZ=UTC 0 22 * * 0',
   'wf1-daily-sweep-hourly': 'TZ=UTC 0 * * * *',
   'wf1-measure-fallbacks-hourly': 'TZ=UTC 30 * * * *',
+  'wf1-scheduled-publish': 'TZ=UTC */15 * * * *',
+  'oauth-token-refresh-daily': 'TZ=UTC 0 4 * * *',
   'wf1-overnight-batch-submit-nightly': 'TZ=UTC 0 23 * * *',
   'wf1-overnight-batch-apply-poll': 'TZ=UTC */10 * * * *',
   'anthropic-batch-reconcile-poll': 'TZ=UTC */5 * * * *',

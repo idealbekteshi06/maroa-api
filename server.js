@@ -367,6 +367,19 @@ app.post('/webhook/stripe-webhook', stripeWebhookRawBody, async (req, res) => {
 // Paddle must register before express.json() so req.body stays a Buffer for HMAC.
 app.post('/webhook/paddle-webhook', paddleWebhookRawBody, paddleWebhookEntry);
 
+// Meta Lead Ads webhook — must also register BEFORE express.json (its
+// X-Hub-Signature-256 verifies the raw bytes) and before the /webhook auth
+// gate (Meta signs with the app secret; it cannot carry our JWT). The real
+// handlers bind late, once DB helpers exist in the deferred block.
+const metaLeadsRawBody = express.raw({ type: 'application/json', limit: '64kb' });
+let _leadCapture = null; // assigned in the deferred route-registration block
+app.get('/webhook/meta-leads', (req, res) =>
+  _leadCapture ? _leadCapture.metaLeadsVerify(req, res) : res.status(503).json({ error: 'booting' })
+);
+app.post('/webhook/meta-leads', metaLeadsRawBody, (req, res) =>
+  _leadCapture ? _leadCapture.metaLeadsIntake(req, res) : res.status(503).json({ error: 'booting' })
+);
+
 app.use(express.json({ limit: '10mb' }));
 
 // ─── Distributed-tracing: request-correlation IDs ──────────────────────────
@@ -534,6 +547,23 @@ async function sbPatch(table, filter, data) {
   if (![200, 201, 204].includes(r.status))
     throw new Error(`sbPatch ${table}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
   return true;
+}
+
+// Like sbPatch but returns the updated rows (Prefer: return=representation).
+// Used for atomic compare-and-swap claims: PATCH with a status-guard filter
+// (e.g. `id=eq.X&status=eq.scheduled`) updates 0 rows if another worker already
+// changed the status, so an empty result means "lost the claim". The WF1
+// scheduler relies on this to never double-publish.
+async function sbPatchReturning(table, filter, data) {
+  const r = await apiRequest(
+    'PATCH',
+    `${SUPABASE_URL}/rest/v1/${table}?${filter}`,
+    { ...sbH(), 'Content-Type': 'application/json', Prefer: 'return=representation' },
+    data
+  );
+  if (![200, 201, 204].includes(r.status))
+    throw new Error(`sbPatchReturning ${table}: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+  return Array.isArray(r.body) ? r.body : [];
 }
 
 async function sbDelete(table, filter) {
@@ -871,6 +901,14 @@ setImmediate(() => {
   app.use('/api/schema', requireAnyUserId); // /api/schema/:userId (READ side of schema)
   app.use('/api/pricing', requireAnyUserId); // /api/pricing/:userId (READ side of pricing)
   app.use('/api/sales', requireAnyUserId); // /api/sales/objection-handler + future siblings
+
+  // ─── Stream tickets — EventSource auth for the SSE routes ────────────────
+  // Browsers cannot attach an Authorization header to an EventSource, so the
+  // dashboard mints a short-lived signed ticket here (JWT-authed) and appends
+  // it as ?ticket= on GET /webhook/dashboard-events + /webhook/wf15-stream/:id.
+  // Verify side lives in middleware/requireAuthOrWebhookSecret.js.
+  app.use('/api/stream-ticket', requireAnyUserId);
+  require('./routes/stream-ticket').register({ app, sbGet, apiError, logger, env });
 
   // ─── Tenant isolation on /api/* routes that act on a business_id ──────────
   // requireAnyUserId proves the JWT matches the supplied userId, but NOT that
@@ -1838,6 +1876,31 @@ setImmediate(() => {
     callClaude,
   });
 
+  // Boot validation: Higgsfield is the ONLY media provider (no fallback), and
+  // its credentials are checked lazily at call time — so a missing env var
+  // used to surface as per-concept generation errors at 06:00 local, not at
+  // deploy. Warn loudly at boot instead. Not fatal: WF1 degrades media-
+  // required concepts (IG/TikTok/Story) to text platforms when media can't
+  // be produced, so content keeps flowing.
+  {
+    const hasCloudKeys = !!(process.env.HIGGSFIELD_API_KEY_ID && process.env.HIGGSFIELD_API_KEY_SECRET);
+    const hasFnfToken = !!process.env.HIGGSFIELD_BEARER_TOKEN;
+    if (!hasCloudKeys && !hasFnfToken) {
+      logger.warn(
+        'boot/higgsfield',
+        null,
+        'HIGGSFIELD credentials missing (HIGGSFIELD_API_KEY_ID/SECRET or HIGGSFIELD_BEARER_TOKEN) — ' +
+          'no images/videos can be generated; WF1 will degrade IG/TikTok/Story concepts to text-only posts'
+      );
+    } else if (!hasCloudKeys) {
+      logger.warn(
+        'boot/higgsfield',
+        null,
+        'Only HIGGSFIELD_BEARER_TOKEN set — Cloud API (Soul ID, preferred models) unavailable, FNF fallback only'
+      );
+    }
+  }
+
   // ─── Workflow #1 — Daily Content Engine ──────────────────────────────────────
   // Factory wires: context bundle, strategic decision, platform generation,
   // quality gate, guardrails, publisher, learning loop, daily orchestrator.
@@ -1860,13 +1923,30 @@ setImmediate(() => {
     ? _earlyBatchFactory({ apiKey: ANTHROPIC_KEY, logger, sbGet, sbPost, sbPatch })
     : null;
 
+  // OAuth token refresh for LinkedIn/Twitter/TikTok — created before WF1 so
+  // the publisher can refresh-and-retry a 401'd Twitter publish (2h expiry).
+  // The daily sweep route registers further down with the other cron targets.
+  const tokenRefresh = require('./services/token-refresh')({
+    sbGet,
+    sbPatch,
+    sbPost,
+    apiRequest,
+    env: process.env,
+    logger,
+  });
+
   const wf1 = createWf1({
     sbGet,
     sbPost,
     sbPatch,
+    // Atomic compare-and-swap for the publish scheduler's claim step
+    // (scheduled → publishing); without representation the sweep couldn't
+    // tell whether it won the row, risking double-publish.
+    sbPatchReturning,
     callClaude,
     extractJSON,
     apiRequest,
+    tokenRefresh,
     serpSearch,
     countryIntelligence: countryIntelligenceMod,
     checkOrchestrationIdempotency,
@@ -5463,6 +5543,26 @@ setImmediate(() => {
     storeInsight,
   });
 
+  // Lead/contact capture v1 — hosted embeddable form + Meta Lead Ads intake.
+  // Fuels the email + lead loops that previously ran on an empty contacts
+  // table (the only intakes were manual contact-create / CSV import). The
+  // /webhook/meta-leads shim registered pre-express.json binds here.
+  _leadCapture = require('./routes/lead-capture').register({
+    app,
+    express,
+    requireAnyUserId,
+    sbGet,
+    sbPost,
+    sbPatch,
+    apiRequest,
+    sbH,
+    SUPABASE_URL,
+    oauthCrypto: require('./lib/oauthCrypto'),
+    wf2,
+    markProcessed: require('./lib/webhookEvents').markProcessed,
+    log,
+  });
+
   // ═════════════════════════════════════════════════════════════════════════════
   // COMPETITOR INTEL — carved into routes/competitor-intel.js
   // 2 endpoints — competitor-analyze, competitor-report-get.
@@ -8315,8 +8415,11 @@ Return ONLY valid JSON:
 
   // ── PIECE 4: Real-Time Dashboard Events (SSE) ──────────────────────────────
   app.get('/webhook/dashboard-events', async (req, res) => {
-    if (req.authSource !== 'jwt' || !req.user) {
-      return apiError(res, 401, 'UNAUTHORIZED', 'JWT required for dashboard events (Authorization: Bearer)');
+    // 'stream-ticket' = short-lived signed ticket from POST /api/stream-ticket
+    // (EventSource cannot send an Authorization header). The webhook-secret
+    // machine path stays excluded — it carries no user to scope events to.
+    if ((req.authSource !== 'jwt' && req.authSource !== 'stream-ticket') || !req.user) {
+      return apiError(res, 401, 'UNAUTHORIZED', 'JWT or stream ticket required for dashboard events');
     }
     const { business_id } = req.query;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
@@ -10431,6 +10534,24 @@ Return ONLY valid JSON:
     }
   });
 
+  // ─── OAuth token refresh (LinkedIn / Twitter / TikTok) ────────────────────
+  // Daily cron target. Refresh tokens were stored at connect time and never
+  // used — access tokens rotted in 2h-60d and "connected" platforms silently
+  // died. The sweep keeps them alive and flips <platform>_connected=false
+  // (+ an oauth.reconnect_required event) when a refresh token is rejected.
+  // (Service instance created next to createWf1 so the publisher shares it.)
+  async function runOauthTokenRefresh(body = {}) {
+    return tokenRefresh.sweepAll({ limit: Number(body.limit || 200) });
+  }
+  internalDispatcher.register('/webhook/oauth-token-refresh', (body) => runOauthTokenRefresh(body || {}));
+  app.post('/webhook/oauth-token-refresh', async (req, res) => {
+    try {
+      res.json(await runOauthTokenRefresh(req.body || {}));
+    } catch (e) {
+      apiError(res, 500, 'OAUTH_TOKEN_REFRESH_FAILED', e.message);
+    }
+  });
+
   const EMAIL_STAGE_LABELS = {
     welcome: 'Welcome Series',
     nurture: 'Nurture',
@@ -11383,6 +11504,21 @@ Return ONLY valid JSON:
           }).catch(() => {});
         }
         return r;
+      },
+      // Kick the cold-start orchestrator for every completed onboarding —
+      // same loopback pattern the Paddle webhook uses for paid upgrades.
+      // Fire-and-forget; cold_start_runs' (business_id, run_date) uniqueness
+      // makes duplicate fires harmless.
+      triggerColdStart: ({ businessId, source }) => {
+        const internalSecret = process.env.N8N_WEBHOOK_SECRET || '';
+        return fetch(`http://127.0.0.1:${process.env.PORT || 3000}/webhook/cold-start-trigger`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(internalSecret ? { 'x-webhook-secret': internalSecret } : {}),
+          },
+          body: JSON.stringify({ businessId, source }),
+        });
       },
       // callContentGenerate is plumbed via a loopback HTTP call to
       // /api/content/generate so the route reuses the existing creative

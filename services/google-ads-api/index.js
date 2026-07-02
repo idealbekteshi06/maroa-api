@@ -35,6 +35,9 @@ const oauthCrypto = require('../../lib/oauthCrypto');
 const HOST = 'googleads.googleapis.com';
 const VERSION = 'v18';
 const GOOGLE_ADS_LIVE = () => String(process.env.GOOGLE_ADS_LIVE || '').toLowerCase() === 'true';
+// Per-business consent (migration 095): env flag stays a global override;
+// businesses.ads_live=true arms execution for one consenting customer.
+const adsLive = (business) => GOOGLE_ADS_LIVE() || business?.ads_live === true;
 
 // readToken prefers the encrypted *_enc column and falls back to legacy
 // plaintext. Synchronous (no I/O) — the business row is already fetched.
@@ -340,7 +343,7 @@ async function fetchEnhancedConversionsHealth({ business }) {
 // ─── PMax campaign create (gated behind GOOGLE_ADS_LIVE) ───────────────
 
 async function createPmaxCampaign({ business, payload }) {
-  if (!GOOGLE_ADS_LIVE()) {
+  if (!adsLive(business)) {
     return { ok: true, dry_run: true, resource_name: `dry_run_pmax_${Date.now()}` };
   }
   if (!isConfigured(business)) {
@@ -406,8 +409,8 @@ async function uploadEnhancedConversion({
   if (!isConfigured(business)) return { ok: false, reason: 'not configured' };
   // Writes real conversion data into the customer's Google Ads account (drives
   // bidding) — gate behind GOOGLE_ADS_LIVE like the other mutating calls.
-  if (!GOOGLE_ADS_LIVE()) {
-    return { ok: true, dry_run: true, reason: 'GOOGLE_ADS_LIVE=false' };
+  if (!adsLive(business)) {
+    return { ok: true, dry_run: true, reason: 'ads not live (GOOGLE_ADS_LIVE=false and business.ads_live=false)' };
   }
   const customerId = business.google_customer_id.replace(/-/g, '');
   return adsCall({
@@ -436,8 +439,14 @@ async function updateCampaignStatus({ business, campaignId, status }) {
   if (!isConfigured(business)) return { ok: false, reason: 'not configured' };
   // Map our internal status to Google's enum.
   const gStatus = String(status).toUpperCase() === 'PAUSED' ? 'PAUSED' : 'ENABLED';
-  if (!GOOGLE_ADS_LIVE()) {
-    return { ok: true, dry_run: true, reason: 'GOOGLE_ADS_LIVE=false', campaignId, status: gStatus };
+  if (!adsLive(business)) {
+    return {
+      ok: true,
+      dry_run: true,
+      reason: 'ads not live (GOOGLE_ADS_LIVE=false and business.ads_live=false)',
+      campaignId,
+      status: gStatus,
+    };
   }
   const customerId = business.google_customer_id.replace(/-/g, '');
   return adsCall({
