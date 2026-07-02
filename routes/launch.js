@@ -23,8 +23,14 @@ function register({
   safePublicError,
 }) {
   app.post('/api/launch/create', async (req, res) => {
-    const { userId, productName, launchDate, productDescription } = req.body;
-    if (!userId || !productName) return res.status(400).json({ error: 'userId and productName required' });
+    // Bind to the authenticated user, never a body-supplied userId — trusting
+    // req.body.userId let any signed-in caller create launches (and burn LLM
+    // spend) under another account. /api/launch has requireAnyUserId mounted
+    // (server.js), so req.user.id is always present here.
+    const userId = req.user?.id;
+    const { productName, launchDate, productDescription } = req.body;
+    if (!userId) return res.status(401).json({ error: 'Sign in first' });
+    if (!productName) return res.status(400).json({ error: 'productName required' });
     res.json({ received: true, message: 'Building launch campaign' });
     setImmediate(async () => {
       try {

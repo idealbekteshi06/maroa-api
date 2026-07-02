@@ -810,6 +810,12 @@ setImmediate(() => {
   app.use('/webhook/cold-start-trigger', costGuard);
   app.use('/webhook/instant-content', costGuard);
   app.use('/webhook/agency-generate', costGuard); // Wave 60 master pipeline
+  // Pre-launch audit 2026-07-02: these Claude-spending POST webhooks bypassed
+  // the per-business monthly cap. All POST-only, so the prefix mount can't gate
+  // a read.
+  app.use('/webhook/tiktok-campaign-create', costGuard);
+  app.use('/webhook/revenue-forecast', costGuard);
+  app.use('/webhook/wf10-create-job', costGuard);
 
   // Body-shape validation for critical webhooks.
   app.use('/webhook/instant-content', zodValidate(businessIdBody));
@@ -950,6 +956,11 @@ setImmediate(() => {
   app.use('/api/email-lifecycle', _idempotency.optional);
   app.use('/api/launch', _idempotency.optional);
   app.use('/api/generate', _idempotency.optional);
+  // Money + catalog mutations: a browser retry on a network blip must not
+  // double-fire. Checkout guards against duplicate Paddle sessions; store
+  // connect/sync guards against duplicate catalog ingests + Claude summaries.
+  app.use('/api/checkout', _idempotency.optional);
+  app.use('/api/store', _idempotency.optional);
 
   // ─── Universal decision logger (lib/decisionLog) ────────────────────────
   // Constructed here (above all agent factories) so every service that
@@ -8525,6 +8536,10 @@ Return ONLY valid JSON:
             plan,
             paddle_customer_id: data.customer_id,
             paddle_subscription_id: data.id,
+            // Recovery arm: (re)activation re-arms the account. Paired with the
+            // is_active:false set on payment_failed/past_due below, so a bounced
+            // card that later clears self-heals instead of staying bricked.
+            is_active: true,
           });
           const biz = (
             await sbGet('businesses', `id=eq.${businessId}&select=email,business_name,whatsapp_number,whatsapp_enabled`)
@@ -8596,15 +8611,20 @@ Return ONLY valid JSON:
       } else if (eventType === 'subscription.past_due' || eventType === 'transaction.payment_failed') {
         // Payment failed — downgrade to free
         const failBizId = data.custom_data?.business_id;
+        // is_active:false stops the 16 background crons (all select
+        // is_active=true) from burning LLM/Higgsfield money on an account that
+        // stopped paying. The subscription.activated recovery arm above flips
+        // it back to true when the card clears, so dunning self-heals.
+        const failPatch = { plan: 'free', plan_price: 0, is_active: false };
         if (failBizId) {
-          await sbPatch('businesses', `id=eq.${failBizId}`, { plan: 'free', plan_price: 0 });
+          await sbPatch('businesses', `id=eq.${failBizId}`, failPatch);
           logger.warn('/paddle/webhook', failBizId, 'Payment failed — downgraded to free', { event_type: eventType });
         } else if (data.subscription_id || data.id) {
           // Fallback: find by subscription ID
           const subId = data.subscription_id || data.id;
           const bizArr = await sbGet('businesses', `paddle_subscription_id=eq.${subId}&select=id`);
           if (bizArr[0]) {
-            await sbPatch('businesses', `id=eq.${bizArr[0].id}`, { plan: 'free', plan_price: 0 });
+            await sbPatch('businesses', `id=eq.${bizArr[0].id}`, failPatch);
             logger.warn('/paddle/webhook', bizArr[0].id, 'Payment failed — downgraded to free (by sub ID)', {
               event_type: eventType,
             });

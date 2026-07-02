@@ -72,16 +72,19 @@ test('routes/launch: registers two endpoints', () => {
   assert.ok(app._routes['GET /api/launch/:userId']);
 });
 
-test('routes/launch: create returns 400 without userId or productName', async () => {
+test('routes/launch: create returns 400 without productName, 401 without auth', async () => {
   const app = makeFakeApp();
   launch.register({ app, ...sharedDeps() });
   const handler = app._routes['POST /api/launch/create'];
+  // Authenticated but missing productName → 400
   const res1 = makeRes();
-  await handler({ body: { productName: 'X' } }, res1);
+  await handler({ user: { id: 'u1' }, body: {} }, res1);
   assert.strictEqual(res1._calls.status, 400);
+  // userId is now taken from req.user, never the body — an unauthenticated
+  // call (no req.user) must 401 even if the body supplies a userId.
   const res2 = makeRes();
-  await handler({ body: { userId: 'u1' } }, res2);
-  assert.strictEqual(res2._calls.status, 400);
+  await handler({ body: { userId: 'u1', productName: 'X' } }, res2);
+  assert.strictEqual(res2._calls.status, 401);
 });
 
 test('routes/launch: create inserts campaign with default 14-day launch date', async () => {
@@ -90,12 +93,13 @@ test('routes/launch: create inserts campaign with default 14-day launch date', a
   launch.register({ app, ...sharedDeps({ sbPost: db.sbPost }) });
   const handler = app._routes['POST /api/launch/create'];
   const before = Date.now();
-  await handler({ body: { userId: 'u1', productName: 'Widget' } }, makeRes());
+  await handler({ user: { id: 'u1' }, body: { productName: 'Widget' } }, makeRes());
   await new Promise((r) => setImmediate(r));
   await new Promise((r) => setImmediate(r));
   const rows = db.all('launch_campaigns');
   assert.strictEqual(rows.length, 1);
   assert.strictEqual(rows[0].product_name, 'Widget');
+  assert.strictEqual(rows[0].user_id, 'u1');
   assert.strictEqual(rows[0].phase, 'pre_launch');
   const launchTs = new Date(rows[0].launch_date).getTime();
   const fourteenDays = 14 * 86400000;
