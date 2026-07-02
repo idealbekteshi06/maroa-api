@@ -11452,7 +11452,6 @@ Return ONLY valid JSON:
   });
 
   // ─── 404 ──────────────────────────────────────────────────────────────────────
-  app.use((req, res) => apiError(res, 404, 'NOT_FOUND', `Route ${req.method} ${req.path} not found`));
   // ─── Meta Leads Webhook ────────────────────────────────────────────────────
   app.post('/webhook/meta-leads', async (req, res) => {
     const secret = req.get('x-webhook-secret');
@@ -11478,6 +11477,8 @@ Return ONLY valid JSON:
       return apiError(res, 500, 'WEBHOOK_ERROR', err.message);
     }
   });
+
+  app.use((req, res) => apiError(res, 404, 'NOT_FOUND', `Route ${req.method} ${req.path} not found`));
 
   app.use((err, req, res, next) => {
     if (err && String(err.message || '').includes('CORS')) {
