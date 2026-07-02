@@ -32,9 +32,44 @@ const {
   BRAIN_TOOLS,
 } = require('../prompts/workflow_15_ai_brain.js');
 const { buildBrandContext } = require('../wf1/brandContext.js');
+const { TOOL_SCHEMAS, TOOLS, executeTool } = require('./toolRegistry.js');
 
 function createWf15(deps) {
   const { sbGet, sbPost, sbPatch, callClaude, streamClaude, extractJSON, logger } = deps;
+
+  // Internal loopback to our own /webhook/* routes. These pass
+  // requireAuthOrWebhookSecret via the x-webhook-secret header, so the AI Brain
+  // can drive the whole app without a user JWT. Returns parsed JSON; throws on
+  // non-2xx so executeTool can convert it to a { error } tool_result.
+  function makeLoopback(businessId) {
+    const port = process.env.PORT || 3000;
+    const base = `http://127.0.0.1:${port}`;
+    const secret = process.env.N8N_WEBHOOK_SECRET;
+    async function loopback(method, path, body) {
+      const res = await globalThis.fetch(`${base}${path}`, {
+        method,
+        headers: {
+          'content-type': 'application/json',
+          'x-webhook-secret': secret,
+        },
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+        signal: AbortSignal.timeout(20000),
+      });
+      const text = await res.text();
+      let parsed;
+      try {
+        parsed = text ? JSON.parse(text) : {};
+      } catch {
+        parsed = { raw: text };
+      }
+      if (!res.ok) {
+        const msg = parsed?.error || parsed?.message || `HTTP ${res.status}`;
+        throw new Error(String(msg).slice(0, 300));
+      }
+      return parsed;
+    }
+    return { businessId, loopback, logger };
+  }
 
   async function resolveBrandContext(businessId) {
     const [bizRows, profileRows] = await Promise.all([
@@ -193,38 +228,122 @@ function createWf15(deps) {
 
     // Build prompt
     const system = buildBrainSystemPrompt(brandContext, memory);
-    const historyBlock = (history || [])
-      .filter((m) => m.role !== 'system')
-      .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
-      .join('\n\n');
-    const userPrompt = `${historyBlock}\n\nUSER: ${content}\n\nASSISTANT:`;
+
+    // Agentic message array: prior turns as plain-string content, then this turn.
+    const messages = (history || [])
+      .filter((m) => m.role !== 'system' && (m.role === 'user' || m.role === 'assistant') && m.content)
+      .map((m) => ({ role: m.role, content: String(m.content) }));
+    messages.push({ role: 'user', content });
+
+    const ctx = makeLoopback(businessId);
+    const write = (s) => {
+      if (res && !res.writableEnded) res.write(s);
+    };
 
     let fullText = '';
+    let stoppedForApproval = false;
     try {
-      if (streamClaude && res) {
-        // Real streaming path
-        fullText = await streamClaude({
-          model,
+      for (let iter = 0; iter < 6; iter++) {
+        const resp = await callClaude('', model, 2500, {
           system,
-          messages: [{ role: 'user', content: userPrompt }],
-          maxTokens: 2500,
+          messages,
+          extraTools: TOOL_SCHEMAS,
+          toolChoice: { type: 'auto' },
+          returnFullResponse: true,
           businessId,
-          onToken: (chunk) => {
-            if (!res.writableEnded) {
-              res.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
-            }
-          },
+          skill: 'wf15_brain',
+          skipGrounding: true,
         });
-      } else {
-        // Fallback: one-shot (when streamClaude not available or no res)
-        fullText = await callClaude(userPrompt, model, 2500, {
-          system,
-          businessId,
-          returnRaw: true,
-        });
+
+        const blocks = Array.isArray(resp?.content) ? resp.content : [];
+
+        // Stream text blocks to the client + accumulate.
+        for (const block of blocks) {
+          if (block?.type === 'text' && block.text) {
+            fullText += block.text;
+            write(`data: ${JSON.stringify({ text: block.text })}\n\n`);
+          }
+        }
+
+        const toolUses = blocks.filter((b) => b?.type === 'tool_use');
+        if (resp?.stop_reason !== 'tool_use' || toolUses.length === 0) {
+          break; // final turn — no tools requested
+        }
+
+        // Keep the Anthropic contract intact: the assistant turn (incl. its
+        // tool_use blocks) must be appended before any tool_result turns.
+        messages.push({ role: 'assistant', content: resp.content });
+
+        for (const tu of toolUses) {
+          const spec = TOOLS[tu.name];
+          const inputSummary = spec ? spec.summarize(tu.input) : tu.name;
+          const requiresApproval = spec ? spec.approval : true;
+
+          // Persist the tool-call row.
+          const row = await sbPost('brain_tool_calls', {
+            message_id: assistantMsg.id,
+            business_id: businessId,
+            tool: tu.name,
+            input: tu.input || {},
+            input_summary: inputSummary,
+            status: requiresApproval ? 'awaiting_approval' : 'running',
+            rationale: fullText.slice(-280) || null,
+            requires_approval: requiresApproval,
+            started_at: new Date().toISOString(),
+          }).catch(() => null);
+
+          const rowId = row?.id || tu.id;
+
+          // Emit the tool_call card.
+          write(
+            `event: tool_call\ndata: ${JSON.stringify({
+              toolCall: {
+                id: rowId,
+                tool: tu.name,
+                inputSummary,
+                status: requiresApproval ? 'awaiting_approval' : 'running',
+                requiresApproval,
+                rationale: fullText.slice(-280) || undefined,
+                startedAt: new Date().toISOString(),
+              },
+            })}\n\n`
+          );
+
+          if (requiresApproval) {
+            // Gated — the user must approve. End the turn here; toolDecision()
+            // executes on approve. (Simplest correct behavior per spec.)
+            stoppedForApproval = true;
+            continue;
+          }
+
+          // Auto-run safe tool.
+          write(`event: tool_update\ndata: ${JSON.stringify({ id: rowId, status: 'running' })}\n\n`);
+          const result = await executeTool(tu.name, tu.input, ctx);
+          const status = result && result.error ? 'failed' : 'completed';
+          await sbPatch('brain_tool_calls', `id=eq.${rowId}&business_id=eq.${businessId}`, {
+            status,
+            result,
+            completed_at: new Date().toISOString(),
+          }).catch(() => {});
+          write(`event: tool_result\ndata: ${JSON.stringify({ id: rowId, result, status })}\n\n`);
+
+          // Feed the result back to Claude for the next iteration.
+          messages.push({
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: tu.id,
+                content: JSON.stringify(result).slice(0, 4000),
+              },
+            ],
+          });
+        }
+
+        if (stoppedForApproval) break;
       }
     } catch (e) {
-      // Stream error — notify client and save error state
+      // Surface Anthropic credit-exhaustion / any loop error cleanly.
       if (res && !res.writableEnded) {
         res.write(`event: error\ndata: ${JSON.stringify({ message: e.message || 'Stream failed' })}\n\n`);
         res.end();
@@ -297,13 +416,19 @@ function createWf15(deps) {
       });
       return { ok: true, status: 'rejected' };
     }
-    // approve: mark status completed (actual execution dispatched by workflow-specific code)
+
+    // approve: actually run the gated tool now. `edits` lets the owner tweak the
+    // proposed input before it executes.
+    const input = edits && typeof edits === 'object' ? { ...(toolCall.input || {}), ...edits } : toolCall.input || {};
+    const ctx = makeLoopback(businessId);
+    const result = await executeTool(toolCall.tool, input, ctx);
+    const status = result && result.error ? 'failed' : 'completed';
     await sbPatch('brain_tool_calls', scope, {
-      status: 'completed',
+      status,
+      result,
       completed_at: new Date().toISOString(),
-      result: edits ? { ...(toolCall.result || {}), edits } : toolCall.result,
     });
-    return { ok: true, status: 'completed' };
+    return { ok: true, status, result };
   }
 
   async function explainDecision({ businessId, messageId }) {

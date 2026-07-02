@@ -1297,7 +1297,12 @@ setImmediate(() => {
     for (const iblk of extra.imageBlocks || []) docBlocks.push(iblk);
     userContent = docBlocks.length === 0 ? prompt : [...docBlocks, { type: 'text', text: prompt }];
 
-    const body = { model, max_tokens: maxTokens, messages: [{ role: 'user', content: userContent }] };
+    // extra.messages overrides the default single-user-turn body — required for
+    // multi-turn agentic loops (tool_use → tool_result → …). When present, the
+    // `prompt` arg is ignored and the caller owns the full messages array.
+    const body = Array.isArray(extra.messages)
+      ? { model, max_tokens: maxTokens, messages: extra.messages }
+      : { model, max_tokens: maxTokens, messages: [{ role: 'user', content: userContent }] };
 
     // Anthropic prompt caching — three shapes accepted (Wave 59 S2):
     //
@@ -1337,7 +1342,7 @@ setImmediate(() => {
     }
 
     const { attachToolsToBody } = require('./lib/claudeAnthropicTools');
-    if (extra.advisor || extra.webSearch || extra.codeExecution) {
+    if (extra.advisor || extra.webSearch || extra.codeExecution || (extra.extraTools && extra.extraTools.length)) {
       attachToolsToBody(body, {
         advisor: extra.advisor
           ? { model: extra.advisor.model || 'claude-opus-4-7', maxUses: extra.advisor.max_uses || 3 }
@@ -1349,7 +1354,12 @@ setImmediate(() => {
             }
           : null,
         codeExecution: extra.codeExecution || null,
+        // Caller-defined function tools (e.g. WF15 AI Brain's action tools).
+        extraTools: extra.extraTools || [],
       });
+      // Let the caller steer tool choice (e.g. {type:'auto'}); default stays
+      // Anthropic's own default when unset.
+      if (extra.toolChoice) body.tool_choice = extra.toolChoice;
     }
 
     const { buildDiagnosticsPayload, ingestResponse } = require('./lib/cacheDiagnostics');
