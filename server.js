@@ -11554,6 +11554,51 @@ Return ONLY valid JSON:
     logger?.warn?.('onboarding', null, 'route register failed', { error: e.message });
   }
 
+  // Paid Ads hub: TikTok campaign create/list + per-channel overview. The
+  // wizard extension inside meta/google campaign-create rides along in their
+  // own route files (lib/adWizard.js).
+  try {
+    require('./routes/paid-ads').register({
+      app,
+      sbGet,
+      sbPost,
+      sbPatch,
+      callClaude,
+      apiError,
+      log,
+      logError,
+      tiktokAds: require('./services/tiktok-ads'),
+      env: process.env,
+    });
+  } catch (e) {
+    logger?.warn?.('paid-ads', null, 'route register failed', { error: e.message });
+  }
+
+  // Store connect (Shopify / dropshipping): catalog ingestion + automation
+  // switch. Migration 096 must be applied before first use.
+  try {
+    const shopifyService = require('./services/shopify').createShopifyService({
+      sbGet,
+      sbPost,
+      sbPatch,
+      sbDelete,
+      callClaude,
+      extractJSON,
+      logger,
+    });
+    require('./routes/shopify').register({
+      app,
+      shopify: shopifyService,
+      requireAnyUserId,
+      apiError,
+      sbGet,
+      log,
+      express,
+    });
+  } catch (e) {
+    logger?.warn?.('shopify', null, 'route register failed', { error: e.message });
+  }
+
   // Internal webhook to trigger the weekly-scorecard batch orchestrator
   // (Anthropic Batches API → 50% list price). Webhook-secret gated so only
   // Inngest's cron (or an operator with the secret) can invoke it.

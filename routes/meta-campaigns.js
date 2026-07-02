@@ -21,6 +21,7 @@ const oauthCrypto = require('../lib/oauthCrypto');
 const { validateMonthlyBudget } = require('../lib/adBudgetGuard');
 const { THREADS_PLACEMENTS, THREADS_OBJECTIVES, graphBaseUrl } = require('../lib/metaMetrics');
 const { buildAdProfileContext } = require('../lib/onboardingProfile');
+const { normalizeWizard, wizardDailyBudget, wizardPromptBlock } = require('../lib/adWizard');
 
 // Selector for businesses rows used by Meta routes. Reads encrypted column;
 // keep the plaintext column name in the list too in case a row predates
@@ -49,6 +50,13 @@ function register({
   app.post('/webhook/meta-campaign-create', planGate('paid_ads'), async (req, res) => {
     const { business_id, objective = 'OUTCOME_TRAFFIC', monthly_budget = 300 } = req.body;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
+    // Optional guided-wizard answers (Paid Ads hub). When present, the user's
+    // budget/audience are hard constraints injected into the strategy prompt
+    // and the wizard daily budget overrides the monthly-derived one. Absent
+    // wizard = legacy behavior, unchanged.
+    const wizard = normalizeWizard(req.body?.wizard);
+    const wizardDaily = wizardDailyBudget(wizard);
+    const effectiveMonthly = wizardDaily ? Math.round(wizardDaily * 30) : monthly_budget;
 
     try {
       const biz = (
@@ -57,7 +65,7 @@ function register({
       if (!biz) return res.status(404).json({ error: 'business not found' });
       // Plan-aware hard ceiling. Refuse early before we burn Claude budget
       // strategizing a campaign the customer can't actually run.
-      const budgetCheck = validateMonthlyBudget({ plan: biz.plan, monthlyBudget: monthly_budget });
+      const budgetCheck = validateMonthlyBudget({ plan: biz.plan, monthlyBudget: effectiveMonthly });
       if (!budgetCheck.ok) {
         return res.status(400).json({ error: budgetCheck.code, detail: budgetCheck.detail });
       }
@@ -82,11 +90,12 @@ function register({
 
         setImmediate(async () => {
           try {
-            const dailyBudget = Math.max(1, Math.round(monthly_budget / 30));
+            const dailyBudget = wizardDaily || Math.max(1, Math.round(monthly_budget / 30));
             const strategyPrompt = `You are a Meta Ads expert. Create a campaign strategy for ${biz.business_name} (${biz.industry}).
-  Goal: ${biz.marketing_goal || 'grow'} | Budget: $${monthly_budget}/mo | Audience: ${biz.target_audience || 'general'}
+  Goal: ${biz.marketing_goal || 'grow'} | Budget: $${effectiveMonthly}/mo | Audience: ${biz.target_audience || 'general'}
   Location: ${biz.location || 'United States'} | Tone: ${biz.brand_tone || 'professional'}
   ${profileContext}
+  ${wizardPromptBlock(wizard)}
   Return ONLY valid JSON: { "objective": "OUTCOME_TRAFFIC", "daily_budget_usd": ${dailyBudget}, "targeting": { "age_min": 25, "age_max": 55 }, "creatives": [{ "headline": "max 40 chars", "primary_text": "max 125 chars", "description": "max 30 chars", "cta": "LEARN_MORE", "image_prompt": "image description" }] }`;
             const strategy = await callClaude(strategyPrompt, 'strategy', 1500);
             const creatives = Array.isArray(strategy.creatives) ? strategy.creatives.slice(0, 3) : [];
@@ -141,7 +150,7 @@ function register({
 
     try {
       const biz = (await sbGet('businesses', `id=eq.${business_id}&select=${META_BIZ_SELECT}`))[0];
-      const dailyBudget = Math.max(1, Math.round(monthly_budget / 30));
+      const dailyBudget = wizardDaily || Math.max(1, Math.round(monthly_budget / 30));
       const accountId = actId(biz.ad_account_id);
       const token = oauthCrypto.readToken(biz, 'meta_access_token');
       if (!token) {
@@ -162,13 +171,14 @@ function register({
   
   Create a complete Meta Ads campaign strategy for ${biz.business_name} (${biz.industry}).
   Goal: ${biz.marketing_goal || 'grow brand awareness and leads'}
-  Monthly budget: $${monthly_budget}
+  Monthly budget: $${effectiveMonthly}
   Target audience: ${biz.target_audience || 'general consumers'}
   Location: ${biz.location || 'United States'}
   Competitors: ${biz.competitors ? JSON.stringify(biz.competitors).slice(0, 200) : 'not specified'}
   Brand tone: ${biz.brand_tone || 'professional and friendly'}
   ${profileContext}
-  
+  ${wizardPromptBlock(wizard)}
+
   Return exactly this JSON:
   {
     "objective": "${objective}",
@@ -220,7 +230,8 @@ function register({
         targeting.instagram_positions = ['stream', 'story', 'reels'];
         targeting.threads_positions = THREADS_PLACEMENTS;
       }
-      const campBudget = strategy.daily_budget_usd || dailyBudget;
+      // User-specified wizard budget beats the AI's suggestion.
+      const campBudget = wizardDaily || strategy.daily_budget_usd || dailyBudget;
 
       // 2. Generate images via Flux / Pexels fallback → save to Supabase Storage
       const creativesWithImages = [];

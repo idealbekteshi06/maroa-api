@@ -21,6 +21,7 @@
  */
 const oauthCrypto = require('../lib/oauthCrypto');
 const { validateMonthlyBudget } = require('../lib/adBudgetGuard');
+const { normalizeWizard, wizardDailyBudget, wizardPromptBlock } = require('../lib/adWizard');
 
 const G_BIZ_SELECT =
   'business_name,email,first_name,industry,target_audience,location,brand_tone,marketing_goal,' +
@@ -72,6 +73,12 @@ function register({
   app.post('/webhook/google-campaign-create', planGate('paid_ads'), async (req, res) => {
     const { business_id, monthly_budget = 200 } = req.body;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
+    // Optional guided-wizard answers (Paid Ads hub). Wizard daily budget
+    // overrides the monthly-derived one; other answers become hard constraints
+    // in the strategy prompt. Absent wizard = legacy behavior, unchanged.
+    const wizard = normalizeWizard(req.body?.wizard);
+    const wizardDaily = wizardDailyBudget(wizard);
+    const effectiveMonthly = wizardDaily ? Math.round(wizardDaily * 30) : monthly_budget;
 
     // ── Preflight: business + connection + dev token ──────────────────
     try {
@@ -80,7 +87,7 @@ function register({
       )[0];
       if (!biz) return res.status(404).json({ error: 'business not found' });
       // Plan-aware hard ceiling on monthly_budget.
-      const budgetCheck = validateMonthlyBudget({ plan: biz.plan, monthlyBudget: monthly_budget });
+      const budgetCheck = validateMonthlyBudget({ plan: biz.plan, monthlyBudget: effectiveMonthly });
       if (!budgetCheck.ok) {
         return res.status(400).json({ error: budgetCheck.code, detail: budgetCheck.detail });
       }
@@ -114,16 +121,16 @@ function register({
       const customerId = gCid(biz.google_ads_customer_id);
       const token = oauthCrypto.readToken(biz, 'google_access_token');
       const finalUrl = normalizeUrl(biz.website_url);
-      const dailyBudget = Math.max(1, Math.round(monthly_budget / 30));
+      const dailyBudget = wizardDaily || Math.max(1, Math.round(monthly_budget / 30));
 
       // 1. Claude Opus — Google Search strategy
       const stratPrompt = `You are a Google Ads expert. Return ONLY valid JSON, no markdown.
 
 Create a Google Search Ads campaign for ${biz.business_name} (${biz.industry}).
-Goal: ${biz.marketing_goal || 'generate leads'} | Budget: $${monthly_budget}/month | Location: ${biz.location || 'United States'}
+Goal: ${biz.marketing_goal || 'generate leads'} | Budget: $${effectiveMonthly}/month | Location: ${biz.location || 'United States'}
 Target audience: ${biz.target_audience || 'general consumers'} | Tone: ${biz.brand_tone || 'professional'}
 Landing page: ${finalUrl}
-
+${wizardPromptBlock(wizard)}
 Return exactly:
 {
   "campaign_name": "string",
