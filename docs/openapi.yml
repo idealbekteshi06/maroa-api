@@ -9094,6 +9094,130 @@ paths:
             schema:
               type: object
               additionalProperties: true
+  /webhook/tiktok-campaign-create:
+    post:
+      tags:
+        - webhook
+      summary: 'POST /webhook/tiktok-campaign-create'
+      description: 'Automation webhook (POST /webhook/tiktok-campaign-create). See docs/openapi-overrides.json for detail.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        description: 'Request body — hand-edit shape per route'
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /webhook/tiktok-campaigns-get:
+    get:
+      tags:
+        - webhook
+      summary: 'GET /webhook/tiktok-campaigns-get'
+      description: 'Automation webhook (GET /webhook/tiktok-campaigns-get). See docs/openapi-overrides.json for detail.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /webhook/paid-ads-overview:
+    get:
+      tags:
+        - webhook
+      summary: 'GET /webhook/paid-ads-overview'
+      description: 'Automation webhook (GET /webhook/paid-ads-overview). See docs/openapi-overrides.json for detail.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
   /api/referral/setup:
     post:
       tags:
@@ -9454,6 +9578,183 @@ paths:
         - webhook
       summary: 'POST /webhook/cro-generate-copy'
       description: 'Automation webhook (POST /webhook/cro-generate-copy). See docs/openapi-overrides.json for detail.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        description: 'Request body — hand-edit shape per route'
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /api/store/connect:
+    post:
+      tags:
+        - api
+      summary: 'POST /api/store/connect'
+      description: 'Dashboard API (POST /api/store/connect); JWT required unless public.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        description: 'Request body — hand-edit shape per route'
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /api/store/products:
+    get:
+      tags:
+        - api
+      summary: 'GET /api/store/products'
+      description: 'Dashboard API (GET /api/store/products); JWT required unless public.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/store/sync:
+    post:
+      tags:
+        - api
+      summary: 'POST /api/store/sync'
+      description: 'Dashboard API (POST /api/store/sync); JWT required unless public.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        description: 'Request body — hand-edit shape per route'
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /api/store/automation:
+    post:
+      tags:
+        - api
+      summary: 'POST /api/store/automation'
+      description: 'Dashboard API (POST /api/store/automation); JWT required unless public.'
       responses:
         200:
           description: 'Successful response'

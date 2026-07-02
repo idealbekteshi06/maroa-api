@@ -1,4 +1,4 @@
--- Migration 093 — scheduled publishing for WF1 content_assets
+-- Migration 097 — scheduled publishing for WF1 content_assets
 --
 -- WHY: content_assets.posting_time_local ("HH:MM", set by the WF1 engine from
 -- grounded best-time signals) was stored but NEVER honored — every approved or
@@ -21,7 +21,7 @@
 DO $$
 BEGIN
   IF to_regclass('public.content_assets') IS NULL THEN
-    RAISE NOTICE 'content_assets table absent — skipping 093 scheduled-publishing columns';
+    RAISE NOTICE 'content_assets table absent — skipping 097 scheduled-publishing columns';
     RETURN;
   END IF;
 
