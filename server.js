@@ -6185,7 +6185,7 @@ Return ONLY valid JSON:
     const { business_id } = req.query;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
     try {
-      const tests = await sbGet('ab_tests', `business_id=eq.${business_id}&order=started_at.desc&limit=20`);
+      const tests = await sbGet('ab_tests', `business_id=eq.${business_id}&order=tested_at.desc&limit=20`);
 
       const summary = {
         total: tests.length,
