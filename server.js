@@ -10172,6 +10172,19 @@ Return ONLY valid JSON:
     verifyUserJwt,
   });
 
+  // ─── OAuth token refresh (rebuild of lost feature #2) ───────────────────
+  // Proactive scheduled refresh of short-lived LinkedIn / Twitter-X / TikTok
+  // access tokens (Inngest cron `oauth-token-refresh-hourly`). Connections must
+  // not silently die between logins.
+  const { registerTokenRefreshRoutes } = require('./services/oauth/registerRoutes');
+  registerTokenRefreshRoutes({ app, apiError, sbGet, sbPatch, logger });
+
+  // ─── Publish scheduler (rebuild of lost feature #3) ─────────────────────
+  // 15-min cron publishes due content at its slot (posting_time_local / tz +
+  // generated_content.scheduled_for), idempotent via published_at.
+  const { registerPublishSchedulerRoutes } = require('./services/publish-scheduler/registerRoutes');
+  registerPublishSchedulerRoutes({ app, apiError, sbGet, sbPost, sbPatch, apiRequest, logger });
+
   // ─── Cold-start onboarding ──────────────────────────────────────────────────
   // Drives a new business through industry-classify → competitor-detect →
   // brand-voice → Soul ID → concepts → campaign launch → content → AI-SEO.
@@ -11575,6 +11588,32 @@ Return ONLY valid JSON:
   });
 
   // ─── 404 ──────────────────────────────────────────────────────────────────────
+  // ─── Meta Leads Webhook ────────────────────────────────────────────────────
+  app.post('/webhook/meta-leads', async (req, res) => {
+    const secret = req.get('x-webhook-secret');
+    if (!secret || secret !== process.env.N8N_WEBHOOK_SECRET) {
+      return apiError(res, 401, 'UNAUTHORIZED', 'Invalid or missing x-webhook-secret');
+    }
+    try {
+      const { leadgen_id, field_data } = req.body;
+      if (!leadgen_id || !field_data) {
+        return apiError(res, 400, 'INVALID_LEAD', 'Missing leadgen_id or field_data');
+      }
+      let email;
+      field_data.forEach((field) => {
+        if (field.name === 'email') email = field.value;
+      });
+      if (!email) {
+        return apiError(res, 400, 'INVALID_EMAIL', 'No email in lead data');
+      }
+      logger.info('meta-leads', null, 'Lead received', { leadgen_id, email });
+      res.json({ success: true, lead_id: leadgen_id });
+    } catch (err) {
+      logger.error('meta-leads', null, 'Webhook error', err);
+      return apiError(res, 500, 'WEBHOOK_ERROR', err.message);
+    }
+  });
+
   app.use((req, res) => apiError(res, 404, 'NOT_FOUND', `Route ${req.method} ${req.path} not found`));
 
   app.use((err, req, res, next) => {
