@@ -36,6 +36,12 @@
  */
 
 const crypto = require('crypto');
+const { isUuid } = require('../../lib/assertBusinessOwner');
+
+// Rule 4: business_id arrives from external Stripe event metadata. Build every
+// PostgREST filter through this so it's UUID-validated + encoded — returns null
+// for a non-UUID so the caller can skip the write instead of injecting.
+const bizFilter = (id) => (isUuid(id) ? `id=eq.${encodeURIComponent(id)}` : null);
 
 const STRIPE_PRICE_TO_PLAN = {};
 if (process.env.STRIPE_GROWTH_PRICE_ID) STRIPE_PRICE_TO_PLAN[process.env.STRIPE_GROWTH_PRICE_ID] = 'growth';
@@ -85,18 +91,19 @@ async function handleStripeEvent({ event, sbGet, sbPatch, sbPost, sendEmail, log
       const businessId = obj.metadata?.business_id || obj.client_reference_id;
       const priceId = obj.items?.data?.[0]?.price?.id || obj.line_items?.data?.[0]?.price?.id;
       const plan = obj.metadata?.plan || STRIPE_PRICE_TO_PLAN[priceId] || 'starter';
-      if (!businessId) {
-        result.actions.push({ skipped: 'no business_id in metadata' });
+      const bizf = bizFilter(businessId);
+      if (!bizf) {
+        result.actions.push({ skipped: 'no valid business_id in metadata' });
         return result;
       }
 
       // Check prior plan to determine if this is FIRST paid activation
-      const priorRows = await sbGet('businesses', `id=eq.${businessId}&select=plan`).catch(() => []);
+      const priorRows = await sbGet('businesses', `${bizf}&select=plan`).catch(() => []);
       const priorPlan = priorRows?.[0]?.plan || 'free';
       const wasOnFreeOrUnpaid = priorPlan === 'free' || priorPlan === 'starter' || !priorPlan;
       const isNowPaid = plan === 'growth' || plan === 'agency';
 
-      await sbPatch('businesses', `id=eq.${businessId}`, {
+      await sbPatch('businesses', bizf, {
         plan,
         stripe_customer_id: obj.customer,
         stripe_subscription_id: obj.subscription || obj.id,
@@ -134,8 +141,9 @@ async function handleStripeEvent({ event, sbGet, sbPatch, sbPost, sendEmail, log
       const businessId = obj.metadata?.business_id;
       const priceId = obj.items?.data?.[0]?.price?.id;
       const plan = obj.metadata?.plan || STRIPE_PRICE_TO_PLAN[priceId] || null;
-      if (businessId && plan) {
-        await sbPatch('businesses', `id=eq.${businessId}`, { plan });
+      const bizf = bizFilter(businessId);
+      if (bizf && plan) {
+        await sbPatch('businesses', bizf, { plan });
         result.actions.push({ plan_updated: plan });
       }
       return result;
@@ -144,14 +152,18 @@ async function handleStripeEvent({ event, sbGet, sbPatch, sbPost, sendEmail, log
     // ── customer.subscription.deleted → downgrade to free ──
     if (t === 'customer.subscription.deleted') {
       const businessId = obj.metadata?.business_id;
-      if (businessId) {
-        await sbPatch('businesses', `id=eq.${businessId}`, { plan: 'free' });
+      const bizf = bizFilter(businessId);
+      if (bizf) {
+        await sbPatch('businesses', bizf, { plan: 'free' });
         result.actions.push({ plan_downgraded: 'free' });
       } else {
-        // Fallback: find by stripe_subscription_id
-        const rows = await sbGet('businesses', `stripe_subscription_id=eq.${obj.id}&select=id`).catch(() => []);
+        // Fallback: find by stripe_subscription_id (a Stripe string id, not UUID)
+        const rows = await sbGet(
+          'businesses',
+          `stripe_subscription_id=eq.${encodeURIComponent(obj.id)}&select=id`
+        ).catch(() => []);
         if (rows[0]) {
-          await sbPatch('businesses', `id=eq.${rows[0].id}`, { plan: 'free' });
+          await sbPatch('businesses', `id=eq.${encodeURIComponent(rows[0].id)}`, { plan: 'free' });
           result.actions.push({ plan_downgraded_by_subscription_lookup: 'free' });
         }
       }
@@ -164,8 +176,9 @@ async function handleStripeEvent({ event, sbGet, sbPatch, sbPost, sendEmail, log
       // unrecoverable. We downgrade only if attempt_count >= 4.
       const businessId = obj.subscription_details?.metadata?.business_id;
       const attempts = obj.attempt_count || 1;
-      if (businessId && attempts >= 4) {
-        await sbPatch('businesses', `id=eq.${businessId}`, { plan: 'free', plan_price: 0 });
+      const bizf = bizFilter(businessId);
+      if (bizf && attempts >= 4) {
+        await sbPatch('businesses', bizf, { plan: 'free', plan_price: 0 });
         result.actions.push({ plan_downgraded_after_retries: attempts });
         logger?.warn?.('/stripe/webhook', businessId, `Payment failed ${attempts}× — downgraded to free`);
       } else {

@@ -701,7 +701,7 @@ setImmediate(() => {
   }
 
   const { requireAuthOrWebhookSecret } = require('./middleware/requireAuthOrWebhookSecret');
-  const { assertBusinessOwnerMiddleware } = require('./lib/assertBusinessOwner');
+  const { assertBusinessOwnerMiddleware, isUuid } = require('./lib/assertBusinessOwner');
   app.use('/webhook', requireAuthOrWebhookSecret);
   app.use('/webhook', assertBusinessOwnerMiddleware({ sbGet, apiError, logger }));
   app.use('/api/business', assertBusinessOwnerMiddleware({ sbGet, apiError, logger }));
@@ -5259,6 +5259,9 @@ setImmediate(() => {
   app.post('/api/checkout', async (req, res) => {
     const { user_id, plan, success_url } = req.body;
     if (!user_id || !plan) return res.status(400).json({ error: 'user_id and plan required' });
+    // Rule 4: anything that lands in a PostgREST filter is UUID-validated +
+    // encoded at the boundary. user_id is the businesses.id / auth uid.
+    if (!isUuid(user_id)) return res.status(400).json({ error: 'user_id must be a valid UUID' });
 
     if (!paddle.PADDLE_API_KEY) return res.status(500).json({ error: 'PADDLE_API_KEY not set in Railway env vars' });
 
@@ -5271,7 +5274,9 @@ setImmediate(() => {
 
     let biz;
     try {
-      biz = (await sbGet('businesses', `id=eq.${user_id}&select=email,first_name,business_name`))[0];
+      biz = (
+        await sbGet('businesses', `id=eq.${encodeURIComponent(user_id)}&select=email,first_name,business_name`)
+      )[0];
     } catch (err) {
       return res.status(500).json({ error: 'Database error', detail: err.message });
     }
@@ -8533,16 +8538,17 @@ Return ONLY valid JSON:
         const businessId = customData.business_id;
         const priceId = data.items?.[0]?.price?.id;
         const plan = customData.plan || PADDLE_PRICE_TO_PLAN[priceId] || 'starter';
-        if (businessId) {
+        // business_id arrives from an external Paddle webhook payload — Rule 4:
+        // validate it's a UUID + encode before it touches a PostgREST filter.
+        if (businessId && isUuid(businessId)) {
+          const encBiz = encodeURIComponent(businessId);
           // Check the PRIOR plan so we know if this is "first activation" vs renewal
-          const priorRows = await sbGet('businesses', `id=eq.${businessId}&select=plan,onboarding_state`).catch(
-            () => []
-          );
+          const priorRows = await sbGet('businesses', `id=eq.${encBiz}&select=plan,onboarding_state`).catch(() => []);
           const priorPlan = priorRows?.[0]?.plan || 'free';
           const wasOnFreeOrUnpaid = priorPlan === 'free' || priorPlan === 'starter' || !priorPlan;
           const isNowPaid = plan === 'growth' || plan === 'agency';
 
-          await sbPatch('businesses', `id=eq.${businessId}`, {
+          await sbPatch('businesses', `id=eq.${encBiz}`, {
             plan,
             paddle_customer_id: data.customer_id,
             paddle_subscription_id: data.id,
@@ -8626,15 +8632,17 @@ Return ONLY valid JSON:
         // stopped paying. The subscription.activated recovery arm above flips
         // it back to true when the card clears, so dunning self-heals.
         const failPatch = { plan: 'free', plan_price: 0, is_active: false };
-        if (failBizId) {
-          await sbPatch('businesses', `id=eq.${failBizId}`, failPatch);
+        // Rule 4: both the external business_id and the Paddle subscription id
+        // are validated/encoded before hitting a PostgREST filter.
+        if (failBizId && isUuid(failBizId)) {
+          await sbPatch('businesses', `id=eq.${encodeURIComponent(failBizId)}`, failPatch);
           logger.warn('/paddle/webhook', failBizId, 'Payment failed — downgraded to free', { event_type: eventType });
         } else if (data.subscription_id || data.id) {
-          // Fallback: find by subscription ID
+          // Fallback: find by subscription ID (a Paddle string id, not a UUID)
           const subId = data.subscription_id || data.id;
-          const bizArr = await sbGet('businesses', `paddle_subscription_id=eq.${subId}&select=id`);
+          const bizArr = await sbGet('businesses', `paddle_subscription_id=eq.${encodeURIComponent(subId)}&select=id`);
           if (bizArr[0]) {
-            await sbPatch('businesses', `id=eq.${bizArr[0].id}`, failPatch);
+            await sbPatch('businesses', `id=eq.${encodeURIComponent(bizArr[0].id)}`, failPatch);
             logger.warn('/paddle/webhook', bizArr[0].id, 'Payment failed — downgraded to free (by sub ID)', {
               event_type: eventType,
             });
@@ -11664,30 +11672,11 @@ Return ONLY valid JSON:
 
   // ─── 404 ──────────────────────────────────────────────────────────────────────
   // ─── Meta Leads Webhook ────────────────────────────────────────────────────
-  app.post('/webhook/meta-leads', async (req, res) => {
-    const secret = req.get('x-webhook-secret');
-    if (!secret || secret !== process.env.N8N_WEBHOOK_SECRET) {
-      return apiError(res, 401, 'UNAUTHORIZED', 'Invalid or missing x-webhook-secret');
-    }
-    try {
-      const { leadgen_id, field_data } = req.body;
-      if (!leadgen_id || !field_data) {
-        return apiError(res, 400, 'INVALID_LEAD', 'Missing leadgen_id or field_data');
-      }
-      let email;
-      field_data.forEach((field) => {
-        if (field.name === 'email') email = field.value;
-      });
-      if (!email) {
-        return apiError(res, 400, 'INVALID_EMAIL', 'No email in lead data');
-      }
-      logger.info('meta-leads', null, 'Lead received', { leadgen_id, email });
-      res.json({ success: true, lead_id: leadgen_id });
-    } catch (err) {
-      logger.error('meta-leads', null, 'Webhook error', err);
-      return apiError(res, 500, 'WEBHOOK_ERROR', err.message);
-    }
-  });
+  // NOTE: the real /webhook/meta-leads handler (GET verify + HMAC-verified POST
+  // with raw-body parsing) is registered near the top of this file. A second
+  // POST registration here was dead code — Express matches the first route for
+  // a given method+path — and used a weaker x-webhook-secret check, so it was
+  // removed in the 2026-07 pre-launch audit.
 
   app.use((req, res) => apiError(res, 404, 'NOT_FOUND', `Route ${req.method} ${req.path} not found`));
 

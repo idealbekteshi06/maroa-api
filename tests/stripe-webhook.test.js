@@ -87,7 +87,7 @@ test('stripe: checkout.session.completed updates plan + triggers cold-start on f
             id: 'cs_test_123',
             customer: 'cus_abc',
             subscription: 'sub_xyz',
-            metadata: { business_id: 'biz-new-1', plan: 'growth' },
+            metadata: { business_id: '11111111-1111-4111-8111-111111111111', plan: 'growth' },
           },
         },
       },
@@ -107,7 +107,7 @@ test('stripe: checkout.session.completed updates plan + triggers cold-start on f
     // Cold-start trigger should fire (free → growth = first paid)
     assert.strictEqual(calls.fetchCalls.length, 1, 'cold-start trigger should fire');
     assert.ok(/cold-start-trigger/.test(calls.fetchCalls[0].url));
-    assert.strictEqual(JSON.parse(calls.fetchCalls[0].opts.body).businessId, 'biz-new-1');
+    assert.strictEqual(JSON.parse(calls.fetchCalls[0].opts.body).businessId, '11111111-1111-4111-8111-111111111111');
   } finally {
     global.fetch = origFetch;
   }
@@ -129,7 +129,7 @@ test('stripe: checkout.session.completed on existing paid customer does NOT re-t
           object: {
             id: 'cs_test',
             customer: 'cus',
-            metadata: { business_id: 'biz-existing', plan: 'agency' },
+            metadata: { business_id: '22222222-2222-4222-8222-222222222222', plan: 'agency' },
           },
         },
       },
@@ -151,7 +151,7 @@ test('stripe: customer.subscription.deleted downgrades plan to free', async () =
   await stripe.handleStripeEvent({
     event: {
       type: 'customer.subscription.deleted',
-      data: { object: { id: 'sub_x', metadata: { business_id: 'biz-cancel' } } },
+      data: { object: { id: 'sub_x', metadata: { business_id: '33333333-3333-4333-8333-333333333333' } } },
     },
     sbGet: async () => [],
     sbPatch: async (table, filter, body) => {
@@ -176,7 +176,7 @@ test('stripe: invoice.payment_failed waits for 4 attempts before downgrading', a
       data: {
         object: {
           attempt_count: 1,
-          subscription_details: { metadata: { business_id: 'biz-fail' } },
+          subscription_details: { metadata: { business_id: '44444444-4444-4444-8444-444444444444' } },
         },
       },
     },
@@ -196,7 +196,7 @@ test('stripe: invoice.payment_failed waits for 4 attempts before downgrading', a
       data: {
         object: {
           attempt_count: 4,
-          subscription_details: { metadata: { business_id: 'biz-fail' } },
+          subscription_details: { metadata: { business_id: '44444444-4444-4444-8444-444444444444' } },
         },
       },
     },
