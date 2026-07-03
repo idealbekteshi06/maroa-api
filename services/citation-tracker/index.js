@@ -248,6 +248,33 @@ async function queryDataForSEO({ prompt, engine, deps }) {
   return client.query({ prompt, engine });
 }
 
+/**
+ * Claude engine (2026-07): server-side web_search via callClaude — asks the
+ * seed prompt exactly as an AI-search user would and records which domains
+ * the answer cites. Closes the "claude engine lands in a follow-up" gap.
+ */
+async function queryClaudeWebSearch({ prompt, businessId, deps }) {
+  if (typeof deps?.callClaude !== 'function') return null;
+  const { webSearchQuery } = require('../../lib/webIntel');
+  const r = await webSearchQuery({
+    callClaude: deps.callClaude,
+    prompt,
+    businessId,
+    skill: 'citation_tracker_claude',
+    maxTokens: 1500,
+    maxSearches: 3,
+  });
+  if (!r.ok || (!r.text && r.citedUrls.length === 0)) return null;
+  return {
+    engine: 'claude',
+    response_text: r.text,
+    cited_urls: r.citedUrls,
+    api_cost_usd: 0, // booked by callClaude's cost tracker, not double-counted here
+    api_source: 'anthropic_web_search',
+    raw: null,
+  };
+}
+
 // ─── Daily run ───────────────────────────────────────────────────────────
 
 async function runDailyForBusiness({ businessId, deps }) {
@@ -295,8 +322,8 @@ async function runDailyForBusiness({ businessId, deps }) {
       if (engine === 'perplexity') result = await queryPerplexity({ prompt: p.prompt_text, deps });
       else if (engine === 'google_aio' || engine === 'chatgpt')
         result = await queryDataForSEO({ prompt: p.prompt_text, engine, deps });
-      // claude / gemini direct queries land in a follow-up; for now we log
-      // skipped engines as 'unknown' to keep the schema honest.
+      else if (engine === 'claude') result = await queryClaudeWebSearch({ prompt: p.prompt_text, businessId, deps });
+      // gemini direct queries still land in a follow-up.
       if (!result) continue;
 
       const parsed = parseCitationResult({
@@ -400,6 +427,7 @@ async function detectCitationGaps({ businessId, days = 7, deps }) {
 }
 
 module.exports = {
+  queryClaudeWebSearch,
   buildSeedPrompts,
   parseCitationResult,
   runDailyForBusiness,

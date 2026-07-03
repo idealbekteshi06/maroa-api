@@ -8309,6 +8309,268 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+  /webhook/studio-image-styles:
+    get:
+      tags:
+        - webhook
+      summary: 'GET /webhook/studio-image-styles'
+      description: 'Automation webhook (GET /webhook/studio-image-styles). See docs/openapi-overrides.json for detail.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /webhook/studio-video-presets:
+    get:
+      tags:
+        - webhook
+      summary: 'GET /webhook/studio-video-presets'
+      description: 'Automation webhook (GET /webhook/studio-video-presets). See docs/openapi-overrides.json for detail.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /webhook/studio-brand-kit-sync:
+    post:
+      tags:
+        - webhook
+      summary: 'POST /webhook/studio-brand-kit-sync'
+      description: 'Automation webhook (POST /webhook/studio-brand-kit-sync). See docs/openapi-overrides.json for detail.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        description: 'Request body — hand-edit shape per route'
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /webhook/studio-dtc-image:
+    post:
+      tags:
+        - webhook
+      summary: 'POST /webhook/studio-dtc-image'
+      description: 'Automation webhook (POST /webhook/studio-dtc-image). See docs/openapi-overrides.json for detail.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        description: 'Request body — hand-edit shape per route'
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /webhook/studio-marketing-video:
+    post:
+      tags:
+        - webhook
+      summary: 'POST /webhook/studio-marketing-video'
+      description: 'Automation webhook (POST /webhook/studio-marketing-video). See docs/openapi-overrides.json for detail.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        description: 'Request body — hand-edit shape per route'
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /webhook/studio-recreate-ad:
+    post:
+      tags:
+        - webhook
+      summary: 'POST /webhook/studio-recreate-ad'
+      description: 'Automation webhook (POST /webhook/studio-recreate-ad). See docs/openapi-overrides.json for detail.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        description: 'Request body — hand-edit shape per route'
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
   /webhook/meta-campaign-create:
     post:
       tags:
