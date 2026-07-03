@@ -815,6 +815,10 @@ setImmediate(() => {
   app.use('/webhook/tiktok-campaign-create', costGuard);
   app.use('/webhook/revenue-forecast', costGuard);
   app.use('/webhook/wf10-create-job', costGuard);
+  // Marketing Studio generation POSTs spend Higgsfield credits — cap-gated.
+  app.use('/webhook/studio-dtc-image', costGuard);
+  app.use('/webhook/studio-marketing-video', costGuard);
+  app.use('/webhook/studio-recreate-ad', costGuard);
 
   // Body-shape validation for critical webhooks.
   app.use('/webhook/instant-content', zodValidate(businessIdBody));
@@ -11474,6 +11478,14 @@ Return ONLY valid JSON:
     });
   } catch (e) {
     logger?.warn?.('paid-ads', null, 'route register failed', { error: e.message });
+  }
+
+  // Higgsfield Marketing Studio: brand kits, DTC ad images, one-click
+  // marketing videos, competitor-ad recreation (2026-07 upgrade).
+  try {
+    require('./routes/marketing-studio').register({ app, higgsfieldAI, sbGet, apiError, logger });
+  } catch (e) {
+    logger?.warn?.('marketing-studio', null, 'route register failed', { error: e.message });
   }
 
   // Store connect (Shopify / dropshipping): catalog ingestion + automation

@@ -56,6 +56,7 @@ module.exports = function createHiggsfieldService(deps) {
   const PATH_SEEDREAM = process.env.HIGGSFIELD_PATH_SEEDREAM || '/bytedance/seedream/v4/text-to-image';
   const PATH_SEEDREAM_EDIT = process.env.HIGGSFIELD_PATH_SEEDREAM_EDIT || '/bytedance/seedream/v4/edit';
   const PATH_SEEDANCE = process.env.HIGGSFIELD_PATH_SEEDANCE || '/bytedance/seedance/v1/pro/image-to-video';
+  const PATH_SEEDANCE_MINI = process.env.HIGGSFIELD_PATH_SEEDANCE_MINI || '/bytedance/seedance/v1/lite/image-to-video';
   const PATH_VEO = process.env.HIGGSFIELD_PATH_VEO || '/google/veo/v3-1';
   const PATH_NANO_BANANA = process.env.HIGGSFIELD_PATH_NANO_BANANA || '/higgsfield-ai/nano-banana-2';
   const PATH_NANO_BANANA_PRO = process.env.HIGGSFIELD_PATH_NANO_BANANA_PRO || '/higgsfield-ai/nano-banana-pro';
@@ -106,6 +107,7 @@ module.exports = function createHiggsfieldService(deps) {
     'seedream 4.5': PATH_SEEDREAM,
     'seedream edit': PATH_SEEDREAM_EDIT,
     'seedance 2.0': PATH_SEEDANCE,
+    'seedance 2.0 mini': PATH_SEEDANCE_MINI,
     'veo 3.1': PATH_VEO,
     'nano banana 2': PATH_NANO_BANANA,
     'nano banana pro': PATH_NANO_BANANA_PRO,
@@ -1875,6 +1877,19 @@ module.exports = function createHiggsfieldService(deps) {
     return { ok: false, credits: null, reason: 'higgsfield_balance_endpoint_pending' };
   }
 
+  // Marketing Studio line (2026-07): brand kits, DTC ad images, one-click
+  // marketing videos, ad references ("recreate this ad"). Soft-degrading —
+  // see services/higgsfield/marketingStudio.js.
+  const marketingStudio = require('./marketingStudio')({
+    hfPost,
+    hfGet,
+    submitVideoAndWait,
+    submitImageAndWait: (payload, path) => submitSoulAndWait(payload, path),
+    sbGet,
+    sbPatch,
+    logger,
+  });
+
   return {
     getBalance,
     applyLogoOverlay,
@@ -1905,5 +1920,11 @@ module.exports = function createHiggsfieldService(deps) {
     generateCaption,
     processProductCatalog,
     cancelRequest,
+    marketingStudio,
+    ensureBrandKit: marketingStudio.ensureBrandKit,
+    generateDtcAdImage: marketingStudio.generateDtcAdImage,
+    generateMarketingVideo: marketingStudio.generateMarketingVideo,
+    createAdReference: marketingStudio.createAdReference,
+    recreateAdForBusiness: marketingStudio.recreateAdForBusiness,
   };
 };

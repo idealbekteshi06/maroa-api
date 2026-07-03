@@ -12,6 +12,10 @@ const CONTENT_TYPE_MODEL = {
   product_video: 'kling-3.0',
   social_reel: 'nano-banana-pro',
   ugc_audio_ambient: 'wan-2.5',
+  // Reference-driven product videos (consistent identity, multi-SKU, native
+  // audio) — Seedance 2.0; the mini variant is the budget tier below.
+  product_video_reference: 'seedance-2.0',
+  product_video_budget: 'seedance-2.0-mini',
 };
 
 const DEFAULT_MODEL = (process.env.HIGGSFIELD_DEFAULT_MODEL || 'nano-banana-pro').trim() || 'nano-banana-pro';
@@ -35,6 +39,8 @@ const SLUG_TO_CANONICAL = {
   'sora-2': 'sora 2',
   'soul-2.0': 'soul 2.0',
   'seedance-2.0': 'seedance 2.0',
+  'seedance-2.0-mini': 'seedance 2.0 mini',
+  'seedance-2-mini': 'seedance 2.0 mini',
   'cinema-studio-3.5': 'cinema studio 3.5',
 };
 
