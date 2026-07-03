@@ -704,15 +704,14 @@ setImmediate(() => {
   const { assertBusinessOwnerMiddleware, isUuid } = require('./lib/assertBusinessOwner');
   app.use('/webhook', requireAuthOrWebhookSecret);
   app.use('/webhook', assertBusinessOwnerMiddleware({ sbGet, apiError, logger }));
-  app.use('/api/business', assertBusinessOwnerMiddleware({ sbGet, apiError, logger }));
-  // Param-aware mounts: at the bare '/api/business' mount above, Express does
-  // NOT populate req.params.businessId, so :businessId routes (llm-spend,
-  // brand-voice, integrations, monthly-report, marketing-deep-dive,
-  // email-lifecycle) were unguarded — any JWT could read/act on any tenant by
-  // changing the UUID in the URL. These mounts populate the param so the owner
-  // check actually fires. Same for /api/cron-health/:businessId.
-  app.use('/api/business/:businessId', assertBusinessOwnerMiddleware({ sbGet, apiError, logger }));
-  app.use('/api/cron-health/:businessId', assertBusinessOwnerMiddleware({ sbGet, apiError, logger }));
+  // NOTE: the /api/business + /api/cron-health OWNER mounts were moved to run
+  // AFTER requireAnyUserId is mounted (search 'ownerGuardBusiness'). The owner
+  // middleware reads req.user.id, but for /webhook that's set by
+  // requireAuthOrWebhookSecret above; for /api/* the JWT is decoded by
+  // requireAnyUserId, which is defined further down. Mounting the owner check
+  // here (before requireAnyUserId) made it see an undefined req.user and 401
+  // EVERY /api/business/* request ("JWT required"), silently breaking the
+  // Settings tab (integrations / brand-voice / llm-spend) for all users.
 
   const aiLimitExpress = expressRateLimit({
     windowMs: 60 * 1000,
@@ -902,6 +901,16 @@ setImmediate(() => {
   app.use('/api/content', requireAnyUserId); // /api/content/generate, /api/content/feedback, /api/content/repurpose
   app.use('/api/cron-health', requireAnyUserId); // /api/cron-health/:businessId
   app.use('/api/business', requireAnyUserId); // /api/business/:businessId/brand-voice
+  // ownerGuardBusiness — MUST come after requireAnyUserId above so req.user is
+  // populated before the owner check reads req.user.id. The param-aware mounts
+  // populate req.params.businessId so :businessId routes (llm-spend,
+  // brand-voice, integrations, monthly-report, marketing-deep-dive,
+  // email-lifecycle) are tenant-guarded — a JWT can't read another business by
+  // swapping the UUID in the URL. (Moved here from the pre-auth block above,
+  // where an undefined req.user made every one of these 401.)
+  app.use('/api/business', assertBusinessOwnerMiddleware({ sbGet, apiError, logger }));
+  app.use('/api/business/:businessId', assertBusinessOwnerMiddleware({ sbGet, apiError, logger }));
+  app.use('/api/cron-health/:businessId', assertBusinessOwnerMiddleware({ sbGet, apiError, logger }));
   app.use('/api/ops', requireAnyUserId); // /api/ops/platform
   app.use('/api/generate', requireAnyUserId); // /api/generate
   app.use('/api/schema', requireAnyUserId); // /api/schema/:userId (READ side of schema)
