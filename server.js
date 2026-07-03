@@ -5275,10 +5275,14 @@ setImmediate(() => {
   // POST /api/checkout — create Paddle checkout session
   // Body: { user_id, plan }
   app.post('/api/checkout', async (req, res) => {
+    // requireAnyUserId injects req.body.user_id = the authenticated uid (and
+    // 403s if the client sent a DIFFERENT user_id). So user_id here is always
+    // the auth uid — NOT necessarily the business id: onboarding creates a
+    // business with a fresh uuid and businesses.user_id = auth uid, so the old
+    // `businesses.id = auth uid` assumption 403'd/404'd checkout for every new
+    // user. Resolve the business by ownership instead.
     const { user_id, plan, success_url } = req.body;
     if (!user_id || !plan) return res.status(400).json({ error: 'user_id and plan required' });
-    // Rule 4: anything that lands in a PostgREST filter is UUID-validated +
-    // encoded at the boundary. user_id is the businesses.id / auth uid.
     if (!isUuid(user_id)) return res.status(400).json({ error: 'user_id must be a valid UUID' });
 
     if (!paddle.PADDLE_API_KEY) return res.status(500).json({ error: 'PADDLE_API_KEY not set in Railway env vars' });
@@ -5292,9 +5296,15 @@ setImmediate(() => {
 
     let biz;
     try {
-      biz = (
-        await sbGet('businesses', `id=eq.${encodeURIComponent(user_id)}&select=email,first_name,business_name`)
-      )[0];
+      const enc = encodeURIComponent(user_id);
+      // Resolve by OWNERSHIP first (new convention: businesses.user_id = auth
+      // uid), falling back to id-match for legacy rows where the business id
+      // IS the auth uid.
+      const byOwner = await sbGet(
+        'businesses',
+        `user_id=eq.${enc}&select=id,email,first_name,business_name&order=onboarding_complete.desc.nullslast,created_at.asc&limit=1`
+      );
+      biz = byOwner[0] || (await sbGet('businesses', `id=eq.${enc}&select=id,email,first_name,business_name`))[0];
     } catch (err) {
       return res.status(500).json({ error: 'Database error', detail: err.message });
     }
@@ -5303,7 +5313,9 @@ setImmediate(() => {
     try {
       const result = await paddle.createCheckoutSession({
         priceId: planObj.priceId,
-        businessId: user_id,
+        // The RESOLVED business id — the Paddle webhook uses this to flip
+        // businesses.plan, so it must be businesses.id, not the auth uid.
+        businessId: biz.id,
         plan,
         customerEmail: biz.email,
         successUrl: success_url || 'https://maroa.ai/dashboard?upgraded=true',
