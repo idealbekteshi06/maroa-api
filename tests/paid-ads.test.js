@@ -90,6 +90,7 @@ test('tiktok-campaign-create: eligible business gets a draft campaign + eligibil
             id: BIZ_ID,
             business_name: 'Test Biz',
             industry: 'fitness',
+            plan: 'growth', // needs a paid plan whose ceiling covers the campaign budget
             daily_budget: 80,
             tiktok_access_token_enc: 'enc',
             tiktok_business_verified: true,
@@ -124,6 +125,36 @@ test('tiktok-campaign-create: eligible business gets a draft campaign + eligibil
   // Wizard answers are injected into the strategy prompt as hard constraints.
   assert.match(capturedPrompt, /dog owners in Austin/);
   assert.match(capturedPrompt, /\$60\/day/);
+});
+
+test('tiktok-campaign-create: wizard budget over the plan ceiling is rejected before any LLM call', async () => {
+  let claudeCalled = false;
+  const { routes, posted } = registerPaidAds({
+    // growth plan ceiling is $5,000/mo; a $5,000/day wizard budget = $150k/mo.
+    sbGet: async () => [
+      {
+        id: BIZ_ID,
+        business_name: 'Over Budget Biz',
+        plan: 'growth',
+        daily_budget: 60,
+        tiktok_business_verified: true,
+      },
+    ],
+    callClaude: async () => {
+      claudeCalled = true;
+      return {};
+    },
+  });
+
+  const res = makeRes();
+  await routes.POST['/webhook/tiktok-campaign-create'](
+    { body: { business_id: BIZ_ID, wizard: { daily_budget: 5000 } } },
+    res
+  );
+
+  assert.equal(res.statusCode, 400, 'over-ceiling budget rejected');
+  assert.equal(claudeCalled, false, 'no Claude budget burned when over plan ceiling');
+  assert.equal(posted.length, 0, 'no draft row persisted');
 });
 
 test('tiktok-campaign-create: under the $50/day floor is rejected before any LLM call', async () => {

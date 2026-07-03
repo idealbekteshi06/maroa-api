@@ -4204,7 +4204,12 @@ setImmediate(() => {
                 status: 'PAUSED',
                 special_ad_categories: [],
                 access_token: biz.meta_access_token,
-              }
+              },
+              // Non-idempotent create: a retry after a 5xx that already created
+              // the campaign would make a DUPLICATE. Meta has no idempotency key,
+              // so don't auto-retry — a transient failure is safer left to the
+              // next sweep than a double campaign. (Breaker still applies.)
+              { retries: 0 }
             );
             if (metaResp.body?.id && saved?.id) {
               await sbPatch('ad_campaigns', `id=eq.${saved.id}`, {
@@ -4313,7 +4318,11 @@ setImmediate(() => {
                 message: cont.facebook_post || cont.instagram_caption,
                 access_token: biz.meta_access_token,
                 ...(cont.image_url ? { link: cont.image_url } : {}),
-              }
+              },
+              // Non-idempotent publish: retrying after a 5xx that already posted
+              // would DOUBLE-POST to the page. No idempotency key on Graph feed,
+              // so don't auto-retry.
+              { retries: 0 }
             );
             if (fbResp.body?.id) {
               published.push('Facebook');
@@ -8558,7 +8567,7 @@ Return ONLY valid JSON:
             is_active: true,
           });
           const biz = (
-            await sbGet('businesses', `id=eq.${businessId}&select=email,business_name,whatsapp_number,whatsapp_enabled`)
+            await sbGet('businesses', `id=eq.${encBiz}&select=email,business_name,whatsapp_number,whatsapp_enabled`)
           )[0];
           if (biz?.email)
             await sendEmail(

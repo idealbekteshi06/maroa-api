@@ -16,6 +16,7 @@
 
 const pacing = require('../prompts/pacing-alerts');
 const adI18n = require('../prompts/ad-optimizer/i18n-market');
+const { mapConcurrent } = require('../../lib/mapConcurrent');
 
 function createEngine(deps) {
   const { sbGet, sbPost, sbPatch, logger, Sentry } = deps;
@@ -153,14 +154,23 @@ function createEngine(deps) {
     const campaigns = await sbGet('ad_campaigns', `status=in.(active,ACTIVE)&limit=${limit}&select=id,business_id`);
 
     const results = { total: campaigns.length, evaluated: 0, alerts_fired: 0, errors: 0 };
-    for (const c of campaigns) {
-      try {
-        const r = await evaluateOne({ campaignId: c.id, businessId: c.business_id, dryRun });
+    // Bounded concurrency (10 in flight) so a few hundred campaigns finish
+    // inside the 4-hour cadence instead of a serial O(N) crawl.
+    const outcomes = await mapConcurrent(campaigns, 10, (c) =>
+      evaluateOne({ campaignId: c.id, businessId: c.business_id, dryRun })
+    );
+    for (const o of outcomes) {
+      if (o.ok) {
         results.evaluated++;
-        results.alerts_fired += (r.alerts || []).length;
-      } catch (e) {
+        results.alerts_fired += (o.value.alerts || []).length;
+      } else {
         results.errors++;
-        logger?.warn?.('pacing-alerts.evaluateAll', c.business_id, `campaign ${c.id} failed`, e?.message);
+        logger?.warn?.(
+          'pacing-alerts.evaluateAll',
+          o.item?.business_id,
+          `campaign ${o.item?.id} failed`,
+          o.error?.message
+        );
       }
     }
     return results;
