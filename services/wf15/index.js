@@ -253,6 +253,11 @@ function createWf15(deps) {
           businessId,
           skill: 'wf15_brain',
           skipGrounding: true,
+          // Server-side compaction: long Ask Maroa sessions summarize
+          // automatically near the context window instead of dying. The loop
+          // below already appends resp.content verbatim, so compaction blocks
+          // are preserved across turns (required by the API).
+          contextManagement: { edits: [{ type: 'compact_20260112' }] },
         });
 
         const blocks = Array.isArray(resp?.content) ? resp.content : [];

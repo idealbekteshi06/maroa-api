@@ -1374,6 +1374,16 @@ setImmediate(() => {
       body.output_config = { ...(body.output_config || {}), format: extra.outputFormat };
     }
 
+    // Context management: compaction (server-side summarize near the window)
+    // and/or context editing (clear old tool results). Callers pass e.g.
+    //   extra.contextManagement = { edits: [{ type: 'compact_20260112' }] }
+    // and MUST append the full response.content back to messages (compaction
+    // blocks carry the summarized history). Beta headers derive from the edit
+    // types below.
+    if (extra.contextManagement) {
+      body.context_management = extra.contextManagement;
+    }
+
     const { attachToolsToBody } = require('./lib/claudeAnthropicTools');
     if (
       extra.advisor ||
@@ -1442,6 +1452,14 @@ setImmediate(() => {
     // only an explicit standalone code-execution tool still needs its beta.
     if (extra.codeExecution) {
       betas.push('code-execution-2025-08-25');
+    }
+    // Context-management betas: compaction vs clearing are separate features.
+    const _cmEdits = extra.contextManagement?.edits || [];
+    if (_cmEdits.some((e) => String(e?.type || '').startsWith('compact_'))) {
+      betas.push('compact-2026-01-12');
+    }
+    if (_cmEdits.some((e) => String(e?.type || '').startsWith('clear_'))) {
+      betas.push('context-management-2025-06-27');
     }
     if (betas.length) headers['anthropic-beta'] = [...new Set(betas)].join(',');
 

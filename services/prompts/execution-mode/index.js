@@ -113,6 +113,19 @@ function temperatureFor(_mode, task = 'audit') {
 }
 
 /**
+ * Anthropic `effort` tier per execution mode (2026-07 upgrade). On Sonnet 5 /
+ * Opus 4.8 this is the primary cost/quality lever — quick work runs terse and
+ * cheap, deep (agency) work gets xhigh reasoning depth. callClaude validates
+ * model support and silently drops it on models without effort.
+ */
+function effortFor(mode) {
+  const m = String(mode || 'standard').toLowerCase();
+  if (m === 'deep') return 'xhigh';
+  if (m === 'quick') return 'low';
+  return 'medium';
+}
+
+/**
  * Build a single config blob the caller can spread into their LLM call.
  *   const cfg = buildExecutionConfig({ plan, override, kind: 'audit' });
  *   await callClaude({ ...cfg, system, user });
@@ -126,6 +139,7 @@ function buildExecutionConfig({ plan, override, kind = 'audit' }) {
     extra: {
       cacheSystem: shouldCacheSystem(mode),
       temperature: temperatureFor(mode, kind),
+      effort: effortFor(mode),
     },
     parallel_agents: shouldUseParallelAgents(mode),
     use_files_api: shouldUseFilesApi(mode),
@@ -156,6 +170,7 @@ module.exports = {
   shouldUseFilesApi,
   shouldCacheSystem,
   temperatureFor,
+  effortFor,
   buildExecutionConfig,
   isModeAllowedForPlan,
 };
