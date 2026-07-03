@@ -253,3 +253,67 @@ test('page-builder: renderHtml escapes HTML in user input', () => {
     `Expected HTML entities to be escaped, got: ${html.slice(0, 500)}`
   );
 });
+
+// ─── Email Lifecycle · processDueRuns state-advance hardening ───────────────
+// Regression: after a successful send, if the state-advance sbPatch failed,
+// the run stayed at the same step forever (alreadySent guard blocks re-send
+// but state never advances → permanently wedged). The advance is now wrapped
+// in a bounded retry, and a total failure is logged loudly.
+
+function _dueRunDeps({ patchBehavior }) {
+  const seq = { id: 'seq-1', stage: 'welcome', cadence_days: [0, 2, 7] };
+  const business = { id: 'biz-1', business_name: 'Acme', email: 'a@b.co' };
+  const run = {
+    id: 'run-1',
+    business_id: 'biz-1',
+    sequence_id: 'seq-1',
+    current_step: 0,
+    recipient_email: 'lead@x.co',
+    recipient_name: 'Lead',
+    send_log: [],
+  };
+  const patchCalls = [];
+  const errors = [];
+  const deps = {
+    sbGet: async (table) => {
+      if (table === 'email_sequence_runs') return [run];
+      if (table === 'email_sequences') return [seq];
+      if (table === 'businesses') return [business];
+      return [];
+    },
+    sbPatch: async (_table, _filter, body) => {
+      patchCalls.push(body);
+      const verdict = patchBehavior(patchCalls.length);
+      if (verdict !== 'ok') throw new Error(verdict || 'db_blip');
+      return { ok: true };
+    },
+    sendEmail: async () => ({ ok: true, id: 'resend-1' }),
+    logger: {
+      error: (...a) => errors.push(a),
+      warn: (...a) => errors.push(a),
+    },
+  };
+  return { deps, patchCalls, errors };
+}
+
+test('email-lifecycle: state-advance retries a transient PATCH failure then succeeds', async () => {
+  // Fail the first attempt, succeed the second.
+  const { deps, patchCalls } = _dueRunDeps({ patchBehavior: (n) => (n === 1 ? 'transient' : 'ok') });
+  const res = await lifecycle.processDueRuns({ now: new Date(), deps });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.sent, 1);
+  assert.strictEqual(patchCalls.length, 2, 'should retry once after the transient failure');
+  // The advance body must carry the forward progress (step 0 → 1).
+  assert.strictEqual(patchCalls[1].current_step, 1);
+  assert.strictEqual(patchCalls[1].status, 'running');
+});
+
+test('email-lifecycle: state-advance logs loudly after 3 failed attempts (no silent wedge)', async () => {
+  const { deps, patchCalls, errors } = _dueRunDeps({ patchBehavior: () => 'always_fails' });
+  const res = await lifecycle.processDueRuns({ now: new Date(), deps });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(patchCalls.length, 3, 'should attempt the advance exactly 3 times');
+  // The failure must surface — not be swallowed.
+  const logged = errors.some((a) => String(a[2] || '').includes('state-advance PATCH failed'));
+  assert.ok(logged, 'a failed advance must be logged loudly');
+});

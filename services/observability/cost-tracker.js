@@ -18,6 +18,7 @@
  */
 
 const metrics = require('./metrics');
+const { addMonthlyCostUsd } = require('../../lib/costCounter');
 
 const PRICING = {
   // model → { input_per_mtok, output_per_mtok, cache_read_per_mtok }
@@ -104,6 +105,10 @@ async function track({ businessId, skill, model, usage, cost_usd, sbPost, logger
         cache_read_tokens: Number(usage?.cache_read_input_tokens) || 0,
         cost_usd: Number(cost.toFixed(6)),
       });
+      // Keep the atomic monthly-spend counter (used by costGuard's fast path)
+      // in sync with the row we just wrote. Best-effort + no-op when the
+      // counter hasn't been seeded yet (costGuard seeds it from the DB sum).
+      addMonthlyCostUsd({ businessId, costUsd: Number(cost.toFixed(6)) }).catch(() => {});
     } catch (e) {
       logger?.warn?.('cost-tracker', { error: e.message });
     }

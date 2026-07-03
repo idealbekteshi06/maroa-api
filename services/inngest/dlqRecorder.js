@@ -198,4 +198,4 @@ function _recentlyAlerted(functionId) {
   return false;
 }
 
-module.exports = { dlqHandler, _recentlyAlerted };
+module.exports = { dlqHandler, postSlack, _recentlyAlerted };
