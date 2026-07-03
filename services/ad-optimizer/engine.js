@@ -27,6 +27,7 @@
 
 const adOptimizer = require('../prompts/ad-optimizer');
 const { loadBusiness, checkPlatform } = require('../../lib/integrationGate');
+const { mapConcurrent } = require('../../lib/mapConcurrent');
 const budgetCalibration = require('../prompts/ad-optimizer/budget-calibration');
 
 // Clamp an LLM-proposed daily budget into the tier + learning-phase safe band
@@ -642,23 +643,28 @@ function createEngine(deps) {
       decisions: {},
     };
     const bizCache = new Map();
-    for (const c of campaigns) {
-      try {
-        let biz = bizCache.get(c.business_id);
-        if (!biz) {
-          biz = await loadBusiness(c.business_id, sbGet);
-          bizCache.set(c.business_id, biz);
-        }
-        if (!checkPlatform(biz, 'meta_ads')) {
-          results.skipped_no_meta++;
-          continue;
-        }
-        const r = await auditOne({ campaignId: c.id, businessId: c.business_id, dryRun });
-        results.audited++;
-        results.decisions[r.audit.decision] = (results.decisions[r.audit.decision] || 0) + 1;
-      } catch (e) {
+    // Concurrency 5: each auditOne hits Meta's API + an LLM, so keep it modest
+    // to avoid hammering Meta's per-account rate limits while still finishing a
+    // few hundred campaigns well inside the daily window (was a serial crawl).
+    const SKIP = Symbol('skip_no_meta');
+    const outcomes = await mapConcurrent(campaigns, 5, async (c) => {
+      let biz = bizCache.get(c.business_id);
+      if (!biz) {
+        biz = await loadBusiness(c.business_id, sbGet);
+        bizCache.set(c.business_id, biz);
+      }
+      if (!checkPlatform(biz, 'meta_ads')) return SKIP;
+      return auditOne({ campaignId: c.id, businessId: c.business_id, dryRun });
+    });
+    for (const o of outcomes) {
+      if (!o.ok) {
         results.errors++;
-        logger?.warn?.('wf2.auditAllActive', c.business_id, `campaign ${c.id} failed`, e?.message);
+        logger?.warn?.('wf2.auditAllActive', o.item?.business_id, `campaign ${o.item?.id} failed`, o.error?.message);
+      } else if (o.value === SKIP) {
+        results.skipped_no_meta++;
+      } else {
+        results.audited++;
+        results.decisions[o.value.audit.decision] = (results.decisions[o.value.audit.decision] || 0) + 1;
       }
     }
     return results;

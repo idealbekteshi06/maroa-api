@@ -327,14 +327,22 @@ function createWf15(deps) {
           }).catch(() => {});
           write(`event: tool_result\ndata: ${JSON.stringify({ id: rowId, result, status })}\n\n`);
 
-          // Feed the result back to Claude for the next iteration.
+          // Feed the result back to Claude for the next iteration. Blind
+          // .slice() on the JSON string cut it mid-token, so Claude saw
+          // malformed data; truncate gracefully with an explicit marker so the
+          // model knows the payload was cut rather than reading garbage.
+          const fullResult = JSON.stringify(result);
+          const resultContent =
+            fullResult.length > 4000
+              ? fullResult.slice(0, 3900) + `… [truncated ${fullResult.length - 3900} chars]`
+              : fullResult;
           messages.push({
             role: 'user',
             content: [
               {
                 type: 'tool_result',
                 tool_use_id: tu.id,
-                content: JSON.stringify(result).slice(0, 4000),
+                content: resultContent,
               },
             ],
           });

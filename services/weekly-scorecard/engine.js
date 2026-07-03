@@ -18,6 +18,7 @@
 
 const scorecard = require('../prompts/weekly-scorecard');
 const adI18n = require('../prompts/ad-optimizer/i18n-market');
+const { mapConcurrent } = require('../../lib/mapConcurrent');
 
 function createEngine(deps) {
   const { sbGet, sbPost, sbPatch, callClaude, extractJSON, sendEmail, logger, Sentry } = deps;
@@ -152,13 +153,15 @@ function createEngine(deps) {
   async function generateForAll({ dryRun = false } = {}) {
     const businesses = await sbGet('businesses', `is_active=eq.true&select=id`).catch(() => []);
     const results = { total: businesses.length, generated: 0, errors: 0 };
-    for (const b of businesses) {
-      try {
-        await generateForBusiness({ businessId: b.id, dryRun });
-        results.generated++;
-      } catch (e) {
+    // Bounded concurrency: a strict sequential sweep timed out the Sunday cron
+    // past a few hundred businesses (each does 4 reads + an LLM call). 8 in
+    // flight keeps it under the Inngest deadline without hammering the DB.
+    const outcomes = await mapConcurrent(businesses, 8, (b) => generateForBusiness({ businessId: b.id, dryRun }));
+    for (const o of outcomes) {
+      if (o.ok) results.generated++;
+      else {
         results.errors++;
-        logger?.warn?.('weekly-scorecard.generateForAll', b.id, 'failed', e?.message);
+        logger?.warn?.('weekly-scorecard.generateForAll', o.item?.id, 'failed', o.error?.message);
       }
     }
     return results;

@@ -24,6 +24,7 @@
  */
 
 const { normalizeWizard, wizardDailyBudget, wizardPromptBlock } = require('../lib/adWizard');
+const { validateMonthlyBudget } = require('../lib/adBudgetGuard');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isUUID(v) {
@@ -84,6 +85,14 @@ function register({ app, sbGet, sbPost, sbPatch, callClaude, apiError, log, logE
       });
       if (!eligibility.eligible) {
         return res.status(400).json({ error: 'tiktok_not_eligible', eligibility });
+      }
+
+      // Plan budget ceiling (parity with meta/google campaign-create): a wizard
+      // daily_budget must not push monthly spend past the plan tier. Without
+      // this, a $5000/day wizard input bypassed the cap the other channels enforce.
+      const budgetCheck = validateMonthlyBudget({ plan: biz.plan, monthlyBudget: dailyBudget * 30 });
+      if (!budgetCheck.ok) {
+        return apiError(res, 400, budgetCheck.code || 'BUDGET_OVER_PLAN_CEILING', budgetCheck.detail);
       }
 
       const strategyPrompt = `You are a TikTok Ads expert (Smart+ campaigns, Spark Ads bias for SMB budgets). Return ONLY valid JSON, no markdown, no explanation.
