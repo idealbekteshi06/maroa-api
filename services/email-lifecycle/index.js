@@ -305,13 +305,54 @@ async function processDueRuns({ now = new Date(), deps }) {
         ? null
         : new Date(Date.now() + (cadence[nextStep] - (cadence[stepIdx] || 0)) * 24 * 60 * 60 * 1000).toISOString();
 
-      await sbPatch('email_sequence_runs', `id=eq.${run.id}`, {
+      // State-advance PATCH — hardened. The email is already sent (and guarded
+      // against re-send by `alreadySent`), so the ONLY thing standing between a
+      // healthy run and a permanently wedged one is this patch landing. A
+      // single swallowed failure used to leave the run stuck at this step
+      // forever: next tick it'd hit the alreadySent guard, skip the send, and
+      // fail the patch again — an infinite no-op loop. Retry with short backoff
+      // so a transient network/DB blip can't wedge the sequence; if every
+      // attempt fails, log LOUDLY (don't swallow) so it's visible.
+      const advancePatch = {
         current_step: nextStep,
         next_send_at: nextSend,
         status: isComplete ? 'completed' : 'running',
         completed_at: isComplete ? new Date().toISOString() : null,
         send_log: log,
-      }).catch(() => {});
+      };
+      let advanced = false;
+      let lastAdvanceErr = null;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          await sbPatch('email_sequence_runs', `id=eq.${run.id}`, advancePatch);
+          advanced = true;
+          break;
+        } catch (e) {
+          lastAdvanceErr = e;
+          if (attempt < 3) {
+            // 100ms, 200ms backoff — bounded, keeps the cron tick snappy.
+            await new Promise((r) => setTimeout(r, 100 * attempt));
+          }
+        }
+      }
+      if (!advanced) {
+        const detail = {
+          runId: run.id,
+          sequenceId: seq.id,
+          step: stepIdx,
+          error: lastAdvanceErr?.message || 'unknown',
+        };
+        if (logger?.error) {
+          logger.error(
+            'email-lifecycle.processDueRuns',
+            run.business_id,
+            'state-advance PATCH failed after 3 attempts — run may re-attempt next tick (send is already guarded by alreadySent)',
+            detail
+          );
+        } else {
+          logger?.warn?.('email-lifecycle.processDueRuns', run.business_id, 'state-advance PATCH failed', detail);
+        }
+      }
 
       if (sendResult.ok) sent += 1;
       else failed += 1;

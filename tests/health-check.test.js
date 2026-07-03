@@ -33,3 +33,47 @@ test('probeInngest reports function count from functions module', async () => {
     else process.env.INNGEST_SIGNING_KEY = prevSig;
   }
 });
+
+// ─── Generation canary marker (lib/generationCanary) ───────────────────────
+const canary = require('../lib/generationCanary');
+
+test('generationCanary: no run yet → skipped, not a warning', () => {
+  canary._reset();
+  const c = canary.readCanary();
+  assert.equal(c.ok, true);
+  assert.equal(c.skipped, true);
+});
+
+test('generationCanary: fresh success → ok, not stale', () => {
+  canary._reset();
+  canary.recordCanary({ ok: true, model: 'haiku', latency_ms: 42 });
+  const c = canary.readCanary();
+  assert.equal(c.ok, true);
+  assert.equal(c.stale, false);
+  assert.equal(c.last_ok, true);
+});
+
+test('generationCanary: last run failed → ok:false with reason (soft warn)', () => {
+  canary._reset();
+  canary.recordCanary({ ok: false, model: 'haiku', reason: 'credit balance too low' });
+  const c = canary.readCanary();
+  assert.equal(c.ok, false);
+  assert.equal(c.skipped, undefined);
+  assert.match(c.reason, /credit/);
+});
+
+test('generationCanary: stale success → ok:false with canary_stale', () => {
+  canary._reset();
+  canary.recordCanary({ ok: true, model: 'haiku' });
+  // Read as if 2h have passed (> 90min STALE_MS).
+  const c = canary.readCanary({ now: Date.now() + 2 * 60 * 60 * 1000 });
+  assert.equal(c.ok, false);
+  assert.equal(c.stale, true);
+  assert.equal(c.reason, 'canary_stale');
+});
+
+test('generationCanary: recordCanary never throws on bad input', () => {
+  canary._reset();
+  assert.doesNotThrow(() => canary.recordCanary(null));
+  assert.doesNotThrow(() => canary.recordCanary(undefined));
+});

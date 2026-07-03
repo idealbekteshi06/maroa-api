@@ -998,6 +998,27 @@ const publishSchedulerEvery15m = inngest.createFunction(
   }
 );
 
+// ─── Generation canary (every 30 min) ─────────────────────────────────────
+// /readyz's Anthropic probe pings /v1/models — a FREE endpoint that stays
+// green even when credits are exhausted, so generation can be fully down while
+// health shows healthy (this happened in prod for ~3 weeks). This canary makes
+// ONE tiny real Haiku call (~5 tokens) so a credit/billing outage actually
+// turns something red. The endpoint records the result in lib/generationCanary
+// (read back by /readyz) and Slack-alerts on failure. Cost is negligible.
+const generationCanaryEvery30m = inngest.createFunction(
+  withDLQ({
+    id: 'generation-canary-30m',
+    name: 'Generation canary · real Claude ping',
+    retries: 1,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC */30 * * * *' }],
+  }),
+  async ({ step }) => {
+    const r = await step.run('ping', async () => callInternal('/webhook/generation-canary', {}));
+    return { ok: r?.ok ?? false, model: r?.model ?? null, latency_ms: r?.latency_ms ?? null };
+  }
+);
+
 const functions = [
   // Domain crons (originally migrated from n8n)
   adOptimizerDaily,
@@ -1078,6 +1099,10 @@ const functions = [
 
   // Publish scheduler (every 15 min) — publish content at its scheduled slot
   publishSchedulerEvery15m,
+
+  // Generation canary (every 30 min) — real Claude ping so a credit outage
+  // turns /readyz's generation_canary check red (the /v1/models probe can't).
+  generationCanaryEvery30m,
 ];
 
 module.exports = { functions, callInternal };
