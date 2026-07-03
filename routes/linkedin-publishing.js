@@ -220,7 +220,7 @@ Write a post with: hook (first line stops scrolling), value body (3-5 lines), CT
 Plain text, no markdown, no asterisks. Max 1300 characters.
 Return only valid JSON: {"post_text":"...","content_theme":"..."}`;
 
-        const parsed = await callClaude(prompt, 'claude-opus-4-7', 700, {
+        const parsed = await callClaude(prompt, 'claude-opus-4-8', 700, {
           businessId: business_id,
           skill: 'linkedin_post',
         });

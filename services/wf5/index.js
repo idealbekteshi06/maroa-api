@@ -116,7 +116,7 @@ function createWf5(deps) {
       white_space: parsed.white_space_opportunities || [],
       actions: parsed.recommended_actions || [],
       frameworks_cited: parsed.frameworks_cited || [],
-      model_used: planTier === 'agency' ? 'claude-opus-4-7' : 'claude-sonnet-4-6+advisor',
+      model_used: planTier === 'agency' ? 'claude-opus-4-8' : 'claude-sonnet-5+advisor',
     });
 
     await sbPost('events', {

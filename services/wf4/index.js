@@ -67,7 +67,7 @@ function createWf4(deps) {
     if (!review) throw new Error('Review not found');
 
     const { system, user } = buildReviewResponsePrompt(brandContext, review);
-    const raw = await callClaude(user, 'claude-sonnet-4-5', 1500, { system, businessId, returnRaw: true });
+    const raw = await callClaude(user, 'claude-sonnet-5', 1500, { system, businessId, returnRaw: true });
     const parsed = extractJSON(raw) || {};
     const drafts = Array.isArray(parsed.drafts) ? parsed.drafts : [parsed];
 
@@ -154,7 +154,7 @@ function createWf4(deps) {
     if (!review) throw new Error('Review not found');
 
     const { system, user } = buildDisputePrompt(brandContext, review);
-    const raw = await callClaude(user, 'claude-sonnet-4-5', 1000, { system, businessId, returnRaw: true });
+    const raw = await callClaude(user, 'claude-sonnet-5', 1000, { system, businessId, returnRaw: true });
     const parsed = extractJSON(raw) || {};
 
     const row = await sbPost('review_disputes', {
@@ -203,7 +203,7 @@ function createWf4(deps) {
       triggerKind,
       platform,
     });
-    const raw = await callClaude(user, 'claude-sonnet-4-5', 800, { system, businessId, returnRaw: true });
+    const raw = await callClaude(user, 'claude-sonnet-5', 800, { system, businessId, returnRaw: true });
     const parsed = extractJSON(raw) || {};
 
     const row = await sbPost('review_requests', {

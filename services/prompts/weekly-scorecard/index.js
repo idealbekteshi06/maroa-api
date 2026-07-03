@@ -200,7 +200,7 @@ function buildUserMessage({ business, marketProfile, scorecardData, plan }) {
 }
 
 function modelForPlan(plan) {
-  return String(plan || 'free').toLowerCase() === 'agency' ? 'claude-opus-4-7' : 'claude-sonnet-4-5';
+  return String(plan || 'free').toLowerCase() === 'agency' ? 'claude-opus-4-8' : 'claude-sonnet-5';
 }
 
 function maxTokensForPlan(plan) {

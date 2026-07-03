@@ -23,7 +23,7 @@ test('metaMetrics: threads objectives include traffic', () => {
 test('platformAnthropic: agency monthly batch cap uses extended range', () => {
   const cap = platform.batchMaxTokensForPlan('agency', 'wf1_monthly');
   assert.ok(cap > 64000);
-  assert.ok(platform.supportsExtendedOutput('claude-sonnet-4-6'));
+  assert.ok(platform.supportsExtendedOutput('claude-sonnet-5'));
 });
 
 test('cacheDiagnostics: round-trip message id', () => {

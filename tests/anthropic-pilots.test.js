@@ -158,12 +158,12 @@ test('managed-agent: ensureAgent creates new when no existing match', async () =
     externalId: 'wf15:b1',
     name: 'test agent',
     instructions: 'You are an AI brain.',
-    model: 'claude-opus-4-7',
+    model: 'claude-opus-4-8',
   });
   assert.equal(agent.id, 'agent_1');
   assert.equal(http.recorded.length, 2);
   assert.equal(http.recorded[1].method, 'POST');
-  assert.equal(http.recorded[1].body.model, 'claude-opus-4-7');
+  assert.equal(http.recorded[1].body.model, 'claude-opus-4-8');
   assert.equal(http.recorded[1].body.external_id, 'wf15:b1');
   assert.equal(http.recorded[1].headers['anthropic-beta'], 'managed-agents-2026-04-01');
 });

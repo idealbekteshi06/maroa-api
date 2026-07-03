@@ -215,7 +215,7 @@ function registerCreativeRoutes({
           comparable_canon: top.comparable_canon || null,
           raw_response: typeof concept._raw === 'string' ? concept._raw.slice(0, 50000) : null,
           status: 'pending_review',
-          model_used: 'claude-opus-4-7',
+          model_used: 'claude-opus-4-8',
           ab_variant: variant,
         }).catch((e) => {
           logger?.warn('/webhook/develop-creative-concept', businessId, 'persist failed', { error: e.message });

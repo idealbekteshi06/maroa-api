@@ -156,7 +156,7 @@ async function refreshTaxonomy({ deps } = {}) {
     const raw = await callClaude({
       system: INDUSTRIES_REVIEW_SYSTEM_PROMPT,
       user: industriesUser,
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-5',
       max_tokens: 1500,
       extra: {
         skill: 'taxonomy_refresh_industries',
@@ -186,7 +186,7 @@ async function refreshTaxonomy({ deps } = {}) {
     const raw = await callClaude({
       system: EXPERT_SOURCES_REVIEW_SYSTEM_PROMPT,
       user: expertSourcesUser,
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-5',
       max_tokens: 1500,
       extra: {
         skill: 'taxonomy_refresh_expert_sources',

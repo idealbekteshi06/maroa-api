@@ -93,7 +93,7 @@ function createWf9(deps) {
       },
       triage || { classification: thread.classification, urgency: thread.urgency }
     );
-    const raw = await callClaude(user, 'claude-sonnet-4-5', 1200, { system, businessId, returnRaw: true });
+    const raw = await callClaude(user, 'claude-sonnet-5', 1200, { system, businessId, returnRaw: true });
     const parsed = extractJSON(raw) || {};
 
     const row = await sbPost('inbox_replies', {

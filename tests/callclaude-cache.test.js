@@ -31,7 +31,7 @@ test('cost-tracker S2: calcCost charges cache_creation_input_tokens at 1.25× in
     cache_creation_input_tokens: 1_000_000,
     cache_read_input_tokens: 0,
   };
-  const cost = costTracker.calcCost(usage, 'claude-sonnet-4-5');
+  const cost = costTracker.calcCost(usage, 'claude-sonnet-5');
   assert.ok(Math.abs(cost - 3.75) < 0.001, `expected ~$3.75, got ${cost}`);
 });
 
@@ -43,7 +43,7 @@ test('cost-tracker S2: calcCost charges cache_read at 10× discount', () => {
     cache_creation_input_tokens: 0,
     cache_read_input_tokens: 1_000_000,
   };
-  const cost = costTracker.calcCost(usage, 'claude-sonnet-4-5');
+  const cost = costTracker.calcCost(usage, 'claude-sonnet-5');
   assert.ok(Math.abs(cost - 0.3) < 0.001, `expected ~$0.30, got ${cost}`);
 });
 
@@ -54,7 +54,7 @@ test('cost-tracker S2: input_tokens and cache_read_input_tokens are disjoint cou
     output_tokens: 0,
     cache_read_input_tokens: 1_000_000,
   };
-  const cost = costTracker.calcCost(usage, 'claude-sonnet-4-5');
+  const cost = costTracker.calcCost(usage, 'claude-sonnet-5');
   assert.ok(Math.abs(cost - 3.3) < 0.001, `expected ~$3.30, got ${cost}`);
 });
 
@@ -66,7 +66,7 @@ test('cost-tracker S2: full mix (input + cache_creation + cache_read + output) c
     cache_creation_input_tokens: 100_000,
     cache_read_input_tokens: 100_000,
   };
-  const cost = costTracker.calcCost(usage, 'claude-sonnet-4-5');
+  const cost = costTracker.calcCost(usage, 'claude-sonnet-5');
   const expected = 0.3 + 0.375 + 0.03 + 1.5;
   assert.ok(Math.abs(cost - expected) < 0.001, `expected ~$${expected}, got ${cost}`);
 });
@@ -76,7 +76,7 @@ test('cost-tracker S2: track emits llm_tokens_cache_creation_total metric', asyn
   await costTracker.track({
     businessId: 'biz1',
     skill: 'test',
-    model: 'claude-sonnet-4-5',
+    model: 'claude-sonnet-5',
     usage: {
       input_tokens: 100,
       output_tokens: 50,
@@ -94,8 +94,8 @@ test('cost-tracker S2: track emits llm_tokens_cache_creation_total metric', asyn
 });
 
 test('cost-tracker S2: empty / null usage returns 0 cost', () => {
-  assert.strictEqual(costTracker.calcCost(null, 'claude-sonnet-4-5'), 0);
-  assert.strictEqual(costTracker.calcCost({}, 'claude-sonnet-4-5'), 0);
+  assert.strictEqual(costTracker.calcCost(null, 'claude-sonnet-5'), 0);
+  assert.strictEqual(costTracker.calcCost({}, 'claude-sonnet-5'), 0);
 });
 
 // ─── system blocks → callClaude request shape (contract test) ────────────

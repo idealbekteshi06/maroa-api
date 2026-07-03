@@ -58,7 +58,7 @@ function createDeepDiveService({ managedAgentService, sbGet, sbPost, logger }) {
       externalId: `${DEEP_DIVE_AGENT_EXTERNAL_ID}_${businessId}`.slice(0, 120),
       name: `Maroa Deep Dive — ${business.business_name || businessId}`.slice(0, 80),
       instructions,
-      model: 'claude-opus-4-7',
+      model: 'claude-opus-4-8',
       tools: [{ type: 'agent_toolset_20260401' }],
       mcp_servers: mcpServers.length ? mcpServers : undefined,
       metadata: { maroa_feature: 'marketing_deep_dive', mcp_tunnel: !!tunnelUrl },

@@ -168,7 +168,7 @@ function createWf3(deps) {
     }
 
     const { system, user } = buildAdOptimizationPrompt(brandContext, snapshot);
-    const raw = await callClaude(user, 'claude-opus-4-7', 3500, { system, businessId, returnRaw: true });
+    const raw = await callClaude(user, 'claude-opus-4-8', 3500, { system, businessId, returnRaw: true });
     const decision = extractJSON(raw) || {};
 
     let runRow;
@@ -179,7 +179,7 @@ function createWf3(deps) {
         blended_roas: snapshot.blendedRoas,
         blended_cac: snapshot.blendedCac,
         total_spend_usd: snapshot.totalSpend,
-        model_used: 'claude-opus-4-7',
+        model_used: 'claude-opus-4-8',
         status: 'awaiting_approval',
       });
       runRow = { id: existing[0].id };
@@ -193,7 +193,7 @@ function createWf3(deps) {
         blended_roas: snapshot.blendedRoas,
         blended_cac: snapshot.blendedCac,
         total_spend_usd: snapshot.totalSpend,
-        model_used: 'claude-opus-4-7',
+        model_used: 'claude-opus-4-8',
         status: 'awaiting_approval',
       });
     }

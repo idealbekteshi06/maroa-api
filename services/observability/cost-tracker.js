@@ -22,10 +22,16 @@ const { addMonthlyCostUsd } = require('../../lib/costCounter');
 
 const PRICING = {
   // model → { input_per_mtok, output_per_mtok, cache_read_per_mtok }
+  // Current generation (2026-07 upgrade). Sonnet 5 list price is $3/$15
+  // (intro $2/$10 through 2026-08-31) — we book at list so cost caps stay
+  // conservative and don't need a Sept repricing.
+  'claude-sonnet-5': { input: 3.0, output: 15.0, cache_read: 0.3 },
+  'claude-opus-4-8': { input: 5.0, output: 25.0, cache_read: 0.5 },
+  'claude-haiku-4-5': { input: 1.0, output: 5.0, cache_read: 0.1 },
+  // Previous generation (still reachable via MODEL_UPGRADE_DISABLED rollback)
   'claude-sonnet-4-6': { input: 3.0, output: 15.0, cache_read: 0.3 },
   'claude-sonnet-4-5': { input: 3.0, output: 15.0, cache_read: 0.3 },
   'claude-opus-4-7': { input: 5.0, output: 25.0, cache_read: 0.5 },
-  'claude-haiku-4-5': { input: 1.0, output: 5.0, cache_read: 0.1 },
   // Aliases for backwards compat
   'claude-sonnet-4': { input: 3.0, output: 15.0, cache_read: 0.3 },
   'claude-opus-4': { input: 5.0, output: 25.0, cache_read: 0.5 },

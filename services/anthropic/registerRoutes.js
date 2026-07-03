@@ -323,7 +323,7 @@ function registerAnthropicRoutes(deps) {
         const built = requests.map((r) =>
           batchService.buildRequest({
             customId: r.customId || `${r.businessId || 'biz'}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            model: r.model || 'claude-sonnet-4-5',
+            model: r.model || 'claude-sonnet-5',
             system: r.system,
             prompt: r.prompt,
             maxTokens: r.maxTokens,
@@ -477,7 +477,7 @@ function registerAnthropicRoutes(deps) {
         // ONE Claude call returning the full response body (content blocks
         // preserved so citations parser can read them). Cuts insights API
         // cost in half vs the naive two-call shape.
-        const messageBody = await callClaude(question, 'claude-sonnet-4-5', maxTokens || 1500, {
+        const messageBody = await callClaude(question, 'claude-sonnet-5', maxTokens || 1500, {
           system,
           businessId,
           cacheSystem: true,

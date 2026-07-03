@@ -72,7 +72,7 @@ function createWf10(deps) {
     const isAgency = plan === 'agency';
 
     const { system, user } = buildStudioBriefPrompt(brandContext, request);
-    const raw = await callClaude(user, 'claude-sonnet-4-5', 2000, { system, businessId, returnRaw: true });
+    const raw = await callClaude(user, 'claude-sonnet-5', 2000, { system, businessId, returnRaw: true });
     const brief = extractJSON(raw) || {};
 
     const job = await sbPost('studio_jobs', {

@@ -105,7 +105,7 @@ function createEngine({
         updated_at: new Date().toISOString(),
       });
       const synthesisPrompt = buildStrategicSynthesisPrompt(brandContext, bundle);
-      const synthesisRaw = await callClaude(synthesisPrompt.user, 'claude-opus-4-7', 5000, {
+      const synthesisRaw = await callClaude(synthesisPrompt.user, 'claude-opus-4-8', 5000, {
         system: synthesisPrompt.system,
         businessId,
         returnRaw: true,
@@ -126,7 +126,7 @@ function createEngine({
         updated_at: new Date().toISOString(),
       });
       const polishPrompt = buildClientVoicePrompt(brandContext, synthesis);
-      const polishRaw = await callClaude(polishPrompt.user, 'claude-sonnet-4-5', 4000, {
+      const polishRaw = await callClaude(polishPrompt.user, 'claude-sonnet-5', 4000, {
         system: polishPrompt.system,
         businessId,
         returnRaw: true,
@@ -147,8 +147,8 @@ function createEngine({
         subject_line: deliverable.subjectLine || synthesis.headline,
         headline: synthesis.headline,
         word_count: synthesis.wordCountEstimate || null,
-        model_used_synthesis: 'claude-opus-4-7',
-        model_used_polish: 'claude-sonnet-4-5',
+        model_used_synthesis: 'claude-opus-4-8',
+        model_used_polish: 'claude-sonnet-5',
         generated_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });

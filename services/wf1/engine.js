@@ -287,7 +287,7 @@ function createEngine({
             comparable_canon: creativeConcept.top_concept?.comparable_canon || null,
             status: 'used',
             decided_at: new Date().toISOString(),
-            model_used: 'claude-opus-4-7',
+            model_used: 'claude-opus-4-8',
           }).catch(() => null);
           creativeConceptId = ccRow?.[0]?.id || ccRow?.id || null;
           // Inject the concept as additional context for the daily-content strategic prompt
@@ -316,7 +316,7 @@ function createEngine({
       callClaude,
       system: augmentedSystem,
       user: augmentedUser,
-      model: 'claude-opus-4-7',
+      model: 'claude-opus-4-8',
       max_tokens: 3500,
       businessId,
       skill: 'wf1_strategic_decision',
@@ -342,7 +342,7 @@ function createEngine({
       status: conceptsIn.length ? 'awaiting_approval' : 'skipped',
       analysis,
       context_snapshot: bundle,
-      model_used: 'claude-opus-4-7',
+      model_used: 'claude-opus-4-8',
     });
 
     // Persist concepts
@@ -501,7 +501,7 @@ function createEngine({
       ? groundingSchedule.best_times[concept.id.charCodeAt(0) % groundingSchedule.best_times.length]
       : null;
 
-    const raw = await callClaude(user, 'claude-sonnet-4-5', 3000, {
+    const raw = await callClaude(user, 'claude-sonnet-5', 3000, {
       system,
       businessId,
       returnRaw: true,
@@ -533,7 +533,7 @@ function createEngine({
           businessId,
           skill: 'wf1_caption_critic',
           criticModel: 'claude-haiku-4-5',
-          rewriteModel: 'claude-sonnet-4-5',
+          rewriteModel: 'claude-sonnet-5',
           maxRewriteRounds: 1,
           rewriteMaxTokens: 600,
           metrics,
@@ -553,7 +553,7 @@ function createEngine({
           businessId,
           skill: 'wf1_hook_critic',
           criticModel: 'claude-haiku-4-5',
-          rewriteModel: 'claude-sonnet-4-5',
+          rewriteModel: 'claude-sonnet-5',
           maxRewriteRounds: 1,
           rewriteMaxTokens: 200,
           metrics,
@@ -753,7 +753,7 @@ function createEngine({
       confidence: Number(parsed.confidence || 0),
       quality_score: qualityResult.score,
       quality_breakdown: qualityResult.breakdown,
-      model_used: imageModelUsed ? `claude-sonnet-4-5+${imageModelUsed}` : 'claude-sonnet-4-5',
+      model_used: imageModelUsed ? `claude-sonnet-5+${imageModelUsed}` : 'claude-sonnet-5',
       status: qualityResult.score >= 80 ? 'awaiting_approval' : 'generated',
     });
 

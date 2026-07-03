@@ -50,7 +50,7 @@ function createWf6(deps) {
       keywords: auditInput.keywords || [],
     };
     const { system, user } = buildPresenceAuditPrompt(brandContext, audit);
-    const raw = await callClaude(user, 'claude-sonnet-4-5', 2500, { system, businessId, returnRaw: true });
+    const raw = await callClaude(user, 'claude-sonnet-5', 2500, { system, businessId, returnRaw: true });
     const parsed = extractJSON(raw) || {};
     const row = await sbPost('presence_audits', {
       business_id: businessId,
@@ -68,7 +68,7 @@ function createWf6(deps) {
   async function generateSchema({ businessId, page }) {
     const brandContext = await resolveBrandContext(businessId);
     const { system, user } = buildSchemaGenerationPrompt(brandContext, page);
-    const raw = await callClaude(user, 'claude-sonnet-4-5', 1500, { system, businessId, returnRaw: true });
+    const raw = await callClaude(user, 'claude-sonnet-5', 1500, { system, businessId, returnRaw: true });
     const parsed = extractJSON(raw);
     if (!parsed) throw new Error('Schema generation returned invalid JSON');
     const row = await sbPost('schema_markup_generated', {

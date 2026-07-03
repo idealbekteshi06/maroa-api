@@ -309,7 +309,7 @@ async function auditCampaign(opts) {
       const repairedRaw = await callClaude({
         system: 'You are a strict JSON output repair model. Output JSON only.',
         user: repairPrompt,
-        model: 'claude-sonnet-4-5',
+        model: 'claude-sonnet-5',
         max_tokens: 1200,
         extra: { temperature: 0.0, returnRaw: true, skill: 'ad_optimizer_repair' },
       });

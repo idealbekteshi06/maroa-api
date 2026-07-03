@@ -18,7 +18,7 @@
  *   resolveMode(plan, override?)  → 'quick' | 'standard' | 'deep'
  *   sliceFindings(findings, mode) → array sliced to mode's depth
  *   tokenBudgetFor(mode, kind?)   → max_tokens cap
- *   modelFor(mode)                → 'claude-sonnet-4-5' | 'claude-opus-4-7'
+ *   modelFor(mode)                → 'claude-sonnet-5' | 'claude-opus-4-8'
  *   shouldUseParallelAgents(mode) → bool
  *   shouldUseFilesApi(mode)       → bool
  *   temperatureFor(mode, task?)   → number
@@ -84,7 +84,7 @@ function tokenBudgetFor(mode, kind = 'audit') {
  * Pick the model for the mode.
  */
 function modelFor(mode) {
-  return String(mode || 'standard').toLowerCase() === 'deep' ? 'claude-opus-4-7' : 'claude-sonnet-4-5';
+  return String(mode || 'standard').toLowerCase() === 'deep' ? 'claude-opus-4-8' : 'claude-sonnet-5';
 }
 
 function shouldUseParallelAgents(mode) {

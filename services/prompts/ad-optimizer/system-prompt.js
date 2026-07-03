@@ -236,8 +236,8 @@ function buildUserMessage({
  */
 function modelForPlan(plan) {
   const p = String(plan || 'free').toLowerCase();
-  if (p === 'agency') return 'claude-opus-4-7';
-  return 'claude-sonnet-4-5';
+  if (p === 'agency') return 'claude-opus-4-8';
+  return 'claude-sonnet-5';
 }
 
 /**

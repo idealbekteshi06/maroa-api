@@ -14,9 +14,9 @@ const advisor = require('../services/prompts/advisor-tool');
 const { createBatchService } = require('../services/anthropic-batch');
 
 test('claudeAnthropicTools: advisor + web search attach to body', () => {
-  const body = { model: 'claude-sonnet-4-6', messages: [] };
+  const body = { model: 'claude-sonnet-5', messages: [] };
   attachToolsToBody(body, {
-    advisor: { model: 'claude-opus-4-7', maxUses: 3 },
+    advisor: { model: 'claude-opus-4-8', maxUses: 3 },
     webSearch: { maxUses: 5, dynamicFilter: true },
   });
   assert.equal(body.tools.length, 2);
@@ -35,9 +35,9 @@ test('advisor-tool: competitor + ai-seo + creative tasks enabled', () => {
   assert.strictEqual(advisor.shouldUseAdvisor({ task: 'creative', planTier: 'agency' }), true);
 });
 
-test('advisor-tool: default executor is Sonnet 4.6', () => {
-  assert.strictEqual(advisor.DEFAULT_EXECUTOR, 'claude-sonnet-4-6');
-  assert.strictEqual(advisor.modelsFor('growth').executor, 'claude-sonnet-4-6');
+test('advisor-tool: default executor is Sonnet 5', () => {
+  assert.strictEqual(advisor.DEFAULT_EXECUTOR, 'claude-sonnet-5');
+  assert.strictEqual(advisor.modelsFor('growth').executor, 'claude-sonnet-5');
 });
 
 test('webSearchGate: starter has zero cap', () => {
@@ -67,7 +67,7 @@ test('anthropic-batch: cacheTtl 1h on system block', () => {
   });
   const req = svc.buildRequest({
     customId: 'nightly',
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-5',
     system: 'shared prefix',
     prompt: 'q',
     cacheSystem: true,

@@ -227,7 +227,7 @@ async function runAgencyPipeline(job = {}, deps = {}) {
       const raw = await callClaude({
         system: systemPrompt,
         user: userPrompt,
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         max_tokens: 1500,
         extra: { businessId, skill: 'agency_pipeline' },
       });

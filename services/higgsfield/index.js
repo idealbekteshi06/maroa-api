@@ -488,7 +488,7 @@ module.exports = function createHiggsfieldService(deps) {
       if (!url || typeof url !== 'string') continue;
       imageBlocks.push({ type: 'image', source: { type: 'url', url } });
     }
-    const model = opts.model || 'claude-sonnet-4-5';
+    const model = opts.model || 'claude-sonnet-5';
     const maxTokens = opts.max_tokens || 4096;
 
     if (typeof callClaude === 'function') {
@@ -533,7 +533,7 @@ module.exports = function createHiggsfieldService(deps) {
 
   async function claudeText(prompt, taskType, maxTok, extra = {}) {
     if (!ANTHROPIC_KEY) throw new Error('ANTHROPIC_KEY not configured');
-    const model = extra.model || 'claude-sonnet-4-5';
+    const model = extra.model || 'claude-sonnet-5';
     const maxTokens = maxTok || 4096;
 
     if (typeof callClaude === 'function') {
@@ -1028,7 +1028,7 @@ module.exports = function createHiggsfieldService(deps) {
     const raw = await claudeVision(req.userTask, [imageUrl], {
       max_tokens: 2500,
       system: req.system,
-      model: options.model || 'claude-sonnet-4-5',
+      model: options.model || 'claude-sonnet-5',
     });
     const parsed = extractJSON(raw) || {};
     const verdict = vetter.synthesizeVerdict({
@@ -1113,7 +1113,7 @@ module.exports = function createHiggsfieldService(deps) {
    *   - image_brief: ready to feed into submitSoulAndWait (or the existing generateProductImage path)
    *   - video_brief: ready to feed into submitVideoAndWait
    *
-   * Use Claude Opus for the strategic call (model: claude-opus-4-7).
+   * Use Claude Opus for the strategic call (model: claude-opus-4-8).
    */
   async function developCreativeConcept(brandDNA, businessGoal, contentGoal, options = {}) {
     const brief = creative.buildCreativeBrief({
@@ -1149,7 +1149,7 @@ module.exports = function createHiggsfieldService(deps) {
             });
           })()
         : await claudeText(brief.userTask, 'strategy', 4096, {
-            model: options.model || 'claude-opus-4-7',
+            model: options.model || 'claude-opus-4-8',
             system: brief.system,
             returnRaw: true,
           });
