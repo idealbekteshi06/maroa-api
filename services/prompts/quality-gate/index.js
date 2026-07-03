@@ -314,7 +314,11 @@ async function checkAdvisor({ text, business, contentType, brandVoiceAnchor, cal
       task: 'audit',
       planTier,
       max_tokens: 400,
-      extra: { cacheSystem: true, temperature: 0.2 },
+      extra: {
+        cacheSystem: true,
+        temperature: 0.2,
+        outputFormat: require('../../../lib/structuredOutputs').qualityGateAdvisor,
+      },
     });
     const parsed = extractJSON(raw);
     if (!parsed || typeof parsed !== 'object') return null;

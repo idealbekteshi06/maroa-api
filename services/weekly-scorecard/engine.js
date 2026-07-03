@@ -63,6 +63,7 @@ function createEngine(deps) {
               temperature: 0.5,
               businessId,
               skill: 'weekly_scorecard_narrative',
+              outputFormat: require('../../lib/structuredOutputs').scorecardCommentary,
             },
           });
           commentary = extractJSON(raw);

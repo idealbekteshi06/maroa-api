@@ -254,6 +254,9 @@ async function auditCampaign(opts) {
       extra: {
         cacheSystem: true, // prompt-cache the 12k-char system block
         temperature: 0.2, // low randomness for decisions
+        // Structured outputs: API-guaranteed schema-valid JSON — the repair
+        // loop below stays as belt-and-suspenders but should never fire.
+        outputFormat: require('../../../lib/structuredOutputs').adOptimizerAudit,
         businessId: business?.id,
         skill: 'ad_optimizer_audit',
         groundingSurface: 'ad_copy',

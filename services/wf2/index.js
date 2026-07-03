@@ -221,7 +221,12 @@ function createWf2(deps) {
       : scoreLead(payload);
 
     const { system, user } = buildLeadResponsePrompt(brandContext, payload, score);
-    const raw = await callClaude(user, 'claude-sonnet-5', 1500, { system, businessId, returnRaw: true });
+    const raw = await callClaude(user, 'claude-sonnet-5', 1500, {
+      system,
+      businessId,
+      returnRaw: true,
+      outputFormat: require('../../lib/structuredOutputs').leadResponse,
+    });
     const parsed = extractJSON(raw) || {};
 
     const responseRow = await sbPost('lead_responses', {
