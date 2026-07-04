@@ -466,12 +466,27 @@ function createEngine({
     let groundingSchedule = null;
     try {
       const surface = concept.platform === 'email' ? 'email' : 'social_post';
+      // Semantic retrieval (ADR-0005): pass the concept's own idea as the
+      // query so wins/losses come back topically similar (pgvector, LRU
+      // fallback) instead of merely recent. This path existed since Wave 59
+      // but no caller threaded a query — recency was all we ever used.
+      const semanticQuery = [concept.core_idea, concept.hook, concept.pillar].filter(Boolean).join('. ');
       const grounding = await _grounding.buildGroundingContext({
         sbGet,
         businessId,
         surface,
         intent: concept.funnel_stage === 'consideration' ? 'awareness' : 'conversion',
         limit: 3,
+        ...(semanticQuery
+          ? {
+              semanticQuery,
+              performanceMemory: require('../../lib/performanceMemory').createPerformanceMemory({
+                sbGet,
+                callClaude,
+                logger,
+              }),
+            }
+          : {}),
       });
       const block = grounding.toPromptBlock();
       groundingSchedule = grounding.postingSchedule;
