@@ -819,6 +819,7 @@ setImmediate(() => {
   app.use('/webhook/studio-dtc-image', costGuard);
   app.use('/webhook/studio-marketing-video', costGuard);
   app.use('/webhook/studio-recreate-ad', costGuard);
+  app.use('/webhook/competitor-ad-make-version', costGuard);
 
   // Body-shape validation for critical webhooks.
   app.use('/webhook/instant-content', zodValidate(businessIdBody));
@@ -11504,6 +11505,28 @@ Return ONLY valid JSON:
     require('./routes/marketing-studio').register({ app, higgsfieldAI, sbGet, apiError, logger });
   } catch (e) {
     logger?.warn?.('marketing-studio', null, 'route register failed', { error: e.message });
+  }
+
+  // Competitor winning-ad discovery (Meta Ad Library, longevity-ranked) +
+  // one-click "make my version" recreation.
+  try {
+    const competitorAds = require('./services/competitor-ads')({
+      metaAdLibrary: require('./services/meta-ad-library'),
+      sbGet,
+      logger,
+    });
+    require('./routes/competitor-ads').register({ app, competitorAds, higgsfieldAI, sbGet, apiError, logger });
+  } catch (e) {
+    logger?.warn?.('competitor-ads', null, 'route register failed', { error: e.message });
+  }
+
+  // Creative A/B experiments: two-proportion z-test over ad_performance_logs
+  // (migration 100). Recommends only — execution stays with the gated actuator.
+  try {
+    const abTesting = require('./services/ab-testing')({ sbGet, sbPost, sbPatch, logger });
+    require('./routes/ab-testing').register({ app, abTesting, apiError, logger });
+  } catch (e) {
+    logger?.warn?.('ab-testing', null, 'route register failed', { error: e.message });
   }
 
   // Store connect (Shopify / dropshipping): catalog ingestion + automation
