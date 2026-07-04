@@ -76,8 +76,49 @@ function createWf4(deps) {
       await sbPatch('review_responses', `review_id=eq.${reviewId}`, { is_active: false }).catch(() => {});
     }
 
+    // ─── Quality gate (2026-07): review replies are the most PUBLIC text
+    // Maroa writes — they sit on Google/Facebook forever under the business's
+    // name. Every draft now passes the ship/retry/reject gate (voice-polish +
+    // slop/claim checks); a rejected draft is dropped rather than saved.
+    // Fail-open: if the gate itself errors, the draft ships as before.
+    let gatedDrafts = drafts.filter(Boolean);
+    try {
+      const bizRows = await sbGet('businesses', `id=eq.${businessId}&select=*`).catch(() => []);
+      const business = bizRows[0];
+      if (business) {
+        const qualityGate = require('../prompts/quality-gate');
+        const results = await Promise.all(
+          gatedDrafts.map(async (d) => {
+            if (!d.body) return d;
+            try {
+              const g = await qualityGate.gate({
+                text: String(d.body),
+                business,
+                contentType: 'review_response',
+                plan: business.plan || 'free',
+                callClaude,
+                extractJSON,
+              });
+              if (g.decision === 'reject') return null;
+              if (g.final_text && g.final_text !== d.body) {
+                return { ...d, body: g.final_text, _quality_gate: g.decision };
+              }
+              return { ...d, _quality_gate: g.decision };
+            } catch {
+              return d;
+            }
+          })
+        );
+        const kept = results.filter(Boolean);
+        // Never drop ALL drafts — a human still reviews before publish.
+        if (kept.length > 0) gatedDrafts = kept;
+      }
+    } catch (e) {
+      logger?.warn?.('/wf4/generateResponse', businessId, 'quality gate skipped', { error: e.message });
+    }
+
     const saved = [];
-    for (const d of drafts.filter(Boolean)) {
+    for (const d of gatedDrafts) {
       const row = await sbPost('review_responses', {
         business_id: businessId,
         review_id: reviewId,

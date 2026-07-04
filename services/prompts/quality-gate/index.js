@@ -41,6 +41,17 @@ const COPY_EDITING_TYPES = new Set([
 
 const DEFAULT_THRESHOLDS = {
   caption: { slop_max: 35, specificity_min: 40, psychology_min: 30, allow_retry: true, use_advisor_growth: false },
+  // Review replies live publicly on Google/Facebook under the business's
+  // name forever — lowest slop tolerance, but no psychology requirement
+  // (a review reply should be gracious, not persuasive) and modest
+  // specificity (short thank-yous are correct).
+  review_response: {
+    slop_max: 20,
+    specificity_min: 25,
+    psychology_min: 0,
+    allow_retry: true,
+    use_advisor_growth: false,
+  },
   ad_copy: { slop_max: 25, specificity_min: 60, psychology_min: 50, allow_retry: true, use_advisor_growth: true },
   audit_narrative: {
     slop_max: 30,
