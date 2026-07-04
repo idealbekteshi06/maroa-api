@@ -111,6 +111,11 @@ async function generateDailyVariants({ businessId, deps }) {
   // STEP 1: Build grounding context ONCE for this business. The library
   // caches for 5min, so subsequent variant calls in this batch are free.
   // Surface = ad_copy because that's what the engine produces.
+  // Semantic retrieval (ADR-0005): query by what the business sells so
+  // wins/losses come back topically similar, not merely recent.
+  const semanticQuery = [business.business_name, business.industry, business.value_prop, business.target_audience]
+    .filter(Boolean)
+    .join('. ');
   const grounding = await groundingContext.buildGroundingContext({
     sbGet,
     businessId,
@@ -120,6 +125,16 @@ async function generateDailyVariants({ businessId, deps }) {
     // Wave 59 S3: tier-gate the corpus section (free=0, growth=2, agency=5).
     // `plan` was fetched as part of the business row above.
     plan,
+    ...(semanticQuery && deps.callClaude
+      ? {
+          semanticQuery,
+          performanceMemory: require('../../lib/performanceMemory').createPerformanceMemory({
+            sbGet,
+            callClaude: deps.callClaude,
+            logger,
+          }),
+        }
+      : {}),
   });
 
   // STEP 2: OVERSAMPLE candidates 2×. Generate without critic — we'll
