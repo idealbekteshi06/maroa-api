@@ -501,12 +501,57 @@ function createEngine({
       ? groundingSchedule.best_times[concept.id.charCodeAt(0) % groundingSchedule.best_times.length]
       : null;
 
-    const raw = await callClaude(user, 'claude-sonnet-5', 3000, {
-      system,
-      businessId,
-      returnRaw: true,
-      skipGrounding: true,
-    });
+    // ─── Plan-gated n-best generation (2026-07 quality uplift) ─────────
+    // The daily asset is the most-seen output Maroa ships, but it used to be
+    // a single draft. Now paid tiers oversample with forced psychological
+    // angles and a judge picks the strongest — same closed-loop pattern as
+    // the creative engine (CLAUDE.md Rule 6). free/starter stay single-draft
+    // (cost discipline); failures fall back to the single-draft path.
+    const planRowsEarly = await sbGet(`businesses`, `id=eq.${businessId}&select=plan`).catch(() => []);
+    const plan = (planRowsEarly[0]?.plan || 'free').toLowerCase();
+    const N_DRAFTS_BY_PLAN = { free: 1, starter: 1, growth: 3, agency: 5 };
+    const nDrafts = N_DRAFTS_BY_PLAN[plan] || 1;
+
+    const generateOnce = (prompt) =>
+      callClaude(prompt, 'claude-sonnet-5', 3000, {
+        system,
+        businessId,
+        returnRaw: true,
+        skipGrounding: true,
+      });
+
+    let raw;
+    if (nDrafts > 1) {
+      try {
+        const { nBestPick, ANGLE_TAXONOMY } = require('../../lib/nBestReranker');
+        const winners = await nBestPick({
+          callClaude,
+          n: nDrafts,
+          topK: 1,
+          role: 'social_post',
+          businessId,
+          skill: 'wf1_asset_nbest',
+          judgeCriteria:
+            'Judge as a scroll-stopping social asset for a small business: hook strength in the first 7 words, specificity (numbers/names beat adjectives), platform-native voice, and a caption a real owner would proudly post. Penalize AI-slop phrasing.',
+          angles: ANGLE_TAXONOMY,
+          metrics,
+          logger,
+          generateDraft: async (_i, angle) => {
+            const angled = angle
+              ? `${user}\n\nPSYCHOLOGICAL ANGLE FOR THIS DRAFT (commit fully to it): ${angle}`
+              : user;
+            return generateOnce(angled);
+          },
+        });
+        raw = winners?.[0]?.draft || null;
+      } catch (e) {
+        logger?.warn?.('/wf1/engine.nbest', businessId, 'n-best failed — single draft fallback', {
+          error: e.message,
+        });
+        raw = null;
+      }
+    }
+    if (!raw) raw = await generateOnce(user);
     const parsed = extractJSON(raw) || {};
     // Must come AFTER `parsed` is declared — referencing it earlier is a
     // temporal-dead-zone ReferenceError that crashed every asset generation.
@@ -523,8 +568,6 @@ function createEngine({
     //   agency → critic body + hook
     // Failures keep the original caption (fail-safe). See ADR-0005.
     try {
-      const planRows = await sbGet('businesses', `id=eq.${businessId}&select=plan`).catch(() => []);
-      const plan = (planRows[0]?.plan || 'free').toLowerCase();
       if ((plan === 'growth' || plan === 'agency') && parsed.caption) {
         const result = await _critic.reflexion({
           callClaude,
