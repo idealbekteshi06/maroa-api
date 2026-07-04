@@ -5485,6 +5485,137 @@ paths:
             schema:
               type: object
               additionalProperties: true
+  /webhook/ab-test-create:
+    post:
+      tags:
+        - webhook
+      summary: 'POST /webhook/ab-test-create'
+      description: 'Automation webhook (POST /webhook/ab-test-create). See docs/openapi-overrides.json for detail.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        description: 'Request body — hand-edit shape per route'
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /webhook/ab-test-evaluate:
+    post:
+      tags:
+        - webhook
+      summary: 'POST /webhook/ab-test-evaluate'
+      description: 'Automation webhook (POST /webhook/ab-test-evaluate). See docs/openapi-overrides.json for detail.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        description: 'Request body — hand-edit shape per route'
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /webhook/ab-tests-list:
+    get:
+      tags:
+        - webhook
+      summary: 'GET /webhook/ab-tests-list'
+      description: 'Automation webhook (GET /webhook/ab-tests-list). See docs/openapi-overrides.json for detail.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
   /webhook/agency-generate:
     post:
       tags:
@@ -5798,6 +5929,91 @@ paths:
         - api
       summary: 'DELETE /api/tokens/:id'
       description: 'Dashboard API (DELETE /api/tokens/:id); JWT required unless public.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        description: 'Request body — hand-edit shape per route'
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /webhook/competitor-ads-search:
+    get:
+      tags:
+        - webhook
+      summary: 'GET /webhook/competitor-ads-search'
+      description: 'Automation webhook (GET /webhook/competitor-ads-search). See docs/openapi-overrides.json for detail.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /webhook/competitor-ad-make-version:
+    post:
+      tags:
+        - webhook
+      summary: 'POST /webhook/competitor-ad-make-version'
+      description: 'Automation webhook (POST /webhook/competitor-ad-make-version). See docs/openapi-overrides.json for detail.'
       responses:
         200:
           description: 'Successful response'
