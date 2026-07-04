@@ -10399,6 +10399,49 @@ Return ONLY valid JSON:
     }
   });
 
+  // ─── Corpus pre-trainer run surface (2026-07) ────────────────────────────
+  // The marketing_corpus pre-trainer (ADR-0008: real-world winning ads →
+  // day-1 industry expertise) was fully built but had NO trigger anywhere —
+  // the corpus sat empty and the cold-start grounding block never fired.
+  // POST /webhook/pretrainer-run — invoked by the weekly Inngest cron and the
+  // maroa/manual.pretrainer event. Options are clamped; runs are idempotent
+  // (source+source_ref dedup) so re-runs only pay for NEW examples, which
+  // makes the weekly cap effectively rotate coverage forward each week.
+  async function runPretrainerSweep(body = {}) {
+    const orchestrator = require('./services/public-pretrainer/orchestrator');
+    const clamp = (v, lo, hi, dflt) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : dflt;
+    };
+    const options = {
+      totalCapExamples: clamp(body?.totalCapExamples, 10, 2000, 500),
+      limitPerSource: clamp(body?.limitPerSource, 5, 100, 25),
+      maxExpertBrands: clamp(body?.maxExpertBrands, 1, 8, 4),
+      ...(Array.isArray(body?.industries) && body.industries.length
+        ? { industries: body.industries.slice(0, 60).map(String) }
+        : {}),
+      ...(Array.isArray(body?.regions) && body.regions.length
+        ? { regions: body.regions.slice(0, 10).map(String) }
+        : { regions: ['US', 'GLOBAL'] }),
+    };
+    const deps = { callClaude, sbGet, sbPost, sbPatch, logger, metrics: observability?.metrics };
+    const result = await orchestrator.runForAll({ deps, options });
+    logger?.info?.('/webhook/pretrainer-run', null, 'pretrainer sweep done', {
+      kept: result?.total_kept,
+      cost_cents: result?.total_cost_usd_cents,
+    });
+    return result;
+  }
+  internalDispatcher.register('/webhook/pretrainer-run', (body) => runPretrainerSweep(body || {}));
+  app.post('/webhook/pretrainer-run', async (req, res) => {
+    try {
+      res.json(await runPretrainerSweep(req.body || {}));
+    } catch (e) {
+      logError('pretrainer-run', e);
+      apiError(res, 500, 'PRETRAINER_RUN_FAILED', e.message);
+    }
+  });
+
   // ─── Generation canary ────────────────────────────────────────────────────
   // POST /webhook/generation-canary — invoked by the ~30-min Inngest cron.
   // Makes ONE tiny real Haiku call. Unlike /readyz's Anthropic probe (which

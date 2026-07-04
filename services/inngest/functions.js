@@ -314,6 +314,50 @@ const manualCompetitorWatch = inngest.createFunction(
   }
 );
 
+// Corpus pre-trainer (ADR-0008): weekly sweep seeds marketing_corpus from
+// real-world winning ads (Meta Ad Library expert brands + award winners).
+// Idempotent (source+source_ref dedup) — each week's capped run only pays
+// for NEW examples, so coverage rotates forward across the 54-industry
+// taxonomy. Monday 05:00 UTC, after the weekly maintenance window.
+const pretrainerWeekly = inngest.createFunction(
+  withDLQ({
+    id: 'pretrainer-weekly',
+    name: 'Corpus pre-trainer · weekly sweep',
+    retries: 1,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: 'TZ=UTC 0 5 * * 1' }],
+  }),
+  async ({ step }) => {
+    return await step.run('sweep', async () =>
+      callInternal('/webhook/pretrainer-run', { totalCapExamples: 500, limitPerSource: 25 })
+    );
+  }
+);
+
+// Send event "maroa/manual.pretrainer" for an on-demand corpus seeding run
+// (e.g. the initial seed, or after adding a new industry to the taxonomy).
+// event.data may carry { totalCapExamples, limitPerSource, industries, regions }.
+const manualPretrainer = inngest.createFunction(
+  withDLQ({
+    id: 'manual-pretrainer',
+    name: 'Manual · corpus pre-trainer sweep',
+    retries: 1,
+    concurrency: { limit: 1 },
+    triggers: [{ event: 'maroa/manual.pretrainer' }],
+  }),
+  async ({ event, step }) => {
+    const d = event?.data || {};
+    return await step.run('sweep', async () =>
+      callInternal('/webhook/pretrainer-run', {
+        totalCapExamples: d.totalCapExamples,
+        limitPerSource: d.limitPerSource,
+        industries: d.industries,
+        regions: d.regions,
+      })
+    );
+  }
+);
+
 // Send event "maroa/manual.email-lifecycle" to process due email-sequence runs
 // on demand (canonical engine — not the deprecated wf7 twin).
 const manualEmailLifecycle = inngest.createFunction(
@@ -1085,6 +1129,8 @@ const functions = [
   // Manual triggers for the canonical engines that lacked an on-demand surface
   // (competitor-watch / email-lifecycle) — see CANONICAL_WORKFLOWS.md.
   manualCompetitorWatch,
+  pretrainerWeekly,
+  manualPretrainer,
   manualEmailLifecycle,
 
   // Wave 59 S5: quarterly AI-assisted taxonomy refresh (proposes via Slack only)
