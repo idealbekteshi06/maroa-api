@@ -185,7 +185,7 @@ Direct, engaging, ends with soft CTA. Max 2 hashtags.
 Business: ${biz.business_name}, Tone: ${biz.brand_tone || 'professional'}, Audience: ${biz.target_audience || 'business owners'}.
 Return only valid JSON: {"tweet":"...","content_theme":"..."}`;
 
-        const parsed = await callClaude(prompt, 'claude-opus-4-7', 500, {
+        const parsed = await callClaude(prompt, 'claude-opus-4-8', 500, {
           businessId: business_id,
           skill: 'twitter_post',
         });

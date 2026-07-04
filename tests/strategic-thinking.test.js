@@ -8,8 +8,8 @@ const st = require('../lib/strategicThinking');
 // ─── supportsNativeThinking ─────────────────────────────────────────────────
 
 test('strategicThinking: detects native-thinking models', () => {
-  assert.strictEqual(st.supportsNativeThinking('claude-sonnet-4-5'), true);
-  assert.strictEqual(st.supportsNativeThinking('claude-opus-4-7'), true);
+  assert.strictEqual(st.supportsNativeThinking('claude-sonnet-5'), true);
+  assert.strictEqual(st.supportsNativeThinking('claude-opus-4-8'), true);
   assert.strictEqual(st.supportsNativeThinking('sonnet'), true);
   assert.strictEqual(st.supportsNativeThinking('opus'), true);
   // Older models — no native thinking
@@ -63,7 +63,7 @@ test('strategize: throws when callClaude or user missing', async () => {
   await assert.rejects(st.strategize({ callClaude: async () => '' }), /user required/);
 });
 
-test('strategize: uses native thinking on Sonnet 4.5', async () => {
+test('strategize: uses native thinking on Sonnet 5', async () => {
   const captured = [];
   const fakeClaude = async (args) => {
     captured.push(args);
@@ -73,13 +73,14 @@ test('strategize: uses native thinking on Sonnet 4.5', async () => {
     callClaude: fakeClaude,
     user: 'Write a tagline',
     system: 'You are a copywriter.',
-    model: 'claude-sonnet-4-5',
+    model: 'claude-sonnet-5',
   });
   assert.strictEqual(out.mode, st.MODE.NATIVE);
   assert.strictEqual(out.output, 'Final output, no tags.');
-  // Native mode must request thinking via extra.thinking
+  // Native mode must request thinking via extra.thinking. On the 5-family
+  // (Sonnet 5 / Opus 4.8) budget_tokens is removed — adaptive is the on-mode.
   assert.ok(captured[0].extra.thinking);
-  assert.strictEqual(captured[0].extra.thinking.type, 'enabled');
+  assert.strictEqual(captured[0].extra.thinking.type, 'adaptive');
 });
 
 test('strategize: uses tag mode on Haiku', async () => {
@@ -114,7 +115,7 @@ test('strategize: forceTagMode overrides native model', async () => {
     callClaude: fakeClaude,
     user: 'Test',
     system: 'sys',
-    model: 'claude-sonnet-4-5', // native-capable
+    model: 'claude-sonnet-5', // native-capable
     forceTagMode: true,
   });
   assert.strictEqual(out.mode, st.MODE.TAG);
@@ -135,7 +136,7 @@ test('strategize: native mode falls back to tag mode on "unsupported" error', as
     callClaude: fakeClaude,
     user: 'Test',
     system: 'sys',
-    model: 'claude-sonnet-4-5',
+    model: 'claude-sonnet-5',
   });
   // Should have tried native first (call 1), then tag (call 2)
   assert.strictEqual(calls, 2);
@@ -152,7 +153,7 @@ test('strategize: real errors (non-thinking-related) propagate', async () => {
       callClaude: fakeClaude,
       user: 'x',
       system: 's',
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-5',
     }),
     /rate_limited/
   );

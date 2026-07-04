@@ -221,9 +221,9 @@ function createWf15(deps) {
     const routing = routeModel(content, attachmentIds.length > 0);
     const model =
       routing.model === 'opus'
-        ? 'claude-opus-4-7'
+        ? 'claude-opus-4-8'
         : routing.model === 'sonnet'
-          ? 'claude-sonnet-4-5'
+          ? 'claude-sonnet-5'
           : 'claude-haiku-4-5';
 
     // Build prompt
@@ -253,6 +253,11 @@ function createWf15(deps) {
           businessId,
           skill: 'wf15_brain',
           skipGrounding: true,
+          // Server-side compaction: long Ask Maroa sessions summarize
+          // automatically near the context window instead of dying. The loop
+          // below already appends resp.content verbatim, so compaction blocks
+          // are preserved across turns (required by the API).
+          contextManagement: { edits: [{ type: 'compact_20260112' }] },
         });
 
         const blocks = Array.isArray(resp?.content) ? resp.content : [];
@@ -459,7 +464,7 @@ function createWf15(deps) {
 
 MESSAGE TO EXPLAIN:
 ${msg.content}`;
-    const raw = await callClaude(user, 'claude-sonnet-4-5', 1500, { system, businessId, returnRaw: true });
+    const raw = await callClaude(user, 'claude-sonnet-5', 1500, { system, businessId, returnRaw: true });
     const parsed = extractJSON(raw) || {};
     return {
       decision: parsed.decision || '',
@@ -499,7 +504,7 @@ ${msg.content}`;
       buildMemorySnapshot(businessId),
     ]);
     const { system, user } = buildMorningCheckInPrompt(brandContext, memory);
-    const raw = await callClaude(user, 'claude-sonnet-4-5', 1000, { system, businessId, returnRaw: true });
+    const raw = await callClaude(user, 'claude-sonnet-5', 1000, { system, businessId, returnRaw: true });
     return { text: raw };
   }
 

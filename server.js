@@ -815,6 +815,10 @@ setImmediate(() => {
   app.use('/webhook/tiktok-campaign-create', costGuard);
   app.use('/webhook/revenue-forecast', costGuard);
   app.use('/webhook/wf10-create-job', costGuard);
+  // Marketing Studio generation POSTs spend Higgsfield credits — cap-gated.
+  app.use('/webhook/studio-dtc-image', costGuard);
+  app.use('/webhook/studio-marketing-video', costGuard);
+  app.use('/webhook/studio-recreate-ad', costGuard);
 
   // Body-shape validation for critical webhooks.
   app.use('/webhook/instant-content', zodValidate(businessIdBody));
@@ -1086,15 +1090,15 @@ setImmediate(() => {
   // ─── Claude model selection & API ───────────────────────────────────────────
   function selectModel(taskType) {
     if (['strategy', 'monthly_review', 'positioning', 'research', 'orchestrator'].includes(taskType)) {
-      return { model: 'claude-opus-4-7', max_tokens: 4000 };
+      return { model: 'claude-opus-4-8', max_tokens: 4000 };
     }
     if (['social_post', 'email', 'campaign', 'paid_ad', 'sales_pitch'].includes(taskType)) {
-      return { model: 'claude-sonnet-4-6', max_tokens: 2000 };
+      return { model: 'claude-sonnet-5', max_tokens: 2000 };
     }
     if (['caption', 'idea', 'hashtags', 'short_copy', 'community_post'].includes(taskType)) {
       return { model: 'claude-haiku-4-5', max_tokens: 1000 };
     }
-    return { model: 'claude-sonnet-4-6', max_tokens: 2000 };
+    return { model: 'claude-sonnet-5', max_tokens: 2000 };
   }
 
   // ─── Brand-voice auto-load support ──────────────────────────────────────────
@@ -1170,7 +1174,7 @@ setImmediate(() => {
 
   /**
    * Call Claude. Backward compatible:
-   * - callClaude(prompt, 'claude-opus-4-7', 3000) — explicit model
+   * - callClaude(prompt, 'claude-opus-4-8', 3000) — explicit model
    * - callClaude(prompt, 'strategy', 1500) — taskType + optional max override
    * - callClaude(prompt, 'social_post', undefined, { returnRaw: true, system: '...' })
    *
@@ -1225,6 +1229,15 @@ setImmediate(() => {
       model = extra.model || sel.model;
       maxTokens = maxTokensOverride !== undefined ? maxTokensOverride : sel.max_tokens;
     }
+
+    // ─── 2026-07 model-generation upgrade (lib/modelUpgrades.js) ─────────
+    // Old-generation IDs from any source (env, DB, prompt modules) are mapped
+    // to the current generation; Sonnet 5's new tokenizer + adaptive thinking
+    // get max_tokens headroom so outputs don't truncate mid-thought. The
+    // per-business budget clamp below still wins (cost cap > headroom).
+    const modelUpgrades = require('./lib/modelUpgrades');
+    model = modelUpgrades.normalizeModel(model);
+    maxTokens = modelUpgrades.maxTokensHeadroom(model, maxTokens);
 
     if (extra.businessId && !extra.skipBudget) {
       const { enforceLLMBudget } = require('./lib/llmGateway');
@@ -1350,16 +1363,61 @@ setImmediate(() => {
       }
     }
 
+    // 5-family request hygiene: strip params Sonnet 5 / Opus 4.8 reject (400),
+    // apply adaptive-thinking / effort config from the caller.
+    modelUpgrades.sanitizeBodyForModel(body, { effort: extra.effort, thinking: extra.thinking });
+
+    // Structured outputs (GA): extra.outputFormat = {type:'json_schema', schema}
+    // guarantees schema-valid JSON — replaces "return ONLY valid JSON" prompt
+    // hacks + extractJSON retry loops on decision-critical calls.
+    if (extra.outputFormat) {
+      body.output_config = { ...(body.output_config || {}), format: extra.outputFormat };
+    }
+
+    // Context management: compaction (server-side summarize near the window)
+    // and/or context editing (clear old tool results). Callers pass e.g.
+    //   extra.contextManagement = { edits: [{ type: 'compact_20260112' }] }
+    // and MUST append the full response.content back to messages (compaction
+    // blocks carry the summarized history). Beta headers derive from the edit
+    // types below.
+    if (extra.contextManagement) {
+      body.context_management = extra.contextManagement;
+    }
+
     const { attachToolsToBody } = require('./lib/claudeAnthropicTools');
-    if (extra.advisor || extra.webSearch || extra.codeExecution || (extra.extraTools && extra.extraTools.length)) {
+    if (
+      extra.advisor ||
+      extra.webSearch ||
+      extra.webFetch ||
+      extra.codeExecution ||
+      (extra.extraTools && extra.extraTools.length)
+    ) {
       attachToolsToBody(body, {
         advisor: extra.advisor
-          ? { model: extra.advisor.model || 'claude-opus-4-7', maxUses: extra.advisor.max_uses || 3 }
+          ? { model: extra.advisor.model || 'claude-opus-4-8', maxUses: extra.advisor.max_uses || 3 }
           : null,
         webSearch: extra.webSearch
           ? {
               maxUses: extra.webSearch.max_uses || 5,
-              dynamicFilter: !!extra.webSearch.dynamicFilter,
+              // The _20260209 variant (built-in dynamic filtering, no beta
+              // header) is the default on models that support it.
+              dynamicFilter:
+                extra.webSearch.dynamicFilter !== undefined
+                  ? !!extra.webSearch.dynamicFilter
+                  : modelUpgrades.supportsFilteredWebTools(model),
+              allowedDomains: extra.webSearch.allowed_domains,
+              blockedDomains: extra.webSearch.blocked_domains,
+            }
+          : null,
+        webFetch: extra.webFetch
+          ? {
+              maxUses: extra.webFetch.max_uses || 5,
+              dynamicFilter:
+                extra.webFetch.dynamicFilter !== undefined
+                  ? !!extra.webFetch.dynamicFilter
+                  : modelUpgrades.supportsFilteredWebTools(model),
+              citations: extra.webFetch.citations,
+              maxContentTokens: extra.webFetch.max_content_tokens,
             }
           : null,
         codeExecution: extra.codeExecution || null,
@@ -1385,16 +1443,23 @@ setImmediate(() => {
       'Content-Type': 'application/json',
     };
     const betas = [];
-    const _systemBlocksHaveCache =
-      Array.isArray(extra.systemBlocks) && extra.systemBlocks.some((b) => b && b.cache_control);
-    if (extra.cacheSystem || extra.cacheDocuments || _systemBlocksHaveCache) {
-      betas.push('prompt-caching-2024-07-31');
-    }
+    // Prompt caching is GA — no beta header needed (the 2024-07-31 flag was
+    // dropped in the 2026-07 upgrade; cache_control blocks work bare).
     if ((extra.fileIds && extra.fileIds.length) || extra.documentBlocks?.some?.((b) => b?.source?.type === 'file'))
       betas.push('files-api-2025-04-14');
     if (extra.extraBetas) betas.push(...(Array.isArray(extra.extraBetas) ? extra.extraBetas : [extra.extraBetas]));
-    if (extra.webSearch?.dynamicFilter || extra.codeExecution) {
+    // web_search/web_fetch _20260209 run dynamic filtering natively (no beta);
+    // only an explicit standalone code-execution tool still needs its beta.
+    if (extra.codeExecution) {
       betas.push('code-execution-2025-08-25');
+    }
+    // Context-management betas: compaction vs clearing are separate features.
+    const _cmEdits = extra.contextManagement?.edits || [];
+    if (_cmEdits.some((e) => String(e?.type || '').startsWith('compact_'))) {
+      betas.push('compact-2026-01-12');
+    }
+    if (_cmEdits.some((e) => String(e?.type || '').startsWith('clear_'))) {
+      betas.push('context-management-2025-06-27');
     }
     if (betas.length) headers['anthropic-beta'] = [...new Set(betas)].join(',');
 
@@ -1506,7 +1571,7 @@ setImmediate(() => {
             .track({
               businessId: extra.businessId,
               skill: `${skill}_advisor`,
-              model: extra.advisor?.model || 'claude-opus-4-7',
+              model: extra.advisor?.model || 'claude-opus-4-8',
               usage: { input_tokens: advIn, output_tokens: advOut },
               sbPost,
               logger,
@@ -3365,7 +3430,7 @@ setImmediate(() => {
         'POST',
         'https://api.anthropic.com/v1/messages',
         { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-        { model: 'claude-sonnet-4-5', max_tokens: 5, messages: [{ role: 'user', content: 'Hi' }] }
+        { model: 'claude-sonnet-5', max_tokens: 5, messages: [{ role: 'user', content: 'Hi' }] }
       );
       out.anthropic = r.status === 200 ? 'ok' : `ERROR ${r.status}`;
     } catch (e) {
@@ -8264,7 +8329,7 @@ Return ONLY valid JSON:
       // retries, and budget gates apply. Image block goes via extra.imageBlocks.
       const raw = await callClaude(
         `Score this marketing image for a ${content_type} post. Rate 1-10 on: professional quality, visual appeal, marketing effectiveness. Return ONLY valid JSON: {"overall_score":1-10,"recommendation":"use"|"regenerate"|"reject","feedback":"one sentence"}`,
-        'claude-sonnet-4-5',
+        'claude-sonnet-5',
         300,
         {
           businessId: business_id,
@@ -11431,6 +11496,14 @@ Return ONLY valid JSON:
     });
   } catch (e) {
     logger?.warn?.('paid-ads', null, 'route register failed', { error: e.message });
+  }
+
+  // Higgsfield Marketing Studio: brand kits, DTC ad images, one-click
+  // marketing videos, competitor-ad recreation (2026-07 upgrade).
+  try {
+    require('./routes/marketing-studio').register({ app, higgsfieldAI, sbGet, apiError, logger });
+  } catch (e) {
+    logger?.warn?.('marketing-studio', null, 'route register failed', { error: e.message });
   }
 
   // Store connect (Shopify / dropshipping): catalog ingestion + automation

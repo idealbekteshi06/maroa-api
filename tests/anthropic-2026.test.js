@@ -2,7 +2,7 @@
 
 /**
  * Integration tests for the Anthropic 2026 features pass:
- *   - Opus 4.7 swap (no stale 4.5 / 4.6 references)
+ *   - Opus 4.8 swap (no stale 4.5 / 4.6 references)
  *   - Files API service surface + document/image block builders
  *   - Batch API service surface + buildRequest shape + extended-output detection
  *   - Citations parsing across char_location / page_location / content_block_location
@@ -20,7 +20,7 @@ const fs = require('node:fs');
 
 const ROOT = path.resolve(__dirname, '..');
 
-// ─── 1. Opus 4.7 swap verification ───────────────────────────────────
+// ─── 1. Opus 4.8 swap verification ───────────────────────────────────
 
 test('opus swap: no claude-opus-4-5 or 4-6 references in production code', () => {
   const targets = [
@@ -45,11 +45,11 @@ test('opus swap: no claude-opus-4-5 or 4-6 references in production code', () =>
   }
 });
 
-test('opus swap: at least one claude-opus-4-7 reference exists', () => {
+test('opus swap: at least one claude-opus-4-8 reference exists', () => {
   const targets = ['services/higgsfield/index.js', 'services/wf1/engine.js'];
   for (const rel of targets) {
     const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
-    assert.ok(/claude-opus-4-7/.test(src), `${rel} should reference claude-opus-4-7`);
+    assert.ok(/claude-opus-4-8/.test(src), `${rel} should reference claude-opus-4-8`);
   }
 });
 
@@ -131,13 +131,13 @@ test('anthropic-batch: buildRequest produces correct shape', () => {
   });
   const req = svc.buildRequest({
     customId: 'biz_123_concept_5',
-    model: 'claude-sonnet-4-5',
+    model: 'claude-sonnet-5',
     system: 'You are a senior marketing analyst.',
     prompt: 'Score this concept.',
     maxTokens: 2048,
   });
   assert.equal(req.custom_id, 'biz_123_concept_5');
-  assert.equal(req.params.model, 'claude-sonnet-4-5');
+  assert.equal(req.params.model, 'claude-sonnet-5');
   assert.equal(req.params.max_tokens, 2048);
   assert.equal(req.params.messages[0].role, 'user');
   // buildRequest always normalises content to an array of blocks for batch submissions
@@ -158,7 +158,7 @@ test('anthropic-batch: buildRequest with cacheSystem wraps system in cacheable b
   });
   const req = svc.buildRequest({
     customId: 'biz_x',
-    model: 'claude-opus-4-7',
+    model: 'claude-opus-4-8',
     system: 'long system',
     prompt: 'q',
     cacheSystem: true,
@@ -179,7 +179,7 @@ test('anthropic-batch: buildRequest cacheTtl 1h extends ephemeral TTL', () => {
   });
   const req = svc.buildRequest({
     customId: 'wf1',
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-5',
     system: 'long',
     prompt: 'u',
     cacheSystem: true,
@@ -199,7 +199,7 @@ test('anthropic-batch: buildRequest with fileIds + citations attaches document b
   });
   const req = svc.buildRequest({
     customId: 'biz_x',
-    model: 'claude-sonnet-4-5',
+    model: 'claude-sonnet-5',
     prompt: 'Summarize.',
     fileIds: ['file_a', 'file_b'],
     citations: true,

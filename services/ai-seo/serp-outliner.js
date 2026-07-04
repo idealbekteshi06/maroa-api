@@ -221,7 +221,7 @@ async function buildOutline({
     raw = await callClaude({
       system: _buildOutlineSystemPrompt(),
       user: userMessage,
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-5',
       max_tokens: 2500,
       extra: {
         businessId,
@@ -287,7 +287,7 @@ async function writeArticle({ outline, callClaude, business, businessId, logger,
       const raw = await callClaude({
         system: _buildSectionSystemPrompt(),
         user: userMessage,
-        model: 'claude-sonnet-4-5',
+        model: 'claude-sonnet-5',
         max_tokens: 1200,
         extra: {
           businessId,

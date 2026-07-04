@@ -54,10 +54,10 @@ test('tokenBudgetFor: deep > standard > quick; rewrite > audit', () => {
 
 // ─── 6. modelFor ──────────────────────────────────────────────────────────
 
-test('modelFor: deep uses Opus 4.7, others use Sonnet 4.5', () => {
-  assert.strictEqual(em.modelFor('deep'), 'claude-opus-4-7');
-  assert.strictEqual(em.modelFor('standard'), 'claude-sonnet-4-5');
-  assert.strictEqual(em.modelFor('quick'), 'claude-sonnet-4-5');
+test('modelFor: deep uses Opus 4.8, others use Sonnet 5', () => {
+  assert.strictEqual(em.modelFor('deep'), 'claude-opus-4-8');
+  assert.strictEqual(em.modelFor('standard'), 'claude-sonnet-5');
+  assert.strictEqual(em.modelFor('quick'), 'claude-sonnet-5');
 });
 
 // ─── 7. parallel agents + files API gates ─────────────────────────────────
@@ -87,7 +87,7 @@ test('temperatureFor: rewrite > generate > audit', () => {
 test('buildExecutionConfig: returns full config blob', () => {
   const cfg = em.buildExecutionConfig({ plan: 'agency', kind: 'audit' });
   assert.strictEqual(cfg.mode, 'deep');
-  assert.strictEqual(cfg.model, 'claude-opus-4-7');
+  assert.strictEqual(cfg.model, 'claude-opus-4-8');
   assert.ok(cfg.max_tokens > 0);
   assert.strictEqual(cfg.extra.cacheSystem, true);
   assert.strictEqual(cfg.parallel_agents, true);
@@ -103,4 +103,15 @@ test('isModeAllowedForPlan: free cannot force deep, agency unrestricted', () => 
   assert.strictEqual(em.isModeAllowedForPlan('growth', 'deep'), false);
   assert.strictEqual(em.isModeAllowedForPlan('agency', 'deep'), true);
   assert.strictEqual(em.isModeAllowedForPlan('agency', 'quick'), true); // can downgrade
+});
+
+test('effortFor: quick=low, standard=medium, deep=xhigh; wired into config blob', () => {
+  assert.strictEqual(em.effortFor('quick'), 'low');
+  assert.strictEqual(em.effortFor('standard'), 'medium');
+  assert.strictEqual(em.effortFor('deep'), 'xhigh');
+  assert.strictEqual(em.effortFor(undefined), 'medium');
+  const cfg = em.buildExecutionConfig({ plan: 'agency', kind: 'audit' });
+  assert.strictEqual(cfg.extra.effort, 'xhigh');
+  const quick = em.buildExecutionConfig({ plan: 'free', kind: 'audit' });
+  assert.strictEqual(quick.extra.effort, 'low');
 });

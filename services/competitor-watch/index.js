@@ -147,6 +147,57 @@ async function fetchMetaAdLibrary({ competitorName, country = 'US', deps }) {
   }
 }
 
+/**
+ * Web intelligence sweep (2026-07): one web-search-grounded Claude call per
+ * competitor surfaces launches, promotions, pricing moves, funding, and PR
+ * that the Meta Ad Library diff can't see. Results persist as
+ * competitor_signals rows with source='web_intel'. Soft — returns [] when
+ * callClaude isn't injected or the sweep fails.
+ */
+async function webIntelSweep({ businessId, competitorName, deps }) {
+  if (typeof deps?.callClaude !== 'function') return [];
+  const { webSearchQuery } = require('../../lib/webIntel');
+  const prompt = [
+    `Research recent marketing activity (last 14 days) for the company "${competitorName}".`,
+    'Look for: product launches, promotions/discounts, pricing changes, new campaigns,',
+    'funding or expansion news, and notable PR. Then reply with ONLY a JSON array of',
+    'signals, each: {"signal_type":"launch|promotion|pricing_change|campaign|news",',
+    '"summary":"<one sentence>","severity":"info|warn|alert","source_url":"<url or null>"}.',
+    'Empty array [] if nothing notable found. Never invent events.',
+  ].join('\n');
+  const r = await webSearchQuery({
+    callClaude: deps.callClaude,
+    prompt,
+    businessId,
+    skill: 'competitor_web_intel',
+    maxTokens: 1500,
+    maxSearches: 3,
+  });
+  if (!r.ok || !r.text) return [];
+  let items;
+  try {
+    const match = r.text.match(/\[[\s\S]*\]/);
+    items = match ? JSON.parse(match[0]) : [];
+  } catch {
+    items = [];
+  }
+  const VALID_TYPES = new Set(['launch', 'promotion', 'pricing_change', 'campaign', 'news']);
+  const VALID_SEV = new Set(['info', 'warn', 'alert']);
+  return (Array.isArray(items) ? items : [])
+    .filter((it) => it && typeof it.summary === 'string' && it.summary.length > 0)
+    .slice(0, 10)
+    .map((it) => ({
+      signal_type: VALID_TYPES.has(it.signal_type) ? it.signal_type : 'news',
+      severity: VALID_SEV.has(it.severity) ? it.severity : 'info',
+      payload: {
+        summary: it.summary.slice(0, 500),
+        source_url: typeof it.source_url === 'string' ? it.source_url.slice(0, 2048) : null,
+        cited_urls: r.citedUrls.slice(0, 10),
+      },
+      confidence: 0.7,
+    }));
+}
+
 // ─── Public: scan all sources for a business ────────────────────────────
 
 async function scanForBusiness({ businessId, deps }) {
@@ -184,6 +235,21 @@ async function scanForBusiness({ businessId, deps }) {
         signal_payload: { ads_snapshot: currentAds.slice(0, 50) },
         severity: 'info',
       }).catch(() => {});
+    }
+
+    // Web intelligence sweep (news/promotions/pricing the Ad Library can't see)
+    const webSignals = await webIntelSweep({ businessId, competitorName, deps });
+    for (const w of webSignals) {
+      await sbPost('competitor_signals', {
+        business_id: businessId,
+        competitor_name: competitorName,
+        source: 'web_intel',
+        signal_type: w.signal_type,
+        signal_payload: w.payload,
+        severity: w.severity,
+        confidence: w.confidence,
+      }).catch(() => {});
+      allSignals.push(w);
     }
 
     // Diff and persist real change signals
@@ -242,6 +308,7 @@ async function compileWarRoomBriefing({ businessId, days = 7, deps }) {
 
 module.exports = {
   scanForBusiness,
+  webIntelSweep,
   detectChanges,
   classifyChange,
   audienceOverlap,

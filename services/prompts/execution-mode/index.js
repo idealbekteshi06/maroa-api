@@ -18,7 +18,7 @@
  *   resolveMode(plan, override?)  → 'quick' | 'standard' | 'deep'
  *   sliceFindings(findings, mode) → array sliced to mode's depth
  *   tokenBudgetFor(mode, kind?)   → max_tokens cap
- *   modelFor(mode)                → 'claude-sonnet-4-5' | 'claude-opus-4-7'
+ *   modelFor(mode)                → 'claude-sonnet-5' | 'claude-opus-4-8'
  *   shouldUseParallelAgents(mode) → bool
  *   shouldUseFilesApi(mode)       → bool
  *   temperatureFor(mode, task?)   → number
@@ -84,7 +84,7 @@ function tokenBudgetFor(mode, kind = 'audit') {
  * Pick the model for the mode.
  */
 function modelFor(mode) {
-  return String(mode || 'standard').toLowerCase() === 'deep' ? 'claude-opus-4-7' : 'claude-sonnet-4-5';
+  return String(mode || 'standard').toLowerCase() === 'deep' ? 'claude-opus-4-8' : 'claude-sonnet-5';
 }
 
 function shouldUseParallelAgents(mode) {
@@ -113,6 +113,19 @@ function temperatureFor(_mode, task = 'audit') {
 }
 
 /**
+ * Anthropic `effort` tier per execution mode (2026-07 upgrade). On Sonnet 5 /
+ * Opus 4.8 this is the primary cost/quality lever — quick work runs terse and
+ * cheap, deep (agency) work gets xhigh reasoning depth. callClaude validates
+ * model support and silently drops it on models without effort.
+ */
+function effortFor(mode) {
+  const m = String(mode || 'standard').toLowerCase();
+  if (m === 'deep') return 'xhigh';
+  if (m === 'quick') return 'low';
+  return 'medium';
+}
+
+/**
  * Build a single config blob the caller can spread into their LLM call.
  *   const cfg = buildExecutionConfig({ plan, override, kind: 'audit' });
  *   await callClaude({ ...cfg, system, user });
@@ -126,6 +139,7 @@ function buildExecutionConfig({ plan, override, kind = 'audit' }) {
     extra: {
       cacheSystem: shouldCacheSystem(mode),
       temperature: temperatureFor(mode, kind),
+      effort: effortFor(mode),
     },
     parallel_agents: shouldUseParallelAgents(mode),
     use_files_api: shouldUseFilesApi(mode),
@@ -156,6 +170,7 @@ module.exports = {
   shouldUseFilesApi,
   shouldCacheSystem,
   temperatureFor,
+  effortFor,
   buildExecutionConfig,
   isModeAllowedForPlan,
 };

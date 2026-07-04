@@ -56,6 +56,7 @@ module.exports = function createHiggsfieldService(deps) {
   const PATH_SEEDREAM = process.env.HIGGSFIELD_PATH_SEEDREAM || '/bytedance/seedream/v4/text-to-image';
   const PATH_SEEDREAM_EDIT = process.env.HIGGSFIELD_PATH_SEEDREAM_EDIT || '/bytedance/seedream/v4/edit';
   const PATH_SEEDANCE = process.env.HIGGSFIELD_PATH_SEEDANCE || '/bytedance/seedance/v1/pro/image-to-video';
+  const PATH_SEEDANCE_MINI = process.env.HIGGSFIELD_PATH_SEEDANCE_MINI || '/bytedance/seedance/v1/lite/image-to-video';
   const PATH_VEO = process.env.HIGGSFIELD_PATH_VEO || '/google/veo/v3-1';
   const PATH_NANO_BANANA = process.env.HIGGSFIELD_PATH_NANO_BANANA || '/higgsfield-ai/nano-banana-2';
   const PATH_NANO_BANANA_PRO = process.env.HIGGSFIELD_PATH_NANO_BANANA_PRO || '/higgsfield-ai/nano-banana-pro';
@@ -106,6 +107,7 @@ module.exports = function createHiggsfieldService(deps) {
     'seedream 4.5': PATH_SEEDREAM,
     'seedream edit': PATH_SEEDREAM_EDIT,
     'seedance 2.0': PATH_SEEDANCE,
+    'seedance 2.0 mini': PATH_SEEDANCE_MINI,
     'veo 3.1': PATH_VEO,
     'nano banana 2': PATH_NANO_BANANA,
     'nano banana pro': PATH_NANO_BANANA_PRO,
@@ -488,7 +490,7 @@ module.exports = function createHiggsfieldService(deps) {
       if (!url || typeof url !== 'string') continue;
       imageBlocks.push({ type: 'image', source: { type: 'url', url } });
     }
-    const model = opts.model || 'claude-sonnet-4-5';
+    const model = opts.model || 'claude-sonnet-5';
     const maxTokens = opts.max_tokens || 4096;
 
     if (typeof callClaude === 'function') {
@@ -533,7 +535,7 @@ module.exports = function createHiggsfieldService(deps) {
 
   async function claudeText(prompt, taskType, maxTok, extra = {}) {
     if (!ANTHROPIC_KEY) throw new Error('ANTHROPIC_KEY not configured');
-    const model = extra.model || 'claude-sonnet-4-5';
+    const model = extra.model || 'claude-sonnet-5';
     const maxTokens = maxTok || 4096;
 
     if (typeof callClaude === 'function') {
@@ -1028,7 +1030,7 @@ module.exports = function createHiggsfieldService(deps) {
     const raw = await claudeVision(req.userTask, [imageUrl], {
       max_tokens: 2500,
       system: req.system,
-      model: options.model || 'claude-sonnet-4-5',
+      model: options.model || 'claude-sonnet-5',
     });
     const parsed = extractJSON(raw) || {};
     const verdict = vetter.synthesizeVerdict({
@@ -1113,7 +1115,7 @@ module.exports = function createHiggsfieldService(deps) {
    *   - image_brief: ready to feed into submitSoulAndWait (or the existing generateProductImage path)
    *   - video_brief: ready to feed into submitVideoAndWait
    *
-   * Use Claude Opus for the strategic call (model: claude-opus-4-7).
+   * Use Claude Opus for the strategic call (model: claude-opus-4-8).
    */
   async function developCreativeConcept(brandDNA, businessGoal, contentGoal, options = {}) {
     const brief = creative.buildCreativeBrief({
@@ -1149,7 +1151,7 @@ module.exports = function createHiggsfieldService(deps) {
             });
           })()
         : await claudeText(brief.userTask, 'strategy', 4096, {
-            model: options.model || 'claude-opus-4-7',
+            model: options.model || 'claude-opus-4-8',
             system: brief.system,
             returnRaw: true,
           });
@@ -1875,6 +1877,19 @@ module.exports = function createHiggsfieldService(deps) {
     return { ok: false, credits: null, reason: 'higgsfield_balance_endpoint_pending' };
   }
 
+  // Marketing Studio line (2026-07): brand kits, DTC ad images, one-click
+  // marketing videos, ad references ("recreate this ad"). Soft-degrading —
+  // see services/higgsfield/marketingStudio.js.
+  const marketingStudio = require('./marketingStudio')({
+    hfPost,
+    hfGet,
+    submitVideoAndWait,
+    submitImageAndWait: (payload, path) => submitSoulAndWait(payload, path),
+    sbGet,
+    sbPatch,
+    logger,
+  });
+
   return {
     getBalance,
     applyLogoOverlay,
@@ -1905,5 +1920,11 @@ module.exports = function createHiggsfieldService(deps) {
     generateCaption,
     processProductCatalog,
     cancelRequest,
+    marketingStudio,
+    ensureBrandKit: marketingStudio.ensureBrandKit,
+    generateDtcAdImage: marketingStudio.generateDtcAdImage,
+    generateMarketingVideo: marketingStudio.generateMarketingVideo,
+    createAdReference: marketingStudio.createAdReference,
+    recreateAdForBusiness: marketingStudio.recreateAdForBusiness,
   };
 };

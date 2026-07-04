@@ -94,9 +94,9 @@ test('buildEmailHtml: handles missing commentary gracefully', () => {
 // ─── 7-8. System prompt + model selection ──────────────────────────────────
 
 test('modelForPlan: agency uses Opus, others use Sonnet', () => {
-  assert.strictEqual(sc.modelForPlan('agency'), 'claude-opus-4-7');
-  assert.strictEqual(sc.modelForPlan('growth'), 'claude-sonnet-4-5');
-  assert.strictEqual(sc.modelForPlan('free'), 'claude-sonnet-4-5');
+  assert.strictEqual(sc.modelForPlan('agency'), 'claude-opus-4-8');
+  assert.strictEqual(sc.modelForPlan('growth'), 'claude-sonnet-5');
+  assert.strictEqual(sc.modelForPlan('free'), 'claude-sonnet-5');
 });
 
 test('System prompt enforces "do not invent numbers" rule', () => {

@@ -109,6 +109,9 @@ function createBatchService({ apiKey, logger, sbPost, sbPatch, sbGet }) {
   }) {
     if (!customId) throw new Error('buildRequest: customId required');
     if (!model) throw new Error('buildRequest: model required');
+    // Batch requests bypass callClaude — apply the same 2026-07 model
+    // normalization here so a stale constant can't submit a deprecated model.
+    model = require('../lib/modelUpgrades').normalizeModel(model);
 
     const userContent = [];
     // Documents (with optional citations + caching)

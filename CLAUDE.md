@@ -78,20 +78,20 @@ Cross-cutting layers:
 
 ## 3. Tech stack (exact versions in `package.json`)
 
-| Layer         | Tool                            | Note                                                                            |
-| ------------- | ------------------------------- | ------------------------------------------------------------------------------- |
-| Node          | ≥18                             | `package.json:engines`                                                          |
-| HTTP          | Express 4                       | One monolithic `server.js` — being carved into `routes/*.js`                    |
-| Background    | Inngest 4                       | Replaces n8n cron; events + `step.sleep`                                        |
-| DB            | Supabase Postgres               | PostgREST + service-role key for inserts                                        |
-| LLM           | Anthropic Claude 4.x            | Sonnet 4.5 default · Opus 4.7 for hard reasoning · Haiku 4.5 for cheap classify |
-| Image/Video   | Higgsfield 2026                 | Cloud-first → FNF fallback                                                      |
-| Social        | Meta v21 + Ayrshare             | LinkedIn, Pinterest, TikTok, YouTube via Ayrshare                               |
-| Payments      | Paddle                          | Stripe still wired but secondary                                                |
-| Email         | Resend HTTPS                    | Railway blocks SMTP — see LEARNINGS §3                                          |
-| Observability | Sentry + Prometheus + JSON logs | `services/observability/`                                                       |
-| Deploy        | Railway                         | Production: `maroa-api-production.up.railway.app`                               |
-| Frontend      | Lovable                         | `maroa-ai-marketing-automator.lovable.app`                                      |
+| Layer         | Tool                            | Note                                                                                                                                                                   |
+| ------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node          | ≥18                             | `package.json:engines`                                                                                                                                                 |
+| HTTP          | Express 4                       | One monolithic `server.js` — being carved into `routes/*.js`                                                                                                           |
+| Background    | Inngest 4                       | Replaces n8n cron; events + `step.sleep`                                                                                                                               |
+| DB            | Supabase Postgres               | PostgREST + service-role key for inserts                                                                                                                               |
+| LLM           | Anthropic Claude 5/4.x          | Sonnet 5 default · Opus 4.8 for hard reasoning · Haiku 4.5 for cheap classify — all normalized through `lib/modelUpgrades.js` (kill switch `MODEL_UPGRADE_DISABLED=1`) |
+| Image/Video   | Higgsfield 2026                 | Cloud-first → FNF fallback                                                                                                                                             |
+| Social        | Meta v21 + Ayrshare             | LinkedIn, Pinterest, TikTok, YouTube via Ayrshare                                                                                                                      |
+| Payments      | Paddle                          | Stripe still wired but secondary                                                                                                                                       |
+| Email         | Resend HTTPS                    | Railway blocks SMTP — see LEARNINGS §3                                                                                                                                 |
+| Observability | Sentry + Prometheus + JSON logs | `services/observability/`                                                                                                                                              |
+| Deploy        | Railway                         | Production: `maroa-api-production.up.railway.app`                                                                                                                      |
+| Frontend      | Lovable                         | `maroa-ai-marketing-automator.lovable.app`                                                                                                                             |
 
 ---
 

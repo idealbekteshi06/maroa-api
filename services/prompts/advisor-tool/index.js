@@ -22,8 +22,8 @@
 
 const ADVISOR_BETA = 'advisor-tool-2026-03-01';
 
-const DEFAULT_EXECUTOR = 'claude-sonnet-4-6';
-const DEFAULT_ADVISOR = 'claude-opus-4-7';
+const DEFAULT_EXECUTOR = 'claude-sonnet-5';
+const DEFAULT_ADVISOR = 'claude-opus-4-8';
 
 /**
  * Decide whether to use the advisor for a given (task, budget) pair.
@@ -146,9 +146,9 @@ async function callWithAdvisor(opts = {}) {
  */
 function modelsFor(planTier) {
   const t = String(planTier || 'free').toLowerCase();
-  if (t === 'agency') return { executor: 'claude-opus-4-7', advisor: 'claude-opus-4-7' };
-  if (t === 'growth') return { executor: 'claude-sonnet-4-6', advisor: 'claude-opus-4-7' };
-  return { executor: 'claude-sonnet-4-6', advisor: null }; // free
+  if (t === 'agency') return { executor: 'claude-opus-4-8', advisor: 'claude-opus-4-8' };
+  if (t === 'growth') return { executor: 'claude-sonnet-5', advisor: 'claude-opus-4-8' };
+  return { executor: 'claude-sonnet-5', advisor: null }; // free
 }
 
 module.exports = {

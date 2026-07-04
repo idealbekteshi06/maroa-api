@@ -190,7 +190,7 @@ Also write:
 
 Return only valid JSON: {"hook":"...","script":"...","caption":"...","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5"],"content_theme":"..."}`;
 
-      const parsed = await callClaude(prompt, 'claude-opus-4-7', 600, {
+      const parsed = await callClaude(prompt, 'claude-opus-4-8', 600, {
         businessId: business_id,
         skill: 'tiktok_video_script',
       });

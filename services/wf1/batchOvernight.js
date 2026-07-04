@@ -37,8 +37,8 @@
 const { buildStrategicDecisionPrompt } = require('../prompts/workflow_1_daily_content.js');
 const { batchMaxTokensForPlan } = require('../../lib/platformAnthropic');
 
-const SONNET_MODEL = 'claude-sonnet-4-6';
-const OPUS_MODEL = 'claude-opus-4-7';
+const SONNET_MODEL = 'claude-sonnet-5';
+const OPUS_MODEL = 'claude-opus-4-8';
 const MAX_TOKENS_DAILY = 4096;
 const BATCH_HARD_CAP = 1000; // safety: even if Anthropic supports 100k, cap our nightly to 1000 businesses per batch
 

@@ -84,9 +84,9 @@ function createManagedAgentService({ apiKey, logger, http }) {
    *   name:         human-readable agent name
    *   instructions: system-prompt-equivalent
    *   tools:        array of Anthropic tool defs (optional)
-   *   model:        defaults to claude-opus-4-7
+   *   model:        defaults to claude-opus-4-8
    */
-  async function ensureAgent({ externalId, name, instructions, tools = [], model = 'claude-opus-4-7', metadata = {} }) {
+  async function ensureAgent({ externalId, name, instructions, tools = [], model = 'claude-opus-4-8', metadata = {} }) {
     if (!externalId) throw new Error('ensureAgent: externalId required');
     // Try to find an existing agent with this external_id
     try {

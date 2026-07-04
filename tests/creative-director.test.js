@@ -135,7 +135,7 @@ test('creative-director: developCreativeConcept routes through callClaude (cache
   });
   const svc = createHiggsfieldService(deps);
   const concept = await svc.developCreativeConcept(SAMPLE_BRAND, 'goal', 'theme');
-  assert.equal(callClaudeSpyArgs.model, 'claude-sonnet-4-6', 'Growth uses Sonnet 4.6 executor + advisor');
+  assert.equal(callClaudeSpyArgs.model, 'claude-sonnet-5', 'Growth uses Sonnet 5 executor + advisor');
   assert.equal(callClaudeSpyArgs.extra.cacheSystem, true, 'sets cacheSystem:true for prompt caching');
   assert.equal(callClaudeSpyArgs.extra.skill, 'creative_director_studio');
   assert.ok(callClaudeSpyArgs.extra.system.length > 5000, 'passes the full Opus-grade system prompt');

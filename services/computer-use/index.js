@@ -174,7 +174,7 @@ function createComputerUseService({ apiKey, logger, sbPost, sbPatch } = {}) {
         maxActions: ctx.maxActions,
         allowedOrigins: ctx.allowedOrigins,
         anthropic: {
-          model: 'claude-sonnet-4-5',
+          model: 'claude-sonnet-5',
           beta: COMPUTER_USE_BETA,
           system: initialPrompt.system,
           firstMessage: initialPrompt.firstMessage,

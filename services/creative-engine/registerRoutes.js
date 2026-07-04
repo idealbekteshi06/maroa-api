@@ -240,7 +240,7 @@ function registerCreativeEngineRoutes(deps) {
       costUsd = 0,
       failed = 0;
     const total = businesses.length;
-    const trackerDeps = { sbGet, sbPost, sbPatch, logger };
+    const trackerDeps = { sbGet, sbPost, sbPatch, logger, callClaude };
     for (const b of businesses) {
       try {
         const r = await citationTracker.runDailyForBusiness({ businessId: b.id, deps: trackerDeps });
@@ -277,7 +277,10 @@ function registerCreativeEngineRoutes(deps) {
     const businessId = req.body?.businessId || req.body?.business_id;
     if (!businessId) return apiError(res, 400, 'INVALID_REQUEST', 'businessId required');
     try {
-      const r = await citationTracker.runDailyForBusiness({ businessId, deps: { sbGet, sbPost, sbPatch, logger } });
+      const r = await citationTracker.runDailyForBusiness({
+        businessId,
+        deps: { sbGet, sbPost, sbPatch, logger, callClaude },
+      });
       res.json(r);
     } catch (e) {
       apiError(res, 500, 'CITATION_TRACKER_RUN_FAILED', e.message);
@@ -304,7 +307,7 @@ function registerCreativeEngineRoutes(deps) {
       critical = 0,
       failed = 0;
     const total = businesses.length;
-    const watchDeps = { sbGet, sbPost, logger, metaAdLibraryApi };
+    const watchDeps = { sbGet, sbPost, logger, metaAdLibraryApi, callClaude };
     for (const b of businesses) {
       try {
         const r = await competitorWatch.scanForBusiness({ businessId: b.id, deps: watchDeps });
@@ -349,7 +352,7 @@ function registerCreativeEngineRoutes(deps) {
     if (!businessId) return Promise.resolve({ ok: false, reason: 'businessId required' });
     return competitorWatch.scanForBusiness({
       businessId,
-      deps: { sbGet, sbPost, logger, metaAdLibraryApi },
+      deps: { sbGet, sbPost, logger, metaAdLibraryApi, callClaude },
     });
   }
   internalDispatcher.register('/webhook/competitor-watch-scan', (body) => runCompetitorWatchScan(body || {}));
