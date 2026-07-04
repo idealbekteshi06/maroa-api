@@ -138,13 +138,30 @@ test('recreateAdForBusiness: degraded reference creation short-circuits', async 
   assert.strictEqual(r.reason, 'ad_references_endpoint_pending');
 });
 
-test('listImageStyles/listVideoPresets: degrade with empty arrays on 404', async () => {
+test('listImageStyles/listVideoPresets: 404 serves the real static catalog (captured 2026-07-04)', async () => {
   const { deps } = makeDeps({ hfGet: async () => ({ status: 404, body: {} }) });
   const ms = createMarketingStudio(deps);
   const styles = await ms.listImageStyles();
-  assert.strictEqual(styles.ok, false);
-  assert.deepStrictEqual(styles.styles, []);
+  assert.strictEqual(styles.ok, true);
+  assert.strictEqual(styles.source, 'static_catalog');
+  assert.ok(styles.styles.length >= 20, 'curated style catalog present');
+  assert.ok(
+    styles.styles.every((x) => /^[0-9a-f-]{36}$/.test(x.id)),
+    'real style UUIDs'
+  );
   const presets = await ms.listVideoPresets();
-  assert.strictEqual(presets.ok, false);
-  assert.deepStrictEqual(presets.presets, []);
+  assert.strictEqual(presets.ok, true);
+  assert.strictEqual(presets.source, 'static_catalog');
+  assert.ok(presets.presets.some((x) => x.slug === 'ugc'));
+  assert.ok(presets.presets.some((x) => x.slug === 'product_showcase'));
+});
+
+test('listImageStyles: live endpoint result wins over the static catalog', async () => {
+  const { deps } = makeDeps({
+    hfGet: async () => ({ status: 200, body: { items: [{ id: 'live_1', name: 'Live' }] } }),
+  });
+  const ms = createMarketingStudio(deps);
+  const styles = await ms.listImageStyles();
+  assert.strictEqual(styles.source, 'live');
+  assert.deepStrictEqual(styles.styles, [{ id: 'live_1', name: 'Live' }]);
 });

@@ -121,26 +121,81 @@ module.exports = function createMarketingStudio(deps) {
   }
 
   // ─── Catalog listings (for frontend pickers) ─────────────────────────────
+  //
+  // Static fallback catalogs captured from the live Higgsfield Marketing
+  // Studio (via MCP, 2026-07-04). When the REST listing endpoints aren't
+  // enabled on the account yet, the pickers still render real styles/presets
+  // instead of an empty state; ids/slugs are the production values.
+
+  const FALLBACK_IMAGE_STYLES = [
+    { id: '18e9f327-b667-40f1-84d1-f234c67a4929', name: 'Headline' },
+    { id: 'c4c9ee3e-c161-4cc6-b401-77f122cd3c3c', name: 'Special Offer' },
+    { id: 'e961f13c-c96d-4504-bb70-77abeeaa9027', name: 'Customer Quote' },
+    { id: '4b71d6d0-4a79-4241-8f3a-60bb766d1945', name: 'Key Features' },
+    { id: 'fd9b886c-8b4d-4e9a-aa4d-11b4a67456a5', name: 'Benefits' },
+    { id: '30ab1615-9b6f-4d73-bf84-9436b0861cb4', name: 'Social Proof' },
+    { id: '3f222376-f468-4ba7-a7b8-f76102c9af5f', name: "Why We're Different" },
+    { id: 'ad65db31-3e4f-4aa9-99a4-0e00b994580e', name: 'Then vs Now' },
+    { id: 'c3884bf7-5d3b-460b-8815-81f82e5bc0fb', name: 'Star Review' },
+    { id: 'c7932132-dbe5-4806-a7cc-ee9bc5094367', name: 'Product in Action' },
+    { id: '7a5f4059-e019-4862-ae82-c639fda59655', name: 'Bundle Deal' },
+    { id: 'cb2da9cc-f477-4fd3-b9d6-aa9cbfa14dcd', name: 'Benefits Checklist' },
+    { id: 'bccb652b-2352-4d91-b640-99cb19d61895', name: 'Bold Statement' },
+    { id: '4ac40ba6-79a7-4004-a9e4-95012f8737d5', name: 'Comparison Table' },
+    { id: '6d1aef3b-c814-474c-bb62-29bb40643aee', name: 'Customer Story' },
+    { id: 'b5fbe451-ef9b-494d-8460-df16dc31f9a9', name: 'Product Spotlight' },
+    { id: 'cfb067f6-735a-46d8-a2f0-22e5a47b122e', name: 'Hero Statement' },
+    { id: '50fa82ca-8a7e-4c8d-99dd-e1c3692a5787', name: 'UGC Side-by-Side' },
+    { id: '7200218e-d78e-492c-ae9b-a3a08af2b923', name: 'Organic Post' },
+    { id: 'f100144f-e015-49f5-ac88-7641e29731d9', name: 'Lifestyle with Numbers' },
+  ];
+
+  const FALLBACK_VIDEO_PRESETS = [
+    { slug: 'ugc', name: 'UGC', description: 'Realistic social media videos' },
+    { slug: 'product_showcase', name: 'Product Showcase', description: 'Highlight your product' },
+    { slug: 'ugc_selfie_testimonial', name: 'Selfie Testimonial', description: 'Authentic selfie-style testimonials' },
+    { slug: 'ugc_direct_to_camera', name: 'Direct-to-Camera', description: 'Creator speaking straight to camera' },
+    { slug: 'ugc_before_and_after', name: 'Before and After', description: 'Showcase transformations and results' },
+    { slug: 'ugc_how_to', name: 'Tutorial', description: 'Step-by-step tutorials' },
+    { slug: 'ugc_unboxing', name: 'Unboxing', description: 'High-quality unboxing' },
+    { slug: 'ugc_unboxing_asmr', name: 'Unboxing ASMR', description: 'Satisfying ASMR unboxing experiences' },
+    { slug: 'ugc_virtual_try_on', name: 'UGC Virtual Try On', description: 'Try before you buy' },
+    { slug: 'tv_spot', name: 'TV Spot', description: 'Authentic stories, amplified' },
+    { slug: 'mystery_box', name: 'Mystery Box', description: 'Suspenseful mystery box reveals' },
+    { slug: 'mess_to_fresh', name: 'Mess to Fresh', description: 'From messy to fresh transformations' },
+    { slug: 'hypermotion_oj', name: 'Hyper Motion', description: 'High-energy product motion bursts' },
+    { slug: 'camera_pov', name: 'Camera POV', description: 'Immersive point-of-view product moments' },
+    { slug: 'ugc_gadget_saved_me', name: 'This Gadget Saved Me', description: 'Creator-led product recommendation' },
+    { slug: 'wild_card', name: 'Wild Card', description: 'Unique and creative video mode for custom ideas' },
+  ];
 
   async function listImageStyles() {
     try {
       const resp = await hfGet(PATH_MS_IMAGE_STYLES, 30000);
-      if (isNotEnabled(resp)) return { ok: false, reason: 'ms_styles_endpoint_pending', styles: [] };
+      if (isNotEnabled(resp)) return { ok: true, source: 'static_catalog', styles: FALLBACK_IMAGE_STYLES };
       const styles = resp?.body?.items || resp?.body?.styles || (Array.isArray(resp?.body) ? resp.body : []);
-      return { ok: true, styles };
+      if (!Array.isArray(styles) || styles.length === 0) {
+        return { ok: true, source: 'static_catalog', styles: FALLBACK_IMAGE_STYLES };
+      }
+      return { ok: true, source: 'live', styles };
     } catch (e) {
-      return { ok: false, reason: 'ms_styles_error', styles: [], detail: e.message };
+      warn('listImageStyles fell back to static catalog', { error: e.message });
+      return { ok: true, source: 'static_catalog', styles: FALLBACK_IMAGE_STYLES };
     }
   }
 
   async function listVideoPresets() {
     try {
       const resp = await hfGet(PATH_MS_VIDEO_PRESETS, 30000);
-      if (isNotEnabled(resp)) return { ok: false, reason: 'ms_presets_endpoint_pending', presets: [] };
+      if (isNotEnabled(resp)) return { ok: true, source: 'static_catalog', presets: FALLBACK_VIDEO_PRESETS };
       const presets = resp?.body?.items || resp?.body?.presets || (Array.isArray(resp?.body) ? resp.body : []);
-      return { ok: true, presets };
+      if (!Array.isArray(presets) || presets.length === 0) {
+        return { ok: true, source: 'static_catalog', presets: FALLBACK_VIDEO_PRESETS };
+      }
+      return { ok: true, source: 'live', presets };
     } catch (e) {
-      return { ok: false, reason: 'ms_presets_error', presets: [], detail: e.message };
+      warn('listVideoPresets fell back to static catalog', { error: e.message });
+      return { ok: true, source: 'static_catalog', presets: FALLBACK_VIDEO_PRESETS };
     }
   }
 
