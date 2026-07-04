@@ -66,6 +66,7 @@ test('inngest: all required function ids are registered', () => {
 // ─── Cron expressions on scheduled functions ──────────────────────────────
 
 const EXPECTED_CRONS = {
+  'pretrainer-weekly': 'TZ=UTC 0 5 * * 1',
   'ad-optimizer-daily': 'TZ=UTC 0 8 * * *',
   'pacing-alerts-every-4h': 'TZ=UTC 0 */4 * * *',
   'weekly-scorecard-sun-22-utc': 'TZ=UTC 0 22 * * 0',
