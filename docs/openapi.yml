@@ -4717,6 +4717,52 @@ paths:
             schema:
               type: object
               additionalProperties: true
+  /webhook/pretrainer-run:
+    post:
+      tags:
+        - webhook
+      summary: 'POST /webhook/pretrainer-run'
+      description: 'Automation webhook (POST /webhook/pretrainer-run). See docs/openapi-overrides.json for detail.'
+      responses:
+        200:
+          description: 'Successful response'
+        400:
+          description: 'Validation error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        402:
+          description: 'Payment Required — cost cap reached'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        500:
+          description: 'Server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        description: 'Request body — hand-edit shape per route'
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
   /webhook/generation-canary:
     post:
       tags:
