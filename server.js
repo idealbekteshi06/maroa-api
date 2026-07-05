@@ -6024,11 +6024,29 @@ setImmediate(() => {
   // Body: { business_id, contact_email, contact_name, platform }
   // ─────────────────────────────────────────────────────────────────────────────
   app.post('/webhook/review-request-send', async (req, res) => {
-    const { business_id, contact_email, contact_name, platform = 'google' } = req.body;
-    if (!business_id || !contact_email)
-      return res.status(400).json({ error: 'business_id and contact_email required' });
+    // eslint-disable-next-line prefer-const
+    let { business_id, contact_email, contact_name, platform = 'google' } = req.body;
+    if (!business_id) return res.status(400).json({ error: 'business_id required' });
 
     try {
+      // Quick-action path sends no contact — pick the most recent contact with
+      // an email (audit finding: the dashboard button always 400'd). No
+      // contacts at all → honest 422 instead of a generic failure.
+      if (!contact_email) {
+        const contacts = await sbGet(
+          'contacts',
+          `business_id=eq.${encodeURIComponent(business_id)}&email=not.is.null&order=created_at.desc&limit=1&select=email,first_name,name`
+        ).catch(() => []);
+        const c = contacts[0];
+        if (!c?.email) {
+          return res.status(422).json({
+            error: 'ADD_CONTACT_FIRST',
+            message: 'Add a customer with an email in Customers first — then Maroa can ask them for a review.',
+          });
+        }
+        contact_email = c.email;
+        contact_name = contact_name || c.first_name || c.name || null;
+      }
       const bizArr = await sbGet(
         'businesses',
         `id=eq.${business_id}&select=business_name,first_name,email,google_review_link`
