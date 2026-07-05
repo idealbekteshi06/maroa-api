@@ -46,6 +46,11 @@ function createWf8(deps) {
     const { system, user } = buildCustomerInsightPrompt(brandContext, bundle);
     const raw = await callClaude(user, 'claude-opus-4-8', 4000, { system, businessId, returnRaw: true });
     const parsed = extractJSON(raw) || {};
+    // Never persist an empty report as a success (audit finding: the Insights
+    // button spun, saved nothing usable, and reverted with no error shown).
+    if (!parsed || Object.keys(parsed).length === 0) {
+      throw new Error('Insight generation returned no usable content — try again shortly.');
+    }
     const row = await sbPost('insight_reports', {
       business_id: businessId,
       top_themes: parsed.top_themes || [],

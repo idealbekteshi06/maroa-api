@@ -65,21 +65,24 @@ function register({
     const { business_id } = req.body;
     if (!business_id) return res.status(400).json({ error: 'business_id required' });
 
+    // Precondition check BEFORE the fire-and-forget 200 (audit finding: with
+    // no website on file the audit silently no-oped after a success response).
+    const bizArr = await sbGet(
+      'businesses',
+      `id=eq.${encodeURIComponent(business_id)}&select=business_name,industry,location,website_url,target_audience,competitors`
+    ).catch(() => []);
+    const biz = bizArr[0];
+    if (!biz) return res.status(404).json({ error: 'business not found' });
+    if (!biz.website_url) {
+      return res
+        .status(422)
+        .json({ error: 'WEBSITE_REQUIRED', message: 'Add your website in Settings → Business Profile first.' });
+    }
+
     res.json({ received: true, message: 'SEO audit started — recommendations ready in ~60 seconds' });
 
     setImmediate(async () => {
       try {
-        const bizArr = await sbGet(
-          'businesses',
-          `id=eq.${business_id}&select=business_name,industry,location,website_url,target_audience,competitors`
-        );
-        const biz = bizArr[0];
-        if (!biz) return;
-        if (!biz.website_url) {
-          log('/webhook/seo-audit', `No website_url for ${business_id}`);
-          return;
-        }
-
         let competitors = [];
         try {
           competitors = JSON.parse(biz.competitors || '[]');
