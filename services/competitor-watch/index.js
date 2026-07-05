@@ -223,7 +223,16 @@ async function scanForBusiness({ businessId, deps }) {
     ).catch(() => []);
     const priorAds = priorRows?.[0]?.signal_payload?.ads_snapshot || [];
 
-    const currentAds = await fetchMetaAdLibrary({ competitorName, country, deps });
+    const rawAds = await fetchMetaAdLibrary({ competitorName, country, deps });
+    // Ad Library keyword search is fuzzy — keep only ads actually run by a
+    // page whose name matches the competitor (audit finding: a florist's
+    // "competitors" included a bar-association page and a mattress ad).
+    const nameToken = String(competitorName).toLowerCase().split(' ')[0];
+    const currentAds = (rawAds || []).filter((ad) =>
+      String(ad?.page_name || '')
+        .toLowerCase()
+        .includes(nameToken)
+    );
 
     // Snapshot the current state for next run's diff
     if (currentAds.length > 0) {
