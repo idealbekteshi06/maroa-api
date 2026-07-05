@@ -179,6 +179,19 @@ function createWf15(deps) {
     return { conversationId: row.id };
   }
 
+  // Never leak vendor/model/internal error structure to customers (audit
+  // finding: raw "Claude claude-…: 400 {json}" reached the UI verbatim).
+  function sanitizeAiError(e) {
+    const raw = String(e?.message || '');
+    if (/credit balance|billing|overloaded|rate.?limit|429|529/i.test(raw)) {
+      return "Maroa's AI is catching its breath — please try again in a few minutes. We've been notified.";
+    }
+    if (/claude|anthropic|invalid_request_error|api key/i.test(raw)) {
+      return 'The AI service hit a snag on that request. Please try again — if it keeps happening, we are on it.';
+    }
+    return raw.slice(0, 200) || 'Something went wrong — please try again.';
+  }
+
   async function sendMessage({ businessId, conversationId, content, attachmentIds = [], res }) {
     // Load brand context + memory
     const [brandContext, memory, history] = await Promise.all([
@@ -356,14 +369,24 @@ function createWf15(deps) {
         if (stoppedForApproval) break;
       }
     } catch (e) {
-      // Surface Anthropic credit-exhaustion / any loop error cleanly.
+      // Surface loop errors cleanly — sanitized for the customer, full detail
+      // to logs only. Conversation metadata must STILL update (audit finding:
+      // the re-throw skipped it, leaving every failed chat stranded as
+      // "New conversation / 0 messages" in the sidebar).
+      const friendly = sanitizeAiError(e);
+      logger?.error?.('/wf15', businessId, 'brain loop failed', { error: e.message });
       if (res && !res.writableEnded) {
-        res.write(`event: error\ndata: ${JSON.stringify({ message: e.message || 'Stream failed' })}\n\n`);
+        res.write(`event: error\ndata: ${JSON.stringify({ message: friendly })}\n\n`);
         res.end();
       }
       await sbPatch('brain_messages', `id=eq.${assistantMsg.id}`, {
-        content: `[Error: ${e.message}]`,
+        content: friendly,
         model_used: routing.model,
+      }).catch(() => {});
+      await sbPatch('brain_conversations', `id=eq.${conversationId}`, {
+        message_count: (history.length || 0) + 2,
+        last_message_at: new Date().toISOString(),
+        title: content ? content.slice(0, 60) : undefined,
       }).catch(() => {});
       throw e;
     }
@@ -384,6 +407,8 @@ function createWf15(deps) {
     await sbPatch('brain_conversations', `id=eq.${conversationId}`, {
       message_count: (history.length || 0) + 2,
       last_message_at: new Date().toISOString(),
+      // First exchange names the conversation (frontend creates it empty).
+      ...(history.length === 0 && content ? { title: content.slice(0, 60) } : {}),
     }).catch(() => {});
 
     // Log decision
