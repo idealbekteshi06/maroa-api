@@ -11568,6 +11568,14 @@ Return ONLY valid JSON:
     logger?.warn?.('marketing-studio', null, 'route register failed', { error: e.message });
   }
 
+  // Ayrshare social linking: FB/IG/TikTok/etc. via Ayrshare's own approved
+  // Meta app — publishes without our Meta App Review (fallback path).
+  try {
+    require('./routes/ayrshare-connect').register({ app, sbGet, sbPatch, apiError, logger });
+  } catch (e) {
+    logger?.warn?.('ayrshare-connect', null, 'route register failed', { error: e.message });
+  }
+
   // Competitor winning-ad discovery (Meta Ad Library, longevity-ranked) +
   // one-click "make my version" recreation.
   try {

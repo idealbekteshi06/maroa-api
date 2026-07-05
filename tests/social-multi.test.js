@@ -141,3 +141,91 @@ test('postNow: rejects when no supported platforms in request', async () => {
   assert.strictEqual(r.ok, false);
   assert.ok(/no supported platforms/.test(r.reason));
 });
+
+// ─── Ayrshare fallback for Meta platforms (no-App-Review path) ───────────
+
+test('postNow: facebook routes via Ayrshare when no Meta connection but Ayrshare-linked', async () => {
+  const deps = {
+    sbGet: async () => [
+      {
+        meta_access_token: null,
+        facebook_page_id: null,
+        instagram_account_id: null,
+        threads_account_id: null,
+        ayrshare_profile_key: 'PK-123',
+        ayrshare_connected_platforms: ['facebook', 'instagram'],
+      },
+    ],
+    sbPost: async () => [],
+    logger: { warn: () => {}, error: () => {} },
+  };
+  const r = await social.postNow({
+    businessId: '00000000-0000-0000-0000-000000000001',
+    platforms: ['facebook'],
+    content: { body: 'hello' },
+    mediaUrl: null,
+    deps,
+  });
+  const ayr = r.results.find((x) => x.via === 'ayrshare');
+  assert.ok(ayr, 'expected an ayrshare-routed result');
+  assert.deepStrictEqual(ayr.platforms, ['facebook']);
+  assert.ok(!r.results.some((x) => x.via === 'meta_graph'), 'must not attempt Meta Graph without a connection');
+});
+
+test('postNow: meta platform with NO connection anywhere fails with a clear reason', async () => {
+  const deps = {
+    sbGet: async () => [
+      {
+        meta_access_token: null,
+        facebook_page_id: null,
+        instagram_account_id: null,
+        threads_account_id: null,
+        ayrshare_profile_key: null,
+        ayrshare_connected_platforms: null,
+      },
+    ],
+    sbPost: async () => [],
+    logger: { warn: () => {}, error: () => {} },
+  };
+  const r = await social.postNow({
+    businessId: '00000000-0000-0000-0000-000000000001',
+    platforms: ['instagram'],
+    content: { body: 'hello' },
+    deps,
+  });
+  assert.strictEqual(r.ok, false);
+  const none = r.results.find((x) => x.via === 'none');
+  assert.ok(none && /not connected/.test(none.reason));
+});
+
+test('postNow: direct Meta connection wins over Ayrshare for facebook', async () => {
+  const deps = {
+    sbGet: async () => [
+      {
+        meta_access_token: 'tok',
+        facebook_page_id: 'page1',
+        facebook_page_access_token: 'ptok',
+        instagram_account_id: null,
+        threads_account_id: null,
+        ayrshare_profile_key: 'PK-123',
+        ayrshare_connected_platforms: ['facebook'],
+      },
+    ],
+    sbPost: async () => [],
+    logger: { warn: () => {}, error: () => {} },
+  };
+  const r = await social.postNow({
+    businessId: '00000000-0000-0000-0000-000000000001',
+    platforms: ['facebook'],
+    content: { body: 'hello' },
+    deps,
+  });
+  assert.ok(r.results.some((x) => x.via === 'meta_graph' && x.platform === 'facebook'));
+  assert.ok(!r.results.some((x) => x.via === 'ayrshare'));
+});
+
+test('AYRSHARE_CAPABLE covers all 7 supported platforms', () => {
+  for (const p of social.SUPPORTED_PLATFORMS) {
+    assert.ok(social.AYRSHARE_CAPABLE.includes(p), `AYRSHARE_CAPABLE missing ${p}`);
+  }
+});

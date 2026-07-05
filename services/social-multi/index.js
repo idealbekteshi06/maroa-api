@@ -32,6 +32,11 @@
 const SUPPORTED_PLATFORMS = ['linkedin', 'pinterest', 'tiktok', 'youtube', 'threads', 'facebook', 'instagram'];
 const PLATFORM_VIA_AYRSHARE = ['linkedin', 'pinterest', 'tiktok', 'youtube'];
 const PLATFORM_VIA_META_GRAPH = ['threads', 'facebook', 'instagram'];
+// Ayrshare's own Meta app is already App-Review-approved, so it can also
+// carry facebook/instagram/threads. We use it as a FALLBACK for Meta
+// platforms when the business linked socials through Ayrshare but has no
+// direct Meta Graph connection (e.g. before our Meta App Review clears).
+const AYRSHARE_CAPABLE = [...PLATFORM_VIA_AYRSHARE, ...PLATFORM_VIA_META_GRAPH];
 
 // Platform → preferred aspect ratio for native rendering
 const PLATFORM_ASPECT_RATIO = {
@@ -378,7 +383,7 @@ async function listConnectedPlatforms({ businessId, deps }) {
   if (business.threads_account_id) connected.push('threads');
   if (business.ayrshare_profile_key) {
     const ayrConnected = Array.isArray(business.ayrshare_connected_platforms)
-      ? business.ayrshare_connected_platforms.filter((p) => PLATFORM_VIA_AYRSHARE.includes(p))
+      ? business.ayrshare_connected_platforms.filter((p) => AYRSHARE_CAPABLE.includes(p) && !connected.includes(p))
       : [];
     connected.push(...ayrConnected);
   }
@@ -393,7 +398,7 @@ async function postNow({ businessId, platforms, content, mediaUrl, deps }) {
 
   const businessRows = await sbGet(
     'businesses',
-    `id=eq.${businessId}&select=meta_access_token,meta_access_token_enc,facebook_page_id,facebook_page_access_token,facebook_page_access_token_enc,instagram_account_id,threads_account_id,ayrshare_profile_key`
+    `id=eq.${businessId}&select=meta_access_token,meta_access_token_enc,facebook_page_id,facebook_page_access_token,facebook_page_access_token_enc,instagram_account_id,threads_account_id,ayrshare_profile_key,ayrshare_connected_platforms`
   ).catch(() => []);
   const business = businessRows?.[0];
   if (!business) return { ok: false, reason: 'business not found' };
@@ -404,11 +409,31 @@ async function postNow({ businessId, platforms, content, mediaUrl, deps }) {
   const metaToken = oauthCrypto.readToken(business, 'meta_access_token');
   const pageToken = oauthCrypto.readToken(business, 'facebook_page_access_token');
 
-  // Split into Ayrshare vs Meta Graph
-  const viaAyrshare = valid.filter((p) => PLATFORM_VIA_AYRSHARE.includes(p));
-  const viaMeta = valid.filter((p) => PLATFORM_VIA_META_GRAPH.includes(p));
+  // Split into Ayrshare vs Meta Graph. Meta platforms prefer the direct
+  // Graph connection; when there is none but the business linked the
+  // platform through Ayrshare, route it via Ayrshare instead.
+  const metaConnected = {
+    facebook: !!((metaToken || pageToken) && business.facebook_page_id),
+    instagram: !!(metaToken && business.instagram_account_id),
+    threads: !!(metaToken && business.threads_account_id),
+  };
+  const ayrLinked = Array.isArray(business.ayrshare_connected_platforms) ? business.ayrshare_connected_platforms : [];
+  const viaMeta = valid.filter((p) => PLATFORM_VIA_META_GRAPH.includes(p) && metaConnected[p]);
+  const viaAyrshare = valid.filter(
+    (p) =>
+      PLATFORM_VIA_AYRSHARE.includes(p) ||
+      (PLATFORM_VIA_META_GRAPH.includes(p) &&
+        !metaConnected[p] &&
+        business.ayrshare_profile_key &&
+        ayrLinked.includes(p))
+  );
 
   const results = [];
+  for (const p of valid) {
+    if (!viaMeta.includes(p) && !viaAyrshare.includes(p) && PLATFORM_VIA_META_GRAPH.includes(p)) {
+      results.push({ via: 'none', platform: p, ok: false, reason: 'platform not connected (Meta or Ayrshare)' });
+    }
+  }
 
   if (viaAyrshare.length > 0 && business.ayrshare_profile_key) {
     // For Ayrshare we need to send ONE post with platforms list — but we
@@ -481,7 +506,10 @@ async function schedulePost({ businessId, platforms, content, mediaUrl, schedule
   const valid = (platforms || []).filter((p) => SUPPORTED_PLATFORMS.includes(p));
   if (valid.length === 0) return { ok: false, reason: 'no supported platforms' };
 
-  const businessRows = await sbGet('businesses', `id=eq.${businessId}&select=ayrshare_profile_key`).catch(() => []);
+  const businessRows = await sbGet(
+    'businesses',
+    `id=eq.${businessId}&select=ayrshare_profile_key,ayrshare_connected_platforms`
+  ).catch(() => []);
   const business = businessRows?.[0];
   if (!business?.ayrshare_profile_key) {
     // Persist as draft for our cron to handle when we add Meta scheduling
@@ -496,7 +524,10 @@ async function schedulePost({ businessId, platforms, content, mediaUrl, schedule
     return { ok: true, queued_local: true };
   }
 
-  const viaAyrshare = valid.filter((p) => PLATFORM_VIA_AYRSHARE.includes(p));
+  const ayrLinked = Array.isArray(business.ayrshare_connected_platforms) ? business.ayrshare_connected_platforms : [];
+  const viaAyrshare = valid.filter(
+    (p) => PLATFORM_VIA_AYRSHARE.includes(p) || (PLATFORM_VIA_META_GRAPH.includes(p) && ayrLinked.includes(p))
+  );
   if (viaAyrshare.length === 0) {
     return { ok: true, queued_local: true, reason: 'no Ayrshare-supported platforms in selection' };
   }
@@ -526,5 +557,6 @@ module.exports = {
   SUPPORTED_PLATFORMS,
   PLATFORM_VIA_AYRSHARE,
   PLATFORM_VIA_META_GRAPH,
+  AYRSHARE_CAPABLE,
   PLATFORM_ASPECT_RATIO,
 };
